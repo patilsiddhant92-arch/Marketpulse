@@ -1,0 +1,29 @@
+﻿# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local data (keep out of git)
+Input/
+Database/
+Exports/
+Logs/
+backup.zip
+*.duckdb
+*.duckdb.wal
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# App runtime
+Logs/
+*.log
+
+# Optional local agents cache
+.agents/
