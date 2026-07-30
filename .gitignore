@@ -5,8 +5,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Local data (keep out of git)
-Input/
+# Local data
+# Input/ is tracked (NSE CSVs / archive for rebuild)
 Database/
 Exports/
 Logs/
