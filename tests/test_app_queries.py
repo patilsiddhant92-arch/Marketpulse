@@ -40,3 +40,12 @@ def test_ui_records_convert_pandas_timestamps_to_json_values():
     result = records_for_ui(pd.DataFrame({"trade_date": [pd.Timestamp("2026-08-03")], "symbol": ["AAA"]}))
 
     assert result == [{"trade_date": "2026-08-03", "symbol": "AAA"}]
+
+
+def test_main_keeps_legacy_navigation_shell():
+    source = (Path(__file__).resolve().parents[1] / "App" / "app.py").read_text(encoding="utf-8")
+
+    assert '("Market Health", market_health_page, "health", False)' in source
+    assert '("Focus List", strong_rs_stocks_page, "focus", False)' in source
+    assert '("Journal", journal_page, "journal", False)' in source
+    assert '("Watchlist", lambda: render_watchlist(DB_PATH), "watchlist", False)' not in source

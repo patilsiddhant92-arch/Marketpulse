@@ -7,25 +7,13 @@ import duckdb
 import pandas as pd
 from nicegui import ui
 
-# Resolve project imports relative to this file so both `python App/app.py`
-# and imports launched from the App directory can load the App package.
-ROOT_DIR = Path(__file__).resolve().parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-SCRIPTS = ROOT_DIR / "Scripts"
+# Resolve Scripts dir relative to this file (App/app.py -> project root -> Scripts)
+# Allows running from the relocated MarketPulse2.0 folder (or any location).
+SCRIPTS = Path(__file__).resolve().parent.parent / "Scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, WATCHLIST_BUCKETS
-
-try:
-    from App.pages.research import render_research
-    from App.pages.today import render_today
-    from App.pages.watchlist import render_watchlist
-except ModuleNotFoundError:
-    from pages.research import render_research
-    from pages.today import render_today
-    from pages.watchlist import render_watchlist
 
 try:
     from config import STATUS_PATH
@@ -3904,24 +3892,20 @@ def main() -> None:
     app_header()
 
     loaded: dict[str, bool] = {}
-    specialist_pages = {
-        "Market Health": market_health_page,
-        "Sector Rotation": sector_rotation_page,
-        "Strong Groups": strong_groups_page,
-        "Focus List": strong_rs_stocks_page,
-        "Screeners": screener_page,
-        "VCP Lab": vcp_lab_page,
-        "Momentum Scanner": special_watchlist_page,
-        "Deals": deals_page,
-        "Stock Detail": stock_detail_page,
-        "Sector Tree": sector_tree_page,
-        "Leaders Study": backtest_page,
-        "Journal": journal_page,
-    }
     tab_specs = [
-        ("Today", lambda: render_today(DB_PATH), "today", True),
-        ("Watchlist", lambda: render_watchlist(DB_PATH), "watchlist", False),
-        ("Research", lambda: render_research(specialist_pages), "research", False),
+        ("Today", today_page, "today", True),
+        ("Market Health", market_health_page, "health", False),
+        ("Sector Rotation", sector_rotation_page, "rotation", False),
+        ("Strong Groups", strong_groups_page, "groups", False),
+        ("Focus List", strong_rs_stocks_page, "focus", False),
+        ("Screeners", screener_page, "screeners", False),
+        ("VCP Lab", vcp_lab_page, "vcp", False),
+        ("Momentum Scanner", special_watchlist_page, "scanner", False),
+        ("Deals", deals_page, "deals", False),
+        ("Stock Detail", stock_detail_page, "stock", False),
+        ("Sector Tree", sector_tree_page, "tree", False),
+        ("Leaders Study", backtest_page, "backtest", False),
+        ("Journal", journal_page, "journal", False),
     ]
 
     with ui.tabs().classes("w-full bg-white text-[#28251d] shadow-sm border-b") as tabs:
