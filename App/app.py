@@ -7,9 +7,12 @@ import duckdb
 import pandas as pd
 from nicegui import ui
 
-# Resolve Scripts dir relative to this file (App/app.py -> project root -> Scripts)
-# Allows running from the relocated MarketPulse2.0 folder (or any location).
-SCRIPTS = Path(__file__).resolve().parent.parent / "Scripts"
+# Resolve project imports relative to this file so both `python App/app.py`
+# and imports launched from the App directory can load the App package.
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+SCRIPTS = ROOT_DIR / "Scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
