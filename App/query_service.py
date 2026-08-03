@@ -3,9 +3,40 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import date, datetime
 
 import duckdb
 import pandas as pd
+
+
+def _json_value(value):
+    if value is None or value is pd.NaT or value is pd.NA:
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_value(item) for item in value]
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except ValueError:
+            pass
+    return value
+
+
+def records_for_ui(frame: pd.DataFrame, columns=None) -> list[dict]:
+    """Return table rows containing only JSON-serializable scalar values."""
+    view = frame[columns].copy() if columns is not None else frame.copy()
+    return [{key: _json_value(value) for key, value in row.items()} for row in view.to_dict("records")]
 
 
 def _query(db_path: Path, sql: str, params=None) -> pd.DataFrame:

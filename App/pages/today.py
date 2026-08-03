@@ -4,7 +4,7 @@ from pathlib import Path
 
 from nicegui import ui
 
-from App.query_service import load_app_snapshot
+from App.query_service import load_app_snapshot, records_for_ui
 
 
 def render_today(db_path: Path, limit: int = 15) -> None:
@@ -26,4 +26,5 @@ def render_today(db_path: Path, limit: int = 15) -> None:
         ui.label("No focused candidates for the latest session.")
         return
     ui.label(f"Focused preparation list ({min(len(candidates), limit)} names)").classes("text-lg font-semibold mt-4")
-    ui.table(columns=[{"name": col, "label": col.replace("_", " ").title(), "field": col} for col in ["symbol", "candidate_state", "total_score", "why_now", "latest_change", "trigger_price", "invalidation_price", "initial_risk_pct", "event_risk"] if col in candidates.columns], rows=candidates.fillna("").to_dict("records"), row_key="symbol").classes("w-full")
+    display_cols = [col for col in ["symbol", "candidate_state", "total_score", "why_now", "latest_change", "trigger_price", "invalidation_price", "initial_risk_pct", "event_risk"] if col in candidates.columns]
+    ui.table(columns=[{"name": col, "label": col.replace("_", " ").title(), "field": col} for col in display_cols], rows=records_for_ui(candidates, display_cols), row_key="symbol").classes("w-full")

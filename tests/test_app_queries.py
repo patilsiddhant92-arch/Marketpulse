@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 
 def test_app_snapshot_loads_today_data_only(tmp_path):
     from Scripts.migrations import run_migrations
@@ -30,3 +32,11 @@ def test_app_entrypoint_imports_when_launched_from_app_directory():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_ui_records_convert_pandas_timestamps_to_json_values():
+    from App.query_service import records_for_ui
+
+    result = records_for_ui(pd.DataFrame({"trade_date": [pd.Timestamp("2026-08-03")], "symbol": ["AAA"]}))
+
+    assert result == [{"trade_date": "2026-08-03", "symbol": "AAA"}]
