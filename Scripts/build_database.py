@@ -19,10 +19,12 @@ from config import (
     EQUITY_LIST_FILE,
     EXPORTS_DIR,
     LOGS_DIR,
+    ROOT_DIR,
     RETURN_WINDOWS,
     SECTOR_FILE,
     WATCHLIST_BUCKETS,
 )
+from reference_history import asof_reference, load_reference_history
 
 warnings.simplefilter("ignore", PerformanceWarning)
 
@@ -536,11 +538,17 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         g["away_10mema_pct"] = (close / g["mema_10"] - 1) * 100
         parts.append(g)
     indicators = pd.concat(parts, ignore_index=True)
-    high52 = enrichment[["symbol", "high_52w"]].dropna().drop_duplicates("symbol", keep="last")
-    indicators = indicators.merge(high52, on="symbol", how="left")
+    if "effective_date" in enrichment.columns:
+        reference_rows = asof_reference(enrichment, indicators[["symbol", "trade_date"]])
+        indicators["high_52w"] = reference_rows.get("high_52w", pd.Series(index=indicators.index, dtype=float)).to_numpy()
+        indicators["low_52w"] = reference_rows.get("low_52w", pd.Series(index=indicators.index, dtype=float)).to_numpy()
+    else:
+        high52 = enrichment[["symbol", "high_52w"]].dropna().drop_duplicates("symbol", keep="last")
+        indicators = indicators.merge(high52, on="symbol", how="left")
     indicators["away_52w_high_pct"] = (indicators["close_price"] / indicators["high_52w"] - 1) * 100
-    low52 = enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
-    indicators = indicators.merge(low52, on="symbol", how="left")
+    if "effective_date" not in enrichment.columns:
+        low52 = enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
+        indicators = indicators.merge(low52, on="symbol", how="left")
     indicators["away_52w_low_pct"] = (indicators["close_price"] / indicators["low_52w"] - 1) * 100
     close_by_symbol = indicators.groupby("symbol", sort=False)["close_price"]
     rs_latest_q = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
@@ -886,11 +894,12 @@ def write_database(
     if DB_PATH.exists():
         try:
             old_con = duckdb.connect(str(DB_PATH), read_only=True)
-            exists = old_con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'trade_journal'").fetchone()[0]
-            if exists:
-                journal = old_con.execute("SELECT * FROM trade_journal").fetchdf()
-                con.register("trade_journal_df", journal)
-                con.execute("CREATE TABLE trade_journal AS SELECT * FROM trade_journal_df")
+            for user_table in ("trade_journal", "watchlist_candidates"):
+                exists = old_con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [user_table]).fetchone()[0]
+                if exists:
+                    user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
+                    con.register(f"{user_table}_df", user_rows)
+                    con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
             old_con.close()
         except Exception as exc:
             print(f"Warning: could not preserve trade_journal: {exc}")
@@ -900,6 +909,14 @@ def write_database(
         shutil.copy2(DB_PATH, backup)
         DB_PATH.unlink()
     temp_db.rename(DB_PATH)
+    # Decision tables are explicit runtime migrations and materialized only after
+    # the accepted replacement database has been atomically installed.
+    try:
+        from materialize_decision_tables import materialize_decision_tables
+
+        materialize_decision_tables(DB_PATH)
+    except Exception as exc:
+        print(f"Warning: decision tables were not materialized: {exc}")
 
 
 def main() -> None:
@@ -929,7 +946,8 @@ def main() -> None:
     master = build_master(equity, sector, prices, mcap, bands, pe)
     if not args.quiet:
         print("5/8: Calculating indicators...")
-    indicators = calc_indicators(prices, enrichment)
+    reference_history = load_reference_history(ROOT_DIR)
+    indicators = calc_indicators(prices, reference_history if not reference_history.empty else enrichment)
     if not args.quiet:
         print("6/8: Reading and enriching deal flow...")
     deals_raw = read_all_deals()

@@ -8,7 +8,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Appending new MarketPulse daily files...
+echo Appending new MarketPulse daily files transactionally...
 "%~dp0.venv\Scripts\python.exe" "%~dp0Scripts\append_database.py" %*
 if errorlevel 1 (
   echo.

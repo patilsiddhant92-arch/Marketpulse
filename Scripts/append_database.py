@@ -24,7 +24,8 @@ from build_database import (
     read_sector,
     write_database,
 )
-from config import DAILY_DIR, DB_PATH
+from config import DAILY_DIR, DB_PATH, ROOT_DIR
+from reference_history import load_reference_history
 
 
 def _load_table(name: str) -> pd.DataFrame:
@@ -84,7 +85,8 @@ def main() -> None:
 
     # Recompute derived tables from the merged price table. This avoids stale rolling
     # indicators while still skipping the slow archive CSV parse.
-    indicators = calc_indicators(prices, enrichment)
+    reference_history = load_reference_history(ROOT_DIR)
+    indicators = calc_indicators(prices, reference_history if not reference_history.empty else enrichment)
     deals_raw = read_all_deals()
     deals = enrich_deals(deals_raw, prices, indicators, master)
     latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
@@ -96,6 +98,8 @@ def main() -> None:
     backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
     shutil.copy2(DB_PATH, backup)
     write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results)
+    # write_database materializes canonical candidate/watchlist/signal tables
+    # after the accepted replacement is installed.
     print(f"Append update complete. Backup: {backup}")
 
 
