@@ -4,15 +4,21 @@ MarketPulse end-of-day automation.
 Runs without prompts:
   1) Download latest published NSE session (--auto)
   2) Append database (skip full rebuild)
-  3) Write Database/status.json + Logs/pipeline_*.log
+  3) Telegram BUY deals (if configured)
+  4) Write Database/status.json + Logs/pipeline_*.log
 
 Intended for Windows Task Scheduler at 20:00 IST.
+
+If a run fails (NSE not fully published, network blip, partial download),
+retries after a wait (default 10 minutes, up to 3 attempts).
+That is why Aug-6 style mid-download failures can recover at 20:10 / 20:20.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
@@ -26,6 +32,8 @@ from config import DAILY_DIR, DATABASE_DIR, DB_PATH, LOGS_DIR, ROOT_DIR
 from download_nse_reports import parse_date, run as download_run, resolve_auto_date
 
 STATUS_PATH = DATABASE_DIR / "status.json"
+DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_RETRY_WAIT_MINUTES = 10
 
 
 def _now_iso() -> str:
@@ -320,16 +328,54 @@ def main() -> int:
         action="store_true",
         help="Do not send Telegram deals after update.",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=DEFAULT_MAX_ATTEMPTS,
+        help=f"Max attempts if pipeline fails (default {DEFAULT_MAX_ATTEMPTS}).",
+    )
+    parser.add_argument(
+        "--retry-wait",
+        type=int,
+        default=DEFAULT_RETRY_WAIT_MINUTES,
+        help=f"Minutes to wait between failed attempts (default {DEFAULT_RETRY_WAIT_MINUTES}).",
+    )
     args = parser.parse_args()
     skip_download = args.skip_download or args.append_only
     skip_append = args.skip_append or args.download_only
-    return run_pipeline(
-        skip_download=skip_download,
-        skip_append=skip_append,
-        skip_telegram=args.skip_telegram,
-        date=args.date,
-        lookback=max(1, args.lookback),
-    )
+    max_attempts = max(1, args.retries)
+    retry_wait_sec = max(0, args.retry_wait) * 60
+
+    last_rc = 1
+    for attempt in range(1, max_attempts + 1):
+        print(
+            f"\n=== MarketPulse EOD attempt {attempt}/{max_attempts} "
+            f"at {datetime.now().astimezone().isoformat(timespec='seconds')} ===\n"
+        )
+        last_rc = run_pipeline(
+            skip_download=skip_download,
+            skip_append=skip_append,
+            skip_telegram=args.skip_telegram,
+            date=args.date,
+            lookback=max(1, args.lookback),
+        )
+        if last_rc == 0:
+            if attempt > 1:
+                print(f"Succeeded on attempt {attempt}/{max_attempts}.")
+            return 0
+
+        if attempt < max_attempts:
+            mins = retry_wait_sec // 60
+            print(
+                f"\nAttempt {attempt}/{max_attempts} FAILED. "
+                f"Waiting {mins} min then retrying "
+                f"(NSE files are often late or flaky right at 8 PM)...\n"
+            )
+            if retry_wait_sec > 0:
+                time.sleep(retry_wait_sec)
+
+    print(f"\nAll {max_attempts} attempts failed. See Logs\\pipeline_*.log and Database\\status.json")
+    return last_rc
 
 
 if __name__ == "__main__":

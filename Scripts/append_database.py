@@ -34,8 +34,16 @@ def _load_table(name: str) -> pd.DataFrame:
 
 
 def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataFrame:
+    """Any bhavcopy in daily, archive, or downloads newer than DB max is appended."""
+    from config import ARCHIVE_DIR, INPUT_DIR
+
+    paths = set(Path(DAILY_DIR).glob("sec_bhavdata_full_*.csv"))
+    paths |= set(Path(ARCHIVE_DIR).glob("sec_bhavdata_full_*.csv"))
+    downloads = Path(INPUT_DIR) / "downloads"
+    if downloads.exists():
+        paths |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
     frames = []
-    for path in sorted(Path(DAILY_DIR).glob("sec_bhavdata_full_*.csv")):
+    for path in sorted(paths):
         frame = read_bhavcopy(path, universe)
         if frame.empty:
             continue

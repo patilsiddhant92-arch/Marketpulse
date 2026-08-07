@@ -628,7 +628,7 @@ def run(day: datetime, dry_run: bool) -> int:
     for path in installed:
         print(f"  {path.name}")
     print()
-    print("Next: Append_MarketPulse.bat  OR  Run_MarketPulse_Auto.bat / daily_pipeline.py")
+    print("Next: Run_MarketPulse_Auto.bat   (or: python Scripts/daily_pipeline.py --append-only)")
     return 0
 
 

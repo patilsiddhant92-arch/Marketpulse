@@ -58,7 +58,8 @@ If you protect `main`, allow the Actions bot to push or use a PAT secret.
 | Still optional on PC | Cloud |
 |----------------------|--------|
 | `Launch_MarketPulse.bat` (open UI) | 8 PM pipeline + Telegram |
-| Developing code | Code lives in Git |
+| `Run_MarketPulse_Auto.bat` (local EOD; retries +10/+20 min on fail) | Code lives in Git |
+| `Install_MarketPulse_Schedule.bat` (register 8 PM task once) | |
 
 To use the cloud-built DB on your PC: download the **marketpulse-duckdb** artifact from the latest successful run and place it at `Database/marketpulse.duckdb`.
 

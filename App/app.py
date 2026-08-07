@@ -638,7 +638,7 @@ def app_header() -> None:
                 ui.label(f"DB: {DB_PATH.name}").classes("text-xs text-[var(--mp-muted)] mr-2")
                 days_old = (datetime.now().date() - latest_d).days
                 if days_old > 1:
-                    ui.label(f"⚠ {days_old}d stale — run Run_MarketPulse_Auto.bat").classes("text-xs text-red-600 font-semibold")
+                    ui.label(f"⚠ {days_old}d stale — Run_MarketPulse_Auto.bat").classes("text-xs text-red-600 font-semibold")
         except Exception:
             ui.label(f"DB: {DB_PATH.name}").classes("text-xs text-[var(--mp-muted)] mr-2")
         # Pipeline status from automated EOD job (if present)
@@ -698,7 +698,7 @@ def market_health_page() -> None:
         """
     )
     if latest.empty:
-        ui.label("No breadth data found. Run Update_MarketPulse.bat.").classes("text-red-600")
+        ui.label("No breadth data. Run_MarketPulse_Auto.bat.").classes("text-red-600")
         return
     row = latest.iloc[0]
     tone = "good" if row["breadth_state"] in {"Improving", "Broad Participation"} else "bad" if row["breadth_state"] == "Weakening" else "warn"
@@ -3705,7 +3705,7 @@ def today_page() -> None:
         """
     )
     if dates.empty:
-        ui.label("No indicator data. Run Update_MarketPulse.bat.").classes("text-red-600")
+        ui.label("No indicator data. Run_MarketPulse_Auto.bat.").classes("text-red-600")
         return
 
     latest_d = pd.to_datetime(dates.iloc[0]["trade_date"]).date()
@@ -4064,7 +4064,7 @@ def _ui_run_kwargs() -> dict:
 def main() -> None:
     add_styles()
     if not DB_PATH.exists():
-        ui.label(f"Database not found: {DB_PATH}. Run Update_MarketPulse.bat first.").classes("text-red-600 text-lg")
+        ui.label(f"Database not found: {DB_PATH}. Run_MarketPulse_Auto.bat first.").classes("text-red-600 text-lg")
         ui.run(**_ui_run_kwargs())
         return
     ensure_runtime_schema()

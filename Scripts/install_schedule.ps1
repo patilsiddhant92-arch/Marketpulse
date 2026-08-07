@@ -40,11 +40,12 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "MarketPulse EOD: download NSE reports and append DuckDB (daily 20:00 local / IST if timezone is India)." | Out-Null
+    -Description "MarketPulse EOD: download + append + Telegram at 20:00 local. On failure retries after 10 min (up to 3 attempts inside the pipeline)." | Out-Null
 
 Write-Host "Registered scheduled task: $taskName"
 Write-Host "  Script: $bat"
 Write-Host "  Trigger: Daily at 20:00 local time"
+Write-Host "  Retries: pipeline itself retries +10 min and +20 min if 8 PM fails"
 Write-Host "  Ensure Windows timezone is India Standard Time for 8 PM IST."
 
 $tz = (Get-TimeZone).Id

@@ -8,8 +8,14 @@ if errorlevel 1 (
 )
 
 echo.
-echo MarketPulse automated EOD pipeline
-echo   download latest NSE session + append database
+echo MarketPulse EOD pipeline
+echo   download NSE session + append DB + Telegram deals
+echo   on failure: retry after 10 min (up to 3 attempts)
+echo.
+echo Examples:
+echo   Run_MarketPulse_Auto.bat
+echo   Run_MarketPulse_Auto.bat --date 06082026
+echo   Run_MarketPulse_Auto.bat --append-only
 echo.
 
 "%~dp0.venv\Scripts\python.exe" "%~dp0Scripts\daily_pipeline.py" %*
@@ -19,8 +25,8 @@ echo.
 if "%RC%"=="0" (
   echo Pipeline finished OK. See Database\status.json and Logs\pipeline_*.log
 ) else (
-  echo Pipeline FAILED. See Database\status.json and Logs\pipeline_*.log
+  echo Pipeline FAILED after retries. See Database\status.json and Logs\pipeline_*.log
 )
 
-REM No pause — safe for Task Scheduler. For interactive use, read status.json.
+REM No pause — safe for Task Scheduler.
 exit /b %RC%

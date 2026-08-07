@@ -18,6 +18,7 @@ from config import (
     EMA_WINDOWS,
     EQUITY_LIST_FILE,
     EXPORTS_DIR,
+    INPUT_DIR,
     LOGS_DIR,
     ROOT_DIR,
     RETURN_WINDOWS,
@@ -132,7 +133,12 @@ def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
 
 
 def build_prices(universe: set[str]) -> pd.DataFrame:
-    files = sorted(set(ARCHIVE_DIR.glob("sec_bhavdata_full_*.csv")) | set(DAILY_DIR.glob("sec_bhavdata_full_*.csv")))
+    # Include downloads/ so a session that never made it to archive/daily is still rebuilt.
+    downloads = INPUT_DIR / "downloads"
+    files = set(ARCHIVE_DIR.glob("sec_bhavdata_full_*.csv")) | set(DAILY_DIR.glob("sec_bhavdata_full_*.csv"))
+    if downloads.exists():
+        files |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
+    files = sorted(files)
     frames = []
     for path in files:
         try:
@@ -542,9 +548,35 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     # Never paint a future 52W onto older rows. If NSE snapshot missing, fall back
     # to rolling 252-session high/low already on the row (leak-free).
     if "effective_date" in enrichment.columns:
-        reference_rows = asof_reference(enrichment, indicators[["symbol", "trade_date"]])
-        nse_high = pd.to_numeric(reference_rows.get("high_52w"), errors="coerce")
-        nse_low = pd.to_numeric(reference_rows.get("low_52w"), errors="coerce")
+        try:
+            keys = indicators[["symbol", "trade_date"]].copy()
+            keys["_row"] = np.arange(len(keys))
+            reference_rows = asof_reference(enrichment, keys[["symbol", "trade_date", "_row"]])
+            # Restore original indicator row order via _row if present, else _input_order
+            order_col = "_row" if "_row" in reference_rows.columns else None
+            if order_col:
+                reference_rows = reference_rows.sort_values(order_col)
+            if len(reference_rows) != len(indicators):
+                raise ValueError(
+                    f"as-of join length mismatch: {len(reference_rows)} vs {len(indicators)}"
+                )
+            nse_high = pd.to_numeric(reference_rows["high_52w"], errors="coerce")
+            nse_low = pd.to_numeric(reference_rows["low_52w"], errors="coerce")
+        except Exception as exc:
+            print(f"Warning: as-of 52W join failed ({exc}); using latest snapshot + 252d fallback.")
+            high52 = (
+                enrichment[["symbol", "high_52w"]].dropna().drop_duplicates("symbol", keep="last")
+                if "high_52w" in enrichment.columns
+                else pd.DataFrame(columns=["symbol", "high_52w"])
+            )
+            low52 = (
+                enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
+                if "low_52w" in enrichment.columns
+                else pd.DataFrame(columns=["symbol", "low_52w"])
+            )
+            tmp = indicators[["symbol"]].merge(high52, on="symbol", how="left").merge(low52, on="symbol", how="left")
+            nse_high = pd.to_numeric(tmp["high_52w"], errors="coerce")
+            nse_low = pd.to_numeric(tmp["low_52w"], errors="coerce")
         if "high_52w" in indicators.columns:
             indicators = indicators.drop(columns=["high_52w"], errors="ignore")
         if "low_52w" in indicators.columns:
