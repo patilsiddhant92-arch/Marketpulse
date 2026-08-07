@@ -1,0 +1,161 @@
+# MarketPulse free-tier EOD: download NSE → update DuckDB → Telegram → save Input + DB cache
+# Schedule: 20:00 India Standard Time = 14:30 UTC
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+#
+# Manual run: Actions → "MarketPulse EOD" → Run workflow
+
+name: MarketPulse EOD
+
+on:
+  schedule:
+    # 14:30 UTC Mon–Sun ≈ 20:00 IST (India has no DST)
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_download:
+        description: "Skip NSE download (append + Telegram only)"
+        type: boolean
+        default: false
+      skip_telegram:
+        description: "Skip Telegram notify"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: marketpulse-eod
+  cancel-in-progress: false
+
+jobs:
+  eod:
+    name: Download · DB · Telegram
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Scripts/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Scripts/requirements.txt
+
+      - name: Ensure folders
+        run: |
+          mkdir -p Database Logs Input/daily Input/archive Input/downloads Input/static
+
+      - name: Restore DuckDB cache
+        id: cache-db
+        uses: actions/cache@v4
+        with:
+          path: Database/marketpulse.duckdb
+          # New key each run; restore-keys pulls the most recent previous DB
+          key: marketpulse-duckdb-${{ github.run_id }}
+          restore-keys: |
+            marketpulse-duckdb-
+
+      - name: Show environment
+        run: |
+          echo "Runner: $(uname -a)"
+          echo "Python: $(python --version)"
+          echo "DB exists: $(test -f Database/marketpulse.duckdb && echo yes || echo no)"
+          ls -la Database 2>/dev/null || true
+          ls Input/daily 2>/dev/null | head -20 || true
+
+      - name: Run EOD pipeline
+        id: pipeline
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MP_CI: "1"
+        run: |
+          set -e
+          EXTRA=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.skip_download }}" = "true" ]; then
+              EXTRA="$EXTRA --skip-download"
+            fi
+            if [ "${{ inputs.skip_telegram }}" = "true" ]; then
+              EXTRA="$EXTRA --skip-telegram"
+            fi
+          fi
+          # If no DB yet, pipeline append path full-rebuilds from Input
+          python Scripts/daily_pipeline.py --lookback 7 $EXTRA
+          echo "pipeline_exit=0" >> "$GITHUB_OUTPUT"
+
+      - name: Upload status + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eod-logs-${{ github.run_id }}
+          path: |
+            Database/status.json
+            Logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload DuckDB artifact
+        if: success() && hashFiles('Database/marketpulse.duckdb') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketpulse-duckdb
+          path: Database/marketpulse.duckdb
+          retention-days: 14
+          compression-level: 0
+
+      - name: Commit Input updates to main
+        if: success()
+        run: |
+          git config user.name "marketpulse-eod[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A Input/ || true
+          if git diff --staged --quiet; then
+            echo "No Input changes to commit."
+          else
+            git commit -m "chore(eod): NSE input $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Telegram failure alert
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os, json, urllib.request
+          token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+          chat = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+          if not token or not chat:
+              print("Telegram secrets not set; skip failure alert")
+              raise SystemExit(0)
+          text = (
+              "MarketPulse EOD FAILED on GitHub Actions.\n"
+              f"Run: https://github.com/{os.environ.get('GITHUB_REPOSITORY','')}/actions\n"
+              "Check logs / NSE download errors."
+          )
+          url = f"https://api.telegram.org/bot{token}/sendMessage"
+          data = json.dumps({"chat_id": chat, "text": text, "disable_web_page_preview": True}).encode()
+          req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+          try:
+              urllib.request.urlopen(req, timeout=30)
+              print("Failure alert sent")
+          except Exception as e:
+              print("Could not send failure alert:", e)
+          PY

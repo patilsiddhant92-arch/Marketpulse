@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 # Resolve paths relative to the project root (parent of Scripts/)
@@ -10,12 +11,20 @@ STATIC_DIR = INPUT_DIR / "static"
 
 APP_DIR = ROOT_DIR / "App"
 SCRIPTS_DIR = ROOT_DIR / "Scripts"
-DATABASE_DIR = ROOT_DIR / "Database"
 EXPORTS_DIR = ROOT_DIR / "Exports"
 LOGS_DIR = ROOT_DIR / "Logs"
 
-DB_PATH = DATABASE_DIR / "marketpulse.duckdb"
+# Cloud / CI override: MP_DB_PATH=/data/marketpulse.duckdb
+_env_db = os.environ.get("MP_DB_PATH", "").strip()
+if _env_db:
+    DB_PATH = Path(_env_db)
+    DATABASE_DIR = DB_PATH.parent
+else:
+    DATABASE_DIR = ROOT_DIR / "Database"
+    DB_PATH = DATABASE_DIR / "marketpulse.duckdb"
+
 STATUS_PATH = DATABASE_DIR / "status.json"
+
 
 
 EQUITY_LIST_FILE = STATIC_DIR / "EQUITY_L .csv"

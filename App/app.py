@@ -4052,11 +4052,20 @@ def _lazy_panel(build_fn, loaded: dict, key: str):
     return ensure
 
 
+def _ui_run_kwargs() -> dict:
+    """Local + cloud: PORT / MP_HOST from env (Fly/Railway/Actions-friendly)."""
+    import os
+
+    port = int(os.environ.get("PORT") or os.environ.get("MP_PORT") or "8080")
+    host = os.environ.get("MP_HOST") or "0.0.0.0"
+    return {"title": "MarketPulse", "reload": False, "port": port, "host": host}
+
+
 def main() -> None:
     add_styles()
     if not DB_PATH.exists():
         ui.label(f"Database not found: {DB_PATH}. Run Update_MarketPulse.bat first.").classes("text-red-600 text-lg")
-        ui.run(title="MarketPulse", reload=False, port=8080)
+        ui.run(**_ui_run_kwargs())
         return
     ensure_runtime_schema()
     app_header()
@@ -4098,7 +4107,7 @@ def main() -> None:
                 return
 
     tabs.on_value_change(on_tab_change)
-    ui.run(title="MarketPulse", reload=False, port=8080)
+    ui.run(**_ui_run_kwargs())
 
 
 if __name__ in {"__main__", "__mp_main__"}:
