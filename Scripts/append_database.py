@@ -101,6 +101,12 @@ def main() -> None:
     # write_database materializes canonical candidate/watchlist/signal tables
     # after the accepted replacement is installed.
     print(f"Append update complete. Backup: {backup}")
+    try:
+        from telegram_deals import notify_deals
+
+        notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=1000.0)
+    except Exception as exc:
+        print(f"Telegram deals notify skipped/failed: {exc}")
 
 
 if __name__ == "__main__":

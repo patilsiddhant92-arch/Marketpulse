@@ -365,26 +365,55 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             # Right + tabular-nums makes digits line up for instant scanning/comparison.
             align = "right"
             cls = "numeric"
+        # Widths sized so headers stay readable; long text columns wrap (no clip).
         if col == "copy_symbols":
-            width = 92
-        elif col in {"symbol", "side", "band", "rotation_state", "vcp_state", "industry_state"}:
-            width = 110
-        elif col in {"group_name", "client_name", "symbol_list", "broad_industry", "industry", "sector"}:
-            width = 220
+            width, wrap = 72, False
+        elif col in {"rank"}:
+            width, wrap = 48, False
+        elif col in {"symbol", "side", "band"}:
+            width, wrap = 108, False
+        elif col in {"rotation_state", "vcp_state", "industry_state", "sector_state", "setup"}:
+            width, wrap = 120, False
+        elif col in {"why", "risks", "why_focus", "current_setup", "what_matched"}:
+            width, wrap = 320, True
+        elif col in {"group_name", "client_name", "symbol_list"}:
+            width, wrap = 200, True
+        elif col in {"broad_industry", "industry", "sector", "change_type"}:
+            width, wrap = 180, True
         elif is_num:
-            width = 118
+            width, wrap = 96, False
         else:
-            width = 160
-        style = f"width:{width}px;max-width:{width}px;min-width:{width}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-        col_def = {"name": col, "label": label_for(col), "field": col, "sortable": True, "align": align, "style": style, "headerStyle": style}
+            width, wrap = 140, False
+        label = label_for(col)
+        # Header must show full label (no ellipsis on th)
+        if wrap:
+            style = f"min-width:{width}px;max-width:{width + 80}px;white-space:normal;word-break:break-word;vertical-align:top;"
+            header_style = f"min-width:{width}px;white-space:normal;line-height:1.2;"
+            cls = f"{cls} mp-wrap-col"
+        else:
+            style = f"min-width:{width}px;white-space:nowrap;"
+            header_style = f"min-width:{width}px;white-space:nowrap;"
+        col_def = {
+            "name": col,
+            "label": label,
+            "field": col,
+            "sortable": True,
+            "align": align,
+            "style": style,
+            "headerStyle": header_style,
+        }
         col_def["classes"] = cls
-        col_def["headerClasses"] = cls  # so headers can also follow left/right via CSS
+        col_def["headerClasses"] = f"{cls} mp-th"
         columns.append(col_def)
     rows = view.astype(object).where(pd.notna(view), "").to_dict("records")
-    # Always wrap in scrollable for truncation fix (global)
-    scroll_container = ui.element('div').classes('w-full overflow-x-auto')
+    # Scroll pane with sticky thead — works for long tables
+    scroll_container = ui.element("div").classes("w-full mp-table-scroll")
     with scroll_container:
-        table = ui.table(columns=columns, rows=rows, pagination=pagination).classes("mp-table w-full")
+        table = (
+            ui.table(columns=columns, rows=rows, pagination=pagination or False)
+            .classes("mp-table w-full")
+            .props("dense flat bordered separator=cell wrap-cells")
+        )
 
     # Auto-apply column prefs on render for page_key (no reload needed for hiding)
     if page_key:
@@ -941,7 +970,7 @@ def render_group_expansions(groups: pd.DataFrame, level: str, max_stocks: int = 
     group_view["why_focus"] = group_view.apply(focus_reason, axis=1)
     table_from_df(group_view[[c for c in display_cols if c in group_view.columns]], "Focus Groups", copy_symbols=False, pagination=12)
     ui.label("Expand a group to inspect the strongest stocks inside it.").classes("mp-rule text-xs")
-    for _, row in group_view.head(25).iterrows():
+    for _, row in group_view.head(min(len(group_view), 15)).iterrows():
         name = str(row["group_name"])
         label = (
             f"{name} | {row.get('rotation_state', '')} | "
@@ -949,7 +978,7 @@ def render_group_expansions(groups: pd.DataFrame, level: str, max_stocks: int = 
         )
         with ui.expansion(label, icon="add").classes("mp-expansion w-full"):
             stocks = stock_rows_for_group(col, name, max_stocks, min_mcap)
-            table_from_df(stocks, "", pagination=min(max_stocks, 15))
+            table_from_df(stocks, "", pagination=min(max_stocks, 10))
 
 
 def sector_tree_page() -> None:
@@ -1053,46 +1082,46 @@ def sector_tree_page() -> None:
 
 
 def sector_rotation_page() -> None:
-    section_header("Sector Intel", "Find the strongest rotating groups for tomorrow, then expand each group to see the stocks inside.")
+    """Sector leadership — fixed to Leading + Emerging (no multi-select bar)."""
+    section_header(
+        "Sector Intel",
+        "Leading & Emerging groups only. Change level for hierarchy: Broad Sector → Industry.",
+    )
 
     levels = ["Broad Sector", "Sector", "Broad Industry", "Industry"]
-    states = ["Leading", "Emerging", "Improving", "Weakening", "Lagging", "Neutral"]
+    # Hard filter — no chip multi-select UI
+    selected_states = ["Leading", "Emerging"]
 
-    toolbar = ui.row().classes("w-full items-end gap-2 mp-toolbar")
+    toolbar = ui.row().classes("w-full items-center gap-3 mp-toolbar flex-wrap")
     with toolbar:
-        with ui.row().classes("gap-1 items-end flex-wrap"):
-            level = ui.select(levels, value="Broad Industry", label="Focus Level").classes("w-44").props("dense")
-            state = ui.select(states, value=["Leading", "Emerging", "Improving"], multiple=True, label="Rotation States").classes("w-64").props("dense use-chips")
-            max_groups = ui.number("Groups", value=30, min=10, max=80).classes("w-24").props("dense")
-            max_stocks = ui.number("Stocks / Group", value=12, min=5, max=30).classes("w-28").props("dense")
-            min_mcap = ui.number("Min MCap Cr", value=1000, min=0, max=10000).classes("w-32").props("dense")
-            run_button = ui.button("Run Sector Intel").classes("mp-primary").props("dense")
-
-        right_box = ui.row().classes("gap-1 items-end ml-auto")
-
-    with ui.row().classes("gap-1 items-center text-xs mb-1"):
-        ui.label("States:").classes("text-[var(--mp-muted)]")
-        for s, c in [("Leading", "mp-state-leading"), ("Emerging", "mp-state-emerging"), ("Improving", "mp-state-improving"), ("Weakening", "mp-state-weakening"), ("Lagging", "mp-state-lagging")]:
-            ui.label(s).classes(f"mp-badge {c}")
+        level = ui.select(levels, value="Broad Industry", label="Level").classes("w-44").props("dense")
+        max_groups = ui.number("Groups", value=10, min=5, max=25).classes("w-24").props("dense")
+        max_stocks = ui.number("Stocks", value=6, min=3, max=12).classes("w-24").props("dense")
+        min_mcap = ui.number("Min MCap", value=1000, min=0, max=10000).classes("w-28").props("dense")
+        run_button = ui.button("Refresh").classes("mp-primary").props("dense")
+        ui.space()
+        with ui.row().classes("gap-1 items-center"):
+            ui.label("Leading").classes("mp-badge mp-state-leading")
+            ui.label("Emerging").classes("mp-badge mp-state-emerging")
+        right_box = ui.row().classes("gap-2 items-center")
 
     container = ui.column().classes("w-full")
 
     def render() -> None:
         container.clear()
         right_box.clear()
-        selected_states = state.value or states
-        group_data = focus_groups(level.value, selected_states, int(max_groups.value or 30))
-
+        group_data = focus_groups(level.value, selected_states, int(max_groups.value or 10))
         with right_box:
-            with ui.row().classes("gap-1 items-center pl-3 border-l border-[var(--mp-border)]"):
-                compact_kpi("Groups", len(group_data))
-                if not group_data.empty:
-                    compact_kpi("Top State", group_data.iloc[0]["rotation_state"])
-
+            compact_kpi("Groups", len(group_data))
+            if not group_data.empty:
+                compact_kpi("Top", str(group_data.iloc[0]["group_name"])[:18])
         with container:
-            render_group_expansions(group_data, level.value, int(max_stocks.value or 12), int(min_mcap.value or 1000))
+            render_group_expansions(
+                group_data, level.value, int(max_stocks.value or 6), int(min_mcap.value or 1000)
+            )
 
     run_button.on_click(render)
+    level.on_value_change(lambda _: render())
     render()
 
 
@@ -1825,7 +1854,10 @@ def vcp_lab_page() -> None:
 
 
 def special_watchlist_page() -> None:
-    section_header("Momentum Scanner", "Trend-template watchlist with bucket changes, top sector/industry focus, and TradingView copy.")
+    section_header(
+        "Momentum Scanner",
+        "Tighter trend template: near highs, bullish stack, liquid names. Use for chart prep — not a census.",
+    )
     with ui.row().classes("gap-3 items-end flex-wrap"):
         lookback = ui.select([1, 3, 5, 10, 20, 30], value=SPECIAL_SCREENER_DEFAULTS["lookback_days"], label="Lookback").classes("w-32")
         min_mcap = ui.number("Min MCap Cr", value=SPECIAL_SCREENER_DEFAULTS["min_market_cap_cr"]).classes("w-36")
@@ -1835,7 +1867,8 @@ def special_watchlist_page() -> None:
         with ui.row().classes("items-center gap-1"):
             check_avg_vol = ui.checkbox("Min 20D Avg", value=True)
             min_avg_volume = ui.number(value=SPECIAL_SCREENER_DEFAULTS["min_avg_volume_20d"]).classes("w-28")
-        max_52w = ui.number("Max 52W Away %", value=25).classes("w-40")
+        # Tighter: within 15% of 52W high by default (was 25)
+        max_52w = ui.number("Max 52W Away %", value=15).classes("w-40")
         min_52w_low = ui.number("Min Above 52W Low %", value=SPECIAL_SCREENER_DEFAULTS["min_52w_low_pct"]).classes("w-48")
         debug_symbol = ui.input("Debug Symbol", placeholder="e.g. RELIANCE (tests filter pass/fail)").classes("w-40").props("clearable dense")
         run_button = ui.button("Run Scanner").classes("mp-primary")
@@ -2254,14 +2287,43 @@ def special_watchlist_page() -> None:
     render()
 
 def deals_page() -> None:
-    section_header("Deals Intelligence", "Track institutions first, then drill into the stocks and raw bulk/block rows behind the flow.")
-    with ui.row().classes("gap-3 items-end flex-wrap"):
-        side = ui.select(["BOTH", "BUY", "SELL"], value="BOTH", label="Side").classes("w-40")
-        min_value = ui.number("Min Activity Cr", value=0).classes("w-44")
-        days_back = ui.number("Lookback Days", value=30, min=5, max=120).classes("w-32")
-        selected_client = ui.select([""], value="", label="Institution / Client", with_input=True).classes("w-80")
-        selected_symbol = ui.select([""], value="", label="Raw Rows For Symbol", with_input=True).classes("w-72")
-        run_button = ui.button("Run Deals").classes("mp-primary")
+    section_header(
+        "Deals",
+        "Buy-side flow first (TV paste) — same filters as Telegram. Institutions are secondary drill-down.",
+    )
+
+    # --- Decision strip: latest session BUY list (aligned with telegram_deals) ---
+    try:
+        from telegram_deals import query_deals_tv_lists
+
+        tg = query_deals_tv_lists(lookback_days=1, min_mcap_cr=1000.0)
+        days = tg.get("days") or []
+        latest = days[0] if days else {}
+        buy_tv = (latest.get("tv") or tg.get("buy_tv") or "").strip()
+        as_of = latest.get("date") or tg.get("as_of") or "—"
+        with ui.card().classes("w-full mp-card mb-3"):
+            with ui.row().classes("w-full items-center gap-3 flex-wrap"):
+                ui.label(f"BUY · {as_of}").classes("mp-section-title m-0")
+                compact_kpi("Names", int(latest.get("count") or 0))
+                if buy_tv:
+                    ui.button(
+                        "Copy TV list",
+                        on_click=lambda t=buy_tv: copy_text_to_clipboard("Deals BUY TV", t),
+                    ).classes("mp-primary").props("dense")
+            if buy_tv:
+                ui.label(buy_tv).classes("mp-mono-list text-xs mt-2")
+            else:
+                ui.label("No BUY names passed filters for latest deal session.").classes("text-[var(--mp-muted)] text-sm")
+    except Exception as exc:
+        ui.label(f"Buy list unavailable: {exc}").classes("text-xs text-[var(--mp-muted)]")
+
+    with ui.row().classes("gap-3 items-end flex-wrap mt-2"):
+        side = ui.select(["BUY", "SELL", "BOTH"], value="BUY", label="Side").classes("w-36")
+        min_value = ui.number("Min Activity Cr", value=5).classes("w-40")
+        days_back = ui.number("Lookback Days", value=10, min=1, max=60).classes("w-32")
+        selected_client = ui.select([""], value="", label="Institution", with_input=True).classes("w-72")
+        selected_symbol = ui.select([""], value="", label="Symbol detail", with_input=True).classes("w-56")
+        run_button = ui.button("Run").classes("mp-primary").props("dense")
     summary_row = ui.row().classes("gap-4 flex-wrap")
     flow_chart = ui.column().classes("w-full")
     container = ui.column().classes("w-full")
@@ -3093,9 +3155,61 @@ def add_styles() -> None:
             color: var(--mp-text);
             border-bottom: 1px solid var(--mp-border);
             box-shadow: var(--mp-shadow-sm);
-            height: 52px;
-            padding: 0 24px;
+            height: 48px;
+            padding: 0 20px;
             font-size: var(--mp-text-base);
+            position: sticky;
+            top: 0;
+            z-index: 3000;
+          }
+
+          /* Freeze top chrome: header + tab row */
+          .mp-sticky-nav {
+            position: sticky;
+            top: 48px;
+            z-index: 2990;
+            background: var(--mp-surface);
+            border-bottom: 1px solid var(--mp-border);
+            box-shadow: 0 1px 0 rgba(40,37,29,0.04);
+          }
+          .mp-tabs {
+            background: var(--mp-surface) !important;
+            color: var(--mp-text) !important;
+            min-height: 40px;
+          }
+          .mp-tabs .q-tab {
+            text-transform: none !important;
+            font-weight: 600 !important;
+            font-size: 13px !important;
+            min-height: 40px !important;
+            padding: 0 16px !important;
+          }
+          .mp-tabs .q-tab--active {
+            color: var(--mp-primary) !important;
+          }
+          .mp-panels {
+            min-height: calc(100vh - 100px);
+          }
+          .mp-mono-list {
+            font-family: var(--mp-font-mono);
+            word-break: break-all;
+            line-height: 1.45;
+            color: var(--mp-text);
+          }
+          .mp-rank-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border: 1px solid var(--mp-border);
+            border-radius: var(--mp-radius-full);
+            background: var(--mp-surface);
+            font-size: 12px;
+          }
+          .mp-rank-num {
+            font-weight: 700;
+            color: var(--mp-primary);
+            font-variant-numeric: tabular-nums;
           }
 
           .mp-rule {
@@ -3158,37 +3272,74 @@ def add_styles() -> None:
           .mp-state-improving { background: var(--mp-improving-bg); color: var(--mp-improving); }
           .mp-state-weakening { background: var(--mp-weakening-bg); color: var(--mp-weakening); }
           .mp-state-lagging   { background: var(--mp-lagging-bg);   color: var(--mp-lagging); }
+          .mp-state-neutral   { background: var(--mp-neutral-bg);   color: var(--mp-muted); }
 
-          /* Tables */
+          /* Hide leftover multi-select chip chrome if any page still emits it */
+          .q-select__dropdown-icon + .q-chip,
+          .mp-toolbar .q-chip { max-width: 9rem; }
+
+          /* Tables — dense terminal style + sticky header (scroll parent = .mp-table-scroll) */
+          .mp-table-scroll {
+            width: 100%;
+            max-height: min(70vh, 720px);
+            overflow: auto;
+            border: 1px solid var(--mp-border);
+            border-radius: var(--mp-radius-sm);
+            background: var(--mp-surface);
+            -webkit-overflow-scrolling: touch;
+          }
+          .mp-table-scroll .q-table__middle {
+            max-height: none !important;
+            overflow: visible !important;
+          }
           .mp-table, .q-table, .q-table__container {
             background: var(--mp-surface);
             color: var(--mp-text);
-            border: 1px solid var(--mp-border);
-            border-radius: var(--mp-radius-sm);
-            font-size: var(--mp-text-sm);
+            border: none;
+            border-radius: 0;
+            font-size: 12.5px;
           }
           .mp-table .q-table, .q-table {
-            table-layout: fixed !important;
+            table-layout: auto !important;
+            width: max-content;
+            min-width: 100%;
           }
-          .mp-table th, .q-table th {
-            font-weight: 700;
-            background: var(--mp-surface-offset);
-            color: var(--mp-text);
+          .mp-table thead tr th,
+          .mp-table th.mp-th,
+          .mp-table-scroll thead th {
+            font-weight: 700 !important;
+            background: #eef1ef !important;
+            color: var(--mp-text) !important;
             text-transform: uppercase;
-            font-size: var(--mp-text-xs);
-            letter-spacing: 0.6px;
-            padding: 6px 8px;
-            border-bottom: 1px solid var(--mp-divider);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            font-size: 11px !important;
+            letter-spacing: 0.03em;
+            padding: 10px 10px !important;
+            border-bottom: 1px solid var(--mp-border);
+            overflow: visible !important;
+            text-overflow: clip !important;
+            white-space: normal !important;
+            line-height: 1.25 !important;
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 20 !important;
+            box-shadow: 0 1px 0 var(--mp-border);
           }
           .mp-table td, .mp-table .q-td, .q-table td, .q-table .q-td {
             color: var(--mp-text);
-            padding: 5px 8px;
+            padding: 6px 10px !important;
             border-bottom: 1px solid var(--mp-divider);
             font-weight: 500;
             font-variant-numeric: tabular-nums;
+            line-height: 1.35;
+            overflow: visible;
+            text-overflow: clip;
+          }
+          .mp-table td.mp-wrap-col,
+          .mp-table .q-td.mp-wrap-col {
+            white-space: normal !important;
+            word-break: break-word;
+            max-width: 360px;
+          }
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -3701,27 +3852,30 @@ def today_page() -> None:
                   ELSE 5
                 END,
                 c.rs_percentile DESC NULLS LAST
-            LIMIT 40
+            LIMIT 15
             """
         )
         if changes.empty:
             ui.label(f"No high-signal changes vs {prev_d} (or filters too tight).").classes("text-[var(--mp-muted)] text-sm")
         else:
-            ui.label(f"vs prior session {prev_d} · MCap ≥ 1000 Cr").classes("mp-rule text-xs")
+            # Prefer higher-RS changes for decision focus
+            if "rs_percentile" in changes.columns:
+                changes = changes[pd.to_numeric(changes["rs_percentile"], errors="coerce").fillna(0) >= 55]
+            ui.label(f"vs prior session {prev_d} · MCap ≥ 1000 · RS≥55").classes("mp-rule text-xs")
             table_from_df(
                 changes[[
                     "symbol", "change_type", "vcp_state", "vcp_score", "rs_percentile",
                     "buy_deal_cr", "sell_deal_cr", "industry", "close_price", "market_cap_cr",
-                ]],
-                "Session changes",
-                pagination=15,
+                ]].head(12),
+                "Session changes (high signal)",
+                pagination=12,
             )
 
-    # Ranked preparation list
-    ui.label("Preparation list").classes("mp-section-title mt-3")
+    # Top 10 for charts tonight
+    ui.label("Top 10 · charts tonight").classes("mp-section-title mt-3")
     ui.label(
-        "Mixed confluence rank: RS + VCP structure + industry state + deal flow − risk penalties. "
-        "Evidence in Why / Risks — not a black-box buy signal."
+        "RS≥80 · above 200EMA · Leading/Emerging group required · within ~18% of 52W high · not extended. "
+        "Structure score is a custom composite (not full Minervini VCP). Why/Risks = evidence only."
     ).classes("mp-rule text-xs mb-2")
 
     prep = df_query(
@@ -3759,19 +3913,20 @@ def today_page() -> None:
                        + CASE WHEN i.fresh_200ema_reclaim THEN 6 ELSE 0 END
                        + CASE WHEN i.vcp_state IN ('Near Pivot', 'Breakout') THEN 8
                               WHEN i.vcp_state = 'Building Base' THEN 4 ELSE 0 END
-                       + least(coalesce(d.buy_deal_cr, 0), 30) * 0.7
-                       + CASE WHEN coalesce(d.repeated_client_count, 0) >= 2 THEN 4 ELSE 0 END
+                       + least(coalesce(d.buy_deal_cr, 0), 15) * 0.35
+                       + CASE WHEN coalesce(d.repeated_client_count, 0) >= 2 THEN 3 ELSE 0 END
                        + CASE sr_i.rotation_state
-                           WHEN 'Leading' THEN 10 WHEN 'Emerging' THEN 8 WHEN 'Improving' THEN 5
-                           WHEN 'Weakening' THEN -6 WHEN 'Lagging' THEN -10 ELSE 0 END
+                           WHEN 'Leading' THEN 12 WHEN 'Emerging' THEN 9 WHEN 'Improving' THEN 4
+                           WHEN 'Weakening' THEN -12 WHEN 'Lagging' THEN -18 ELSE 0 END
                        + CASE sr_s.rotation_state
-                           WHEN 'Leading' THEN 4 WHEN 'Emerging' THEN 3 WHEN 'Improving' THEN 2
-                           WHEN 'Weakening' THEN -3 WHEN 'Lagging' THEN -5 ELSE 0 END
+                           WHEN 'Leading' THEN 5 WHEN 'Emerging' THEN 3 WHEN 'Improving' THEN 1
+                           WHEN 'Weakening' THEN -5 WHEN 'Lagging' THEN -8 ELSE 0 END
                        - CASE WHEN coalesce(d.sell_deal_cr, 0) > coalesce(d.buy_deal_cr, 0)
-                               AND coalesce(d.sell_deal_cr, 0) >= 5 THEN 8 ELSE 0 END
-                       - CASE WHEN coalesce(m.band, 99) <= 5 THEN 12 ELSE 0 END
-                       - CASE WHEN coalesce(i.away_10ema_pct, 0) > 10 THEN 6 ELSE 0 END
-                       - CASE WHEN i.vcp_state = 'Failed Breakout' THEN 10 ELSE 0 END
+                               AND coalesce(d.sell_deal_cr, 0) >= 5 THEN 10 ELSE 0 END
+                       - CASE WHEN coalesce(m.band, 99) <= 5 THEN 20 ELSE 0 END
+                       - CASE WHEN coalesce(i.away_10ema_pct, 0) > 8 THEN 8 ELSE 0 END
+                       - CASE WHEN i.vcp_state = 'Failed Breakout' THEN 12 ELSE 0 END
+                       - CASE WHEN coalesce(i.away_52w_high_pct, 0) < -20 THEN 10 ELSE 0 END
                    ) AS prep_score
             FROM indicators_daily i
             JOIN stocks_master m USING(symbol)
@@ -3784,26 +3939,34 @@ def today_page() -> None:
                AND sr_s.level = 'Sector' AND sr_s.group_name = m.sector, latest
             WHERE i.trade_date = latest.d
               AND coalesce(m.market_cap_cr, 0) >= 1000
-              AND coalesce(i.avg_volume_20d, 0) >= 200000
+              AND coalesce(i.avg_volume_20d, 0) >= 500000
               AND (i.ema_200 IS NULL OR i.close_price > i.ema_200)
-              AND coalesce(i.rs_percentile, 0) >= 65
+              AND coalesce(i.rs_percentile, 0) >= 80
+              AND coalesce(i.away_10ema_pct, 0) <= 8
+              AND coalesce(m.band, 99) > 5
               AND (
-                    i.vcp_score >= 50
+                    sr_i.rotation_state IN ('Leading', 'Emerging')
+                 OR sr_s.rotation_state IN ('Leading', 'Emerging')
+              )
+              AND coalesce(i.away_52w_high_pct, -99) >= -18
+              AND (
+                    i.vcp_score >= 55
                  OR i.ema_stack_bullish
-                 OR i.fresh_200ema_reclaim
                  OR i.vcp_state IN ('Near Pivot', 'Building Base', 'Breakout')
-                 OR coalesce(d.buy_deal_cr, 0) >= 3
-                 OR i.away_52w_high_pct BETWEEN -10 AND 2
+                 OR i.away_52w_high_pct BETWEEN -12 AND 3
               )
         )
         SELECT * FROM latest_rows
         ORDER BY prep_score DESC NULLS LAST, rs_percentile DESC NULLS LAST
-        LIMIT 40
+        LIMIT 10
         """
     )
 
     if prep.empty:
-        ui.label("No prep candidates match filters (MCap≥1000, RS≥65, above 200EMA, setup confluence).").classes("text-[var(--mp-muted)]")
+        ui.label(
+            "No top-10 candidates (MCap≥1000, RS≥80, above 200EMA, Leading/Emerging or strong setup). "
+            "Open Sector Intel if breadth is weak."
+        ).classes("text-[var(--mp-muted)]")
         return
 
     why_list = []
@@ -3813,29 +3976,36 @@ def today_page() -> None:
         why_list.append(w)
         risk_list.append(r)
     prep = prep.copy()
+    prep.insert(0, "rank", range(1, len(prep) + 1))
     prep["why"] = why_list
     prep["risks"] = risk_list
     prep["setup"] = prep["vcp_state"].fillna("").replace("", "Structure")
 
     with ui.row().classes("gap-3 flex-wrap mb-2 items-center"):
-        compact_kpi("Candidates", len(prep))
-        compact_kpi("Top", str(prep.iloc[0]["symbol"]))
-        compact_kpi("Top score", f"{float(prep.iloc[0]['prep_score']):.0f}")
-        copy_button("Copy prep symbols", lambda: symbols_text(prep.head(25)))
+        compact_kpi("#1", str(prep.iloc[0]["symbol"]))
+        compact_kpi("Score", f"{float(prep.iloc[0]['prep_score']):.0f}")
+        compact_kpi("Session", str(latest_d))
+        copy_button("Copy Top 10 TV", lambda: symbols_text(prep))
+
+    # Rank strip — quick scan without table noise
+    with ui.row().classes("w-full gap-2 flex-wrap mb-2"):
+        for _, row in prep.iterrows():
+            tone = "good" if float(row.get("prep_score") or 0) >= 100 else "info"
+            with ui.element("div").classes("mp-rank-chip"):
+                ui.label(f"#{int(row['rank'])}").classes("mp-rank-num")
+                ui.link(str(row["symbol"]), tradingview_url(str(row["symbol"])), new_tab=True).classes("mp-symbol")
+                ui.label(str(row.get("setup") or "")[:14]).classes("text-xs text-[var(--mp-muted)]")
 
     show_cols = [
-        "symbol", "prep_score", "setup", "why", "risks",
-        "rs_percentile", "rs_1y_percentile", "vcp_score",
-        "industry_state", "sector_state",
-        "buy_deal_cr", "sell_deal_cr",
-        "away_52w_high_pct", "away_10ema_pct",
-        "return_1m_pct", "close_price", "market_cap_cr",
-        "industry", "sector",
+        "rank", "symbol", "prep_score", "setup", "why", "risks",
+        "rs_percentile", "vcp_score",
+        "industry_state", "buy_deal_cr",
+        "away_52w_high_pct", "industry",
     ]
     table_from_df(
         prep[[c for c in show_cols if c in prep.columns]],
-        f"Ranked prep · session {latest_d}",
-        pagination=20,
+        f"Top 10 detail · {latest_d}",
+        pagination=10,
     )
 
     # High-value institutional buys with structure
@@ -3892,27 +4062,20 @@ def main() -> None:
     app_header()
 
     loaded: dict[str, bool] = {}
+    # Decision nav: Today | Sector Intel | Momentum | Deals
     tab_specs = [
         ("Today", today_page, "today", True),
-        ("Market Health", market_health_page, "health", False),
-        ("Sector Rotation", sector_rotation_page, "rotation", False),
-        ("Strong Groups", strong_groups_page, "groups", False),
-        ("Focus List", strong_rs_stocks_page, "focus", False),
-        ("Screeners", screener_page, "screeners", False),
-        ("VCP Lab", vcp_lab_page, "vcp", False),
-        ("Momentum Scanner", special_watchlist_page, "scanner", False),
+        ("Sector Intel", sector_rotation_page, "rotation", False),
+        ("Momentum", special_watchlist_page, "scanner", False),
         ("Deals", deals_page, "deals", False),
-        ("Stock Detail", stock_detail_page, "stock", False),
-        ("Sector Tree", sector_tree_page, "tree", False),
-        ("Leaders Study", backtest_page, "backtest", False),
-        ("Journal", journal_page, "journal", False),
     ]
 
-    with ui.tabs().classes("w-full bg-white text-[#28251d] shadow-sm border-b") as tabs:
-        tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
+    with ui.element("div").classes("mp-sticky-nav"):
+        with ui.tabs().classes("w-full mp-tabs") as tabs:
+            tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
 
     ensure_by_name: dict[str, callable] = {}
-    with ui.tab_panels(tabs, value=tab_els["Today"]).classes("w-full p-4"):
+    with ui.tab_panels(tabs, value=tab_els["Today"]).classes("w-full p-3 mp-panels"):
         for name, build_fn, key, eager in tab_specs:
             with ui.tab_panel(tab_els[name]):
                 ensure_by_name[name] = _lazy_panel(build_fn, loaded, key)

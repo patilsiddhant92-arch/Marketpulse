@@ -117,8 +117,11 @@ def asof_reference(reference: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
     right["symbol"] = right["symbol"].astype(str).str.strip().str.upper()
     left["trade_date"] = pd.to_datetime(left["trade_date"], errors="coerce").dt.normalize()
     right["effective_date"] = pd.to_datetime(right["effective_date"], errors="coerce").dt.normalize()
-    left = left.sort_values(["symbol", "trade_date"])
-    right = right.sort_values(["symbol", "effective_date"])
+    left = left.dropna(subset=["symbol", "trade_date"])
+    right = right.dropna(subset=["symbol", "effective_date"])
+    # merge_asof requires global sort by (by-keys, on-key)
+    left = left.sort_values(["symbol", "trade_date"], kind="mergesort").reset_index(drop=True)
+    right = right.sort_values(["symbol", "effective_date"], kind="mergesort").reset_index(drop=True)
     joined = pd.merge_asof(
         left,
         right,
@@ -137,24 +140,48 @@ def _file_checksum(path: Path) -> str:
 
 
 def _file_date(path: Path):
+    """Parse trading date from downloads/DDMMYYYY/ parent or from dated filename."""
+    # downloads/05082026/mcap....csv
     try:
         return pd.to_datetime(path.parent.name, format="%d%m%Y").normalize()
     except (TypeError, ValueError):
-        return pd.NaT
+        pass
+    # archive/CM_52_wk_High_low_05082026.csv or daily/mcap05082026.csv
+    import re
+
+    name = path.name
+    # Prefer 8-digit ddmmyyyy in filename
+    match = re.search(r"(?<!\d)(\d{8})(?!\d)", name)
+    if match:
+        try:
+            return pd.to_datetime(match.group(1), format="%d%m%Y").normalize()
+        except (TypeError, ValueError):
+            pass
+    # PE_050826 / MA050826 style (ddmmyy)
+    match = re.search(r"(?<!\d)(\d{6})(?!\d)", name)
+    if match:
+        try:
+            return pd.to_datetime(match.group(1), format="%d%m%y").normalize()
+        except (TypeError, ValueError):
+            pass
+    return pd.NaT
 
 
 def _frame_from_files(paths, reader) -> pd.DataFrame:
     frames = []
-    for path in sorted(paths):
+    for path in sorted(set(paths)):
+        if not path.is_file():
+            continue
         source_date = _file_date(path)
         if pd.isna(source_date):
             continue
         try:
             frame = reader(path)
-        except (OSError, ValueError, pd.errors.ParserError):
+        except (OSError, ValueError, pd.errors.ParserError, TypeError):
             continue
-        if frame.empty:
+        if frame is None or frame.empty:
             continue
+        frame = frame.copy()
         frame["source_date"] = source_date
         frame["effective_date"] = source_date
         frame["source_checksum"] = _file_checksum(path)
@@ -163,11 +190,12 @@ def _frame_from_files(paths, reader) -> pd.DataFrame:
 
 
 def load_reference_history(root: Path) -> pd.DataFrame:
-    """Read every dated reference snapshot available in Input/downloads."""
+    """Read every dated reference snapshot from downloads, archive, and daily."""
 
-    downloads = Path(root) / "Input" / "downloads"
-    if not downloads.exists():
-        return pd.DataFrame(columns=REFERENCE_COLUMNS)
+    root = Path(root)
+    downloads = root / "Input" / "downloads"
+    archive = root / "Input" / "archive"
+    daily = root / "Input" / "daily"
 
     def read_mcap(path):
         frame = pd.read_csv(path, dtype=str, skipinitialspace=True)
@@ -175,32 +203,91 @@ def load_reference_history(root: Path) -> pd.DataFrame:
         col = next((name for name in frame.columns if name.startswith("market_cap")), None)
         if col is None or "symbol" not in frame.columns:
             return pd.DataFrame()
-        return pd.DataFrame({"symbol": frame["symbol"], "market_cap_cr": pd.to_numeric(frame[col].astype(str).str.replace(",", "", regex=False), errors="coerce") / 10_000_000})
+        return pd.DataFrame(
+            {
+                "symbol": frame["symbol"],
+                "market_cap_cr": pd.to_numeric(
+                    frame[col].astype(str).str.replace(",", "", regex=False), errors="coerce"
+                )
+                / 10_000_000,
+            }
+        )
 
     def read_band(path):
         frame = pd.read_csv(path, dtype=str, skipinitialspace=True)
         frame.columns = [str(col).strip().lower().replace(" ", "_") for col in frame.columns]
         if "symbol" not in frame.columns:
             return pd.DataFrame()
-        return pd.DataFrame({"symbol": frame["symbol"], "price_band": pd.to_numeric(frame.get("band", ""), errors="coerce"), "band_remarks": frame.get("remarks", "")})
+        return pd.DataFrame(
+            {
+                "symbol": frame["symbol"],
+                "price_band": pd.to_numeric(frame.get("band", ""), errors="coerce"),
+                "band_remarks": frame.get("remarks", ""),
+            }
+        )
 
     def read_pe_file(path):
         frame = pd.read_csv(path, dtype=str, skipinitialspace=True)
         frame.columns = [str(col).strip().lower().replace(" ", "_") for col in frame.columns]
         if "symbol" not in frame.columns:
             return pd.DataFrame()
-        return pd.DataFrame({"symbol": frame["symbol"], "pe": pd.to_numeric(frame.get("symbol_p/e", ""), errors="coerce"), "adjusted_pe": pd.to_numeric(frame.get("adjusted_p/e", ""), errors="coerce")})
+        return pd.DataFrame(
+            {
+                "symbol": frame["symbol"],
+                "pe": pd.to_numeric(frame.get("symbol_p/e", ""), errors="coerce"),
+                "adjusted_pe": pd.to_numeric(frame.get("adjusted_p/e", ""), errors="coerce"),
+            }
+        )
 
     def read_high_file(path):
+        # NSE files often have 2 disclaimer rows before header
         frame = pd.read_csv(path, dtype=str, skiprows=2)
         frame.columns = [str(col).strip().lower().replace(" ", "_") for col in frame.columns]
         if "symbol" not in frame.columns:
             return pd.DataFrame()
-        return pd.DataFrame({"symbol": frame["symbol"], "high_52w": pd.to_numeric(frame.get("adjusted_52_week_high", ""), errors="coerce"), "high_52w_date": pd.to_datetime(frame.get("52_week_high_date", ""), format="%d-%b-%Y", errors="coerce"), "low_52w": pd.to_numeric(frame.get("adjusted_52_week_low", ""), errors="coerce"), "low_52w_date": pd.to_datetime(frame.get("52_week_low_dt", ""), format="%d-%b-%Y", errors="coerce")})
+        high_s = frame["adjusted_52_week_high"] if "adjusted_52_week_high" in frame.columns else pd.Series(dtype=str)
+        low_s = frame["adjusted_52_week_low"] if "adjusted_52_week_low" in frame.columns else pd.Series(dtype=str)
+        return pd.DataFrame(
+            {
+                "symbol": frame["symbol"],
+                "high_52w": pd.to_numeric(high_s.astype(str).str.replace(",", "", regex=False), errors="coerce"),
+                "high_52w_date": pd.to_datetime(
+                    frame["52_week_high_date"] if "52_week_high_date" in frame.columns else pd.Series(dtype=str),
+                    format="%d-%b-%Y",
+                    errors="coerce",
+                ),
+                "low_52w": pd.to_numeric(low_s.astype(str).str.replace(",", "", regex=False), errors="coerce"),
+                "low_52w_date": pd.to_datetime(
+                    frame["52_week_low_dt"] if "52_week_low_dt" in frame.columns else pd.Series(dtype=str),
+                    format="%d-%b-%Y",
+                    errors="coerce",
+                ),
+            }
+        )
+
+    mcap_paths = []
+    band_paths = []
+    pe_paths = []
+    high_paths = []
+    if downloads.exists():
+        mcap_paths += list(downloads.glob("*/mcap*.csv"))
+        band_paths += list(downloads.glob("*/sec_list_*.csv"))
+        pe_paths += list(downloads.glob("*/PE_*.csv"))
+        high_paths += list(downloads.glob("*/CM_52_wk_High_low_*.csv"))
+    if archive.exists():
+        mcap_paths += list(archive.glob("mcap*.csv"))
+        band_paths += list(archive.glob("sec_list_*.csv"))
+        pe_paths += list(archive.glob("PE_*.csv"))
+        high_paths += list(archive.glob("CM_52_wk_High_low_*.csv"))
+    if daily.exists():
+        mcap_paths += list(daily.glob("mcap*.csv"))
+        band_paths += list(daily.glob("sec_list_*.csv"))
+        pe_paths += list(daily.glob("PE_*.csv"))
+        high_paths += list(daily.glob("CM_52_wk_High_low_*.csv"))
 
     return build_security_reference_history(
-        _frame_from_files(downloads.glob("*/mcap*.csv"), read_mcap),
-        _frame_from_files(downloads.glob("*/sec_list_*.csv"), read_band),
-        _frame_from_files(downloads.glob("*/PE_*.csv"), read_pe_file),
-        _frame_from_files(downloads.glob("*/CM_52_wk_High_low_*.csv"), read_high_file),
+        _frame_from_files(mcap_paths, read_mcap),
+        _frame_from_files(band_paths, read_band),
+        _frame_from_files(pe_paths, read_pe_file),
+        _frame_from_files(high_paths, read_high_file),
     )

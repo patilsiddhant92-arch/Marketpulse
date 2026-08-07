@@ -161,6 +161,7 @@ def run_pipeline(
     *,
     skip_download: bool = False,
     skip_append: bool = False,
+    skip_telegram: bool = False,
     date: datetime | None = None,
     lookback: int = 7,
 ) -> int:
@@ -239,6 +240,32 @@ def run_pipeline(
                     f"Download session {status['download_date']}."
                 )
             print(status["message"])
+
+            # --- Telegram deals (TV paste lists) after successful DB path ---
+            if not skip_telegram:
+                try:
+                    from telegram_deals import notify_deals
+
+                    # Always notify after a successful pipeline so deals stay current
+                    # even when append is noop (download refreshed daily deals).
+                    tg = notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=1000.0)
+                    status["steps"].append(
+                        {
+                            "step": "telegram_deals",
+                            "ok": True,
+                            "as_of": tg.get("as_of"),
+                            "buy_count": tg.get("buy_count"),
+                            "message_count": tg.get("message_count"),
+                            "sessions": len(tg.get("days") or []),
+                        }
+                    )
+                except Exception as exc:
+                    # Do not fail the whole EOD job if Telegram is misconfigured
+                    print(f"Telegram deals notify skipped/failed: {exc}")
+                    status["steps"].append({"step": "telegram_deals", "ok": False, "error": str(exc)})
+            else:
+                status["steps"].append({"step": "telegram_deals", "ok": True, "skipped": True})
+
             exit_code = 0
     except Exception as exc:
         status["ok"] = False
@@ -288,12 +315,18 @@ def main() -> int:
         action="store_true",
         help="Alias for --skip-download.",
     )
+    parser.add_argument(
+        "--skip-telegram",
+        action="store_true",
+        help="Do not send Telegram deals after update.",
+    )
     args = parser.parse_args()
     skip_download = args.skip_download or args.append_only
     skip_append = args.skip_append or args.download_only
     return run_pipeline(
         skip_download=skip_download,
         skip_append=skip_append,
+        skip_telegram=args.skip_telegram,
         date=args.date,
         lookback=max(1, args.lookback),
     )

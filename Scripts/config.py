@@ -79,6 +79,7 @@ FRIENDLY_COLUMNS = {
     "avg_day_pct": "Avg Day %",
     "focus_score": "Focus Score",
     "prep_score": "Prep Score",
+    "rank": "#",
     "risks": "Risks",
     "setup": "Setup",
     "change_type": "Change",

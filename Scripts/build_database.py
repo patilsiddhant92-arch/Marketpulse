@@ -538,17 +538,30 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         g["away_10mema_pct"] = (close / g["mema_10"] - 1) * 100
         parts.append(g)
     indicators = pd.concat(parts, ignore_index=True)
+    # Point-in-time 52W: as-of join when enrichment has effective_date history.
+    # Never paint a future 52W onto older rows. If NSE snapshot missing, fall back
+    # to rolling 252-session high/low already on the row (leak-free).
     if "effective_date" in enrichment.columns:
         reference_rows = asof_reference(enrichment, indicators[["symbol", "trade_date"]])
-        indicators["high_52w"] = reference_rows.get("high_52w", pd.Series(index=indicators.index, dtype=float)).to_numpy()
-        indicators["low_52w"] = reference_rows.get("low_52w", pd.Series(index=indicators.index, dtype=float)).to_numpy()
+        nse_high = pd.to_numeric(reference_rows.get("high_52w"), errors="coerce")
+        nse_low = pd.to_numeric(reference_rows.get("low_52w"), errors="coerce")
+        if "high_52w" in indicators.columns:
+            indicators = indicators.drop(columns=["high_52w"], errors="ignore")
+        if "low_52w" in indicators.columns:
+            indicators = indicators.drop(columns=["low_52w"], errors="ignore")
+        indicators["high_52w"] = nse_high.to_numpy()
+        indicators["low_52w"] = nse_low.to_numpy()
     else:
         high52 = enrichment[["symbol", "high_52w"]].dropna().drop_duplicates("symbol", keep="last")
-        indicators = indicators.merge(high52, on="symbol", how="left")
-    indicators["away_52w_high_pct"] = (indicators["close_price"] / indicators["high_52w"] - 1) * 100
-    if "effective_date" not in enrichment.columns:
+        indicators = indicators.drop(columns=["high_52w"], errors="ignore").merge(high52, on="symbol", how="left")
         low52 = enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
-        indicators = indicators.merge(low52, on="symbol", how="left")
+        indicators = indicators.drop(columns=["low_52w"], errors="ignore").merge(low52, on="symbol", how="left")
+    # Fallback: use computed 252d range when official 52W missing (older history)
+    if "high_252d" in indicators.columns:
+        indicators["high_52w"] = indicators["high_52w"].fillna(indicators["high_252d"])
+    if "low_252d" in indicators.columns:
+        indicators["low_52w"] = indicators["low_52w"].fillna(indicators["low_252d"])
+    indicators["away_52w_high_pct"] = (indicators["close_price"] / indicators["high_52w"] - 1) * 100
     indicators["away_52w_low_pct"] = (indicators["close_price"] / indicators["low_52w"] - 1) * 100
     close_by_symbol = indicators.groupby("symbol", sort=False)["close_price"]
     rs_latest_q = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100

@@ -27,3 +27,9 @@ Logs/
 
 # Optional local agents cache
 .agents/
+
+# Secrets (Telegram bot token, chat ids)
+.env
+.env.local
+Secrets/
+*.secret
