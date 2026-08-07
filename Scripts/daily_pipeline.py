@@ -132,6 +132,8 @@ def _run_append() -> dict:
         ["symbol", "trade_date"], keep="last"
     )
 
+    from reference_history import load_reference_history
+
     sector = read_sector()
     mcap = read_market_cap()
     bands = read_price_band()
@@ -139,7 +141,11 @@ def _run_append() -> dict:
     high52 = read_52_week()
     enrichment = build_enrichment(mcap, bands, pe, high52, pd.DataFrame(), pd.DataFrame())
     master = build_master(equity, sector, prices, mcap, bands, pe)
-    indicators = calc_indicators(prices, enrichment)
+    # Same path as append_database: date-keyed 52W/mcap/PE history (not latest-only paint)
+    reference_history = load_reference_history(ROOT_DIR)
+    indicators = calc_indicators(
+        prices, reference_history if not reference_history.empty else enrichment
+    )
     deals_raw = read_all_deals()
     deals = enrich_deals(deals_raw, prices, indicators, master)
     latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals

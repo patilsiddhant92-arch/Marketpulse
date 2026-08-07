@@ -94,8 +94,13 @@ jobs:
               EXTRA="$EXTRA --skip-telegram"
             fi
           fi
-          # If no DB yet, pipeline append path full-rebuilds from Input
-          python Scripts/daily_pipeline.py --lookback 7 $EXTRA
+          # Telegram optional — empty secrets must not fail the job
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            EXTRA="$EXTRA --skip-telegram"
+            echo "Telegram secrets not set; pipeline will skip notify (OK)."
+          fi
+          # If no DB yet, pipeline full-rebuilds from Input (first run is slower)
+          python Scripts/daily_pipeline.py --lookback 7 --retries 2 --retry-wait 5 $EXTRA
           echo "pipeline_exit=0" >> "$GITHUB_OUTPUT"
 
       - name: Upload status + logs

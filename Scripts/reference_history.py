@@ -100,63 +100,79 @@ def build_security_reference_history(
     return result.sort_values(["symbol", "effective_date"]).reset_index(drop=True)
 
 
+def _naive_day(series: pd.Series) -> pd.Series:
+    """Normalize to timezone-naive midnight timestamps."""
+    s = pd.to_datetime(series, errors="coerce")
+    try:
+        if getattr(s.dt, "tz", None) is not None:
+            s = s.dt.tz_convert("UTC").dt.tz_localize(None)
+    except (TypeError, AttributeError, ValueError):
+        pass
+    return s.dt.normalize()
+
+
 def asof_reference(reference: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
     """
     Join each row to the latest reference available on or before its date.
 
-    Uses per-symbol merge_asof (reliable). Global merge_asof often raises
-    "left keys must be sorted" on large multi-symbol frames even after sort.
+    Uses per-symbol merge_asof (reliable). Global merge_asof(by=symbol) raises
+    "left keys must be sorted" on large multi-symbol frames — that is what broke
+    the first GitHub Actions EOD run.
+
+    Guarantees: same number of output rows as input `rows` (in original order).
     Never uses a future effective_date for a trade_date.
     """
     if rows.empty:
         return rows.copy()
-    if reference.empty:
-        result = rows.copy()
-        for col in REFERENCE_COLUMNS:
-            if col not in result.columns:
-                result[col] = pd.NA
-        return result
 
-    left = rows.copy().reset_index(drop=False).rename(columns={"index": "_input_order"})
+    ref_cols = [c for c in REFERENCE_COLUMNS if c not in {"symbol"}]
+    empty_result = rows.copy()
+    for col in ref_cols:
+        if col not in empty_result.columns:
+            empty_result[col] = pd.NA
+    if reference.empty:
+        return empty_result
+
+    left = rows.copy()
+    left["_input_order"] = range(len(left))
     right = reference.copy()
     left["symbol"] = left["symbol"].astype(str).str.strip().str.upper()
     right["symbol"] = right["symbol"].astype(str).str.strip().str.upper()
-    def _naive_day(series: pd.Series) -> pd.Series:
-        s = pd.to_datetime(series, errors="coerce")
-        # Handle tz-aware and tz-naive uniformly
-        try:
-            if getattr(s.dt, "tz", None) is not None:
-                s = s.dt.tz_convert("UTC").dt.tz_localize(None)
-        except (TypeError, AttributeError, ValueError):
-            pass
-        return s.dt.normalize()
-
     left["trade_date"] = _naive_day(left["trade_date"])
     right["effective_date"] = _naive_day(right["effective_date"])
-    left = left.dropna(subset=["symbol", "trade_date"])
     right = right.dropna(subset=["symbol", "effective_date"])
     # One snapshot per symbol per day (merge_asof right keys must be unique within group)
     right = right.sort_values(["symbol", "effective_date"], kind="mergesort")
     right = right.drop_duplicates(["symbol", "effective_date"], keep="last")
-
-    ref_cols = [c for c in REFERENCE_COLUMNS if c not in {"symbol"}]
-    pieces: list[pd.DataFrame] = []
     right_by = {sym: grp.drop(columns=["symbol"]) for sym, grp in right.groupby("symbol", sort=False)}
 
-    for symbol, left_g in left.groupby("symbol", sort=False):
-        left_g = left_g.sort_values("trade_date", kind="mergesort")
+    pieces: list[pd.DataFrame] = []
+    # Keep every left row (even if trade_date is NaT) so length matches caller.
+    for symbol, left_g in left.groupby("symbol", sort=False, dropna=False):
+        left_g = left_g.sort_values(["trade_date", "_input_order"], kind="mergesort")
         right_g = right_by.get(symbol)
-        if right_g is None or right_g.empty:
+        if right_g is None or right_g.empty or left_g["trade_date"].isna().all():
             empty_refs = left_g.copy()
             for col in ref_cols:
                 if col not in empty_refs.columns:
                     empty_refs[col] = pd.NA
             pieces.append(empty_refs)
             continue
-        right_g = right_g.sort_values("effective_date", kind="mergesort")
+        right_g = right_g.sort_values("effective_date", kind="mergesort").reset_index(drop=True)
+        # merge_asof cannot take NaT on keys — split valid / invalid trade_dates
+        valid = left_g["trade_date"].notna()
+        left_ok = left_g.loc[valid].reset_index(drop=True)
+        left_bad = left_g.loc[~valid].copy()
+        for col in ref_cols:
+            if col not in left_bad.columns:
+                left_bad[col] = pd.NA
+        if left_ok.empty:
+            pieces.append(left_bad)
+            continue
+        left_ok = left_ok.sort_values("trade_date", kind="mergesort").reset_index(drop=True)
         try:
             merged = pd.merge_asof(
-                left_g,
+                left_ok,
                 right_g,
                 left_on="trade_date",
                 right_on="effective_date",
@@ -164,28 +180,37 @@ def asof_reference(reference: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
                 allow_exact_matches=True,
             )
         except ValueError:
-            # Last-resort: re-sort and retry once
-            left_g = left_g.sort_values("trade_date", kind="mergesort").reset_index(drop=True)
-            right_g = right_g.sort_values("effective_date", kind="mergesort").reset_index(drop=True)
-            merged = pd.merge_asof(
-                left_g,
-                right_g,
-                left_on="trade_date",
-                right_on="effective_date",
-                direction="backward",
-                allow_exact_matches=True,
-            )
-        pieces.append(merged)
+            # Last-resort: numpy searchsorted (no merge_asof)
+            import numpy as np
+
+            merged = left_ok.copy()
+            eff = pd.to_datetime(right_g["effective_date"]).to_numpy()
+            trade = pd.to_datetime(merged["trade_date"]).to_numpy()
+            idxs = np.searchsorted(eff, trade, side="right") - 1
+            for col in ref_cols:
+                if col not in right_g.columns:
+                    if col not in merged.columns:
+                        merged[col] = pd.NA
+                    continue
+                vals = right_g[col].to_numpy()
+                merged[col] = [
+                    vals[i] if 0 <= i < len(vals) else pd.NA for i in idxs
+                ]
+        if not left_bad.empty:
+            pieces.append(pd.concat([merged, left_bad], ignore_index=True))
+        else:
+            pieces.append(merged)
 
     if not pieces:
-        result = rows.copy()
-        for col in REFERENCE_COLUMNS:
-            if col not in result.columns:
-                result[col] = pd.NA
-        return result
+        return empty_result
 
     joined = pd.concat(pieces, ignore_index=True)
-    return joined.sort_values("_input_order").drop(columns=["_input_order"], errors="ignore").reset_index(drop=True)
+    joined = joined.sort_values("_input_order", kind="mergesort")
+    # Restore exact input length / order
+    if len(joined) != len(rows):
+        # Should not happen; return empty refs rather than crash CI rebuild
+        return empty_result
+    return joined.drop(columns=["_input_order"], errors="ignore").reset_index(drop=True)
 
 
 def _file_checksum(path: Path) -> str:
