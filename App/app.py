@@ -125,6 +125,47 @@ def ensure_journal_table() -> None:
         return
 
 
+def ensure_portfolio_tables() -> None:
+    """Simple position tracker tables (manual portfolio — survives append, not full rebuild of empty DB)."""
+    if not DB_PATH.exists():
+        return
+    try:
+        with duckdb.connect(str(DB_PATH)) as db:
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS portfolio_positions (
+                    symbol VARCHAR PRIMARY KEY,
+                    status VARCHAR,
+                    qty DOUBLE,
+                    avg_buy_price DOUBLE,
+                    buy_date DATE,
+                    sell_date DATE,
+                    sell_price DOUBLE,
+                    notes VARCHAR,
+                    tags VARCHAR,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+                """
+            )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS portfolio_events (
+                    id BIGINT PRIMARY KEY,
+                    symbol VARCHAR,
+                    event_type VARCHAR,
+                    event_date DATE,
+                    qty DOUBLE,
+                    price DOUBLE,
+                    notes VARCHAR,
+                    created_at TIMESTAMP
+                )
+                """
+            )
+    except duckdb.IOException:
+        return
+
+
 def ensure_runtime_schema() -> None:
     if not DB_PATH.exists():
         return
@@ -154,6 +195,7 @@ def ensure_runtime_schema() -> None:
                         db.execute(f"UPDATE indicators_daily SET {col} = {default}")
     except duckdb.IOException:
         return
+    ensure_portfolio_tables()
 
 
 def indicator_columns() -> set[str]:
@@ -350,14 +392,15 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
                     "turnover_1d_cr", "turnover_expansion", "rotation_score", "score_change_5d",
                     "focus_score", "avg_focus", "avg_rs",
                     "buy_value_cr", "sell_value_cr", "net_value_cr", "latest_deal_value_cr", "buy_deal_cr", "sell_deal_cr",
-                    "deal_value_cr", "deal_pct_volume", "deal_volume_pct", "deal_rows", "active_days", "symbols",
-                    "close_price", "trigger_close"}  # add prices for green/red if changes available
+                    "deal_value_cr", "deal_pct_volume", "deal_volume_pct", "deal_rows", "active_days",
+                    "close_price", "trigger_close", "qty", "avg_buy_price", "sell_price", "unrealized_pct", "realized_pct",
+                    "symbol_count"}  # symbols is TEXT (preview), not numeric
     for col in display_cols:
         is_num = col in numeric_cols or (col in view.columns and pd.api.types.is_float_dtype(view[col]))
-        if col == "symbol" or not is_num:
+        if col in {"symbol", "symbols", "symbol_list", "notes", "tags", "status"} or not is_num:
             # Text columns (SECTOR, INDUSTRY, SYMBOLS / long lists, and similar label columns) LEFT-aligned.
             align = "left"
-            cls = "symbol-col" if col == "symbol" else "text-col"
+            cls = "symbol-col" if col == "symbol" else ("symbols-col" if col in {"symbols", "symbol_list"} else "text-col")
         else:
             # Numeric columns RIGHT-aligned (standard in all pro trading terminals).
             # This is the main reason the table in the screenshot looks "ugly" / unprofessional:
@@ -370,13 +413,16 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             width, wrap = 72, False
         elif col in {"rank"}:
             width, wrap = 48, False
-        elif col in {"symbol", "side", "band"}:
+        elif col in {"symbol", "side", "band", "status"}:
             width, wrap = 108, False
         elif col in {"rotation_state", "vcp_state", "industry_state", "sector_state", "setup"}:
             width, wrap = 120, False
-        elif col in {"why", "risks", "why_focus", "current_setup", "what_matched"}:
+        elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
             width, wrap = 320, True
-        elif col in {"group_name", "client_name", "symbol_list"}:
+        elif col in {"symbols", "symbol_list"}:
+            # Preview only — full TV lists live behind Copy buttons (avoids spaghetti cells)
+            width, wrap = 260, True
+        elif col in {"group_name", "client_name"}:
             width, wrap = 200, True
         elif col in {"broad_industry", "industry", "sector", "change_type"}:
             width, wrap = 180, True
@@ -968,17 +1014,28 @@ def render_group_expansions(groups: pd.DataFrame, level: str, max_stocks: int = 
     ]
     group_view = groups.copy()
     group_view["why_focus"] = group_view.apply(focus_reason, axis=1)
-    table_from_df(group_view[[c for c in display_cols if c in group_view.columns]], "Focus Groups", copy_symbols=False, pagination=12)
-    ui.label("Expand a group to inspect the strongest stocks inside it.").classes("mp-rule text-xs")
-    for _, row in group_view.head(min(len(group_view), 15)).iterrows():
+    table_from_df(
+        group_view[[c for c in display_cols if c in group_view.columns]],
+        f"All L/E groups ({len(group_view)})",
+        copy_symbols=False,
+        pagination=min(25, max(12, len(group_view))),
+    )
+    ui.label("Expand a group to load stocks (lazy — not preloaded).").classes("mp-rule text-xs")
+    # Expand every listed group (user asked for completeness); stocks still lazy per expand
+    for _, row in group_view.iterrows():
         name = str(row["group_name"])
+        state = str(row.get("rotation_state") or "")
         label = (
-            f"{name} | {row.get('rotation_state', '')} | "
+            f"{name} | {state} | "
             f"score {float(row.get('focus_score') or 0):.1f} | {row.get('why_focus', '')}"
         )
         with ui.expansion(label, icon="add").classes("mp-expansion w-full"):
             stocks = stock_rows_for_group(col, name, max_stocks, min_mcap)
-            table_from_df(stocks, "", pagination=min(max_stocks, 10))
+            if stocks.empty:
+                ui.label("No stocks pass Min MCap in this group.").classes("text-xs text-[var(--mp-muted)]")
+            else:
+                table_from_df(stocks, "", pagination=min(max_stocks, 20))
+                copy_button(f"Copy {name[:20]}", lambda d=stocks: symbols_text(d))
 
 
 def sector_tree_page() -> None:
@@ -1082,21 +1139,21 @@ def sector_tree_page() -> None:
 
 
 def sector_rotation_page() -> None:
-    """Sector leadership — fixed to Leading + Emerging (no multi-select bar)."""
+    """Sector leadership — all Leading + Emerging groups at selected level."""
     section_header(
         "Sector Intel",
-        "Leading & Emerging groups only. Change level for hierarchy: Broad Sector → Industry.",
+        "All Leading & Emerging groups at the selected level. Expand a group for stocks (MCap filter applies).",
     )
 
     levels = ["Broad Sector", "Sector", "Broad Industry", "Industry"]
-    # Hard filter — no chip multi-select UI
     selected_states = ["Leading", "Emerging"]
 
     toolbar = ui.row().classes("w-full items-center gap-3 mp-toolbar flex-wrap")
     with toolbar:
         level = ui.select(levels, value="Broad Industry", label="Level").classes("w-44").props("dense")
-        max_groups = ui.number("Groups", value=10, min=5, max=25).classes("w-24").props("dense")
-        max_stocks = ui.number("Stocks", value=6, min=3, max=12).classes("w-24").props("dense")
+        # Soft safety cap only — default high enough to include all L/E groups
+        max_groups = ui.number("Max groups", value=80, min=5, max=120).classes("w-28").props("dense")
+        max_stocks = ui.number("Stocks/group", value=18, min=3, max=50).classes("w-28").props("dense")
         min_mcap = ui.number("Min MCap", value=1000, min=0, max=10000).classes("w-28").props("dense")
         run_button = ui.button("Refresh").classes("mp-primary").props("dense")
         ui.space()
@@ -1110,15 +1167,71 @@ def sector_rotation_page() -> None:
     def render() -> None:
         container.clear()
         right_box.clear()
-        group_data = focus_groups(level.value, selected_states, int(max_groups.value or 10))
+        # Count all L/E at level (for KPI honesty)
+        ph = ", ".join(["?"] * len(selected_states))
+        counts = df_query(
+            f"""
+            WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
+            SELECT rotation_state, count(*) AS c
+            FROM sector_rotation, latest
+            WHERE trade_date = latest.d AND level = ? AND rotation_state IN ({ph})
+            GROUP BY 1
+            """,
+            [level.value, *selected_states],
+        )
+        n_lead = int(counts.loc[counts["rotation_state"] == "Leading", "c"].sum()) if not counts.empty else 0
+        n_emer = int(counts.loc[counts["rotation_state"] == "Emerging", "c"].sum()) if not counts.empty else 0
+        total_le = n_lead + n_emer
+        cap = int(max_groups.value or 80)
+        group_data = focus_groups(level.value, selected_states, cap)
         with right_box:
-            compact_kpi("Groups", len(group_data))
-            if not group_data.empty:
-                compact_kpi("Top", str(group_data.iloc[0]["group_name"])[:18])
+            compact_kpi("Leading", n_lead)
+            compact_kpi("Emerging", n_emer)
+            compact_kpi("Shown", len(group_data))
+            if total_le > len(group_data):
+                compact_kpi("Capped", f"{len(group_data)}/{total_le}")
         with container:
+            if total_le == 0:
+                ui.label("No Leading/Emerging groups at this level today.").classes("text-[var(--mp-muted)]")
+                return
+            if total_le > cap:
+                ui.label(
+                    f"Showing top {cap} of {total_le} L/E groups by focus score. Raise Max groups to see more."
+                ).classes("mp-rule text-xs mb-1")
+            else:
+                ui.label(
+                    f"All {total_le} Leading+Emerging groups at {level.value}. Expand any group for up to {int(max_stocks.value or 18)} stocks (Min MCap filter)."
+                ).classes("mp-rule text-xs mb-1")
             render_group_expansions(
-                group_data, level.value, int(max_stocks.value or 6), int(min_mcap.value or 1000)
+                group_data, level.value, int(max_stocks.value or 18), int(min_mcap.value or 1000)
             )
+            # Copy all listed stocks across expanded groups (batch query once)
+            col = level_column(level.value)
+            if not group_data.empty:
+                names = group_data["group_name"].dropna().astype(str).tolist()
+                if names:
+                    placeholders = ", ".join(["?"] * len(names))
+                    stocks_all = df_query(
+                        f"""
+                        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily)
+                        SELECT DISTINCT i.symbol
+                        FROM indicators_daily i
+                        JOIN stocks_master m USING(symbol), latest
+                        WHERE i.trade_date = latest.d
+                          AND m.{col} IN ({placeholders})
+                          AND coalesce(m.market_cap_cr, 0) >= ?
+                        ORDER BY i.symbol
+                        """,
+                        [*names, int(min_mcap.value or 1000)],
+                    )
+                    tv = symbols_text(stocks_all) if not stocks_all.empty else ""
+                    with ui.row().classes("gap-2 mt-2 items-center"):
+                        compact_kpi("L/E stocks", len(stocks_all))
+                        if tv:
+                            ui.button(
+                                "Copy all L/E symbols (TV)",
+                                on_click=lambda t=tv: copy_text_to_clipboard("Sector Intel L/E", t),
+                            ).classes("mp-primary").props("dense")
 
     run_button.on_click(render)
     level.on_value_change(lambda _: render())
@@ -1959,7 +2072,13 @@ def special_watchlist_page() -> None:
             row["turnover_1w_cr"] = group["turnover_1w_cr"].sum() if has_1w else 0
             row["turnover_1m_cr"] = group["turnover_1m_cr"].sum() if has_1m else 0
             row["deal_count"] = int(group["has_deal"].eq("Yes").sum()) if "has_deal" in group else 0
-            row["symbols"] = ",".join(group["symbol"].drop_duplicates().map(lambda s: f"NSE:{tradingview_symbol(s)}").tolist())
+            # Short human preview only — full NSE: lists go through Copy buttons (readable cells)
+            names = group["symbol"].dropna().drop_duplicates().astype(str).tolist()
+            row["symbol_count"] = len(names)
+            preview = ", ".join(names[:5])
+            if len(names) > 5:
+                preview = f"{preview} +{len(names) - 5}"
+            row["symbols"] = preview
             rows.append(row)
         out = pd.DataFrame(rows)
         return out.sort_values(["stock_count", "avg_rs_pct"], ascending=[False, False]) if not out.empty else out
@@ -2167,19 +2286,20 @@ def special_watchlist_page() -> None:
 
     def render() -> None:
         container.clear()
-        with container:
-            ui.spinner()
-            ui.label("Loading...").classes("text-xs text-[var(--mp-muted)]")
         summary_row.clear()
+        with container:
+            ui.spinner(size="lg")
+            ui.label("Loading scanner…").classes("text-xs text-[var(--mp-muted)]")
         date_rows = df_query("SELECT DISTINCT trade_date FROM indicators_daily ORDER BY trade_date DESC LIMIT 2")
         if date_rows.empty:
+            container.clear()
             with container:
                 ui.label("No indicator dates found.").classes("text-[var(--mp-muted)]")
             return
-            
+
         if debug_symbol.value:
             run_symbol_debug(debug_symbol.value)
-            
+
         current_date = date_rows.iloc[0]["trade_date"]
         previous_date = date_rows.iloc[1]["trade_date"] if len(date_rows) > 1 else None
         current = scanner_for(current_date)
@@ -2245,23 +2365,58 @@ def special_watchlist_page() -> None:
         bucket_copy = bucket_copy_text(data)
         sector_copy = grouped_copy_text(data, ["sector"])
         industry_copy = grouped_copy_text(data, ["sector", "industry"])
-        top_sector_text = ", ".join(sector_summary.head(3)["sector"].tolist()) if not sector_summary.empty else "-"
-        top_industry_text = ", ".join(industry_summary.head(3)["industry"].tolist()) if not industry_summary.empty else "-"
+
+        # Clear spinner before painting results (bug: spinner was never cleared)
+        container.clear()
         with summary_row:
             compact_kpi("Current", len(tradable))
             compact_kpi("Added", int((combined.get("status") == "Added").sum()) if not combined.empty else 0)
             compact_kpi("Removed", int((combined.get("status") == "Removed").sum()) if not combined.empty else 0)
             compact_kpi("Bucket Chg", int((combined.get("status") == "Bucket Changed").sum()) if not combined.empty else 0)
             compact_kpi("5% Avoid", int(current["is_avoid"].sum()) if not current.empty else 0)
-            # Top sectors/industries stay as compact text labels (still useful context)
-            ui.label(f"Top Sectors: {top_sector_text}").classes("text-xs text-[var(--mp-muted)]")
-            ui.label(f"Top Ind: {top_industry_text}").classes("text-xs text-[var(--mp-muted)]")
-        # Updated columns per feedback: drop status/prev_bucket/bucket/has_deal; surface turnover (today + 1w/1m) + delivery %
-        table_cols = ["symbol", "close_price", "market_cap_cr", "band", "volume", "avg_volume_20d", "turnover_cr", "turnover_1w_cr", "turnover_1m_cr", "delivery_pct", "away_10ema_pct", "away_52w_high_pct", "away_52w_low_pct", "rs_percentile", "buy_deal_cr", "sell_deal_cr", "sector", "industry", "ema_200", "is_avoid", "is_top_sector", "is_top_industry"]
-        table_data = combined[[c for c in table_cols if c in combined.columns]].copy() if not combined.empty else combined
-        if not table_data.empty and "is_avoid" in table_data.columns:
-            table_data = table_data[~table_data["is_avoid"].fillna(False)]
+
+        # Prominent top sector / industry leadership (not muted footer text)
         with container:
+            ui.label("Top leadership in this scan").classes("mp-section-title mt-1")
+            with ui.row().classes("w-full gap-2 flex-wrap mb-2"):
+                if sector_summary.empty:
+                    ui.label("No sector leadership yet — run with looser filters.").classes("text-xs text-[var(--mp-muted)]")
+                else:
+                    for _, srow in sector_summary.head(3).iterrows():
+                        sname = str(srow.get("sector") or "—")
+                        scount = int(srow.get("stock_count") or 0)
+                        srs = float(srow.get("avg_rs_pct") or 0)
+                        with ui.element("div").classes("mp-leader-chip"):
+                            ui.label("SECTOR").classes("mp-leader-kicker")
+                            ui.label(sname).classes("mp-leader-name")
+                            ui.label(f"{scount} names · RS {srs:.0f}").classes("mp-leader-meta")
+                            ui.button(
+                                "Copy TV",
+                                on_click=lambda n=sname: copy_text_to_clipboard(
+                                    f"Sector {n}",
+                                    grouped_copy_text(data, ["sector"], {n}),
+                                ),
+                            ).classes("mp-button text-xs").props("dense flat")
+                    for _, irow in industry_summary.head(3).iterrows():
+                        iname = str(irow.get("industry") or "—")
+                        icount = int(irow.get("stock_count") or 0)
+                        irs = float(irow.get("avg_rs_pct") or 0)
+                        with ui.element("div").classes("mp-leader-chip mp-leader-chip-ind"):
+                            ui.label("INDUSTRY").classes("mp-leader-kicker")
+                            ui.label(iname).classes("mp-leader-name")
+                            ui.label(f"{icount} names · RS {irs:.0f}").classes("mp-leader-meta")
+                            ui.button(
+                                "Copy TV",
+                                on_click=lambda n=iname: copy_text_to_clipboard(
+                                    f"Industry {n}",
+                                    grouped_copy_text(data, ["industry"], {n}),
+                                ),
+                            ).classes("mp-button text-xs").props("dense flat")
+
+            table_cols = ["symbol", "close_price", "market_cap_cr", "band", "volume", "avg_volume_20d", "turnover_cr", "turnover_1w_cr", "turnover_1m_cr", "delivery_pct", "away_10ema_pct", "away_52w_high_pct", "away_52w_low_pct", "rs_percentile", "buy_deal_cr", "sell_deal_cr", "sector", "industry", "ema_200", "is_avoid", "is_top_sector", "is_top_industry"]
+            table_data = combined[[c for c in table_cols if c in combined.columns]].copy() if not combined.empty else combined
+            if not table_data.empty and "is_avoid" in table_data.columns:
+                table_data = table_data[~table_data["is_avoid"].fillna(False)]
             ui.label("Liquidity Mode controls whether Day Volume, 20D Avg Volume, either, or both must pass. Optional OHLC filters are strict: if enabled, all OHLC prices must be above the selected EMA and the EMA must exist. Scanner also requires price within the selected distance from 52W high and at least the selected % above 52W low. 5% band stocks stay out of the scanner and copy text.").classes("mp-rule")
             with ui.row().classes("gap-2 flex-wrap"):
                 ui.button("Copy Buckets", on_click=lambda c=bucket_copy: copy_text_to_clipboard("Buckets", c)).classes("mp-button")
@@ -2271,13 +2426,15 @@ def special_watchlist_page() -> None:
                 ui.button("Copy Top Industry Stocks", on_click=lambda: copy_text_to_clipboard("Top Industry Stocks", grouped_copy_text(data, ["industry"], top_industries))).classes("mp-button")
             table_from_df(table_data, "Momentum Scanner Changes", hidden_cols={"ema_200", "is_avoid", "is_top_sector", "is_top_industry"})
 
-            # When output tables have less data (few groups), put side by side to avoid lots of vertical spacing and hard-to-read empty areas
+            # Sector / industry summary — symbols column is short preview only
             with ui.row().classes("w-full gap-4 items-start"):
-                with ui.column().classes("flex-1"):
-                    table_from_df(sector_summary, "Sector Output", copy_symbols=False)
+                with ui.column().classes("flex-1 min-w-0"):
+                    sec_show = sector_summary[[c for c in ["sector", "stock_count", "symbol_count", "avg_10ema_pct", "avg_rs_pct", "avg_20d_vol", "turnover_1d_cr", "turnover_1w_cr", "turnover_1m_cr", "deal_count", "symbols"] if c in sector_summary.columns]] if not sector_summary.empty else sector_summary
+                    table_from_df(sec_show, "Sector Output", copy_symbols=False)
                     ui.button("Copy All Sectors (TV format)", on_click=lambda: copy_text_to_clipboard("Sectors", sector_copy)).classes("mp-button text-xs mt-1")
-                with ui.column().classes("flex-1"):
-                    table_from_df(industry_summary, "Industry Output", copy_symbols=False)
+                with ui.column().classes("flex-1 min-w-0"):
+                    ind_show = industry_summary[[c for c in ["sector", "industry", "stock_count", "symbol_count", "avg_10ema_pct", "avg_rs_pct", "avg_20d_vol", "turnover_1d_cr", "turnover_1w_cr", "turnover_1m_cr", "deal_count", "symbols"] if c in industry_summary.columns]] if not industry_summary.empty else industry_summary
+                    table_from_df(ind_show, "Industry Output", copy_symbols=False)
                     ui.button("Copy All Industries (TV format)", on_click=lambda: copy_text_to_clipboard("Industries", industry_copy)).classes("mp-button text-xs mt-1")
 
     run_button.on_click(render)
@@ -3524,11 +3681,55 @@ def add_styles() -> None:
           /* Explicit text columns (including symbol): LEFT (for labels and long lists like SYMBOLS / industries) */
           .text-col,
           .symbol-col,
+          .symbols-col,
           .mp-table td.text-col, .mp-table .q-td.text-col,
           .q-table td.text-col, .q-table .q-td.text-col,
           .mp-table td.symbol-col, .mp-table .q-td.symbol-col,
-          .q-table td.symbol-col, .q-table .q-td.symbol-col {
+          .q-table td.symbol-col, .q-table .q-td.symbol-col,
+          .mp-table td.symbols-col, .mp-table .q-td.symbols-col,
+          .q-table td.symbols-col, .q-table .q-td.symbols-col {
             text-align: left !important;
+          }
+          .symbols-col, .mp-table td.symbols-col, .q-table td.symbols-col {
+            white-space: normal !important;
+            word-break: break-word !important;
+            font-family: var(--mp-font-mono);
+            font-size: 11px !important;
+            line-height: 1.35;
+            max-width: 280px;
+          }
+
+          /* Momentum top sector / industry leadership chips */
+          .mp-leader-chip {
+            min-width: 160px;
+            max-width: 240px;
+            padding: 8px 10px;
+            border-radius: var(--mp-radius-md);
+            background: var(--mp-primary-bg);
+            border: 1px solid var(--mp-primary);
+            box-shadow: var(--mp-shadow-sm);
+          }
+          .mp-leader-chip-ind {
+            background: var(--mp-info-bg);
+            border-color: var(--mp-info);
+          }
+          .mp-leader-kicker {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: var(--mp-muted);
+          }
+          .mp-leader-name {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--mp-text);
+            line-height: 1.25;
+            word-break: break-word;
+          }
+          .mp-leader-meta {
+            font-size: 11px;
+            color: var(--mp-muted);
+            margin-bottom: 4px;
           }
 
           /* 3-tier weight system for scannability */
@@ -3965,48 +4166,134 @@ def today_page() -> None:
     if prep.empty:
         ui.label(
             "No top-10 candidates (MCap≥1000, RS≥80, above 200EMA, Leading/Emerging or strong setup). "
-            "Open Sector Intel if breadth is weak."
+            "See Near entry below, or open Sector Intel if breadth is weak."
         ).classes("text-[var(--mp-muted)]")
-        return
-
-    why_list = []
-    risk_list = []
-    for _, row in prep.iterrows():
-        w, r = _build_why_risk(row)
-        why_list.append(w)
-        risk_list.append(r)
-    prep = prep.copy()
-    prep.insert(0, "rank", range(1, len(prep) + 1))
-    prep["why"] = why_list
-    prep["risks"] = risk_list
-    prep["setup"] = prep["vcp_state"].fillna("").replace("", "Structure")
-
-    with ui.row().classes("gap-3 flex-wrap mb-2 items-center"):
-        compact_kpi("#1", str(prep.iloc[0]["symbol"]))
-        compact_kpi("Score", f"{float(prep.iloc[0]['prep_score']):.0f}")
-        compact_kpi("Session", str(latest_d))
-        copy_button("Copy Top 10 TV", lambda: symbols_text(prep))
-
-    # Rank strip — quick scan without table noise
-    with ui.row().classes("w-full gap-2 flex-wrap mb-2"):
+    else:
+        why_list = []
+        risk_list = []
         for _, row in prep.iterrows():
-            tone = "good" if float(row.get("prep_score") or 0) >= 100 else "info"
-            with ui.element("div").classes("mp-rank-chip"):
-                ui.label(f"#{int(row['rank'])}").classes("mp-rank-num")
-                ui.link(str(row["symbol"]), tradingview_url(str(row["symbol"])), new_tab=True).classes("mp-symbol")
-                ui.label(str(row.get("setup") or "")[:14]).classes("text-xs text-[var(--mp-muted)]")
+            w, r = _build_why_risk(row)
+            why_list.append(w)
+            risk_list.append(r)
+        prep = prep.copy()
+        prep.insert(0, "rank", range(1, len(prep) + 1))
+        prep["why"] = why_list
+        prep["risks"] = risk_list
+        prep["setup"] = prep["vcp_state"].fillna("").replace("", "Structure")
 
-    show_cols = [
-        "rank", "symbol", "prep_score", "setup", "why", "risks",
-        "rs_percentile", "vcp_score",
-        "industry_state", "buy_deal_cr",
-        "away_52w_high_pct", "industry",
-    ]
-    table_from_df(
-        prep[[c for c in show_cols if c in prep.columns]],
-        f"Top 10 detail · {latest_d}",
-        pagination=10,
+        with ui.row().classes("gap-3 flex-wrap mb-2 items-center"):
+            compact_kpi("#1", str(prep.iloc[0]["symbol"]))
+            compact_kpi("Score", f"{float(prep.iloc[0]['prep_score']):.0f}")
+            compact_kpi("Session", str(latest_d))
+            copy_button("Copy Top 10 TV", lambda: symbols_text(prep))
+
+        # Rank strip — quick scan without table noise
+        with ui.row().classes("w-full gap-2 flex-wrap mb-2"):
+            for _, row in prep.iterrows():
+                with ui.element("div").classes("mp-rank-chip"):
+                    ui.label(f"#{int(row['rank'])}").classes("mp-rank-num")
+                    ui.link(str(row["symbol"]), tradingview_url(str(row["symbol"])), new_tab=True).classes("mp-symbol")
+                    ui.label(str(row.get("setup") or "")[:14]).classes("text-xs text-[var(--mp-muted)]")
+
+        show_cols = [
+            "rank", "symbol", "prep_score", "setup", "why", "risks",
+            "rs_percentile", "vcp_score",
+            "industry_state", "buy_deal_cr",
+            "away_52w_high_pct", "industry",
+        ]
+        table_from_df(
+            prep[[c for c in show_cols if c in prep.columns]],
+            f"Top 10 detail · {latest_d}",
+            pagination=10,
+        )
+
+    # Near buy range / pattern forming (looser than Top 10 — decision support)
+    ui.label("Near entry · pattern forming").classes("mp-section-title mt-3")
+    ui.label(
+        "Looser than Top 10: RS≥60, liquid, above 200EMA, not extended on 10EMA. "
+        "Favours Near Pivot / Building Base / mild 52W pullbacks in constructive industries."
+    ).classes("mp-rule text-xs mb-2")
+    near_entry = df_query(
+        """
+        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
+        deal_sum AS (
+            SELECT symbol,
+                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
+                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr
+            FROM deals, latest
+            WHERE trade_date >= latest.d - INTERVAL 15 DAY
+            GROUP BY symbol
+        )
+        SELECT i.symbol, i.vcp_state AS setup, i.vcp_score,
+               i.rs_percentile, i.away_52w_high_pct, i.away_10ema_pct,
+               i.close_price, i.return_5d_pct,
+               m.industry, m.sector, m.market_cap_cr,
+               sr_i.rotation_state AS industry_state,
+               coalesce(d.buy_deal_cr, 0) AS buy_deal_cr,
+               (
+                   coalesce(i.rs_percentile, 0) * 0.4
+                   + coalesce(i.vcp_score, 0) * 0.3
+                   + CASE WHEN i.vcp_state IN ('Near Pivot', 'Building Base') THEN 15
+                          WHEN i.vcp_state = 'Breakout' THEN 8 ELSE 0 END
+                   + CASE WHEN i.away_52w_high_pct BETWEEN -18 AND -3 THEN 12
+                          WHEN i.away_52w_high_pct BETWEEN -3 AND 2 THEN 6 ELSE 0 END
+                   + CASE WHEN i.away_10ema_pct BETWEEN 0 AND 5 THEN 10 ELSE 0 END
+                   + CASE sr_i.rotation_state
+                       WHEN 'Leading' THEN 10 WHEN 'Emerging' THEN 8 WHEN 'Improving' THEN 5
+                       WHEN 'Weakening' THEN -8 WHEN 'Lagging' THEN -12 ELSE 0 END
+                   + least(coalesce(d.buy_deal_cr, 0), 10) * 0.4
+               ) AS near_score
+        FROM indicators_daily i
+        JOIN stocks_master m USING(symbol)
+        LEFT JOIN deal_sum d USING(symbol)
+        LEFT JOIN sector_rotation sr_i
+            ON sr_i.trade_date = (SELECT d FROM latest)
+           AND sr_i.level = 'Industry' AND sr_i.group_name = m.industry, latest
+        WHERE i.trade_date = latest.d
+          AND coalesce(m.market_cap_cr, 0) >= 1000
+          AND coalesce(i.avg_volume_20d, 0) >= 300000
+          AND (i.ema_200 IS NULL OR i.close_price > i.ema_200)
+          AND coalesce(i.rs_percentile, 0) >= 60
+          AND coalesce(i.away_10ema_pct, 0) <= 6
+          AND coalesce(m.band, 99) > 5
+          AND (
+                i.vcp_state IN ('Near Pivot', 'Building Base', 'Breakout')
+             OR i.away_52w_high_pct BETWEEN -18 AND 2
+             OR (i.away_10ema_pct BETWEEN 0 AND 5 AND i.ema_stack_bullish)
+          )
+          AND coalesce(sr_i.rotation_state, 'Neutral') NOT IN ('Lagging', 'Weakening')
+        ORDER BY near_score DESC NULLS LAST, i.rs_percentile DESC
+        LIMIT 15
+        """
     )
+    if near_entry.empty:
+        ui.label("No near-entry names under these rules today.").classes("text-[var(--mp-muted)] text-sm")
+    else:
+        with ui.row().classes("gap-2 items-center mb-1"):
+            compact_kpi("Near entry", len(near_entry))
+            copy_button("Copy Near-entry TV", lambda: symbols_text(near_entry))
+        table_from_df(
+            near_entry[
+                [
+                    c
+                    for c in [
+                        "symbol",
+                        "setup",
+                        "near_score",
+                        "rs_percentile",
+                        "away_52w_high_pct",
+                        "away_10ema_pct",
+                        "industry_state",
+                        "buy_deal_cr",
+                        "industry",
+                        "close_price",
+                    ]
+                    if c in near_entry.columns
+                ]
+            ],
+            f"Near entry · {latest_d}",
+            pagination=15,
+        )
 
     # High-value institutional buys with structure
     deals_hot = df_query(
@@ -4036,6 +4323,350 @@ def today_page() -> None:
     if not deals_hot.empty:
         ui.label("Institutional buy + tradable structure (10d)").classes("mp-section-title mt-3")
         table_from_df(deals_hot, "", pagination=10)
+
+
+def _portfolio_next_event_id() -> int:
+    try:
+        row = write_query("SELECT coalesce(max(id), 0) + 1 AS n FROM portfolio_events")
+        return int(row.iloc[0]["n"])
+    except Exception:
+        return int(datetime.now().timestamp())
+
+
+def portfolio_upsert(
+    symbol: str,
+    qty: float,
+    avg_buy: float,
+    buy_date_val,
+    notes: str = "",
+    tags: str = "",
+) -> None:
+    ensure_portfolio_tables()
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        raise ValueError("Symbol required")
+    now = datetime.now()
+    bd = pd.to_datetime(buy_date_val).date() if buy_date_val else date.today()
+    # Delete+insert for broad DuckDB compatibility (upsert)
+    write_execute("DELETE FROM portfolio_positions WHERE symbol = ?", [sym])
+    write_execute(
+        """
+        INSERT INTO portfolio_positions
+            (symbol, status, qty, avg_buy_price, buy_date, sell_date, sell_price, notes, tags, created_at, updated_at)
+        VALUES (?, 'OPEN', ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+        """,
+        [sym, float(qty or 0), float(avg_buy or 0), bd, notes or "", tags or "", now, now],
+    )
+    write_execute(
+        """
+        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
+        VALUES (?, ?, 'BUY', ?, ?, ?, ?, ?)
+        """,
+        [_portfolio_next_event_id(), sym, bd, float(qty or 0), float(avg_buy or 0), notes or "", now],
+    )
+
+
+def portfolio_mark_sold(symbol: str, sell_price: float, sell_date_val, notes: str = "") -> None:
+    ensure_portfolio_tables()
+    sym = str(symbol or "").strip().upper()
+    sd = pd.to_datetime(sell_date_val).date() if sell_date_val else date.today()
+    now = datetime.now()
+    write_execute(
+        """
+        UPDATE portfolio_positions
+        SET status = 'SOLD', sell_price = ?, sell_date = ?,
+            notes = CASE WHEN ? = '' THEN notes ELSE notes || ' | ' || ? END,
+            updated_at = ?
+        WHERE symbol = ?
+        """,
+        [float(sell_price or 0), sd, notes or "", notes or "", now, sym],
+    )
+    write_execute(
+        """
+        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
+        VALUES (?, ?, 'SELL', ?, NULL, ?, ?, ?)
+        """,
+        [_portfolio_next_event_id(), sym, sd, float(sell_price or 0), notes or "", now],
+    )
+
+
+def portfolio_reopen(symbol: str) -> None:
+    ensure_portfolio_tables()
+    sym = str(symbol or "").strip().upper()
+    now = datetime.now()
+    write_execute(
+        """
+        UPDATE portfolio_positions
+        SET status = 'OPEN', sell_date = NULL, sell_price = NULL, updated_at = ?
+        WHERE symbol = ?
+        """,
+        [now, sym],
+    )
+    write_execute(
+        """
+        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
+        VALUES (?, ?, 'STATUS', ?, NULL, NULL, 'Reopened', ?)
+        """,
+        [_portfolio_next_event_id(), sym, date.today(), now],
+    )
+
+
+def portfolio_enrich(status: str) -> pd.DataFrame:
+    """Join manual positions with live indicators + 20d deals."""
+    ensure_portfolio_tables()
+    try:
+        pos = write_query(
+            "SELECT * FROM portfolio_positions WHERE status = ? ORDER BY updated_at DESC",
+            [status],
+        )
+    except Exception:
+        return pd.DataFrame()
+    if pos.empty:
+        return pos
+    syms = pos["symbol"].dropna().astype(str).tolist()
+    clause = ", ".join([f"'{s}'" for s in syms])
+    live = df_query(
+        f"""
+        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
+        deal_sum AS (
+            SELECT symbol,
+                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
+                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr
+            FROM deals, latest
+            WHERE trade_date >= latest.d - INTERVAL 20 DAY
+              AND symbol IN ({clause})
+            GROUP BY symbol
+        )
+        SELECT i.symbol, i.close_price AS cmp, i.return_5d_pct, i.away_10ema_pct, i.away_52w_high_pct,
+               i.rs_percentile, i.vcp_state, i.vcp_score, i.ema_stack_bullish,
+               m.sector, m.industry, m.market_cap_cr,
+               sr_i.rotation_state AS industry_state,
+               coalesce(d.buy_deal_cr, 0) AS buy_deal_cr,
+               coalesce(d.sell_deal_cr, 0) AS sell_deal_cr
+        FROM indicators_daily i
+        JOIN stocks_master m USING(symbol)
+        LEFT JOIN deal_sum d USING(symbol)
+        LEFT JOIN sector_rotation sr_i
+            ON sr_i.trade_date = (SELECT d FROM latest)
+           AND sr_i.level = 'Industry' AND sr_i.group_name = m.industry, latest
+        WHERE i.trade_date = latest.d AND i.symbol IN ({clause})
+        """
+    )
+    out = pos.merge(live, on="symbol", how="left")
+    cmp = pd.to_numeric(out.get("cmp"), errors="coerce")
+    avg = pd.to_numeric(out.get("avg_buy_price"), errors="coerce")
+    sell_px = pd.to_numeric(out.get("sell_price"), errors="coerce")
+    out["unrealized_pct"] = (cmp / avg - 1.0) * 100.0
+    out["realized_pct"] = (sell_px / avg - 1.0) * 100.0
+    return out
+
+
+def portfolio_page() -> None:
+    section_header(
+        "Portfolio",
+        "Manual positions — Open vs Sold. Enriched with live CMP, RS, 52W, industry state, and institutional deals. "
+        "Survives daily append; re-enter after a full DB rebuild.",
+    )
+    ensure_portfolio_tables()
+
+    try:
+        symbol_options = df_query(
+            """
+            WITH latest AS (SELECT max(trade_date) d FROM indicators_daily)
+            SELECT DISTINCT symbol FROM indicators_daily i, latest
+            WHERE i.trade_date = latest.d ORDER BY symbol
+            """
+        )["symbol"].tolist()
+    except Exception:
+        symbol_options = []
+
+    host = ui.column().classes("w-full")
+
+    def refresh() -> None:
+        host.clear()
+        open_df = portfolio_enrich("OPEN")
+        sold_df = portfolio_enrich("SOLD")
+
+        with host:
+            # --- Add / update ---
+            ui.label("Add or update OPEN position").classes("mp-section-title")
+            with ui.row().classes("gap-2 items-end flex-wrap mp-toolbar"):
+                p_sym = ui.select(
+                    options=symbol_options,
+                    with_input=True,
+                    label="Symbol",
+                    value=None,
+                    clearable=True,
+                    new_value_mode="add",
+                ).classes("w-40").props("dense")
+                p_qty = ui.number("Qty", value=1, min=0).classes("w-28").props("dense")
+                p_avg = ui.number("Avg buy", value=None, format="%.2f").classes("w-32").props("dense")
+                p_buy = ui.input("Buy date", value=str(date.today())).classes("w-32").props("dense")
+                p_notes = ui.input("Notes", placeholder="optional").classes("w-48").props("dense")
+                p_tags = ui.input("Tags", placeholder="swing / core").classes("w-32").props("dense")
+
+                def do_save() -> None:
+                    try:
+                        portfolio_upsert(
+                            p_sym.value,
+                            float(p_qty.value or 0),
+                            float(p_avg.value or 0),
+                            p_buy.value,
+                            p_notes.value or "",
+                            p_tags.value or "",
+                        )
+                        ui.notify(f"Saved {str(p_sym.value).upper()} as OPEN", type="positive")
+                        refresh()
+                    except Exception as exc:
+                        ui.notify(f"Save failed: {exc}", type="negative")
+
+                ui.button("Save OPEN", on_click=do_save).classes("mp-primary").props("dense")
+
+            # --- Mark sold ---
+            open_syms = open_df["symbol"].tolist() if not open_df.empty else []
+            ui.label("Mark sold (still tracked in archive)").classes("mp-section-title mt-3")
+            with ui.row().classes("gap-2 items-end flex-wrap"):
+                s_sym = ui.select(options=open_syms or [""], value=open_syms[0] if open_syms else None, label="Open symbol").classes("w-40").props("dense")
+                s_px = ui.number("Sell price", value=None, format="%.2f").classes("w-32").props("dense")
+                s_dt = ui.input("Sell date", value=str(date.today())).classes("w-32").props("dense")
+                s_notes = ui.input("Note", placeholder="optional").classes("w-40").props("dense")
+
+                def do_sell() -> None:
+                    if not s_sym.value:
+                        ui.notify("No open symbol selected", type="warning")
+                        return
+                    try:
+                        portfolio_mark_sold(s_sym.value, float(s_px.value or 0), s_dt.value, s_notes.value or "")
+                        ui.notify(f"Moved {s_sym.value} to SOLD", type="positive")
+                        refresh()
+                    except Exception as exc:
+                        ui.notify(f"Sell failed: {exc}", type="negative")
+
+                ui.button("Mark SOLD", on_click=do_sell).classes("mp-button").props("dense")
+
+            # KPIs
+            with ui.row().classes("gap-2 flex-wrap mt-2"):
+                compact_kpi("Open", len(open_df))
+                compact_kpi("Sold", len(sold_df))
+                if not open_df.empty and "unrealized_pct" in open_df.columns:
+                    med = pd.to_numeric(open_df["unrealized_pct"], errors="coerce").median()
+                    if pd.notna(med):
+                        compact_kpi("Med U/R %", f"{med:.1f}")
+                if not open_df.empty:
+                    copy_button("Copy open TV", lambda: symbols_text(open_df))
+
+            # Open table
+            ui.label("Open positions").classes("mp-section-title mt-3")
+            if open_df.empty:
+                ui.label("No open positions — add a symbol above.").classes("text-[var(--mp-muted)] text-sm")
+            else:
+                show = open_df[
+                    [
+                        c
+                        for c in [
+                            "symbol",
+                            "qty",
+                            "avg_buy_price",
+                            "cmp",
+                            "unrealized_pct",
+                            "return_5d_pct",
+                            "away_10ema_pct",
+                            "away_52w_high_pct",
+                            "rs_percentile",
+                            "vcp_state",
+                            "industry_state",
+                            "buy_deal_cr",
+                            "sell_deal_cr",
+                            "industry",
+                            "sector",
+                            "buy_date",
+                            "notes",
+                            "tags",
+                        ]
+                        if c in open_df.columns
+                    ]
+                ]
+                table_from_df(show, "", pagination=25)
+
+            # Deals into holdings
+            ui.label("Deals into holdings (20d)").classes("mp-section-title mt-3")
+            hold_syms = set(open_df["symbol"].tolist() if not open_df.empty else [])
+            hold_syms |= set(
+                sold_df.loc[
+                    pd.to_datetime(sold_df.get("sell_date"), errors="coerce")
+                    >= (pd.Timestamp.now() - pd.Timedelta(days=30)),
+                    "symbol",
+                ].tolist()
+                if not sold_df.empty and "sell_date" in sold_df.columns
+                else []
+            )
+            if not hold_syms:
+                ui.label("No holdings to match deals.").classes("text-xs text-[var(--mp-muted)]")
+            else:
+                clause = ", ".join([f"'{s}'" for s in hold_syms])
+                deals_h = df_query(
+                    f"""
+                    WITH latest AS (SELECT max(trade_date) d FROM deals)
+                    SELECT d.trade_date, d.symbol, d.side, d.client_name, d.deal_value_cr,
+                           d.quantity, d.price, m.industry
+                    FROM deals d
+                    LEFT JOIN stocks_master m USING(symbol), latest
+                    WHERE d.symbol IN ({clause})
+                      AND d.trade_date >= latest.d - INTERVAL 20 DAY
+                    ORDER BY d.trade_date DESC, d.deal_value_cr DESC
+                    LIMIT 40
+                    """
+                )
+                if deals_h.empty:
+                    ui.label("No bulk/block deals on portfolio names in last 20 sessions.").classes(
+                        "text-xs text-[var(--mp-muted)]"
+                    )
+                else:
+                    table_from_df(deals_h, "", pagination=15)
+
+            # Sold archive
+            ui.label("Sold archive (still tracked)").classes("mp-section-title mt-3")
+            if sold_df.empty:
+                ui.label("No sold positions yet.").classes("text-[var(--mp-muted)] text-sm")
+            else:
+                sold_show = sold_df[
+                    [
+                        c
+                        for c in [
+                            "symbol",
+                            "qty",
+                            "avg_buy_price",
+                            "sell_price",
+                            "realized_pct",
+                            "cmp",
+                            "rs_percentile",
+                            "industry_state",
+                            "buy_deal_cr",
+                            "buy_date",
+                            "sell_date",
+                            "notes",
+                        ]
+                        if c in sold_df.columns
+                    ]
+                ]
+                table_from_df(sold_show, "", pagination=20)
+                sold_opts = sold_df["symbol"].tolist()
+                with ui.row().classes("gap-2 items-end mt-2"):
+                    r_sym = ui.select(options=sold_opts, value=sold_opts[0] if sold_opts else None, label="Reopen symbol").classes("w-40").props("dense")
+
+                    def do_reopen() -> None:
+                        if not r_sym.value:
+                            return
+                        try:
+                            portfolio_reopen(r_sym.value)
+                            ui.notify(f"Reopened {r_sym.value}", type="positive")
+                            refresh()
+                        except Exception as exc:
+                            ui.notify(f"Reopen failed: {exc}", type="negative")
+
+                    ui.button("Reopen as OPEN", on_click=do_reopen).classes("mp-button").props("dense")
+
+    refresh()
 
 
 def _lazy_panel(build_fn, loaded: dict, key: str):
@@ -4071,12 +4702,13 @@ def main() -> None:
     app_header()
 
     loaded: dict[str, bool] = {}
-    # Decision nav: Today | Sector Intel | Momentum | Deals
+    # Decision nav: Today | Sector Intel | Momentum | Deals | Portfolio
     tab_specs = [
         ("Today", today_page, "today", True),
         ("Sector Intel", sector_rotation_page, "rotation", False),
         ("Momentum", special_watchlist_page, "scanner", False),
         ("Deals", deals_page, "deals", False),
+        ("Portfolio", portfolio_page, "portfolio", False),
     ]
 
     with ui.element("div").classes("mp-sticky-nav"):
