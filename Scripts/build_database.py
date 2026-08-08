@@ -322,8 +322,16 @@ def _iter_deal_paths(folder: Path, kind: str) -> list[Path]:
 
 
 def read_all_deals() -> pd.DataFrame:
+    """Load bulk/block from archive, daily, and downloads/DDMMYYYY/ (dated sessions)."""
+    from config import INPUT_DIR
+
     frames = []
-    for folder in [ARCHIVE_DIR, DAILY_DIR]:
+    folders = [ARCHIVE_DIR, DAILY_DIR]
+    downloads = Path(INPUT_DIR) / "downloads"
+    if downloads.exists():
+        # Each session folder may hold bulk.csv / block.csv for that day
+        folders.extend(sorted(p for p in downloads.iterdir() if p.is_dir() and p.name != "_probe"))
+    for folder in folders:
         for path in _iter_deal_paths(folder, "bulk"):
             frames.append(read_deals(path, "Bulk"))
         for path in _iter_deal_paths(folder, "block"):
@@ -936,18 +944,31 @@ def write_database(
     con.execute("CREATE INDEX idx_breadth_date ON breadth_daily(trade_date)")
     con.execute("CREATE INDEX idx_sector_rotation ON sector_rotation(level, group_name, trade_date)")
     con.execute("CREATE INDEX idx_screener_name ON screener_results(screener_name)")
+    # User-owned tables: must survive append / deals refresh / rebuild of market tables.
+    # Portfolio was lost when only trade_journal was preserved — keep these forever.
+    USER_TABLES = (
+        "trade_journal",
+        "watchlist_candidates",
+        "portfolio_positions",
+        "portfolio_events",
+    )
     if DB_PATH.exists():
         try:
             old_con = duckdb.connect(str(DB_PATH), read_only=True)
-            for user_table in ("trade_journal", "watchlist_candidates"):
-                exists = old_con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [user_table]).fetchone()[0]
-                if exists:
-                    user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
-                    con.register(f"{user_table}_df", user_rows)
-                    con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
+            for user_table in USER_TABLES:
+                exists = old_con.execute(
+                    "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
+                    [user_table],
+                ).fetchone()[0]
+                if not exists:
+                    continue
+                user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
+                con.register(f"{user_table}_df", user_rows)
+                con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
+                print(f"Preserved user table {user_table}: {len(user_rows):,} rows")
             old_con.close()
         except Exception as exc:
-            print(f"Warning: could not preserve trade_journal: {exc}")
+            print(f"Warning: could not preserve user tables ({USER_TABLES}): {exc}")
     con.close()
     if DB_PATH.exists():
         backup = DB_PATH.with_suffix(".backup.duckdb")

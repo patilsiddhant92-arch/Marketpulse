@@ -339,10 +339,18 @@ def deals_from_api(session: requests.Session, day: datetime, deal_type: str, des
 
 
 def normalize_key(row: dict, *names: str) -> str:
+    """Match API keys like BD_DT_DATE / BD_SYMBOL against human column aliases.
+
+    Keys are normalized by lowercasing and replacing '_' with spaces so
+    'BD_DT_DATE' and 'bd dt date' both resolve. (Previously lookup used
+    name.lower() without underscore folding, so historicalOR deals wrote
+    blank CSV rows and bulk/block days looked 'missing'.)
+    """
     lowered = {str(k).strip().lower().replace("_", " "): v for k, v in row.items()}
     for name in names:
-        value = lowered.get(name.lower())
-        if value is not None:
+        key = str(name).strip().lower().replace("_", " ")
+        value = lowered.get(key)
+        if value is not None and str(value).strip() != "":
             return str(value).strip()
     return ""
 
@@ -364,19 +372,33 @@ def write_deals_csv(path: Path, rows: list[dict]) -> None:
         if not rows:
             writer.writerow(["NO RECORDS", "", "", "", "", "", "", ""])
             return
+        wrote = 0
         for row in rows:
-            writer.writerow(
-                [
-                    normalize_key(row, "date", "BD_DT_DATE", "TIMESTAMP"),
-                    normalize_key(row, "symbol", "BD_SYMBOL", "SYMBOL"),
-                    normalize_key(row, "security name", "BD_SCRIP_NAME", "SECURITY_NAME"),
-                    normalize_key(row, "client name", "BD_CLIENT_NAME", "CLIENT_NAME"),
-                    normalize_key(row, "buy/sell", "BD_BUY_SELL", "BUY_SELL"),
-                    normalize_key(row, "quantity traded", "BD_QTY_TRD", "QUANTITY_TRADED"),
-                    normalize_key(row, "trade price / wght. avg. price", "BD_TP_WATP", "TRADE_PRICE"),
-                    normalize_key(row, "remarks", "REMARKS"),
-                ]
-            )
+            if not isinstance(row, dict):
+                continue
+            out = [
+                normalize_key(row, "date", "BD_DT_DATE", "TIMESTAMP"),
+                normalize_key(row, "symbol", "BD_SYMBOL", "SYMBOL"),
+                normalize_key(row, "security name", "BD_SCRIP_NAME", "SECURITY_NAME"),
+                normalize_key(row, "client name", "BD_CLIENT_NAME", "CLIENT_NAME"),
+                normalize_key(row, "buy/sell", "BD_BUY_SELL", "BUY_SELL"),
+                normalize_key(row, "quantity traded", "BD_QTY_TRD", "QUANTITY_TRADED"),
+                normalize_key(
+                    row,
+                    "trade price / wght. avg. price",
+                    "BD_TP_WATP",
+                    "TRADE_PRICE",
+                    "trade price",
+                ),
+                normalize_key(row, "remarks", "BD_REMARKS", "REMARKS"),
+            ]
+            # Skip blank API shells (all empty after normalize)
+            if not out[0] and not out[1]:
+                continue
+            writer.writerow(out)
+            wrote += 1
+        if wrote == 0:
+            writer.writerow(["NO RECORDS", "", "", "", "", "", "", ""])
 
 
 def download_latest_deal_csv(session: requests.Session, deal_type: str, dest: Path) -> str:
@@ -390,6 +412,32 @@ def download_latest_deal_csv(session: requests.Session, deal_type: str, dest: Pa
     )
 
 
+def _deal_file_matches_day(path: Path, day: datetime) -> bool:
+    """True if CSV has no dated rows, or at least one row on the requested day."""
+    try:
+        import pandas as pd
+
+        df = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
+    except Exception:
+        return False
+    if df.empty:
+        return True
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    date_col = cols.get("date")
+    if date_col is None:
+        return False
+    series = df[date_col].astype(str).str.strip().str.upper()
+    if series.eq("NO RECORDS").all() or series.replace({"NAN": "", "NONE": ""}).eq("").all():
+        return True
+    parsed = pd.to_datetime(series, format="%d-%b-%Y", errors="coerce")
+    if parsed.isna().all():
+        parsed = pd.to_datetime(series, dayfirst=True, errors="coerce")
+    if parsed.isna().all():
+        return False
+    target = pd.Timestamp(day.date())
+    return bool((parsed.dt.normalize() == target).any())
+
+
 def download_deals(session: requests.Session, day: datetime, stage_dir: Path, discovered: dict[str, str]) -> dict[str, str]:
     sources: dict[str, str] = {}
     for deal_type in ("bulk", "block"):
@@ -398,14 +446,27 @@ def download_deals(session: requests.Session, day: datetime, stage_dir: Path, di
             try:
                 sources[deal_type] = download_first(session, (discovered[deal_type],), dest)
                 validate_csv(dest, ("Date", "Symbol", "Buy/Sell"), allow_no_records=True)
-                continue
+                if _deal_file_matches_day(dest, day):
+                    continue
             except DownloadError:
                 pass
         try:
             sources[deal_type] = deals_from_api(session, day, deal_type, dest)
+            validate_csv(dest, ("Date", "Symbol", "Buy/Sell"), allow_no_records=True)
+            continue
         except DownloadError:
+            pass
+        # Last resort: "latest" archive CSV — only keep if it is actually this session
+        try:
             sources[deal_type] = download_latest_deal_csv(session, deal_type, dest)
             validate_csv(dest, ("Date", "Symbol", "Buy/Sell"), allow_no_records=True)
+            if not _deal_file_matches_day(dest, day):
+                # Do not pollute dated folders with the wrong day's deals
+                write_deals_csv(dest, [])
+                sources[deal_type] = f"no-match-latest-for-{day.strftime('%d%m%Y')}"
+        except DownloadError as exc:
+            write_deals_csv(dest, [])
+            sources[deal_type] = f"failed:{exc}"
     return sources
 
 

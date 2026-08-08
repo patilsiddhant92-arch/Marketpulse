@@ -86,10 +86,12 @@ def refresh_deals(clean: bool = True) -> None:
         removed = clean_empty_archive_deals(dry_run=False)
         print(f"  removed {len(removed)} empty files")
 
-    print("Reading deal CSVs (archive + daily)...")
+    print("Reading deal CSVs (archive + daily + downloads)...")
     deals_raw = read_all_deals()
     if deals_raw.empty:
-        raise SystemExit("No deals parsed. Check Bulk-Deals / Block-Deals files in Input/archive.")
+        raise SystemExit(
+            "No deals parsed. Check bulk/block CSVs in Input/archive, Input/daily, and Input/downloads."
+        )
 
     print(
         f"  raw deals after dedupe: {len(deals_raw):,} rows | "

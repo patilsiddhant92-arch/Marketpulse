@@ -394,7 +394,8 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
                     "buy_value_cr", "sell_value_cr", "net_value_cr", "latest_deal_value_cr", "buy_deal_cr", "sell_deal_cr",
                     "deal_value_cr", "deal_pct_volume", "deal_volume_pct", "deal_rows", "active_days",
                     "close_price", "trigger_close", "qty", "avg_buy_price", "sell_price", "unrealized_pct", "realized_pct",
-                    "symbol_count"}  # symbols is TEXT (preview), not numeric
+                    "unrealized_pnl_inr", "realized_pnl_inr", "market_value_inr", "cost_value_inr", "profit_inr",
+                    "weight_pct", "days_held", "net_deal_cr", "deal_rows", "clients", "symbol_count"}  # symbols is TEXT
     for col in display_cols:
         is_num = col in numeric_cols or (col in view.columns and pd.api.types.is_float_dtype(view[col]))
         if col in {"symbol", "symbols", "symbol_list", "notes", "tags", "status"} or not is_num:
@@ -419,6 +420,8 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             width, wrap = 120, False
         elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
             width, wrap = 320, True
+        elif col in {"rs_5d_trail"}:
+            width, wrap = 160, False
         elif col in {"symbols", "symbol_list"}:
             # Preview only — full TV lists live behind Copy buttons (avoids spaghetti cells)
             width, wrap = 260, True
@@ -545,15 +548,16 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             </q-td>
             """,
         )
-    if "rotation_state" in view.columns:
-        table.add_slot(
-            "body-cell-rotation_state",
-            """
-            <q-td :props="props">
-              <span :class="'mp-chip mp-state-' + String(props.value).toLowerCase().replace(' ', '-')">{{ props.value }}</span>
-            </q-td>
-            """,
-        )
+    for state_col in ("rotation_state", "industry_state", "sector_state"):
+        if state_col in view.columns:
+            table.add_slot(
+                f"body-cell-{state_col}",
+                """
+                <q-td :props="props">
+                  <span :class="'mp-chip mp-state-' + String(props.value || '').toLowerCase().replace(' ', '-')">{{ props.value }}</span>
+                </q-td>
+                """,
+            )
     if "vcp_state" in view.columns:
         table.add_slot(
             "body-cell-vcp_state",
@@ -590,7 +594,34 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
                 </q-td>
                 """,
             )
-    for col in ["return_5d_pct", "return_1m_pct", "return_3m_pct", "return_1d_pct", "away_10ema_pct", "away_10wema_pct", "away_10mema_pct", "away_52w_high_pct", "away_52w_low_pct", "deal_price_vs_close_pct", "pnl_pct", "avg_pnl_pct", "delivery_pct", "day_change_pct", "turnover_cr", "turnover_1d_cr", "turnover_1w_cr", "turnover_1m_cr", "turnover_expansion", "score_change_5d", "net_value_cr", "buy_deal_cr", "sell_deal_cr"]:
+    for col in [
+        "return_5d_pct",
+        "return_1m_pct",
+        "return_3m_pct",
+        "return_1d_pct",
+        "away_10ema_pct",
+        "away_10wema_pct",
+        "away_10mema_pct",
+        "away_52w_high_pct",
+        "away_52w_low_pct",
+        "deal_price_vs_close_pct",
+        "pnl_pct",
+        "avg_pnl_pct",
+        "unrealized_pct",
+        "realized_pct",
+        "delivery_pct",
+        "day_change_pct",
+        "turnover_cr",
+        "turnover_1d_cr",
+        "turnover_1w_cr",
+        "turnover_1m_cr",
+        "turnover_expansion",
+        "score_change_5d",
+        "net_value_cr",
+        "buy_deal_cr",
+        "sell_deal_cr",
+        "net_deal_cr",
+    ]:
         if col in view.columns:
             suffix = "%" if "pct" in col or col in ["delivery_pct"] else ""
             table.add_slot(
@@ -611,17 +642,35 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
                 </q-td>
                 """,
             )
-    for col in ["pnl_amount", "risk_amount", "open_risk", "position_size"]:
+    for col in [
+        "pnl_amount",
+        "risk_amount",
+        "open_risk",
+        "position_size",
+        "unrealized_pnl_inr",
+        "realized_pnl_inr",
+        "market_value_inr",
+        "profit_inr",
+    ]:
         if col in view.columns:
+            signed = col in {
+                "pnl_amount",
+                "unrealized_pnl_inr",
+                "realized_pnl_inr",
+                "profit_inr",
+            }
+            class_expr = (
+                "Number(props.value || 0) >= 0 ? 'mp-pos' : 'mp-neg'" if signed else "''"
+            )
             table.add_slot(
                 f"body-cell-{col}",
                 """
                 <q-td :props="props">
-                  <span :class="['pnl_amount'].includes(props.col.name) ? (Number(props.value || 0) >= 0 ? 'mp-pos' : 'mp-neg') : ''">
-                    {{ (Number(props.value || 0) < 0 ? '-INR ' : 'INR ') + Math.abs(Number(props.value || 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 }) }}
+                  <span :class="CLASS_EXPR">
+                    {{ (Number(props.value || 0) < 0 ? '-₹' : '₹') + Math.abs(Number(props.value || 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 }) }}
                   </span>
                 </q-td>
-                """,
+                """.replace("CLASS_EXPR", class_expr),
             )
     if "band" in view.columns:
         table.add_slot(
@@ -4333,6 +4382,21 @@ def _portfolio_next_event_id() -> int:
         return int(datetime.now().timestamp())
 
 
+def portfolio_get(symbol: str) -> dict | None:
+    """Load one position as a plain dict (for edit form)."""
+    ensure_portfolio_tables()
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return None
+    try:
+        df = write_query("SELECT * FROM portfolio_positions WHERE symbol = ?", [sym])
+    except Exception:
+        return None
+    if df.empty:
+        return None
+    return df.iloc[0].to_dict()
+
+
 def portfolio_upsert(
     symbol: str,
     qty: float,
@@ -4340,15 +4404,69 @@ def portfolio_upsert(
     buy_date_val,
     notes: str = "",
     tags: str = "",
-) -> None:
+    *,
+    keep_status: bool = True,
+) -> str:
+    """Insert or update a position. Returns 'created' or 'updated'."""
     ensure_portfolio_tables()
     sym = str(symbol or "").strip().upper()
     if not sym:
         raise ValueError("Symbol required")
     now = datetime.now()
     bd = pd.to_datetime(buy_date_val).date() if buy_date_val else date.today()
-    # Delete+insert for broad DuckDB compatibility (upsert)
-    write_execute("DELETE FROM portfolio_positions WHERE symbol = ?", [sym])
+    existing = portfolio_get(sym)
+    if existing is not None:
+        status = str(existing.get("status") or "OPEN") if keep_status else "OPEN"
+        # Pure UPDATE so edits do not wipe sell history fields when reopening deliberately
+        if status == "OPEN" or not keep_status:
+            write_execute(
+                """
+                UPDATE portfolio_positions
+                SET status = 'OPEN',
+                    qty = ?,
+                    avg_buy_price = ?,
+                    buy_date = ?,
+                    sell_date = NULL,
+                    sell_price = NULL,
+                    notes = ?,
+                    tags = ?,
+                    updated_at = ?
+                WHERE symbol = ?
+                """,
+                [float(qty or 0), float(avg_buy or 0), bd, notes or "", tags or "", now, sym],
+            )
+        else:
+            # Editing a SOLD row fields without reopening
+            write_execute(
+                """
+                UPDATE portfolio_positions
+                SET qty = ?,
+                    avg_buy_price = ?,
+                    buy_date = ?,
+                    notes = ?,
+                    tags = ?,
+                    updated_at = ?
+                WHERE symbol = ?
+                """,
+                [float(qty or 0), float(avg_buy or 0), bd, notes or "", tags or "", now, sym],
+            )
+        write_execute(
+            """
+            INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
+            VALUES (?, ?, 'EDIT', ?, ?, ?, ?, ?)
+            """,
+            [
+                _portfolio_next_event_id(),
+                sym,
+                date.today(),
+                float(qty or 0),
+                float(avg_buy or 0),
+                notes or "Edited",
+                now,
+            ],
+        )
+        return "updated"
+
     write_execute(
         """
         INSERT INTO portfolio_positions
@@ -4363,6 +4481,24 @@ def portfolio_upsert(
         VALUES (?, ?, 'BUY', ?, ?, ?, ?, ?)
         """,
         [_portfolio_next_event_id(), sym, bd, float(qty or 0), float(avg_buy or 0), notes or "", now],
+    )
+    return "created"
+
+
+def portfolio_delete(symbol: str) -> None:
+    """Hard-delete a position and keep a DELETE event for audit."""
+    ensure_portfolio_tables()
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        raise ValueError("Symbol required")
+    now = datetime.now()
+    write_execute("DELETE FROM portfolio_positions WHERE symbol = ?", [sym])
+    write_execute(
+        """
+        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
+        VALUES (?, ?, 'DELETE', ?, NULL, NULL, 'Removed from portfolio', ?)
+        """,
+        [_portfolio_next_event_id(), sym, date.today(), now],
     )
 
 
@@ -4411,8 +4547,39 @@ def portfolio_reopen(symbol: str) -> None:
     )
 
 
+def _rs_trail_5d(symbols: list[str]) -> pd.DataFrame:
+    """Last 5 session RS percentiles per symbol as '10 - 20 - 47 - 67 - 80'."""
+    if not symbols:
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail"])
+    clause = ", ".join([f"'{s}'" for s in symbols])
+    hist = df_query(
+        f"""
+        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
+        recent AS (
+            SELECT symbol, trade_date, rs_percentile,
+                   row_number() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS rn
+            FROM indicators_daily, latest
+            WHERE symbol IN ({clause})
+              AND trade_date >= latest.d - INTERVAL 12 DAY
+        )
+        SELECT symbol, trade_date, rs_percentile
+        FROM recent
+        WHERE rn <= 5
+        ORDER BY symbol, trade_date
+        """
+    )
+    if hist.empty:
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail"])
+    rows = []
+    for sym, g in hist.groupby("symbol", sort=False):
+        vals = pd.to_numeric(g["rs_percentile"], errors="coerce")
+        parts = [f"{int(round(v))}" for v in vals.tolist() if pd.notna(v)]
+        rows.append({"symbol": sym, "rs_5d_trail": " - ".join(parts) if parts else "—"})
+    return pd.DataFrame(rows)
+
+
 def portfolio_enrich(status: str) -> pd.DataFrame:
-    """Join manual positions with live indicators + 20d deals."""
+    """Join manual positions with live indicators, rotation states, turnover, RS trail, deals."""
     ensure_portfolio_tables()
     try:
         pos = write_query(
@@ -4431,34 +4598,122 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
         deal_sum AS (
             SELECT symbol,
                    sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
-                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr
+                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr,
+                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END)
+                     - sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS net_deal_cr
             FROM deals, latest
             WHERE trade_date >= latest.d - INTERVAL 20 DAY
               AND symbol IN ({clause})
             GROUP BY symbol
+        ),
+        turn AS (
+            SELECT symbol,
+                   sum(CASE WHEN trade_date >= (SELECT d FROM latest) - INTERVAL 5 DAY
+                            THEN turnover_cr ELSE 0 END) AS turnover_1w_cr,
+                   sum(CASE WHEN trade_date >= (SELECT d FROM latest) - INTERVAL 21 DAY
+                            THEN turnover_cr ELSE 0 END) AS turnover_1m_cr
+            FROM indicators_daily
+            WHERE symbol IN ({clause})
+            GROUP BY symbol
         )
-        SELECT i.symbol, i.close_price AS cmp, i.return_5d_pct, i.away_10ema_pct, i.away_52w_high_pct,
-               i.rs_percentile, i.vcp_state, i.vcp_score, i.ema_stack_bullish,
-               m.sector, m.industry, m.market_cap_cr,
+        SELECT i.symbol,
+               i.close_price AS cmp,
+               i.return_5d_pct,
+               i.away_10ema_pct,
+               i.away_52w_high_pct,
+               i.rs_percentile,
+               i.turnover_cr,
+               i.delivery_pct,
+               m.sector,
+               m.industry,
+               m.market_cap_cr,
                sr_i.rotation_state AS industry_state,
+               sr_s.rotation_state AS sector_state,
                coalesce(d.buy_deal_cr, 0) AS buy_deal_cr,
-               coalesce(d.sell_deal_cr, 0) AS sell_deal_cr
+               coalesce(d.sell_deal_cr, 0) AS sell_deal_cr,
+               coalesce(d.net_deal_cr, 0) AS net_deal_cr,
+               coalesce(t.turnover_1w_cr, 0) AS turnover_1w_cr,
+               coalesce(t.turnover_1m_cr, 0) AS turnover_1m_cr
         FROM indicators_daily i
         JOIN stocks_master m USING(symbol)
         LEFT JOIN deal_sum d USING(symbol)
+        LEFT JOIN turn t USING(symbol)
         LEFT JOIN sector_rotation sr_i
             ON sr_i.trade_date = (SELECT d FROM latest)
-           AND sr_i.level = 'Industry' AND sr_i.group_name = m.industry, latest
+           AND sr_i.level = 'Industry' AND sr_i.group_name = m.industry
+        LEFT JOIN sector_rotation sr_s
+            ON sr_s.trade_date = (SELECT d FROM latest)
+           AND sr_s.level = 'Sector' AND sr_s.group_name = m.sector, latest
         WHERE i.trade_date = latest.d AND i.symbol IN ({clause})
         """
     )
     out = pos.merge(live, on="symbol", how="left")
+    trail = _rs_trail_5d(syms)
+    if not trail.empty:
+        out = out.merge(trail, on="symbol", how="left")
+    else:
+        out["rs_5d_trail"] = "—"
+
     cmp = pd.to_numeric(out.get("cmp"), errors="coerce")
     avg = pd.to_numeric(out.get("avg_buy_price"), errors="coerce")
+    qty = pd.to_numeric(out.get("qty"), errors="coerce")
     sell_px = pd.to_numeric(out.get("sell_price"), errors="coerce")
-    out["unrealized_pct"] = (cmp / avg - 1.0) * 100.0
-    out["realized_pct"] = (sell_px / avg - 1.0) * 100.0
+    out["unrealized_pct"] = ((cmp / avg - 1.0) * 100.0).round(1)
+    out["realized_pct"] = ((sell_px / avg - 1.0) * 100.0).round(1)
+    out["unrealized_pnl_inr"] = ((cmp - avg) * qty).round(0)
+    out["realized_pnl_inr"] = ((sell_px - avg) * qty).round(0)
+    out["market_value_inr"] = (cmp * qty).round(0)
+    out["cost_value_inr"] = (avg * qty).round(0)
+    # Days held from buy_date (shown as age, not raw date in open table)
+    try:
+        bd = pd.to_datetime(out.get("buy_date"), errors="coerce")
+        out["days_held"] = (pd.Timestamp.now().normalize() - bd.dt.normalize()).dt.days
+    except Exception:
+        out["days_held"] = pd.NA
+    # Portfolio weight among open book (filled later for OPEN only if needed)
+    mv = pd.to_numeric(out["market_value_inr"], errors="coerce")
+    total_mv = mv.sum(skipna=True)
+    if total_mv and total_mv > 0:
+        out["weight_pct"] = (mv / total_mv * 100.0).round(1)
+    else:
+        out["weight_pct"] = pd.NA
     return out
+
+
+def portfolio_deals_clubbed(symbols: set[str]) -> pd.DataFrame:
+    """One row per symbol: clubbed 20d buy/sell deal flow (no individual deal lines)."""
+    if not symbols:
+        return pd.DataFrame()
+    clause = ", ".join([f"'{s}'" for s in symbols])
+    return df_query(
+        f"""
+        WITH latest AS (SELECT max(trade_date) d FROM deals),
+        base AS (
+            SELECT d.symbol, d.side, d.client_name, d.deal_value_cr, d.trade_date,
+                   m.industry, m.sector
+            FROM deals d
+            LEFT JOIN stocks_master m USING(symbol), latest
+            WHERE d.symbol IN ({clause})
+              AND d.trade_date >= latest.d - INTERVAL 20 DAY
+        )
+        SELECT symbol,
+               max(sector) AS sector,
+               max(industry) AS industry,
+               count(*) AS deal_rows,
+               count(DISTINCT client_name) AS clients,
+               sum(CASE WHEN side = 'BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
+               sum(CASE WHEN side = 'SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr,
+               sum(CASE WHEN side = 'BUY' THEN deal_value_cr ELSE 0 END)
+                 - sum(CASE WHEN side = 'SELL' THEN deal_value_cr ELSE 0 END) AS net_deal_cr,
+               max(trade_date) AS last_deal
+        FROM base
+        GROUP BY symbol
+        ORDER BY abs(
+            sum(CASE WHEN side = 'BUY' THEN deal_value_cr ELSE 0 END)
+            - sum(CASE WHEN side = 'SELL' THEN deal_value_cr ELSE 0 END)
+        ) DESC
+        """
+    )
 
 
 def portfolio_page() -> None:
@@ -4488,9 +4743,24 @@ def portfolio_page() -> None:
         sold_df = portfolio_enrich("SOLD")
 
         with host:
-            # --- Add / update ---
-            ui.label("Add or update OPEN position").classes("mp-section-title")
+            open_syms = open_df["symbol"].astype(str).tolist() if not open_df.empty else []
+            sold_syms = sold_df["symbol"].astype(str).tolist() if not sold_df.empty else []
+            all_port_syms = open_syms + [s for s in sold_syms if s not in open_syms]
+
+            # --- Add / Edit ---
+            ui.label("Add or edit position").classes("mp-section-title")
+            ui.label(
+                "Pick an existing portfolio symbol to load it into the form, change qty/avg/notes, then Save. "
+                "Or type a new symbol to add."
+            ).classes("mp-rule text-xs mb-1")
             with ui.row().classes("gap-2 items-end flex-wrap mp-toolbar"):
+                # Load existing for edit
+                e_pick = ui.select(
+                    options=[""] + all_port_syms,
+                    value="",
+                    label="Load existing",
+                    with_input=True,
+                ).classes("w-44").props("dense clearable")
                 p_sym = ui.select(
                     options=symbol_options,
                     with_input=True,
@@ -4505,28 +4775,88 @@ def portfolio_page() -> None:
                 p_notes = ui.input("Notes", placeholder="optional").classes("w-48").props("dense")
                 p_tags = ui.input("Tags", placeholder="swing / core").classes("w-32").props("dense")
 
+            edit_status = ui.label("").classes("text-xs text-[var(--mp-muted)] mb-1")
+
+            with ui.row().classes("gap-2 items-end flex-wrap"):
+                def load_into_form(sym: str | None = None) -> None:
+                    pick = (sym or e_pick.value or "").strip().upper()
+                    if not pick:
+                        return
+                    row = portfolio_get(pick)
+                    if not row:
+                        ui.notify(f"{pick} not in portfolio", type="warning")
+                        return
+                    p_sym.value = pick
+                    p_qty.value = float(row.get("qty") or 0)
+                    p_avg.value = float(row.get("avg_buy_price") or 0) if pd.notna(row.get("avg_buy_price")) else None
+                    bd = row.get("buy_date")
+                    p_buy.value = str(bd)[:10] if bd is not None and str(bd) not in {"", "NaT", "None"} else str(date.today())
+                    p_notes.value = str(row.get("notes") or "")
+                    p_tags.value = str(row.get("tags") or "")
+                    st = str(row.get("status") or "")
+                    edit_status.text = f"Editing {pick} ({st}) — change fields and click Save"
+                    ui.notify(f"Loaded {pick}", type="info")
+
+                def on_pick_change(_=None) -> None:
+                    if e_pick.value:
+                        load_into_form(str(e_pick.value))
+
+                e_pick.on_value_change(on_pick_change)
+
                 def do_save() -> None:
                     try:
-                        portfolio_upsert(
+                        if not p_sym.value:
+                            ui.notify("Symbol required", type="warning")
+                            return
+                        action = portfolio_upsert(
                             p_sym.value,
                             float(p_qty.value or 0),
                             float(p_avg.value or 0),
                             p_buy.value,
                             p_notes.value or "",
                             p_tags.value or "",
+                            keep_status=False,  # Save always keeps/sets OPEN
                         )
-                        ui.notify(f"Saved {str(p_sym.value).upper()} as OPEN", type="positive")
+                        msg = "Updated" if action == "updated" else "Added"
+                        ui.notify(f"{msg} {str(p_sym.value).upper()} (OPEN)", type="positive")
                         refresh()
                     except Exception as exc:
                         ui.notify(f"Save failed: {exc}", type="negative")
 
+                def do_delete() -> None:
+                    try:
+                        sym = str(p_sym.value or e_pick.value or "").strip().upper()
+                        if not sym:
+                            ui.notify("Select a symbol to delete", type="warning")
+                            return
+                        portfolio_delete(sym)
+                        ui.notify(f"Deleted {sym}", type="positive")
+                        refresh()
+                    except Exception as exc:
+                        ui.notify(f"Delete failed: {exc}", type="negative")
+
+                ui.button("Load", on_click=lambda: load_into_form()).classes("mp-button").props("dense")
                 ui.button("Save OPEN", on_click=do_save).classes("mp-primary").props("dense")
+                ui.button("Delete", on_click=do_delete).classes("mp-button").props("dense color=negative")
+
+            # Quick edit chips for open book (one-click load)
+            if open_syms:
+                ui.label("Quick edit (open)").classes("text-xs text-[var(--mp-muted)] mt-1")
+                with ui.row().classes("gap-1 flex-wrap"):
+                    for sym in open_syms:
+                        ui.button(
+                            sym,
+                            on_click=lambda s=sym: load_into_form(s),
+                        ).classes("mp-button text-xs").props("dense outline")
 
             # --- Mark sold ---
-            open_syms = open_df["symbol"].tolist() if not open_df.empty else []
             ui.label("Mark sold (still tracked in archive)").classes("mp-section-title mt-3")
             with ui.row().classes("gap-2 items-end flex-wrap"):
-                s_sym = ui.select(options=open_syms or [""], value=open_syms[0] if open_syms else None, label="Open symbol").classes("w-40").props("dense")
+                s_sym = ui.select(
+                    options=open_syms or [""],
+                    value=open_syms[0] if open_syms else None,
+                    label="Open symbol",
+                ).classes("w-40").props("dense")
                 s_px = ui.number("Sell price", value=None, format="%.2f").classes("w-32").props("dense")
                 s_dt = ui.input("Sell date", value=str(date.today())).classes("w-32").props("dense")
                 s_notes = ui.input("Note", placeholder="optional").classes("w-40").props("dense")
@@ -4542,20 +4872,36 @@ def portfolio_page() -> None:
                     except Exception as exc:
                         ui.notify(f"Sell failed: {exc}", type="negative")
 
+                def fill_sell_from_cmp() -> None:
+                    if not s_sym.value or open_df.empty:
+                        return
+                    row = open_df[open_df["symbol"].astype(str) == str(s_sym.value)]
+                    if row.empty:
+                        return
+                    cmp = row.iloc[0].get("cmp")
+                    if pd.notna(cmp):
+                        s_px.value = float(cmp)
+
+                ui.button("Use CMP", on_click=fill_sell_from_cmp).classes("mp-button").props("dense")
                 ui.button("Mark SOLD", on_click=do_sell).classes("mp-button").props("dense")
 
-            # KPIs
+            # KPIs from live DB join
             with ui.row().classes("gap-2 flex-wrap mt-2"):
                 compact_kpi("Open", len(open_df))
                 compact_kpi("Sold", len(sold_df))
-                if not open_df.empty and "unrealized_pct" in open_df.columns:
-                    med = pd.to_numeric(open_df["unrealized_pct"], errors="coerce").median()
-                    if pd.notna(med):
-                        compact_kpi("Med U/R %", f"{med:.1f}")
                 if not open_df.empty:
+                    ur = pd.to_numeric(open_df.get("unrealized_pnl_inr"), errors="coerce").sum()
+                    mv = pd.to_numeric(open_df.get("market_value_inr"), errors="coerce").sum()
+                    if pd.notna(mv):
+                        compact_kpi("Mkt value", f"₹{mv:,.0f}")
+                    if pd.notna(ur):
+                        compact_kpi("U/R P&L", f"₹{ur:,.0f}")
+                    med = pd.to_numeric(open_df.get("unrealized_pct"), errors="coerce").median()
+                    if pd.notna(med):
+                        compact_kpi("Med U/R %", f"{med:.1f}%")
                     copy_button("Copy open TV", lambda: symbols_text(open_df))
 
-            # Open table
+            # Open table — DB-connected decision columns
             ui.label("Open positions").classes("mp-section-title mt-3")
             if open_df.empty:
                 ui.label("No open positions — add a symbol above.").classes("text-[var(--mp-muted)] text-sm")
@@ -4569,27 +4915,37 @@ def portfolio_page() -> None:
                             "avg_buy_price",
                             "cmp",
                             "unrealized_pct",
-                            "return_5d_pct",
+                            "unrealized_pnl_inr",
+                            "market_value_inr",
+                            "weight_pct",
+                            "days_held",
+                            "rs_5d_trail",
+                            "rs_percentile",
                             "away_10ema_pct",
                             "away_52w_high_pct",
-                            "rs_percentile",
-                            "vcp_state",
+                            "turnover_cr",
+                            "turnover_1w_cr",
                             "industry_state",
-                            "buy_deal_cr",
-                            "sell_deal_cr",
+                            "sector_state",
                             "industry",
                             "sector",
-                            "buy_date",
+                            "buy_deal_cr",
+                            "sell_deal_cr",
+                            "net_deal_cr",
                             "notes",
                             "tags",
                         ]
                         if c in open_df.columns
                     ]
-                ]
+                ].copy()
+                # Round display numbers cleanly
+                for col in ("avg_buy_price", "cmp", "turnover_cr", "turnover_1w_cr", "buy_deal_cr", "sell_deal_cr", "net_deal_cr", "rs_percentile"):
+                    if col in show.columns:
+                        show[col] = pd.to_numeric(show[col], errors="coerce").round(2)
                 table_from_df(show, "", pagination=25)
 
-            # Deals into holdings
-            ui.label("Deals into holdings (20d)").classes("mp-section-title mt-3")
+            # Deals into holdings — clubbed per symbol (not individual rows)
+            ui.label("Deals into holdings (20d, clubbed)").classes("mp-section-title mt-3")
             hold_syms = set(open_df["symbol"].tolist() if not open_df.empty else [])
             hold_syms |= set(
                 sold_df.loc[
@@ -4603,26 +4959,36 @@ def portfolio_page() -> None:
             if not hold_syms:
                 ui.label("No holdings to match deals.").classes("text-xs text-[var(--mp-muted)]")
             else:
-                clause = ", ".join([f"'{s}'" for s in hold_syms])
-                deals_h = df_query(
-                    f"""
-                    WITH latest AS (SELECT max(trade_date) d FROM deals)
-                    SELECT d.trade_date, d.symbol, d.side, d.client_name, d.deal_value_cr,
-                           d.quantity, d.price, m.industry
-                    FROM deals d
-                    LEFT JOIN stocks_master m USING(symbol), latest
-                    WHERE d.symbol IN ({clause})
-                      AND d.trade_date >= latest.d - INTERVAL 20 DAY
-                    ORDER BY d.trade_date DESC, d.deal_value_cr DESC
-                    LIMIT 40
-                    """
-                )
+                deals_h = portfolio_deals_clubbed(hold_syms)
                 if deals_h.empty:
                     ui.label("No bulk/block deals on portfolio names in last 20 sessions.").classes(
                         "text-xs text-[var(--mp-muted)]"
                     )
                 else:
-                    table_from_df(deals_h, "", pagination=15)
+                    for col in ("buy_deal_cr", "sell_deal_cr", "net_deal_cr"):
+                        if col in deals_h.columns:
+                            deals_h[col] = pd.to_numeric(deals_h[col], errors="coerce").round(2)
+                    table_from_df(
+                        deals_h[
+                            [
+                                c
+                                for c in [
+                                    "symbol",
+                                    "buy_deal_cr",
+                                    "sell_deal_cr",
+                                    "net_deal_cr",
+                                    "deal_rows",
+                                    "clients",
+                                    "industry",
+                                    "sector",
+                                    "last_deal",
+                                ]
+                                if c in deals_h.columns
+                            ]
+                        ],
+                        "",
+                        pagination=20,
+                    )
 
             # Sold archive
             ui.label("Sold archive (still tracked)").classes("mp-section-title mt-3")
@@ -4638,17 +5004,23 @@ def portfolio_page() -> None:
                             "avg_buy_price",
                             "sell_price",
                             "realized_pct",
+                            "realized_pnl_inr",
                             "cmp",
+                            "rs_5d_trail",
                             "rs_percentile",
                             "industry_state",
+                            "sector_state",
+                            "turnover_cr",
                             "buy_deal_cr",
-                            "buy_date",
-                            "sell_date",
+                            "net_deal_cr",
                             "notes",
                         ]
                         if c in sold_df.columns
                     ]
-                ]
+                ].copy()
+                for col in ("avg_buy_price", "sell_price", "cmp", "rs_percentile", "turnover_cr", "buy_deal_cr", "net_deal_cr"):
+                    if col in sold_show.columns:
+                        sold_show[col] = pd.to_numeric(sold_show[col], errors="coerce").round(2)
                 table_from_df(sold_show, "", pagination=20)
                 sold_opts = sold_df["symbol"].tolist()
                 with ui.row().classes("gap-2 items-end mt-2"):
