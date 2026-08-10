@@ -17,10 +17,11 @@ $action = New-ScheduledTaskAction `
 # Daily at 20:00 local. On an IST-configured PC this is 8 PM IST.
 $trigger = New-ScheduledTaskTrigger -Daily -At "20:00"
 
+# Do NOT use -StartWhenAvailable — that re-fires missed 8 PM runs the next morning
+# (e.g. 9:30 AM popup). From now on: only at 20:00. If PC is off at 8 PM, skip that day.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
     -ExecutionTimeLimit (New-TimeSpan -Hours 3) `
     -MultipleInstances IgnoreNew
 
@@ -40,12 +41,13 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "MarketPulse EOD: download + append + Telegram at 20:00 local. On failure retries after 10 min (up to 3 attempts inside the pipeline)." | Out-Null
+    -Description "MarketPulse EOD: only daily 20:00 local (no catch-up if missed). Pipeline may retry +10/+20 min within that run." | Out-Null
 
 Write-Host "Registered scheduled task: $taskName"
 Write-Host "  Script: $bat"
-Write-Host "  Trigger: Daily at 20:00 local time"
-Write-Host "  Retries: pipeline itself retries +10 min and +20 min if 8 PM fails"
+Write-Host "  Trigger: Daily at 20:00 local time ONLY"
+Write-Host "  Catch-up: OFF (missed 8 PM will NOT run next morning)"
+Write-Host "  In-run retries: pipeline may retry +10 min / +20 min if 8 PM attempt fails"
 Write-Host "  Ensure Windows timezone is India Standard Time for 8 PM IST."
 
 $tz = (Get-TimeZone).Id

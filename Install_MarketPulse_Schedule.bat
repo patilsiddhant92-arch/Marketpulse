@@ -5,9 +5,10 @@ cd /d "%~dp0"
 echo.
 echo Install MarketPulse Windows Task Scheduler job
 echo   Name:     MarketPulse_EOD
-echo   When:     Daily at 20:00 (8 PM local — use IST machine timezone)
+echo   When:     Daily at 20:00 ONLY (8 PM local — use IST machine timezone)
 echo   Action:   Run_MarketPulse_Auto.bat
-echo   Retries:  if 8 PM fails, pipeline retries at +10 min and +20 min
+echo   Catch-up: OFF — will NOT run next morning if 8 PM was missed
+echo   Retries:  only within the 8 PM run (+10 / +20 min if that attempt fails)
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Scripts\install_schedule.ps1"
