@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 _MIGRATION_2 = (
@@ -15,6 +15,38 @@ _MIGRATION_2 = (
     'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS blocking_reasons TEXT',
     'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS warning_reasons TEXT',
     'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS geometry_valid BOOLEAN',
+)
+
+_MIGRATION_3 = (
+    """
+    CREATE TABLE IF NOT EXISTS security_risk_daily (
+        trade_date DATE,
+        symbol TEXT,
+        security_name TEXT,
+        risk_type TEXT,
+        new_value DOUBLE,
+        previous_value DOUBLE,
+        status TEXT,
+        source_file TEXT,
+        source_checksum TEXT,
+        PRIMARY KEY (trade_date, symbol, security_name, risk_type, source_file)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS top_value_daily (
+        trade_date DATE,
+        symbol TEXT,
+        security_name TEXT,
+        previous_close DOUBLE,
+        close_price DOUBLE,
+        net_trade_qty BIGINT,
+        net_trade_value_cr DOUBLE,
+        source_checksum TEXT,
+        PRIMARY KEY (trade_date, security_name)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_security_risk_date ON security_risk_daily(trade_date, risk_type)",
+    "CREATE INDEX IF NOT EXISTS idx_top_value_date ON top_value_daily(trade_date, net_trade_value_cr)",
 )
 
 
@@ -61,6 +93,11 @@ def run_migrations(db_path: Path) -> None:
                 for statement in _MIGRATION_2:
                     db.execute(statement)
                 db.execute("INSERT INTO schema_migrations(version) VALUES (2)")
+                current = 2
+            if current < 3:
+                for statement in _MIGRATION_3:
+                    db.execute(statement)
+                db.execute("INSERT INTO schema_migrations(version) VALUES (3)")
             db.commit()
         except Exception:
             db.rollback()

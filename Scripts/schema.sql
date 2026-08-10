@@ -58,6 +58,31 @@ CREATE TABLE IF NOT EXISTS security_events (
     PRIMARY KEY (symbol, event_date, event_type, source_id)
 );
 
+CREATE TABLE IF NOT EXISTS security_risk_daily (
+    trade_date DATE,
+    symbol TEXT,
+    security_name TEXT,
+    risk_type TEXT,
+    new_value DOUBLE,
+    previous_value DOUBLE,
+    status TEXT,
+    source_file TEXT,
+    source_checksum TEXT,
+    PRIMARY KEY (trade_date, symbol, security_name, risk_type, source_file)
+);
+
+CREATE TABLE IF NOT EXISTS top_value_daily (
+    trade_date DATE,
+    symbol TEXT,
+    security_name TEXT,
+    previous_close DOUBLE,
+    close_price DOUBLE,
+    net_trade_qty BIGINT,
+    net_trade_value_cr DOUBLE,
+    source_checksum TEXT,
+    PRIMARY KEY (trade_date, security_name)
+);
+
 CREATE TABLE IF NOT EXISTS candidate_daily (
     trade_date DATE,
     symbol TEXT,
@@ -177,6 +202,8 @@ CREATE TABLE IF NOT EXISTS ingested_reports (
 
 CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date);
 CREATE INDEX IF NOT EXISTS idx_index_date_name ON index_daily(trade_date, index_name);
+CREATE INDEX IF NOT EXISTS idx_security_risk_date ON security_risk_daily(trade_date, risk_type);
+CREATE INDEX IF NOT EXISTS idx_top_value_date ON top_value_daily(trade_date, net_trade_value_cr);
 CREATE INDEX IF NOT EXISTS idx_candidate_date_score ON candidate_daily(trade_date, score_version, total_score);
 CREATE INDEX IF NOT EXISTS idx_watchlist_state ON watchlist_candidates(candidate_state, last_seen_date);
 CREATE INDEX IF NOT EXISTS idx_signal_symbol_status ON signal_ledger(symbol, status, last_seen_date);
