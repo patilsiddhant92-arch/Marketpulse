@@ -45,4 +45,4 @@ def test_migrations_are_idempotent_and_preserve_user_tables(tmp_path):
 
     with duckdb.connect(str(path), read_only=True) as db:
         assert db.execute("SELECT * FROM trade_journal").fetchall() == [(1, "keep me")]
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2

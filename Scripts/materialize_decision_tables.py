@@ -9,6 +9,7 @@ import duckdb
 import pandas as pd
 
 from candidate_engine import score_candidates
+from decision_policy import DecisionPolicy
 from index_history import build_index_features, parse_market_activity_history
 from migrations import run_migrations
 from outcomes import calculate_outcome
@@ -59,8 +60,9 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame, ledger: pd.DataFrame) -
                 db.execute(f"INSERT INTO signal_outcomes ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)}) ON CONFLICT(signal_id, horizon_sessions, as_of_date) DO UPDATE SET forward_return_pct=excluded.forward_return_pct, max_favourable_excursion_pct=excluded.max_favourable_excursion_pct, max_adverse_excursion_pct=excluded.max_adverse_excursion_pct, resolved=excluded.resolved", values)
 
 
-def materialize_decision_tables(db_path: Path, as_of: date | None = None) -> pd.DataFrame:
+def materialize_decision_tables(db_path: Path, as_of: date | None = None, policy: DecisionPolicy | None = None) -> pd.DataFrame:
     db_path = Path(db_path)
+    policy = policy or DecisionPolicy()
     run_migrations(db_path)
     reference_history = _load(db_path, "security_reference_daily")
     if reference_history.empty:
@@ -87,7 +89,7 @@ def materialize_decision_tables(db_path: Path, as_of: date | None = None) -> pd.
                 db.execute("INSERT INTO index_daily SELECT * FROM index_rows ON CONFLICT DO NOTHING")
     index_features = build_index_features(index_daily)
     events = _load(db_path, "security_events")
-    candidates = score_candidates(indicators, breadth, rotations, deals, index_features, events, master, as_of)
+    candidates = score_candidates(indicators, breadth, rotations, deals, index_features, events, master, as_of, policy=policy)
     _write_candidates(db_path, candidates, as_of)
     persist_candidate_snapshot(db_path, candidates, as_of)
     existing = _load(db_path, "signal_ledger")
@@ -95,3 +97,9 @@ def materialize_decision_tables(db_path: Path, as_of: date | None = None) -> pd.
     _write_ledger(db_path, ledger)
     _write_outcomes(db_path, _load(db_path, "prices_daily"), ledger)
     return candidates
+
+
+def materialize_decision_date(db_path: Path, as_of: date, policy: DecisionPolicy | None = None) -> pd.DataFrame:
+    """Materialize exactly one versioned decision session."""
+
+    return materialize_decision_tables(db_path, as_of=as_of, policy=policy or DecisionPolicy())

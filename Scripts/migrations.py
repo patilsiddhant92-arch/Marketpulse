@@ -7,8 +7,15 @@ from pathlib import Path
 import duckdb
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
+
+_MIGRATION_2 = (
+    'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS eligibility_status TEXT',
+    'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS blocking_reasons TEXT',
+    'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS warning_reasons TEXT',
+    'ALTER TABLE candidate_daily ADD COLUMN IF NOT EXISTS geometry_valid BOOLEAN',
+)
 
 
 def _ensure_migration_table(db: duckdb.DuckDBPyConnection) -> None:
@@ -44,10 +51,16 @@ def run_migrations(db_path: Path) -> None:
             return
         db.begin()
         try:
-            for statement in (part.strip() for part in schema_sql.split(";")):
-                if statement:
+            if current < 1:
+                for statement in (part.strip() for part in schema_sql.split(";")):
+                    if statement:
+                        db.execute(statement)
+                db.execute("INSERT INTO schema_migrations(version) VALUES (1)")
+                current = 1
+            if current < 2:
+                for statement in _MIGRATION_2:
                     db.execute(statement)
-            db.execute("INSERT INTO schema_migrations(version) VALUES (?)", [CURRENT_SCHEMA_VERSION])
+                db.execute("INSERT INTO schema_migrations(version) VALUES (2)")
             db.commit()
         except Exception:
             db.rollback()

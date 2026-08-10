@@ -79,7 +79,7 @@ def test_candidate_total_is_reproducible_and_vcp_is_not_double_counted():
     result = score_candidates(indicators, breadth, rotations, pd.DataFrame(), index_features, pd.DataFrame(), master, date(2026, 8, 3))
     row = result.iloc[0]
 
-    assert row["score_version"] == "focused-v1"
+    assert row["score_version"] == "focused-v2"
     assert row["total_score"] == round(0.30 * row["leadership_score"] + 0.25 * row["setup_score"] + 0.20 * row["participation_score"] + 0.15 * row["context_score"] + 0.10 * row["risk_score"], 6)
     assert row["setup_score"] < 100
     assert row["trigger_price"] > row["invalidation_price"]

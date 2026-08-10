@@ -93,6 +93,10 @@ CREATE TABLE IF NOT EXISTS candidate_daily (
     avg_traded_value_cr_20d DOUBLE,
     sector TEXT,
     industry TEXT,
+    eligibility_status TEXT,
+    blocking_reasons TEXT,
+    warning_reasons TEXT,
+    geometry_valid BOOLEAN,
     PRIMARY KEY (trade_date, symbol, score_version)
 );
 

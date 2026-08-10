@@ -9,12 +9,13 @@ import numpy as np
 import pandas as pd
 
 from events import event_risk_for_date
+from decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
 
 
-SCORE_VERSION = "focused-v1"
+SCORE_VERSION = "focused-v2"
 PILLAR_WEIGHTS = {"leadership": 0.30, "setup": 0.25, "participation": 0.20, "context": 0.15, "risk": 0.10}
 OUTPUT_COLUMNS = [
-    "trade_date", "symbol", "score_version", "candidate_state", "leadership_score", "setup_score", "participation_score", "context_score", "risk_score", "total_score", "rank_overall", "rank_in_sector", "why_now", "latest_change", "risk_summary", "trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk", "setup_first_seen", "setup_age_sessions", "event_risk", "data_quality_flags", "trigger_type", "invalidation_type", "market_regime", "sector_state", "industry_state", "market_cap_cr", "avg_traded_value_cr_20d", "sector", "industry"
+    "trade_date", "symbol", "score_version", "candidate_state", "leadership_score", "setup_score", "participation_score", "context_score", "risk_score", "total_score", "rank_overall", "rank_in_sector", "why_now", "latest_change", "risk_summary", "trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk", "setup_first_seen", "setup_age_sessions", "event_risk", "data_quality_flags", "trigger_type", "invalidation_type", "market_regime", "sector_state", "industry_state", "market_cap_cr", "avg_traded_value_cr_20d", "sector", "industry", "eligibility_status", "blocking_reasons", "warning_reasons", "geometry_valid"
 ]
 
 
@@ -43,20 +44,24 @@ def _mean_scores(values, default=50.0) -> float:
 def calculate_risk_geometry(row: Mapping[str, Any]) -> dict:
     close = _num(row, "close_price")
     if not np.isfinite(close) or close <= 0:
-        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")}
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
     pivot = _num(row, "pivot_price", np.nan)
     if not np.isfinite(pivot):
         pivot = _num(row, "high_20d", np.nan)
     if not np.isfinite(pivot) or pivot <= close:
-        pivot = close * 1.02
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
     support_candidates = [_num(row, name, np.nan) for name in ("ema_20", "ema_50", "low_10d", "low_20d")]
     support_candidates = [value for value in support_candidates if np.isfinite(value) and value > 0]
-    invalidation = max(support_candidates) if support_candidates else close * 0.94
+    if not support_candidates:
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
+    invalidation = max(support_candidates)
     if invalidation >= pivot:
         invalidation = min(close * 0.98, pivot * 0.98)
     resistance_candidates = [_num(row, name, np.nan) for name in ("first_resistance", "high_50d", "high_100d", "high_252d")]
     resistance_candidates = [value for value in resistance_candidates if np.isfinite(value) and value > pivot]
-    resistance = min(resistance_candidates) if resistance_candidates else pivot * 1.06
+    if not resistance_candidates:
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
+    resistance = min(resistance_candidates)
     distance = (pivot / close - 1.0) * 100
     initial_risk = (pivot / invalidation - 1.0) * 100 if invalidation > 0 else np.nan
     reward_to_risk = (resistance - pivot) / (pivot - invalidation) if pivot > invalidation else np.nan
@@ -67,6 +72,7 @@ def calculate_risk_geometry(row: Mapping[str, Any]) -> dict:
         "distance_to_trigger_pct": round(distance, 6),
         "initial_risk_pct": round(initial_risk, 6) if np.isfinite(initial_risk) else np.nan,
         "reward_to_risk": round(reward_to_risk, 6) if np.isfinite(reward_to_risk) else np.nan,
+        "geometry_valid": bool(np.isfinite(initial_risk) and np.isfinite(reward_to_risk) and pivot > invalidation),
     }
 
 
@@ -134,7 +140,8 @@ def explain_candidate(row: Mapping[str, Any]) -> tuple[str, str, str]:
     return why_now, latest_change, ", ".join(risks) or "no elevated risk flags"
 
 
-def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations: pd.DataFrame, deals: pd.DataFrame, index_features: pd.DataFrame, events: pd.DataFrame, master: pd.DataFrame, as_of: date | pd.Timestamp) -> pd.DataFrame:
+def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations: pd.DataFrame, deals: pd.DataFrame, index_features: pd.DataFrame, events: pd.DataFrame, master: pd.DataFrame, as_of: date | pd.Timestamp, policy: DecisionPolicy | None = None) -> pd.DataFrame:
+    policy = policy or DecisionPolicy()
     if indicators is None or indicators.empty:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
     as_of = pd.Timestamp(as_of).normalize()
@@ -143,9 +150,9 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         rows = indicators[pd.to_datetime(indicators["trade_date"]).dt.normalize() <= as_of].sort_values("trade_date").groupby("symbol", as_index=False).tail(1).copy()
     rows["trade_date"] = pd.to_datetime(rows["trade_date"]).dt.normalize()
     if master is not None and not master.empty:
-        master_cols = [col for col in ["symbol", "market_cap_cr", "sector", "industry", "broad_sector", "broad_industry"] if col in master.columns]
+        master_cols = [col for col in ["symbol", "market_cap_cr", "sector", "industry", "broad_sector", "broad_industry", "band"] if col in master.columns]
         rows = rows.merge(master[master_cols].drop_duplicates("symbol"), on="symbol", how="left", suffixes=("", "_master"))
-        for col in ("sector", "industry", "market_cap_cr"):
+        for col in ("sector", "industry", "market_cap_cr", "band"):
             if f"{col}_master" in rows.columns:
                 rows[col] = rows[col].fillna(rows[f"{col}_master"])
     breadth_row = breadth[pd.to_datetime(breadth["trade_date"]).dt.normalize() <= as_of].sort_values("trade_date").tail(1).iloc[0] if breadth is not None and not breadth.empty else pd.Series()
@@ -183,9 +190,18 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         row.update(geometry)
         row["event_risk"] = event.get("event_risk", "none")
         why_now, latest_change, risk_summary = explain_candidate(row)
-        valid_geometry = all(np.isfinite(geometry.get(name, np.nan)) for name in ("trigger_price", "invalidation_price", "initial_risk_pct", "reward_to_risk"))
+        eligibility = evaluate_candidate_eligibility({**row, **geometry}, policy)
+        valid_geometry = bool(geometry.get("geometry_valid", False))
+        if not valid_geometry and "risk_geometry_missing" not in eligibility.blocking_reasons:
+            eligibility = EligibilityResult(False, tuple(dict.fromkeys(("risk_geometry_missing", *eligibility.blocking_reasons))), eligibility.warning_reasons)
+        if eligibility.eligible and total >= policy.min_prepare_score:
+            candidate_state = "Prepare"
+        elif eligibility.eligible:
+            candidate_state = "Observe"
+        else:
+            candidate_state = "Blocked"
         output.append({
-            "trade_date": as_of.date(), "symbol": row.get("symbol"), "score_version": SCORE_VERSION, "candidate_state": "Prepare" if valid_geometry and total >= 55 else "Observe", "leadership_score": leadership, "setup_score": setup, "participation_score": participation, "context_score": context, "risk_score": risk_score, "total_score": total, "rank_overall": None, "rank_in_sector": None, "why_now": why_now, "latest_change": latest_change, "risk_summary": risk_summary, **geometry, "setup_first_seen": as_of.date(), "setup_age_sessions": 1, "event_risk": row["event_risk"], "data_quality_flags": "" if valid_geometry else "missing risk geometry", "trigger_type": "break_above_pivot", "invalidation_type": "close_below_support", "market_regime": market_regime, "sector_state": sector_state, "industry_state": "Unknown", "market_cap_cr": row.get("market_cap_cr"), "avg_traded_value_cr_20d": row.get("avg_traded_value_cr_20d"), "sector": sector, "industry": str(row.get("industry") or "")
+            "trade_date": as_of.date(), "symbol": row.get("symbol"), "score_version": policy.score_version, "candidate_state": candidate_state, "leadership_score": leadership, "setup_score": setup, "participation_score": participation, "context_score": context, "risk_score": risk_score, "total_score": total, "rank_overall": None, "rank_in_sector": None, "why_now": why_now, "latest_change": latest_change, "risk_summary": risk_summary, **geometry, "setup_first_seen": as_of.date(), "setup_age_sessions": 1, "event_risk": row["event_risk"], "data_quality_flags": ";".join((*eligibility.blocking_reasons, *eligibility.warning_reasons)), "trigger_type": "break_above_pivot", "invalidation_type": "close_below_support", "market_regime": market_regime, "sector_state": sector_state, "industry_state": "Unknown", "market_cap_cr": row.get("market_cap_cr"), "avg_traded_value_cr_20d": row.get("avg_traded_value_cr_20d"), "sector": sector, "industry": str(row.get("industry") or ""), "eligibility_status": "eligible" if eligibility.eligible else "blocked", "blocking_reasons": ";".join(eligibility.blocking_reasons), "warning_reasons": ";".join(eligibility.warning_reasons)
         })
     result = pd.DataFrame(output, columns=OUTPUT_COLUMNS)
     if result.empty:
