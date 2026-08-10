@@ -45,7 +45,8 @@ def test_ui_records_convert_pandas_timestamps_to_json_values():
 def test_main_keeps_legacy_navigation_shell():
     source = (Path(__file__).resolve().parents[1] / "App" / "app.py").read_text(encoding="utf-8")
 
-    assert '("Market Health", market_health_page, "health", False)' in source
-    assert '("Focus List", strong_rs_stocks_page, "focus", False)' in source
-    assert '("Journal", journal_page, "journal", False)' in source
-    assert '("Watchlist", lambda: render_watchlist(DB_PATH), "watchlist", False)' not in source
+    assert '("Today", today_page, "today", True)' in source
+    assert '("Sector Intel", sector_rotation_page, "rotation", False)' in source
+    assert '("Momentum", special_watchlist_page, "scanner", False)' in source
+    assert '("Deals", deals_page, "deals", False)' in source
+    assert '("Portfolio", portfolio_page, "portfolio", False)' in source
