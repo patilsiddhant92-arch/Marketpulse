@@ -19,17 +19,36 @@ try:
     from user_data import initialize_user_db, migrate_user_data
 except ModuleNotFoundError:
     from Scripts.user_data import initialize_user_db, migrate_user_data
-from user_data_service import (
-    ExitCommand,
-    MarketSnapshot,
-    Position,
-    PositionCommand,
-    calculate_position_risk,
-    delete_position,
-    mark_sold,
-    reopen_position,
-    upsert_position,
-)
+try:
+    from user_data_service import (
+        ExitCommand,
+        MarketSnapshot,
+        Position,
+        PositionCommand,
+        calculate_position_risk,
+        delete_position,
+        mark_sold,
+        reopen_position,
+        upsert_position,
+    )
+except ModuleNotFoundError:
+    from App.user_data_service import (
+        ExitCommand,
+        MarketSnapshot,
+        Position,
+        PositionCommand,
+        calculate_position_risk,
+        delete_position,
+        mark_sold,
+        reopen_position,
+        upsert_position,
+    )
+try:
+    from candidates_page import build_candidates_page, build_today_decision_panel
+    from data_health_page import build_data_health_page
+except ModuleNotFoundError:
+    from App.candidates_page import build_candidates_page, build_today_decision_panel
+    from App.data_health_page import build_data_health_page
 
 try:
     from config import STATUS_PATH
@@ -3985,6 +4004,7 @@ def _build_why_risk(row: pd.Series) -> tuple[str, str]:
 
 def today_page() -> None:
     """Decision home: regime posture, leadership changes, ranked preparation list with evidence."""
+    build_today_decision_panel(DB_PATH, table_from_df, compact_kpi)
     section_header("Today", "Decision desk — regime, what changed, and ranked prep candidates with evidence.")
 
     dates = df_query(
@@ -5071,6 +5091,14 @@ def portfolio_page() -> None:
     refresh()
 
 
+def candidates_page() -> None:
+    build_candidates_page(DB_PATH, section_header, table_from_df, compact_kpi)
+
+
+def data_health_page() -> None:
+    build_data_health_page(DB_PATH, STATUS_PATH, USER_DB_PATH, section_header, table_from_df, compact_kpi)
+
+
 def _lazy_panel(build_fn, loaded: dict, key: str):
     """Build page content once when its tab is first shown."""
     host = ui.column().classes("w-full")
@@ -5090,7 +5118,7 @@ def _ui_run_kwargs() -> dict:
     import os
 
     port = int(os.environ.get("PORT") or os.environ.get("MP_PORT") or "8080")
-    host = os.environ.get("MP_HOST") or "0.0.0.0"
+    host = os.environ.get("MP_HOST") or "127.0.0.1"
     return {"title": "MarketPulse", "reload": False, "port": port, "host": host}
 
 
@@ -5103,13 +5131,15 @@ def main() -> None:
     app_header()
 
     loaded: dict[str, bool] = {}
-    # Decision nav: Today | Sector Intel | Momentum | Deals | Portfolio
+    # Decision nav: Today | Candidates | Sector Intel | Momentum | Deals | Portfolio | Data Health
     tab_specs = [
         ("Today", today_page, "today", True),
+        ("Candidates", candidates_page, "candidates", False),
         ("Sector Intel", sector_rotation_page, "rotation", False),
         ("Momentum", special_watchlist_page, "scanner", False),
         ("Deals", deals_page, "deals", False),
         ("Portfolio", portfolio_page, "portfolio", False),
+        ("Data Health", data_health_page, "data-health", False),
     ]
 
     with ui.element("div").classes("mp-sticky-nav"):
