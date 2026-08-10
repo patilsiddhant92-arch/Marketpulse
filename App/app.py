@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 from datetime import date, datetime
@@ -400,19 +401,20 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
     """Extended for column customization: pass page_key (e.g. 'health-movers') to enable per-page visible column chooser + save to localStorage.
     hidden_cols still works as default. Additional filters can be added by caller before calling (e.g. extra ui.number/select bound to a reactive df filter).
     """
+    pref_key = re.sub(r"[^A-Za-z0-9_]", "_", str(page_key)) if page_key else None
     if title:
         with ui.row().classes("items-center gap-3 mt-4"):
             ui.label(title).classes("mp-section-title")
             if copy_symbols and "symbol" in df.columns and not df.empty:
                 copy_button("Copy Symbols", lambda: symbols_text(df))
-            if page_key:
+            if pref_key:
                 # Column chooser — now auto-loads saved prefs and applies on render (reload not required after save)
                 all_cols = list(df.columns)
                 # Load saved hidden from localStorage (injected script sets window var for this render)
                 ui.run_javascript(f"""
                   (function() {{
-                    const saved = localStorage.getItem('mp_cols_{page_key}');
-                    window.mp_saved_hidden_{page_key} = saved ? JSON.parse(saved) : [];
+                    const saved = localStorage.getItem('mp_cols_{pref_key}');
+                    window.mp_saved_hidden_{pref_key} = saved ? JSON.parse(saved) : [];
                   }})();
                 """)
                 # For initial render we use the passed hidden_cols; after save we reload to pick up (simple reliable way)
@@ -420,7 +422,7 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
                 col_select = ui.select(all_cols, multiple=True, value=current_hidden, label="Hide columns (saved per page)").classes("w-64").props("use-chips dense")
                 def save_cols():
                     hidden = col_select.value or []
-                    ui.run_javascript(f"localStorage.setItem('mp_cols_{page_key}', JSON.stringify({hidden}))")
+                    ui.run_javascript(f"localStorage.setItem('mp_cols_{pref_key}', JSON.stringify({hidden}))")
                     ui.notify(f"Column prefs saved — reloading to apply...")
                     ui.run_javascript("location.reload()")  # ensures prefs are loaded on fresh render
                 ui.button("Save view prefs", on_click=save_cols).classes("mp-button text-xs")
@@ -430,7 +432,7 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
 
     hidden_cols = set(hidden_cols or [])
     # Load saved hidden for this page_key if available (the JS above makes it available on reload)
-    if page_key:
+    if pref_key:
         # On reload the localStorage is authoritative; we still respect the passed hidden_cols as default
         pass
     view = df.copy()
@@ -2593,6 +2595,7 @@ def deals_page() -> None:
     summary_row = ui.row().classes("gap-4 flex-wrap")
     flow_chart = ui.column().classes("w-full")
     container = ui.column().classes("w-full")
+    initial_render = True
 
     def render() -> None:
         container.clear()
@@ -2654,7 +2657,11 @@ def deals_page() -> None:
 
         client_options = [""] + client_data["client_name"].dropna().astype(str).tolist()
         old_client = selected_client.value
-        selected_client.options = client_options
+        # Assigning QSelect options while the control tree is mounting causes
+        # a NiceGUI/Quasar render race. The initial page keeps the empty
+        # options; subsequent explicit Run clicks update the mounted select.
+        if not initial_render:
+            selected_client.options = client_options
         if old_client not in client_options:
             selected_client.value = ""
 
@@ -2733,7 +2740,8 @@ def deals_page() -> None:
 
         symbols = [""] + stock_data["symbol"].dropna().astype(str).tolist()
         old_symbol = selected_symbol.value
-        selected_symbol.options = symbols
+        if not initial_render:
+            selected_symbol.options = symbols
         if old_symbol not in symbols:
             selected_symbol.value = ""
         buy_total = client_data["buy_value_cr"].sum() if not client_data.empty else 0
@@ -2757,20 +2765,11 @@ def deals_page() -> None:
         # Flow chart
         with flow_chart:
             if not flow.empty:
-                x = pd.to_datetime(flow["trade_date"]).dt.strftime("%d-%b").tolist()
-                ui.echart({
-                    "title": {"text": f"Deal Flow Last {lookback} Days (MCap>=1000)", "left": 8, "textStyle": {"fontSize": 13, "fontWeight": 700, "color": "#e2e8f0"}},
-                    "tooltip": {"trigger": "axis"},
-                    "legend": {"top": 22, "textStyle": {"color": "#94a3b8"}},
-                    "color": ["#22c55e", "#ef4444"],
-                    "grid": {"left": 40, "right": 20, "top": 50, "bottom": 25},
-                    "xAxis": {"type": "category", "data": x},
-                    "yAxis": {"type": "value"},
-                    "series": [
-                        {"name": "Buy Cr", "type": "bar", "stack": "deal", "data": flow["buy_cr"].round(1).tolist()},
-                        {"name": "Sell Cr", "type": "bar", "stack": "deal", "data": [ -v for v in flow["sell_cr"].round(1).tolist()]},
-                    ],
-                }).classes("w-full h-64 mp-chart")
+                flow_view = flow.copy()
+                flow_view["trade_date"] = pd.to_datetime(flow_view["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                flow_view["buy_cr"] = pd.to_numeric(flow_view["buy_cr"], errors="coerce").round(1)
+                flow_view["sell_cr"] = pd.to_numeric(flow_view["sell_cr"], errors="coerce").round(1)
+                table_from_df(flow_view, f"Deal Flow Last {lookback} Days (MCap>=1000)", copy_symbols=False, pagination=20, page_key="deal-flow")
             else:
                 ui.label("No deal flow in window.").classes("text-[var(--mp-muted)]")
 
@@ -2782,7 +2781,10 @@ def deals_page() -> None:
                 "buy_value_cr", "sell_value_cr", "net_value_cr",
                 "symbols", "active_days", "deal_rows", "copy_symbols", "symbol_list"
             ]
-            table_from_df(client_data[[c for c in client_cols if c in client_data.columns]], "Institution Flow Leaderboard", copy_symbols=False, pagination=20)
+            # Keep the leaderboard compact; the full symbol roll-up is already
+            # available through the Copy All Institution Symbols action above.
+            leaderboard_cols = [c for c in client_cols if c in client_data.columns and c != "symbol_list"]
+            table_from_df(client_data[leaderboard_cols], "Institution Flow Leaderboard", copy_symbols=False, pagination=20)
 
             if selected_client.value:
                 client_rows = df_query(
@@ -2825,10 +2827,12 @@ def deals_page() -> None:
                 )
                 table_from_df(raw, f"Raw Deal Rows - {selected_symbol.value}", pagination=20, copy_symbols=False)
 
-    for ctrl in [side, min_value, days_back, selected_client, selected_symbol]:
-        ctrl.on_value_change(render)
+    # Render only after an explicit Run. Updating select options during render
+    # can otherwise fire value-change callbacks recursively in Quasar/NiceGUI,
+    # leaving a partially-mounted control tree and browser-side Vue errors.
     run_button.on_click(render)
     render()
+    initial_render = False
 
 
 def backtest_page() -> None:
@@ -5130,7 +5134,6 @@ def main() -> None:
         return
     app_header()
 
-    loaded: dict[str, bool] = {}
     # Decision nav: Today | Candidates | Sector Intel | Momentum | Deals | Portfolio | Data Health
     tab_specs = [
         ("Today", today_page, "today", True),
@@ -5146,30 +5149,22 @@ def main() -> None:
         with ui.tabs().classes("w-full mp-tabs") as tabs:
             tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
 
-    ensure_by_name: dict[str, callable] = {}
-    with ui.tab_panels(tabs, value=tab_els["Today"]).classes("w-full p-3 mp-panels"):
-        for name, build_fn, key, eager in tab_specs:
-            with ui.tab_panel(tab_els[name]):
-                ensure_by_name[name] = _lazy_panel(build_fn, loaded, key)
-                if eager:
-                    ensure_by_name[name]()
+    pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
+    content_host = ui.column().classes("w-full p-3 mp-panels")
 
-    def on_tab_change(e):
-        val = getattr(e, "value", None)
-        if val is None:
-            val = tabs.value
-        name = getattr(val, "text", None) or str(val)
-        # NiceGUI sometimes returns the tab label string directly
-        if name in ensure_by_name:
-            ensure_by_name[name]()
+    def show_page(name: str) -> None:
+        build_fn = pages.get(name)
+        if build_fn is None:
             return
-        # Match tab element identity
-        for label, el in tab_els.items():
-            if val is el or str(val) == label:
-                ensure_by_name[label]()
-                return
+        content_host.clear()
+        with content_host:
+            build_fn()
 
-    tabs.on_value_change(on_tab_change)
+    # A single content host avoids stale/overlapping Quasar panels across
+    # NiceGUI versions while preserving the existing tab visual language.
+    for name, tab_el in tab_els.items():
+        tab_el.on("click", lambda _=None, tab_name=name: show_page(tab_name))
+    show_page("Today")
     ui.run(**_ui_run_kwargs())
 
 

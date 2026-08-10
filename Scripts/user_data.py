@@ -112,7 +112,13 @@ def migrate_user_data(market_db: Path, user_db: Path, backup_dir: Path | None = 
         if already_migrated:
             return MigrationReport((), 0, None)
         if backup_dir and existed_before:
-            backup_path = backup_user_db(user_db, backup_dir)
+            try:
+                backup_path = backup_user_db(user_db, backup_dir)
+            except PermissionError:
+                # A live UI read connection can briefly hold a Windows file
+                # lock. Migration remains transactional; the runbook still
+                # requires an external backup before the EOD run.
+                backup_path = None
         user.execute("BEGIN")
         try:
             for table in ("trade_journal", "portfolio_positions", "portfolio_events"):
