@@ -13,7 +13,23 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "Scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, WATCHLIST_BUCKETS
+from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, USER_DB_PATH, WATCHLIST_BUCKETS
+
+try:
+    from user_data import initialize_user_db, migrate_user_data
+except ModuleNotFoundError:
+    from Scripts.user_data import initialize_user_db, migrate_user_data
+from user_data_service import (
+    ExitCommand,
+    MarketSnapshot,
+    Position,
+    PositionCommand,
+    calculate_position_risk,
+    delete_position,
+    mark_sold,
+    reopen_position,
+    upsert_position,
+)
 
 try:
     from config import STATUS_PATH
@@ -86,6 +102,32 @@ def write_execute(sql: str, params=None) -> None:
 def write_query(sql: str, params=None) -> pd.DataFrame:
     with duckdb.connect(str(DB_PATH)) as db:
         return db.execute(sql, params or []).fetchdf()
+
+
+def user_query(sql: str, params=None) -> pd.DataFrame:
+    """Read manual data from the isolated user database."""
+    with duckdb.connect(str(USER_DB_PATH), read_only=True) as db:
+        return db.execute(sql, params or []).fetchdf()
+
+
+def ensure_user_data() -> None:
+    """Initialize manual storage and migrate legacy rows exactly once."""
+    initialize_user_db(USER_DB_PATH)
+    if not DB_PATH.exists():
+        return
+    try:
+        with duckdb.connect(str(USER_DB_PATH), read_only=True) as db:
+            migrated = int(
+                db.execute(
+                    "SELECT count(*) FROM portfolio_settings WHERE setting_key = 'legacy_market_data_migrated'"
+                ).fetchone()[0]
+            )
+        if not migrated:
+            migrate_user_data(DB_PATH, USER_DB_PATH, USER_DB_PATH.parent / "backups")
+    except (duckdb.Error, OSError):
+        # The portfolio page remains usable with an empty user store even if a
+        # legacy market database is unavailable or cannot be migrated.
+        return
 
 
 def ensure_journal_table() -> None:
@@ -195,7 +237,6 @@ def ensure_runtime_schema() -> None:
                         db.execute(f"UPDATE indicators_daily SET {col} = {default}")
     except duckdb.IOException:
         return
-    ensure_portfolio_tables()
 
 
 def indicator_columns() -> set[str]:
@@ -4376,20 +4417,41 @@ def today_page() -> None:
 
 def _portfolio_next_event_id() -> int:
     try:
-        row = write_query("SELECT coalesce(max(id), 0) + 1 AS n FROM portfolio_events")
+        row = user_query("SELECT coalesce(max(id), 0) + 1 AS n FROM portfolio_events")
         return int(row.iloc[0]["n"])
     except Exception:
         return int(datetime.now().timestamp())
 
 
+def _latest_market_snapshot(symbol: str) -> MarketSnapshot:
+    """Build the small market context needed to validate a manual entry."""
+    try:
+        frame = df_query(
+            """
+            WITH latest AS (SELECT max(trade_date) AS trade_date FROM indicators_daily)
+            SELECT i.symbol, i.close_price, i.ema_20, i.ema_50, i.rs_percentile,
+                   m.sector, m.industry
+            FROM indicators_daily i
+            LEFT JOIN stocks_master m USING(symbol), latest
+            WHERE i.trade_date = latest.trade_date AND i.symbol = ?
+            LIMIT 1
+            """,
+            [str(symbol).strip().upper()],
+        )
+        if not frame.empty:
+            return MarketSnapshot(**frame.iloc[0].where(pd.notna(frame.iloc[0]), None).to_dict())
+    except Exception:
+        pass
+    return MarketSnapshot(symbol=str(symbol).strip().upper())
+
+
 def portfolio_get(symbol: str) -> dict | None:
     """Load one position as a plain dict (for edit form)."""
-    ensure_portfolio_tables()
     sym = str(symbol or "").strip().upper()
     if not sym:
         return None
     try:
-        df = write_query("SELECT * FROM portfolio_positions WHERE symbol = ?", [sym])
+        df = user_query("SELECT * FROM portfolio_positions WHERE symbol = ?", [sym])
     except Exception:
         return None
     if df.empty:
@@ -4406,145 +4468,53 @@ def portfolio_upsert(
     tags: str = "",
     *,
     keep_status: bool = True,
+    stop_price: float | None = None,
+    target_price: float | None = None,
+    thesis: str = "",
+    setup_type: str = "",
+    invalidation_note: str = "",
+    planned_risk_inr: float | None = None,
+    max_risk_pct: float | None = None,
+    confirm_entry_deviation: bool = False,
 ) -> str:
-    """Insert or update a position. Returns 'created' or 'updated'."""
-    ensure_portfolio_tables()
+    """Insert or update a validated position in the isolated user store."""
     sym = str(symbol or "").strip().upper()
     if not sym:
         raise ValueError("Symbol required")
-    now = datetime.now()
     bd = pd.to_datetime(buy_date_val).date() if buy_date_val else date.today()
     existing = portfolio_get(sym)
-    if existing is not None:
-        status = str(existing.get("status") or "OPEN") if keep_status else "OPEN"
-        # Pure UPDATE so edits do not wipe sell history fields when reopening deliberately
-        if status == "OPEN" or not keep_status:
-            write_execute(
-                """
-                UPDATE portfolio_positions
-                SET status = 'OPEN',
-                    qty = ?,
-                    avg_buy_price = ?,
-                    buy_date = ?,
-                    sell_date = NULL,
-                    sell_price = NULL,
-                    notes = ?,
-                    tags = ?,
-                    updated_at = ?
-                WHERE symbol = ?
-                """,
-                [float(qty or 0), float(avg_buy or 0), bd, notes or "", tags or "", now, sym],
-            )
-        else:
-            # Editing a SOLD row fields without reopening
-            write_execute(
-                """
-                UPDATE portfolio_positions
-                SET qty = ?,
-                    avg_buy_price = ?,
-                    buy_date = ?,
-                    notes = ?,
-                    tags = ?,
-                    updated_at = ?
-                WHERE symbol = ?
-                """,
-                [float(qty or 0), float(avg_buy or 0), bd, notes or "", tags or "", now, sym],
-            )
-        write_execute(
-            """
-            INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
-            VALUES (?, ?, 'EDIT', ?, ?, ?, ?, ?)
-            """,
-            [
-                _portfolio_next_event_id(),
-                sym,
-                date.today(),
-                float(qty or 0),
-                float(avg_buy or 0),
-                notes or "Edited",
-                now,
-            ],
-        )
-        return "updated"
-
-    write_execute(
-        """
-        INSERT INTO portfolio_positions
-            (symbol, status, qty, avg_buy_price, buy_date, sell_date, sell_price, notes, tags, created_at, updated_at)
-        VALUES (?, 'OPEN', ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
-        """,
-        [sym, float(qty or 0), float(avg_buy or 0), bd, notes or "", tags or "", now, now],
+    command = PositionCommand(
+        symbol=sym,
+        quantity=float(qty or 0),
+        entry_price=float(avg_buy or 0),
+        buy_date=bd,
+        stop_price=float(stop_price or 0),
+        target_price=float(target_price or 0),
+        thesis=thesis or notes or "",
+        setup_type=setup_type or "",
+        invalidation_note=invalidation_note or "",
+        notes=notes or "",
+        tags=tags or "",
+        planned_risk_inr=planned_risk_inr,
+        max_risk_pct=max_risk_pct,
+        confirm_entry_deviation=confirm_entry_deviation,
     )
-    write_execute(
-        """
-        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
-        VALUES (?, ?, 'BUY', ?, ?, ?, ?, ?)
-        """,
-        [_portfolio_next_event_id(), sym, bd, float(qty or 0), float(avg_buy or 0), notes or "", now],
-    )
-    return "created"
+    upsert_position(USER_DB_PATH, command, _latest_market_snapshot(sym))
+    return "updated" if existing is not None else "created"
 
 
-def portfolio_delete(symbol: str) -> None:
-    """Hard-delete a position and keep a DELETE event for audit."""
-    ensure_portfolio_tables()
-    sym = str(symbol or "").strip().upper()
-    if not sym:
-        raise ValueError("Symbol required")
-    now = datetime.now()
-    write_execute("DELETE FROM portfolio_positions WHERE symbol = ?", [sym])
-    write_execute(
-        """
-        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
-        VALUES (?, ?, 'DELETE', ?, NULL, NULL, 'Removed from portfolio', ?)
-        """,
-        [_portfolio_next_event_id(), sym, date.today(), now],
-    )
+def portfolio_delete(symbol: str, *, confirmed: bool = False) -> None:
+    """Hard-delete only after an explicit UI confirmation, retaining an event."""
+    delete_position(USER_DB_PATH, symbol, confirmed=confirmed)
 
 
 def portfolio_mark_sold(symbol: str, sell_price: float, sell_date_val, notes: str = "") -> None:
-    ensure_portfolio_tables()
-    sym = str(symbol or "").strip().upper()
     sd = pd.to_datetime(sell_date_val).date() if sell_date_val else date.today()
-    now = datetime.now()
-    write_execute(
-        """
-        UPDATE portfolio_positions
-        SET status = 'SOLD', sell_price = ?, sell_date = ?,
-            notes = CASE WHEN ? = '' THEN notes ELSE notes || ' | ' || ? END,
-            updated_at = ?
-        WHERE symbol = ?
-        """,
-        [float(sell_price or 0), sd, notes or "", notes or "", now, sym],
-    )
-    write_execute(
-        """
-        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
-        VALUES (?, ?, 'SELL', ?, NULL, ?, ?, ?)
-        """,
-        [_portfolio_next_event_id(), sym, sd, float(sell_price or 0), notes or "", now],
-    )
+    mark_sold(USER_DB_PATH, ExitCommand(str(symbol or "").strip().upper(), float(sell_price or 0), sd, notes or ""))
 
 
 def portfolio_reopen(symbol: str) -> None:
-    ensure_portfolio_tables()
-    sym = str(symbol or "").strip().upper()
-    now = datetime.now()
-    write_execute(
-        """
-        UPDATE portfolio_positions
-        SET status = 'OPEN', sell_date = NULL, sell_price = NULL, updated_at = ?
-        WHERE symbol = ?
-        """,
-        [now, sym],
-    )
-    write_execute(
-        """
-        INSERT INTO portfolio_events (id, symbol, event_type, event_date, qty, price, notes, created_at)
-        VALUES (?, ?, 'STATUS', ?, NULL, NULL, 'Reopened', ?)
-        """,
-        [_portfolio_next_event_id(), sym, date.today(), now],
-    )
+    reopen_position(USER_DB_PATH, symbol)
 
 
 def _rs_trail_5d(symbols: list[str]) -> pd.DataFrame:
@@ -4580,9 +4550,8 @@ def _rs_trail_5d(symbols: list[str]) -> pd.DataFrame:
 
 def portfolio_enrich(status: str) -> pd.DataFrame:
     """Join manual positions with live indicators, rotation states, turnover, RS trail, deals."""
-    ensure_portfolio_tables()
     try:
-        pos = write_query(
+        pos = user_query(
             "SELECT * FROM portfolio_positions WHERE status = ? ORDER BY updated_at DESC",
             [status],
         )
@@ -4664,6 +4633,41 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
     out["realized_pnl_inr"] = ((sell_px - avg) * qty).round(0)
     out["market_value_inr"] = (cmp * qty).round(0)
     out["cost_value_inr"] = (avg * qty).round(0)
+    risk_rows = []
+    for _, row in out.iterrows():
+        try:
+            position = Position(
+                symbol=str(row.get("symbol") or ""),
+                status=str(row.get("status") or status),
+                quantity=float(row.get("qty") or 0),
+                entry_price=float(row.get("avg_buy_price") or 0),
+                buy_date=pd.to_datetime(row.get("buy_date"), errors="coerce").date() if pd.notna(row.get("buy_date")) else date.today(),
+                stop_price=float(row.get("stop_price") or 0),
+                target_price=float(row.get("target_price") or 0),
+                sell_date=None,
+                sell_price=float(row.get("sell_price")) if pd.notna(row.get("sell_price")) else None,
+                thesis=str(row.get("thesis") or ""),
+                invalidation_note=str(row.get("invalidation_note") or ""),
+                notes=str(row.get("notes") or ""),
+                tags=str(row.get("tags") or ""),
+            )
+            risk = calculate_position_risk(position, float(row.get("cmp") or 0))
+            risk_rows.append(
+                {
+                    "initial_risk_inr": risk.initial_risk_inr,
+                    "initial_risk_pct": risk.initial_risk_pct,
+                    "current_open_risk_inr": risk.current_open_risk_inr,
+                    "current_open_risk_pct": risk.current_open_risk_pct,
+                    "r_multiple": risk.r_multiple,
+                    "stop_distance_pct": risk.stop_distance_pct,
+                    "target_distance_pct": risk.target_distance_pct,
+                    "risk_action": risk.action_state,
+                }
+            )
+        except Exception:
+            risk_rows.append({})
+    if risk_rows:
+        out = pd.concat([out.reset_index(drop=True), pd.DataFrame(risk_rows)], axis=1)
     # Days held from buy_date (shown as age, not raw date in open table)
     try:
         bd = pd.to_datetime(out.get("buy_date"), errors="coerce")
@@ -4722,7 +4726,7 @@ def portfolio_page() -> None:
         "Manual positions — Open vs Sold. Enriched with live CMP, RS, 52W, industry state, and institutional deals. "
         "Survives daily append; re-enter after a full DB rebuild.",
     )
-    ensure_portfolio_tables()
+    ensure_user_data()
 
     try:
         symbol_options = df_query(
@@ -4771,11 +4775,17 @@ def portfolio_page() -> None:
                 ).classes("w-40").props("dense")
                 p_qty = ui.number("Qty", value=1, min=0).classes("w-28").props("dense")
                 p_avg = ui.number("Avg buy", value=None, format="%.2f").classes("w-32").props("dense")
+                p_stop = ui.number("Stop", value=None, format="%.2f").classes("w-28").props("dense")
+                p_target = ui.number("Target", value=None, format="%.2f").classes("w-28").props("dense")
                 p_buy = ui.input("Buy date", value=str(date.today())).classes("w-32").props("dense")
                 p_notes = ui.input("Notes", placeholder="optional").classes("w-48").props("dense")
                 p_tags = ui.input("Tags", placeholder="swing / core").classes("w-32").props("dense")
+                p_thesis = ui.input("Thesis", placeholder="why this trade?").classes("w-52").props("dense")
+                p_invalidation = ui.input("Invalidation", placeholder="what breaks it?").classes("w-52").props("dense")
+                p_confirm = ui.checkbox("Confirm price deviation", value=False).props("dense")
 
             edit_status = ui.label("").classes("text-xs text-[var(--mp-muted)] mb-1")
+            delete_armed: dict[str, str | None] = {"symbol": None}
 
             with ui.row().classes("gap-2 items-end flex-wrap"):
                 def load_into_form(sym: str | None = None) -> None:
@@ -4789,10 +4799,14 @@ def portfolio_page() -> None:
                     p_sym.value = pick
                     p_qty.value = float(row.get("qty") or 0)
                     p_avg.value = float(row.get("avg_buy_price") or 0) if pd.notna(row.get("avg_buy_price")) else None
+                    p_stop.value = float(row.get("stop_price") or 0) if float(row.get("stop_price") or 0) > 0 else None
+                    p_target.value = float(row.get("target_price") or 0) if float(row.get("target_price") or 0) > 0 else None
                     bd = row.get("buy_date")
                     p_buy.value = str(bd)[:10] if bd is not None and str(bd) not in {"", "NaT", "None"} else str(date.today())
                     p_notes.value = str(row.get("notes") or "")
                     p_tags.value = str(row.get("tags") or "")
+                    p_thesis.value = str(row.get("thesis") or "")
+                    p_invalidation.value = str(row.get("invalidation_note") or "")
                     st = str(row.get("status") or "")
                     edit_status.text = f"Editing {pick} ({st}) — change fields and click Save"
                     ui.notify(f"Loaded {pick}", type="info")
@@ -4816,6 +4830,11 @@ def portfolio_page() -> None:
                             p_notes.value or "",
                             p_tags.value or "",
                             keep_status=False,  # Save always keeps/sets OPEN
+                            stop_price=float(p_stop.value or 0),
+                            target_price=float(p_target.value or 0),
+                            thesis=p_thesis.value or "",
+                            invalidation_note=p_invalidation.value or "",
+                            confirm_entry_deviation=bool(p_confirm.value),
                         )
                         msg = "Updated" if action == "updated" else "Added"
                         ui.notify(f"{msg} {str(p_sym.value).upper()} (OPEN)", type="positive")
@@ -4829,7 +4848,12 @@ def portfolio_page() -> None:
                         if not sym:
                             ui.notify("Select a symbol to delete", type="warning")
                             return
-                        portfolio_delete(sym)
+                        if delete_armed["symbol"] != sym:
+                            delete_armed["symbol"] = sym
+                            ui.notify(f"Click Delete again to confirm removing {sym}", type="warning")
+                            return
+                        portfolio_delete(sym, confirmed=True)
+                        delete_armed["symbol"] = None
                         ui.notify(f"Deleted {sym}", type="positive")
                         refresh()
                     except Exception as exc:
@@ -4918,6 +4942,12 @@ def portfolio_page() -> None:
                             "unrealized_pnl_inr",
                             "market_value_inr",
                             "weight_pct",
+                            "initial_risk_inr",
+                            "current_open_risk_inr",
+                            "r_multiple",
+                            "stop_distance_pct",
+                            "target_distance_pct",
+                            "risk_action",
                             "days_held",
                             "rs_5d_trail",
                             "rs_percentile",
@@ -4939,7 +4969,7 @@ def portfolio_page() -> None:
                     ]
                 ].copy()
                 # Round display numbers cleanly
-                for col in ("avg_buy_price", "cmp", "turnover_cr", "turnover_1w_cr", "buy_deal_cr", "sell_deal_cr", "net_deal_cr", "rs_percentile"):
+                for col in ("avg_buy_price", "cmp", "turnover_cr", "turnover_1w_cr", "buy_deal_cr", "sell_deal_cr", "net_deal_cr", "rs_percentile", "initial_risk_inr", "current_open_risk_inr", "r_multiple", "stop_distance_pct", "target_distance_pct"):
                     if col in show.columns:
                         show[col] = pd.to_numeric(show[col], errors="coerce").round(2)
                 table_from_df(show, "", pagination=25)
@@ -5070,7 +5100,6 @@ def main() -> None:
         ui.label(f"Database not found: {DB_PATH}. Run_MarketPulse_Auto.bat first.").classes("text-red-600 text-lg")
         ui.run(**_ui_run_kwargs())
         return
-    ensure_runtime_schema()
     app_header()
 
     loaded: dict[str, bool] = {}

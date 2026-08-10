@@ -23,6 +23,9 @@ else:
     DATABASE_DIR = ROOT_DIR / "Database"
     DB_PATH = DATABASE_DIR / "marketpulse.duckdb"
 
+_env_user_db = os.environ.get("MP_USER_DB_PATH", "").strip()
+USER_DB_PATH = Path(_env_user_db) if _env_user_db else DATABASE_DIR / "marketpulse_user.duckdb"
+
 STATUS_PATH = DATABASE_DIR / "status.json"
 
 
