@@ -30,6 +30,7 @@ import pandas as pd
 
 from config import DAILY_DIR, DATABASE_DIR, DB_PATH, LOGS_DIR, ROOT_DIR
 from download_nse_reports import parse_date, run as download_run, resolve_auto_date
+from decision_pipeline import process_accepted_session
 
 STATUS_PATH = DATABASE_DIR / "status.json"
 DEFAULT_MAX_ATTEMPTS = 3
@@ -236,6 +237,29 @@ def run_pipeline(
             else:
                 status["steps"].append({"step": "append", "ok": True, "skipped": True})
                 print("Append skipped")
+
+            # --- PR reports + focused-v2 decision snapshot ---
+            if not skip_append:
+                decision_text = status.get("download_date") or status.get("daily_bhav_date")
+                if decision_text:
+                    decision_day = datetime.fromisoformat(str(decision_text)).date()
+                    session_dir = ROOT_DIR / "Input" / "downloads" / decision_day.strftime("%d%m%Y")
+                    try:
+                        decision_result = process_accepted_session(DB_PATH, session_dir, decision_day)
+                        status["steps"].append({"step": "decisions", "ok": True, **decision_result})
+                        print(
+                            f"Decision snapshot OK: {decision_result['score_version']} "
+                            f"through {decision_result['trade_date']} ({decision_result['decision_rows']} rows)."
+                        )
+                    except Exception as exc:
+                        status["steps"].append({"step": "decisions", "ok": False, "error": str(exc)})
+                        raise
+                else:
+                    status["steps"].append({"step": "decisions", "ok": False, "error": "no accepted session date"})
+                    raise RuntimeError("Cannot materialize decisions without an accepted session date")
+            else:
+                status["steps"].append({"step": "decisions", "ok": True, "skipped": True})
+                print("Decision materialization skipped")
 
             status["db_date_after"] = _db_max_trade_date()
             status["ok"] = True

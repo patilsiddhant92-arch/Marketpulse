@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from config import ARCHIVE_DIR, DAILY_DIR, INPUT_DIR
+from ingestion_manifest import prepare_session_manifest
 
 try:
     from curl_cffi import requests
@@ -646,7 +647,9 @@ def download_session_to_stage(day: datetime, stage_dir: Path) -> list[str]:
     print("  OK bulk.csv")
     print("  OK block.csv")
 
-    validate_stage(stage_dir, expected_names)
+    manifest_names = [*expected_names, f"PR{ddmmyy(day)}.zip"]
+    validate_stage(stage_dir, manifest_names)
+    prepare_session_manifest(stage_dir, day.date(), manifest_names)
     return expected_names
 
 

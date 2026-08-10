@@ -10,7 +10,7 @@ from migrations import run_migrations
 from ingestion_manifest import SessionPlan
 
 
-ALLOWED_TABLES = {"security_reference_daily", "corporate_actions", "price_adjustment_factors", "index_daily", "security_events", "ingestion_batches", "ingested_reports"}
+ALLOWED_TABLES = {"security_reference_daily", "corporate_actions", "price_adjustment_factors", "index_daily", "security_events", "security_risk_daily", "top_value_daily", "ingestion_batches", "ingested_reports"}
 
 
 def append_batch(db_path: Path, session_plan: SessionPlan) -> None:
