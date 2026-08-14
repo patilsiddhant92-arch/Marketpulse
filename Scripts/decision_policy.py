@@ -13,7 +13,7 @@ class DecisionPolicy:
     min_market_cap_cr: float = 1000.0
     min_avg_traded_value_cr_20d: float = 10.0
     min_price_band_pct: float = 10.0
-    min_prepare_score: float = 65.0
+    min_prepare_score: float = 60.0
     max_distance_to_trigger_pct: float = 5.0
     min_distance_to_trigger_pct: float = -2.0
     max_initial_risk_pct: float = 8.0
@@ -77,6 +77,12 @@ def evaluate_candidate_eligibility(row: Mapping[str, Any], policy: DecisionPolic
     elif distance > policy.max_distance_to_trigger_pct or distance < policy.min_distance_to_trigger_pct:
         blocking.append("trigger_too_far")
 
+    band_remarks = str(row.get("band_remarks") or "").upper()
+    if any(k in band_remarks for k in ("GSM", "STAGE 2", "STAGE 3", "STAGE 4", "ESM STAGE 2")):
+        blocking.append("surveillance_gsm_asm_high")
+    elif any(k in band_remarks for k in ("ASM", "ESM", "T2T", "STAGE 1")):
+        warnings.append("surveillance_asm_stage1")
+
     event_risk = str(row.get("event_risk") or "none").lower()
     if event_risk == "high":
         warnings.append("high_event_risk")
@@ -84,6 +90,7 @@ def evaluate_candidate_eligibility(row: Mapping[str, Any], policy: DecisionPolic
         warnings.append("event_risk_warning")
 
     return EligibilityResult(not blocking, tuple(dict.fromkeys(blocking)), tuple(dict.fromkeys(warnings)))
+
 
 
 __all__ = ["DecisionPolicy", "EligibilityResult", "evaluate_candidate_eligibility"]

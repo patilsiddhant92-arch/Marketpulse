@@ -8,8 +8,12 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from events import event_risk_for_date
-from decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
+try:
+    from events import event_risk_for_date
+    from decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
+except ModuleNotFoundError:
+    from Scripts.events import event_risk_for_date
+    from Scripts.decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
 
 
 SCORE_VERSION = "focused-v2"
@@ -155,11 +159,31 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         for col in ("sector", "industry", "market_cap_cr", "band"):
             if f"{col}_master" in rows.columns:
                 rows[col] = rows[col].fillna(rows[f"{col}_master"])
+    try:
+        from institutional_engine import compute_stock_deal_metrics
+    except ModuleNotFoundError:
+        from Scripts.institutional_engine import compute_stock_deal_metrics
+
+    # Compute actual normalized deal activity if deals exist
+    if deals is not None and not deals.empty:
+        deal_metrics = compute_stock_deal_metrics(deals, rows, as_of=as_of)
+        if not deal_metrics.empty and "normalized_deal_activity" in deal_metrics.columns:
+            deal_cols = [c for c in ["symbol", "normalized_deal_activity", "is_cluster_buy"] if c in deal_metrics.columns]
+            rows = rows.merge(deal_metrics[deal_cols].drop_duplicates("symbol"), on="symbol", how="left")
+
     breadth_row = breadth[pd.to_datetime(breadth["trade_date"]).dt.normalize() <= as_of].sort_values("trade_date").tail(1).iloc[0] if breadth is not None and not breadth.empty else pd.Series()
     index_today = index_features[pd.to_datetime(index_features["trade_date"]).dt.normalize() <= as_of].sort_values("trade_date").groupby("index_name", as_index=False).tail(1) if index_features is not None and not index_features.empty else pd.DataFrame()
     rotation_today = rotations[pd.to_datetime(rotations["trade_date"]).dt.normalize() <= as_of].sort_values("trade_date").groupby([col for col in ["level", "group_name"] if col in rotations.columns], as_index=False).tail(1) if rotations is not None and not rotations.empty else pd.DataFrame()
     market_regime = classify_market_gate(breadth_row, index_today, rotation_today)
     gate_score = {"Constructive": 90, "Selective": 65, "Defensive": 35, "Risk-Off": 15}[market_regime]
+
+    # Benchmark return (Nifty 50)
+    nifty_3m_ret = 0.0
+    if not index_today.empty:
+        nifty_match = index_today[index_today["index_name"].astype(str).str.upper().str.contains("NIFTY 50")]
+        if not nifty_match.empty and "return_63d_pct" in nifty_match.columns:
+            nifty_3m_ret = _num(nifty_match.iloc[0], "return_63d_pct", 0.0)
+
     sessions = pd.to_datetime(indicators["trade_date"], errors="coerce").dropna().drop_duplicates().sort_values().tolist()
     output = []
     for _, source in rows.iterrows():
@@ -168,11 +192,33 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         sector_rotation = rotation_today[(rotation_today.get("group_name", pd.Series(dtype=str)).astype(str) == sector)] if not rotation_today.empty and "group_name" in rotation_today.columns else pd.DataFrame()
         sector_state = str(sector_rotation.iloc[0].get("rotation_state", "Unknown")) if not sector_rotation.empty else "Unknown"
         sector_score = _score(sector_rotation.iloc[0].get("rotation_score", 50)) if not sector_rotation.empty else 50
-        leadership = _mean_scores([row.get("rs_percentile"), row.get("rs_1y_percentile"), row.get("rs_3m_percentile"), row.get("benchmark_relative_strength", row.get("return_3m_pct")), row.get("sector_relative_strength", row.get("return_3m_pct")), 50 + _num(row, "rank_acceleration", 0) * 2])
+
+        # Calculate relative strength vs benchmark and sector
+        stock_3m_ret = _num(row, "return_63d_pct", _num(row, "return_3m_pct", 0.0))
+        sector_3m_ret = _num(sector_rotation.iloc[0], "return_63d_pct", nifty_3m_ret) if not sector_rotation.empty else nifty_3m_ret
+        benchmark_rs = stock_3m_ret - nifty_3m_ret
+        sector_rs = stock_3m_ret - sector_3m_ret
+
+        leadership = _mean_scores([
+            row.get("rs_percentile"),
+            row.get("rs_1y_percentile"),
+            row.get("rs_3m_percentile"),
+            _score(50 + benchmark_rs * 2),
+            _score(50 + sector_rs * 2),
+            50 + _num(row, "rank_acceleration", 0) * 2,
+        ])
         setup = _mean_scores([row.get("trend_score"), row.get("contraction_score"), row.get("volume_dryup_score"), row.get("pivot_proximity_score"), 100 if bool(row.get("ema_stack_bullish", False)) else 40, 100 if bool(row.get("near_high_tight", False)) else 50])
         turnover_z = (_num(row, "turnover_cr", np.nan) / _num(row, "avg_traded_value_cr_20d", np.nan) - 1) * 20 if _num(row, "avg_traded_value_cr_20d", np.nan) > 0 else np.nan
         delivery_z = (_num(row, "delivery_pct", np.nan) - _num(row, "avg_delivery_pct_20d", np.nan)) / 5 if np.isfinite(_num(row, "avg_delivery_pct_20d", np.nan)) else np.nan
-        participation = _mean_scores([50 + turnover_z * 15 if np.isfinite(turnover_z) else np.nan, 50 + delivery_z * 15 if np.isfinite(delivery_z) else np.nan, row.get("close_location_pct"), 50 + (_num(row, "rvol", 1) - 1) * 25, min(100, _num(row, "normalized_deal_activity", 0)) if np.isfinite(_num(row, "normalized_deal_activity", np.nan)) else np.nan])
+        deal_activity = _num(row, "normalized_deal_activity", 50.0)
+        participation = _mean_scores([
+            50 + turnover_z * 15 if np.isfinite(turnover_z) else np.nan,
+            50 + delivery_z * 15 if np.isfinite(delivery_z) else np.nan,
+            row.get("close_location_pct"),
+            50 + (_num(row, "rvol", 1) - 1) * 25,
+            deal_activity,
+        ])
+
         context = _mean_scores([gate_score, sector_score, 70 if sector_state.lower() in {"leading", "improving"} else 40 if sector_state.lower() == "lagging" else 55])
         risk_penalty = 0
         if _num(row, "avg_traded_value_cr_20d", 100) < 10:
@@ -201,7 +247,9 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         else:
             candidate_state = "Blocked"
         output.append({
-            "trade_date": as_of.date(), "symbol": row.get("symbol"), "score_version": policy.score_version, "candidate_state": candidate_state, "leadership_score": leadership, "setup_score": setup, "participation_score": participation, "context_score": context, "risk_score": risk_score, "total_score": total, "rank_overall": None, "rank_in_sector": None, "why_now": why_now, "latest_change": latest_change, "risk_summary": risk_summary, **geometry, "setup_first_seen": as_of.date(), "setup_age_sessions": 1, "event_risk": row["event_risk"], "data_quality_flags": ";".join((*eligibility.blocking_reasons, *eligibility.warning_reasons)), "trigger_type": "break_above_pivot", "invalidation_type": "close_below_support", "market_regime": market_regime, "sector_state": sector_state, "industry_state": "Unknown", "market_cap_cr": row.get("market_cap_cr"), "avg_traded_value_cr_20d": row.get("avg_traded_value_cr_20d"), "sector": sector, "industry": str(row.get("industry") or ""), "eligibility_status": "eligible" if eligibility.eligible else "blocked", "blocking_reasons": ";".join(eligibility.blocking_reasons), "warning_reasons": ";".join(eligibility.warning_reasons)
+            # setup_first_seen / setup_age_sessions: leave null/1 provisional.
+            # Ledger + materialize apply stable identity (do not force as_of daily).
+            "trade_date": as_of.date(), "symbol": row.get("symbol"), "score_version": policy.score_version, "candidate_state": candidate_state, "leadership_score": leadership, "setup_score": setup, "participation_score": participation, "context_score": context, "risk_score": risk_score, "total_score": total, "rank_overall": None, "rank_in_sector": None, "why_now": why_now, "latest_change": latest_change, "risk_summary": risk_summary, **geometry, "setup_first_seen": None, "setup_age_sessions": 1, "event_risk": row["event_risk"], "data_quality_flags": ";".join((*eligibility.blocking_reasons, *eligibility.warning_reasons)), "trigger_type": "break_above_pivot", "invalidation_type": "close_below_support", "market_regime": market_regime, "sector_state": sector_state, "industry_state": "Unknown", "market_cap_cr": row.get("market_cap_cr"), "avg_traded_value_cr_20d": row.get("avg_traded_value_cr_20d"), "sector": sector, "industry": str(row.get("industry") or ""), "eligibility_status": "eligible" if eligibility.eligible else "blocked", "blocking_reasons": ";".join(eligibility.blocking_reasons), "warning_reasons": ";".join(eligibility.warning_reasons)
         })
     result = pd.DataFrame(output, columns=OUTPUT_COLUMNS)
     if result.empty:

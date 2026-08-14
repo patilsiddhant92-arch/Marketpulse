@@ -75,101 +75,91 @@ def _write_status(payload: dict) -> None:
 
 
 def _run_append() -> dict:
-    """Call append_database.main logic; return summary dict."""
-    # Import here so download-only mode is lighter if append deps fail later
-    from append_database import _load_table, _new_daily_prices
-    from build_database import (
-        build_breadth_daily,
-        build_enrichment,
-        build_master,
-        build_sector_rotation,
-        calc_indicators,
-        enrich_deals,
-        make_screener_results,
-        read_52_week,
-        read_all_deals,
-        read_equity_symbols,
-        read_market_cap,
-        read_pe,
-        read_price_band,
-        read_sector,
-        write_database,
-    )
-    import shutil
+    """Delegate to the single append_session implementation (PR-APPEND)."""
+    from append_database import append_session
 
-    if not DB_PATH.exists():
-        print("No database found — running full rebuild...")
-        from build_database import main as full_build
-
-        old_argv = sys.argv
-        try:
-            sys.argv = [old_argv[0]]
-            full_build()
-        finally:
-            sys.argv = old_argv
-        return {"action": "full_rebuild", "message": "Created database from scratch."}
-
-    equity = read_equity_symbols()
-    universe = set(equity["symbol"])
-    existing_prices = _load_table("prices_daily")
-    latest_date = pd.to_datetime(existing_prices["trade_date"]).max()
-    new_prices = _new_daily_prices(universe, latest_date)
-    if new_prices.empty:
-        msg = f"No new bhavcopy rows after {latest_date.date()}. Database unchanged."
-        print(msg)
-        return {
-            "action": "noop",
-            "message": msg,
-            "db_date": latest_date.date().isoformat(),
-        }
-
-    print(
-        f"Appending {len(new_prices):,} price rows "
-        f"from {new_prices['trade_date'].min().date()} to {new_prices['trade_date'].max().date()}."
-    )
-    prices = pd.concat([existing_prices, new_prices], ignore_index=True)
-    prices["trade_date"] = pd.to_datetime(prices["trade_date"])
-    prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(
-        ["symbol", "trade_date"], keep="last"
-    )
-
-    from reference_history import load_reference_history
-
-    sector = read_sector()
-    mcap = read_market_cap()
-    bands = read_price_band()
-    pe = read_pe()
-    high52 = read_52_week()
-    enrichment = build_enrichment(mcap, bands, pe, high52, pd.DataFrame(), pd.DataFrame())
-    master = build_master(equity, sector, prices, mcap, bands, pe)
-    # Same path as append_database: date-keyed 52W/mcap/PE history (not latest-only paint)
-    reference_history = load_reference_history(ROOT_DIR)
-    indicators = calc_indicators(
-        prices, reference_history if not reference_history.empty else enrichment
-    )
-    deals_raw = read_all_deals()
-    deals = enrich_deals(deals_raw, prices, indicators, master)
-    latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
-    enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
-    breadth_daily = build_breadth_daily(indicators)
-    sector_rotation = build_sector_rotation(indicators, master)
-    screener_results = make_screener_results(indicators, master, deals, sector_rotation)
-
-    backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
-    shutil.copy2(DB_PATH, backup)
-    write_database(
-        prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results
-    )
-    new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
-    msg = f"Append complete through {new_max}. Backup: {backup.name}"
-    print(msg)
+    # Pipeline owns Telegram deals at the end; skip nested notify inside append.
+    result = append_session(force_full=False, notify_telegram=False)
     return {
-        "action": "append",
-        "message": msg,
-        "db_date": new_max,
-        "new_rows": int(len(new_prices)),
-        "backup": str(backup),
+        "action": result.action,
+        "message": result.message,
+        "db_date": result.db_date,
+        "new_rows": result.new_rows,
+        "backup": result.backup,
+        "duration_ms": result.duration_ms,
     }
+
+
+def _required_bhav_present(session_dir: Path | None, trading_date: str | None) -> tuple[bool, str]:
+    """Fail-closed gate: bhavcopy must exist for the session (disk and/or daily)."""
+    patterns = []
+    if trading_date:
+        try:
+            day = pd.Timestamp(trading_date)
+            ddmmyyyy = day.strftime("%d%m%Y")
+            patterns.append(f"sec_bhavdata_full_{ddmmyyyy}.csv")
+        except Exception:
+            pass
+    if session_dir and Path(session_dir).exists():
+        for path in Path(session_dir).glob("sec_bhavdata_full_*.csv"):
+            if path.is_file() and path.stat().st_size > 0:
+                return True, path.name
+    if DAILY_DIR.exists():
+        files = sorted(DAILY_DIR.glob("sec_bhavdata_full_*.csv"))
+        if files and files[-1].is_file() and files[-1].stat().st_size > 0:
+            return True, files[-1].name
+    return False, "missing bhavcopy"
+
+
+def _promote_manifest_to_db(session_dir: Path, trading_date: str) -> dict:
+    """Upsert disk session manifest into ingested_reports / ingestion_batches."""
+    from ingestion_manifest import SessionPlan, validate_session_manifest
+    from migrations import run_migrations
+    from transactional_append import append_batch
+
+    session_dir = Path(session_dir)
+    manifest_path = session_dir / "manifest.json"
+    if not manifest_path.exists():
+        return {"ok": False, "error": f"no manifest at {manifest_path}", "rows": 0}
+
+    try:
+        manifest = validate_session_manifest(session_dir)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "rows": 0}
+
+    trade_date = pd.Timestamp(trading_date).date()
+    batch_id = f"session-{trade_date.isoformat()}"
+    report_rows = []
+    for item in manifest.reports:
+        report_rows.append(
+            {
+                "trade_date": trade_date,
+                "report_type": item.report_type,
+                "source_checksum": item.sha256,
+                "row_count": None,
+                "manifest_path": str(manifest_path),
+                "batch_id": batch_id,
+            }
+        )
+    batch_rows = [
+        {
+            "batch_id": batch_id,
+            "start_date": trade_date,
+            "end_date": trade_date,
+            "status": "accepted",
+            "started_at": datetime.now(),
+            "completed_at": datetime.now(),
+            "application_version": "marketpulse-2.0",
+            "error_summary": None,
+        }
+    ]
+    plan = SessionPlan(
+        trading_dates=[trade_date.isoformat()],
+        rows_by_table={"ingestion_batches": batch_rows, "ingested_reports": report_rows},
+    )
+    run_migrations(DB_PATH)
+    append_batch(DB_PATH, plan)
+    return {"ok": True, "rows": len(report_rows), "batch_id": batch_id, "manifest": str(manifest_path)}
 
 
 def run_pipeline(
@@ -226,6 +216,47 @@ def run_pipeline(
 
             status["daily_bhav_date"] = _daily_bhav_date()
 
+            # Resolve session directory for provenance / decisions
+            decision_text = status.get("download_date") or status.get("daily_bhav_date")
+            session_dir = None
+            if decision_text:
+                decision_day = datetime.fromisoformat(str(decision_text)).date()
+                session_dir = ROOT_DIR / "Input" / "downloads" / decision_day.strftime("%d%m%Y")
+
+            # --- Provenance: fail-closed bhav + promote disk manifest to DB ---
+            if not skip_append:
+                bhav_ok, bhav_name = _required_bhav_present(session_dir, decision_text)
+                if not bhav_ok:
+                    status["steps"].append(
+                        {"step": "provenance", "ok": False, "error": "required bhavcopy missing or empty"}
+                    )
+                    raise RuntimeError(
+                        "Required bhavcopy missing — refusing append/decisions "
+                        "(fail-closed provenance gate)."
+                    )
+                if session_dir and Path(session_dir).exists():
+                    try:
+                        prov = _promote_manifest_to_db(session_dir, str(decision_text))
+                        status["steps"].append({"step": "provenance", "ok": prov.get("ok", False), **prov, "bhav": bhav_name})
+                        if not prov.get("ok"):
+                            print(f"Manifest promote warning: {prov.get('error')}")
+                    except Exception as exc:
+                        # Disk manifest may be incomplete when download was skipped; log and continue
+                        # only if daily bhav exists (already checked). DB rows may stay empty.
+                        status["steps"].append(
+                            {"step": "provenance", "ok": False, "error": str(exc), "bhav": bhav_name}
+                        )
+                        print(f"Manifest promote failed (bhav present): {exc}")
+                else:
+                    status["steps"].append(
+                        {
+                            "step": "provenance",
+                            "ok": True,
+                            "message": "bhav present; session dir/manifest not available to promote",
+                            "bhav": bhav_name,
+                        }
+                    )
+
             # --- Append ---
             if not skip_append:
                 try:
@@ -240,10 +271,8 @@ def run_pipeline(
 
             # --- PR reports + focused-v2 decision snapshot ---
             if not skip_append:
-                decision_text = status.get("download_date") or status.get("daily_bhav_date")
-                if decision_text:
+                if decision_text and session_dir is not None:
                     decision_day = datetime.fromisoformat(str(decision_text)).date()
-                    session_dir = ROOT_DIR / "Input" / "downloads" / decision_day.strftime("%d%m%Y")
                     try:
                         decision_result = process_accepted_session(DB_PATH, session_dir, decision_day)
                         status["steps"].append({"step": "decisions", "ok": True, **decision_result})

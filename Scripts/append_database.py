@@ -1,6 +1,15 @@
+"""Append new daily MarketPulse files without reparsing the full archive.
+
+Single implementation used by CLI and `daily_pipeline` (PR-APPEND).
+"""
+
+from __future__ import annotations
+
 import argparse
 import shutil
 import sys
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
@@ -26,6 +35,16 @@ from build_database import (
 )
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
 from reference_history import load_reference_history
+
+
+@dataclass(frozen=True)
+class AppendResult:
+    action: str
+    message: str
+    db_date: str | None = None
+    new_rows: int = 0
+    backup: str | None = None
+    duration_ms: int = 0
 
 
 def _load_table(name: str) -> pd.DataFrame:
@@ -56,18 +75,34 @@ def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataF
     return out.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Append new daily MarketPulse files without reparsing the full archive.")
-    parser.add_argument("--force-full", action="store_true", help="Run a normal full rebuild instead of append.")
-    args = parser.parse_args()
+def append_session(*, force_full: bool = False, notify_telegram: bool = True) -> AppendResult:
+    """Run one append (or full rebuild). Sole implementation for pipeline + CLI."""
+    started = time.perf_counter()
 
-    if args.force_full or not DB_PATH.exists():
+    if force_full or not DB_PATH.exists():
         from build_database import main as full_build
 
         print("Running full rebuild.")
-        sys.argv = [sys.argv[0]]
-        full_build()
-        return
+        old_argv = sys.argv
+        try:
+            sys.argv = [old_argv[0]]
+            full_build()
+        finally:
+            sys.argv = old_argv
+        db_date = None
+        try:
+            with duckdb.connect(str(DB_PATH), read_only=True) as con:
+                value = con.execute("SELECT max(trade_date) FROM prices_daily").fetchone()[0]
+            if value is not None:
+                db_date = pd.to_datetime(value).date().isoformat()
+        except Exception:
+            pass
+        return AppendResult(
+            action="full_rebuild",
+            message="Created database from scratch." if not force_full else "Forced full rebuild complete.",
+            db_date=db_date,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
 
     equity = read_equity_symbols()
     universe = set(equity["symbol"])
@@ -75,10 +110,19 @@ def main() -> None:
     latest_date = pd.to_datetime(existing_prices["trade_date"]).max()
     new_prices = _new_daily_prices(universe, latest_date)
     if new_prices.empty:
-        print(f"No new bhavcopy rows found after {latest_date.date()}. Database unchanged.")
-        return
+        msg = f"No new bhavcopy rows found after {latest_date.date()}. Database unchanged."
+        print(msg)
+        return AppendResult(
+            action="noop",
+            message=msg,
+            db_date=latest_date.date().isoformat(),
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
 
-    print(f"Appending {len(new_prices):,} price rows from {new_prices['trade_date'].min().date()} to {new_prices['trade_date'].max().date()}.")
+    print(
+        f"Appending {len(new_prices):,} price rows "
+        f"from {new_prices['trade_date'].min().date()} to {new_prices['trade_date'].max().date()}."
+    )
     prices = pd.concat([existing_prices, new_prices], ignore_index=True)
     prices["trade_date"] = pd.to_datetime(prices["trade_date"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
@@ -106,15 +150,34 @@ def main() -> None:
     backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
     shutil.copy2(DB_PATH, backup)
     write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results)
-    # write_database materializes canonical candidate/watchlist/signal tables
-    # after the accepted replacement is installed.
-    print(f"Append update complete. Backup: {backup}")
-    try:
-        from telegram_deals import notify_deals
+    new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
+    msg = f"Append update complete through {new_max}. Backup: {backup.name}"
+    print(msg)
 
-        notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=1000.0)
-    except Exception as exc:
-        print(f"Telegram deals notify skipped/failed: {exc}")
+    if notify_telegram:
+        try:
+            from telegram_deals import notify_deals
+
+            notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=1000.0)
+        except Exception as exc:
+            print(f"Telegram deals notify skipped/failed: {exc}")
+
+    return AppendResult(
+        action="append",
+        message=msg,
+        db_date=new_max,
+        new_rows=int(len(new_prices)),
+        backup=str(backup),
+        duration_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Append new daily MarketPulse files without reparsing the full archive.")
+    parser.add_argument("--force-full", action="store_true", help="Run a normal full rebuild instead of append.")
+    args = parser.parse_args()
+    result = append_session(force_full=args.force_full, notify_telegram=True)
+    print(f"append_session action={result.action} duration_ms={result.duration_ms}")
 
 
 if __name__ == "__main__":

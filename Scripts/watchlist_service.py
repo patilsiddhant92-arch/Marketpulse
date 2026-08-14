@@ -48,20 +48,29 @@ def persist_candidate_snapshot(db_path: Path, candidate_rows: pd.DataFrame, trad
         for _, row in candidate_rows.iterrows():
             symbol = str(row.get("symbol", "")).strip().upper()
             score_version = str(row.get("score_version", "focused-v1"))
-            first_seen = pd.Timestamp(row.get("setup_first_seen", trade_date)).date()
             existing = db.execute(
                 "SELECT * FROM watchlist_candidates WHERE symbol = ? AND score_version = ? ORDER BY updated_at DESC LIMIT 1",
                 [symbol, score_version],
             ).fetchdf()
             previous = existing.iloc[0].to_dict() if not existing.empty else None
+            # Prefer prior first_seen (stable identity); fall back to candidate / trade_date.
+            if previous is not None and previous.get("first_seen_date") is not None and pd.notna(previous.get("first_seen_date")):
+                first_seen = pd.Timestamp(previous["first_seen_date"]).date()
+            elif row.get("setup_first_seen") is not None and pd.notna(row.get("setup_first_seen")):
+                first_seen = pd.Timestamp(row.get("setup_first_seen")).date()
+            else:
+                first_seen = pd.Timestamp(trade_date).date()
             state, reason = transition_candidate(previous, row.to_dict())
             state_history = _json_load(previous.get("state_history") if previous else None)
             if not state_history or state_history[-1].get("trade_date") != str(pd.Timestamp(trade_date).date()) or state_history[-1].get("state") != state:
                 state_history.append({"trade_date": str(pd.Timestamp(trade_date).date()), "state": state, "reason": reason})
+            age = row.get("setup_age_sessions")
+            if age is None or (isinstance(age, float) and pd.isna(age)):
+                age = max(1, (pd.Timestamp(trade_date).date() - first_seen).days + 1)
             values = [
                 symbol, score_version, first_seen, pd.Timestamp(trade_date).date(), state, reason,
                 row.get("trigger_price"), row.get("invalidation_price"), row.get("first_resistance"),
-                row.get("setup_first_seen", first_seen), row.get("setup_age_sessions"), json.dumps(state_history),
+                first_seen, age, json.dumps(state_history),
                 previous.get("created_at") if previous else now, now,
             ]
             if previous:

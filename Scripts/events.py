@@ -48,26 +48,35 @@ def normalize_events(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def event_risk_for_date(events: pd.DataFrame, symbol: str, trade_date: date, sessions=None) -> dict:
+    if events is None or events.empty:
+        return {"next_event_date": None, "days_to_next_event": None, "event_within_1_session": False, "event_within_3_sessions": False, "event_within_5_sessions": False, "event_within_10_sessions": False, "event_risk": "none"}
     trade_day = pd.Timestamp(trade_date).normalize()
-    filtered = normalize_events(events)
-    filtered = filtered[(filtered["symbol"] == str(symbol).strip().upper()) & (filtered["event_date"] >= trade_day)]
+    sym_upper = str(symbol).strip().upper()
+    if "event_date" in events.columns and "symbol" in events.columns:
+        filtered = events[(events["symbol"].astype(str).str.upper() == sym_upper) & (pd.to_datetime(events["event_date"], errors="coerce") >= trade_day)]
+    else:
+        filtered = normalize_events(events)
+        filtered = filtered[(filtered["symbol"] == sym_upper) & (filtered["event_date"] >= trade_day)]
     if filtered.empty:
         return {"next_event_date": None, "days_to_next_event": None, "event_within_1_session": False, "event_within_3_sessions": False, "event_within_5_sessions": False, "event_within_10_sessions": False, "event_risk": "none"}
-    event_day = filtered["event_date"].min()
+
+    event_day = pd.Timestamp(filtered["event_date"].min()).normalize()
     session_index = None
     if sessions is not None:
-        session_values = pd.to_datetime(pd.Series(sessions), errors="coerce").dt.normalize().dropna().drop_duplicates().sort_values().tolist()
         try:
+            session_values = [pd.Timestamp(s).normalize() for s in (sessions if isinstance(sessions, (list, tuple, pd.Index, pd.Series)) else list(sessions))]
             session_index = session_values.index(trade_day)
             event_index = session_values.index(event_day)
             distance = max(0, event_index - session_index)
-        except ValueError:
+        except (ValueError, IndexError):
             distance = int((event_day - trade_day).days)
     else:
         distance = int((event_day - trade_day).days)
+
     return {
         "next_event_date": event_day.date(),
         "days_to_next_event": distance,
+
         "event_within_1_session": distance <= 1,
         "event_within_3_sessions": distance <= 3,
         "event_within_5_sessions": distance <= 5,

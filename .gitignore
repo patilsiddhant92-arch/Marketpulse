@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -28,8 +28,11 @@ Logs/
 # Optional local agents cache
 .agents/
 .worktrees/
+.tmp/
+*.tmp
 
 # Secrets (Telegram bot token, chat ids)
+
 .env
 .env.local
 Secrets/

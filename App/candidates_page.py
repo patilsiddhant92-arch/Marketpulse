@@ -1,4 +1,4 @@
-"""Candidate queue built from the same focused-v2 read model as Today."""
+"""Candidate queue and Today decision home — focused-v2 read model only."""
 
 from __future__ import annotations
 
@@ -14,6 +14,35 @@ try:
     from .decision_read_model import DecisionSnapshot, load_decision_snapshot
 except ImportError:  # app.py is executed as a script with App/ on sys.path.
     from decision_read_model import DecisionSnapshot, load_decision_snapshot
+
+
+# Decision-desk default columns (≤10). Shared by Today + Candidates.
+DECISION_PRESET_COLUMNS = [
+    "symbol",
+    "candidate_state",
+    "total_score",
+    "sector",
+    "why_now",
+    "trigger_price",
+    "invalidation_price",
+    "distance_to_trigger_pct",
+    "reward_to_risk",
+    "market_cap_cr",
+]
+
+CANDIDATES_ADVANCED_COLUMNS = [
+    "industry",
+    "avg_traded_value_cr_20d",
+    "market_regime",
+    "sector_state",
+    "latest_change",
+    "first_resistance",
+    "initial_risk_pct",
+    "event_risk",
+    "eligibility_status",
+    "blocking_reasons",
+    "warning_reasons",
+]
 
 
 def _market_date(db_path: Path) -> date | None:
@@ -38,6 +67,11 @@ def _rows(snapshot: DecisionSnapshot) -> pd.DataFrame:
     return combined
 
 
+def _preset_view(frame: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
+    cols = columns or DECISION_PRESET_COLUMNS
+    return frame[[c for c in cols if c in frame.columns]].copy()
+
+
 def build_candidates_page(
     db_path: Path,
     section_header: Callable,
@@ -48,30 +82,35 @@ def build_candidates_page(
     snapshot = load_decision_snapshot(db_path, expected_date=market_date)
     section_header(
         "Candidates",
-        "The audited focused-v2 queue. Eligibility is hard-gated at ₹1,000 Cr market cap; blocked rows stay visible with reasons.",
+        "Audited focused-v2 queue. Hard-gated at ₹1,000 Cr; blocked rows keep their reasons.",
     )
     with ui.row().classes("gap-2 flex-wrap mp-toolbar"):
         compact_kpi("Decision", snapshot.as_of or "Missing")
         compact_kpi("Version", snapshot.score_version)
-        compact_kpi("Market gate", snapshot.market_gate)
+        compact_kpi("Gate", snapshot.market_gate)
         compact_kpi("Eligible", len(snapshot.eligible))
         compact_kpi("Blocked", len(snapshot.blocked))
-        compact_kpi("MCap excluded", snapshot.excluded_by_market_cap)
+        compact_kpi("MCap out", snapshot.excluded_by_market_cap)
     if snapshot.stale:
         ui.label(f"Data health: {snapshot.diagnostic.replace('_', ' ')}").classes("mp-badge mp-warn mt-2")
 
     all_rows = _rows(snapshot)
     if all_rows.empty:
-        ui.label("No focused-v2 decision rows are available for this session.").classes("text-[var(--mp-muted)] text-sm mt-3")
+        ui.label("No focused-v2 decision rows are available for this session.").classes(
+            "text-[var(--mp-muted)] text-sm mt-3"
+        )
         return
 
     with ui.row().classes("gap-2 items-end flex-wrap mp-toolbar mt-3"):
-        state = ui.select(["All", "Prepare", "Observe", "Blocked"], value="All", label="State").classes("w-32").props("dense")
-        sectors = ["All"] + sorted(str(value) for value in all_rows.get("sector", pd.Series(dtype=str)).dropna().unique())
+        state = ui.select(
+            ["All", "Prepare", "Observe", "Blocked"], value="All", label="State"
+        ).classes("w-32").props("dense")
+        sectors = ["All"] + sorted(
+            str(value) for value in all_rows.get("sector", pd.Series(dtype=str)).dropna().unique()
+        )
         sector = ui.select(sectors, value="All", label="Sector").classes("w-44").props("dense")
         min_cap = ui.number("Min MCap Cr", value=0, min=0, format="%.0f").classes("w-32").props("dense")
-        max_trigger = ui.number("Max trigger %", value=5, min=-100, format="%.1f").classes("w-32").props("dense")
-        min_rr = ui.number("Min R:R", value=1.5, min=0, format="%.1f").classes("w-28").props("dense")
+        show_advanced = ui.checkbox("More columns", value=False).props("dense")
 
     host = ui.column().classes("w-full")
 
@@ -84,50 +123,146 @@ def build_candidates_page(
             frame = frame[frame["sector"].astype(str) == str(sector.value)]
         cap = pd.to_numeric(frame.get("market_cap_cr"), errors="coerce")
         frame = frame[cap.fillna(-1) >= float(min_cap.value or 0)]
-        trigger = pd.to_numeric(frame.get("distance_to_trigger_pct"), errors="coerce")
-        frame = frame[trigger.isna() | (trigger <= float(max_trigger.value or 0))]
-        rr = pd.to_numeric(frame.get("reward_to_risk"), errors="coerce")
-        frame = frame[rr.isna() | (rr >= float(min_rr.value or 0))]
-        columns = [
-            "symbol", "candidate_state", "total_score", "market_cap_cr", "avg_traded_value_cr_20d",
-            "sector", "industry", "market_regime", "sector_state", "why_now", "latest_change",
-            "trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct",
-            "initial_risk_pct", "reward_to_risk", "event_risk", "eligibility_status",
-            "blocking_reasons", "warning_reasons",
-        ]
-        view = frame[[column for column in columns if column in frame.columns]].copy()
+        cols = list(DECISION_PRESET_COLUMNS)
+        if show_advanced.value:
+            cols = cols + [c for c in CANDIDATES_ADVANCED_COLUMNS if c not in cols]
+        view = _preset_view(frame, cols)
         with host:
-            ui.label(f"{len(view)} rows match the current filters").classes("text-xs text-[var(--mp-muted)] mt-2")
+            ui.label(f"{len(view)} rows match").classes("text-xs text-[var(--mp-muted)] mt-2")
             table_from_df(view, "Decision queue", pagination=25, page_key="candidates")
 
-    for control in (state, sector, min_cap, max_trigger, min_rr):
+    for control in (state, sector, min_cap, show_advanced):
         control.on_value_change(lambda _: refresh())
     refresh()
 
 
-def build_today_decision_panel(db_path: Path, table_from_df: Callable, compact_kpi: Callable) -> None:
-    """Compact canonical queue inserted above the legacy Today research cards."""
+def build_today_page(
+    db_path: Path,
+    table_from_df: Callable,
+    compact_kpi: Callable,
+    *,
+    copy_text: Callable[[str, str], None] | None = None,
+) -> DecisionSnapshot:
+    """Premium Today: one focused-v2 queue, snapshot-once, state chips, ≤10 cols.
+
+    Does not run prep_score / near-entry / deals-hot SQL.
+    Returns the snapshot so callers can attach lazy Market context without reloading decisions.
+    """
     market_date = _market_date(db_path)
     snapshot = load_decision_snapshot(db_path, expected_date=market_date)
-    ui.label("Audited decision queue · focused-v2").classes("mp-section-title mt-2")
+
+    try:
+        from App.ui.shell import page_shell
+    except ModuleNotFoundError:
+        try:
+            from ui.shell import page_shell  # type: ignore
+        except ModuleNotFoundError:
+            page_shell = None
+
+    if page_shell:
+        page_shell(
+            "Today",
+            f"Audited queue · {snapshot.score_version} · session {snapshot.as_of or '—'}",
+            eyebrow="Decision desk",
+        )
+    else:
+        ui.label("Today").classes("mp-page-title")
+        ui.label(f"Audited queue · {snapshot.score_version}").classes("mp-page-subtitle")
+
     with ui.row().classes("gap-2 flex-wrap mp-toolbar"):
         compact_kpi("As of", snapshot.as_of or "Missing")
         compact_kpi("Gate", snapshot.market_gate)
-        compact_kpi("Prepare/Observe", len(snapshot.eligible))
+        compact_kpi("Prepare", int((snapshot.eligible.get("candidate_state") == "Prepare").sum()) if not snapshot.eligible.empty and "candidate_state" in snapshot.eligible else 0)
+        compact_kpi("Observe", int((snapshot.eligible.get("candidate_state") == "Observe").sum()) if not snapshot.eligible.empty and "candidate_state" in snapshot.eligible else len(snapshot.eligible))
         compact_kpi("Blocked", len(snapshot.blocked))
-        compact_kpi("MCap excluded", snapshot.excluded_by_market_cap)
+        compact_kpi("MCap out", snapshot.excluded_by_market_cap)
+
     if snapshot.stale:
-        ui.label(f"Decision data is not current: {snapshot.diagnostic.replace('_', ' ')}").classes("mp-badge mp-warn mt-1")
-    if snapshot.eligible.empty:
-        ui.label("No eligible focused-v2 rows. Open Candidates for the blocked diagnostic queue.").classes("text-[var(--mp-muted)] text-sm mt-2")
-        return
-    columns = [
-        "symbol", "candidate_state", "total_score", "market_cap_cr", "sector", "why_now",
-        "trigger_price", "invalidation_price", "distance_to_trigger_pct", "initial_risk_pct",
-        "reward_to_risk", "event_risk", "warning_reasons",
-    ]
-    view = snapshot.eligible.head(10)[[column for column in columns if column in snapshot.eligible.columns]].copy()
-    table_from_df(view, "Prepare and observe · all rows pass ₹1,000 Cr", pagination=10, page_key="today-decision")
+        ui.label(
+            f"Decision data is not current: {snapshot.diagnostic.replace('_', ' ')}"
+        ).classes("mp-badge mp-warn mt-1")
+
+    eligible = snapshot.eligible.copy() if snapshot.eligible is not None else pd.DataFrame()
+    if eligible.empty:
+        ui.label(
+            "No eligible focused-v2 rows. Open Candidates for the blocked diagnostic queue."
+        ).classes("text-[var(--mp-muted)] text-sm mt-2")
+        return snapshot
+
+    # State chips — filter in memory; re-render table host only
+    prep_n = int((eligible["candidate_state"].astype(str) == "Prepare").sum()) if "candidate_state" in eligible else 0
+    obs_n = int((eligible["candidate_state"].astype(str) == "Observe").sum()) if "candidate_state" in eligible else len(eligible)
+    chip_state = {"value": "All"}
+
+    with ui.row().classes("gap-2 flex-wrap items-center mt-3 mp-desk-action"):
+        ui.label("Show").classes("text-xs text-[var(--mp-muted)]")
+        chip_all = ui.button(f"All ({len(eligible)})", on_click=lambda: _set_chip("All")).props(
+            "dense outline" if chip_state["value"] != "All" else "dense"
+        ).classes("mp-button")
+        chip_prep = ui.button(f"Prepare ({prep_n})", on_click=lambda: _set_chip("Prepare")).props(
+            "dense outline"
+        ).classes("mp-button")
+        chip_obs = ui.button(f"Observe ({obs_n})", on_click=lambda: _set_chip("Observe")).props(
+            "dense outline"
+        ).classes("mp-button")
+        if copy_text is not None:
+            def _copy_visible() -> None:
+                frame = _filtered()
+                syms = (
+                    frame["symbol"].dropna().astype(str).str.upper().drop_duplicates().tolist()
+                    if not frame.empty and "symbol" in frame.columns
+                    else []
+                )
+                text = ",".join(f"NSE:{s.replace('-', '_')}" for s in syms)
+                copy_text("Today queue", text)
+
+            ui.button("Copy symbols", on_click=_copy_visible).classes("mp-primary").props("dense")
+
+    table_host = ui.column().classes("w-full")
+
+    def _filtered() -> pd.DataFrame:
+        frame = eligible
+        if chip_state["value"] in {"Prepare", "Observe"} and "candidate_state" in frame.columns:
+            frame = frame[frame["candidate_state"].astype(str) == chip_state["value"]]
+        return frame
+
+    def _paint() -> None:
+        table_host.clear()
+        frame = _filtered()
+        view = _preset_view(frame.head(25))
+        with table_host:
+            if view.empty:
+                ui.label("No names in this state.").classes("text-sm text-[var(--mp-muted)]")
+            else:
+                table_from_df(
+                    view,
+                    f"Queue · {chip_state['value']} · {len(frame)} eligible",
+                    pagination=10,
+                    page_key=None,  # no Hide/Save prefs chrome on decision home
+                )
+
+    def _set_chip(value: str) -> None:
+        chip_state["value"] = value
+        # Restyle: primary for active is approximate via re-prop
+        for btn, name in ((chip_all, "All"), (chip_prep, "Prepare"), (chip_obs, "Observe")):
+            if name == value:
+                btn.props(remove="outline")
+            else:
+                btn.props("outline")
+        _paint()
+
+    _paint()
+    return snapshot
 
 
-__all__ = ["build_candidates_page", "build_today_decision_panel"]
+def build_today_decision_panel(db_path: Path, table_from_df: Callable, compact_kpi: Callable) -> None:
+    """Backward-compatible alias — prefer build_today_page."""
+    build_today_page(db_path, table_from_df, compact_kpi)
+
+
+__all__ = [
+    "DECISION_PRESET_COLUMNS",
+    "build_candidates_page",
+    "build_today_decision_panel",
+    "build_today_page",
+]

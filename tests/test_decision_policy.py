@@ -11,6 +11,8 @@ def test_policy_has_explicit_swing_universe_thresholds():
     assert policy.min_avg_traded_value_cr_20d == 10.0
     assert policy.max_initial_risk_pct == 8.0
     assert policy.min_reward_to_risk == 1.5
+    # Interim Prepare calibration (correctness spine PR-PREP): live max ~64.58.
+    assert policy.min_prepare_score == 60.0
 
 
 def test_market_cap_gate_blocks_below_threshold_and_missing_values():

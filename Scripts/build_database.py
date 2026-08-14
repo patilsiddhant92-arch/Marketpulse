@@ -25,7 +25,9 @@ from config import (
     SECTOR_FILE,
     WATCHLIST_BUCKETS,
 )
+from index_history import build_index_features, load_all_market_activity_history
 from reference_history import asof_reference, load_reference_history
+
 
 warnings.simplefilter("ignore", PerformanceWarning)
 
@@ -464,7 +466,13 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         g["upper_wick_pct"] = (high - pd.concat([close, g["open_price"]], axis=1).max(axis=1)) / day_range * 100
         g["lower_wick_pct"] = (pd.concat([close, g["open_price"]], axis=1).min(axis=1) - low) / day_range * 100
         g["close_location_pct"] = (close - low) / day_range * 100
+        if "trades" in g.columns:
+            g["avg_trade_size"] = g["volume"] / g["trades"].replace(0, np.nan)
+            g["avg_trade_size_20d"] = g["avg_trade_size"].rolling(20, min_periods=5).mean()
+        if "avg_price" in g.columns:
+            g["vwap_distance_pct"] = (close / g["avg_price"].replace(0, np.nan) - 1) * 100
         for window in [5, 10, 20, 50, 100, 252]:
+
             g[f"high_{window}d"] = high.rolling(window, min_periods=3).max()
             g[f"low_{window}d"] = low.rolling(window, min_periods=3).min()
             g[f"range_{window}d_pct"] = (g[f"high_{window}d"] - g[f"low_{window}d"]) / close * 100
@@ -570,6 +578,10 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
                 )
             nse_high = pd.to_numeric(reference_rows["high_52w"], errors="coerce")
             nse_low = pd.to_numeric(reference_rows["low_52w"], errors="coerce")
+            if "high_52w_date" in reference_rows.columns:
+                indicators["high_52w_date"] = pd.to_datetime(reference_rows["high_52w_date"], errors="coerce").dt.normalize().to_numpy()
+            if "band_remarks" in reference_rows.columns:
+                indicators["band_remarks"] = reference_rows["band_remarks"].fillna("").astype(str).to_numpy()
         except Exception as exc:
             print(f"Warning: as-of 52W join failed ({exc}); using latest snapshot + 252d fallback.")
             high52 = (
@@ -603,6 +615,9 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         indicators["low_52w"] = indicators["low_52w"].fillna(indicators["low_252d"])
     indicators["away_52w_high_pct"] = (indicators["close_price"] / indicators["high_52w"] - 1) * 100
     indicators["away_52w_low_pct"] = (indicators["close_price"] / indicators["low_52w"] - 1) * 100
+    if "high_52w_date" in indicators.columns:
+        indicators["is_fresh_52w_high"] = indicators["trade_date"] == indicators["high_52w_date"]
+
     close_by_symbol = indicators.groupby("symbol", sort=False)["close_price"]
     rs_latest_q = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
     rs_prior_q2 = (close_by_symbol.shift(63) / close_by_symbol.shift(126) - 1) * 100
@@ -944,18 +959,35 @@ def write_database(
     con.execute("CREATE INDEX idx_breadth_date ON breadth_daily(trade_date)")
     con.execute("CREATE INDEX idx_sector_rotation ON sector_rotation(level, group_name, trade_date)")
     con.execute("CREATE INDEX idx_screener_name ON screener_results(screener_name)")
-    # User-owned tables: must survive append / deals refresh / rebuild of market tables.
-    # Portfolio was lost when only trade_journal was preserved — keep these forever.
-    USER_TABLES = (
+
+    # 1. Ingest index_daily from all MA files
+    try:
+        index_raw = load_all_market_activity_history(ROOT_DIR)
+        if not index_raw.empty:
+            index_features = build_index_features(index_raw)
+            con.register("index_daily_df", index_features)
+            con.execute("CREATE TABLE index_daily AS SELECT * FROM index_daily_df")
+            con.execute("CREATE INDEX idx_index_daily_date_name ON index_daily(trade_date, index_name)")
+            print(f"Ingested index_daily: {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
+    except Exception as exc:
+        print(f"Warning: index_daily ingestion skipped ({exc})")
+
+    # User-owned and auxiliary tables: must survive append / deals refresh / rebuild.
+    PRESERVED_TABLES = (
         "trade_journal",
         "watchlist_candidates",
         "portfolio_positions",
         "portfolio_events",
+        "security_events",
+        "corporate_actions",
+        "security_risk_daily",
+        "top_value_daily",
+        "security_reference_daily",
     )
     if DB_PATH.exists():
         try:
             old_con = duckdb.connect(str(DB_PATH), read_only=True)
-            for user_table in USER_TABLES:
+            for user_table in PRESERVED_TABLES:
                 exists = old_con.execute(
                     "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
                     [user_table],
@@ -965,10 +997,11 @@ def write_database(
                 user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
                 con.register(f"{user_table}_df", user_rows)
                 con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
-                print(f"Preserved user table {user_table}: {len(user_rows):,} rows")
+                print(f"Preserved table {user_table}: {len(user_rows):,} rows")
             old_con.close()
         except Exception as exc:
-            print(f"Warning: could not preserve user tables ({USER_TABLES}): {exc}")
+            print(f"Warning: could not preserve tables ({PRESERVED_TABLES}): {exc}")
+
     con.close()
     if DB_PATH.exists():
         backup = DB_PATH.with_suffix(".backup.duckdb")

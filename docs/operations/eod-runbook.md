@@ -18,7 +18,14 @@ For a specific session:
 .\Run_MarketPulse_Auto.bat --date DDMMYYYY
 ```
 
-The downloader stages NSE files and the PR ZIP, validates the manifest, appends the accepted market session transactionally, ingests PR events/risk reports, and materializes one `focused-v2` decision partition. A duplicate accepted session is a no-op.
+The downloader stages NSE files and the PR ZIP and writes a **disk** session `manifest.json` with checksums. The pipeline then:
+
+1. **Fail-closed bhav gate** — refuses append/decisions if bhavcopy is missing/empty.
+2. **Promotes** the disk manifest into DuckDB `ingested_reports` / `ingestion_batches` (when a session dir exists).
+3. **Appends prices** via `append_database.append_session` — backup → full indicator recompute → rewrite path (not multi-table price `transactional_append`; that helper only covers PR/reference/manifest tables in `ALLOWED_TABLES`).
+4. Ingests PR events/risk reports and materializes one `focused-v2` decision partition.
+
+A duplicate accepted price session is a no-op for append.
 
 ## Verify
 

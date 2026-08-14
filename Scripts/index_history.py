@@ -85,16 +85,61 @@ def build_index_features(index_daily: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def _parse_ma_date(path: Path) -> date | None:
+    p = Path(path)
+    try:
+        d = pd.to_datetime(p.parent.name, format="%d%m%Y")
+        if pd.notna(d):
+            return d.date()
+    except (TypeError, ValueError):
+        pass
+    import re
+    m8 = re.search(r"(?<!\d)(\d{8})(?!\d)", p.name)
+    if m8:
+        try:
+            return pd.to_datetime(m8.group(1), format="%d%m%Y").date()
+        except ValueError:
+            pass
+    m6 = re.search(r"MA(\d{6})", p.name, re.IGNORECASE)
+    if m6:
+        try:
+            return pd.to_datetime(m6.group(1), format="%d%m%y").date()
+        except ValueError:
+            pass
+    return None
+
+
 def parse_market_activity_history(paths) -> pd.DataFrame:
     frames = []
-    for path in paths:
-        try:
-            trade_day = pd.to_datetime(Path(path).parent.name, format="%d%m%Y")
-        except (TypeError, ValueError):
+    for path in sorted(set(paths)):
+        trade_day = _parse_ma_date(Path(path))
+        if trade_day is None:
             continue
         frame = parse_market_activity(path, trade_day)
         if not frame.empty:
             frames.append(frame)
     if not frames:
         return pd.DataFrame(columns=INDEX_COLUMNS)
-    return pd.concat(frames, ignore_index=True).drop_duplicates(["trade_date", "index_name"], keep="last").sort_values(["trade_date", "index_name"]).reset_index(drop=True)
+    return (
+        pd.concat(frames, ignore_index=True)
+        .drop_duplicates(["trade_date", "index_name"], keep="last")
+        .sort_values(["trade_date", "index_name"])
+        .reset_index(drop=True)
+    )
+
+
+def load_all_market_activity_history(root: Path) -> pd.DataFrame:
+    """Find and parse all MA files from downloads, archive, and daily."""
+    root = Path(root)
+    paths = []
+    downloads = root / "Input" / "downloads"
+    archive = root / "Input" / "archive"
+    daily = root / "Input" / "daily"
+    if downloads.exists():
+        paths.extend(downloads.glob("*/MA*.csv"))
+    if archive.exists():
+        paths.extend(archive.glob("MA*.csv"))
+    if daily.exists():
+        paths.extend(daily.glob("MA*.csv"))
+    return parse_market_activity_history(paths)
+

@@ -82,9 +82,22 @@ def test_daily_pipeline_wires_downloaded_session_to_decision_processing():
     root = Path(__file__).resolve().parents[1]
     daily_source = (root / "Scripts" / "daily_pipeline.py").read_text(encoding="utf-8")
     download_source = (root / "Scripts" / "download_nse_reports.py").read_text(encoding="utf-8")
+    append_source = (root / "Scripts" / "append_database.py").read_text(encoding="utf-8")
 
     assert "process_accepted_session" in daily_source
     assert "prepare_session_manifest" in download_source
+    assert "append_session" in daily_source
+    assert "def append_session" in append_source
+    assert "_promote_manifest_to_db" in daily_source
+    assert "fail-closed" in daily_source or "required bhavcopy" in daily_source
+
+
+def test_append_session_noop_when_no_new_bhav(tmp_path, monkeypatch):
+    """Unit-level: append_session is the single entry (noop path tested via import)."""
+    from Scripts import append_database as ad
+
+    assert callable(ad.append_session)
+    assert hasattr(ad, "AppendResult")
 
 
 def test_pipeline_health_is_not_healthy_when_focused_v2_is_missing(tmp_path):

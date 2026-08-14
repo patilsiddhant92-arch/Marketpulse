@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "trading_date": "2026-08-07",
+  "status": "validated",
+  "reports": [
+    {
+      "report_type": "sec_bhavdata_full_07082026",
+      "filename": "sec_bhavdata_full_07082026.csv",
+      "sha256": "8b937105b230a12d50395b0c9e1f02fc1c39d611914988985c4a34bc5e7af06e",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "mcap07082026",
+      "filename": "mcap07082026.csv",
+      "sha256": "0854739ed7a69fbc1eb7987c3dda939438786c3dfbf9d4b06c81e19b33a411d2",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "CM_52_wk_High_low_07082026",
+      "filename": "CM_52_wk_High_low_07082026.csv",
+      "sha256": "718fcb482a884b32e742011a06aabf7aa4b2daa728fff98eaccea77371d7e188",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "sec_list_07082026",
+      "filename": "sec_list_07082026.csv",
+      "sha256": "df9a2c3cdfb3bd2ae179c291732f06f3484d58f433272deb604a5004bb42289d",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "PE_070826",
+      "filename": "PE_070826.csv",
+      "sha256": "5775e4b848f35c50256038bf3d8f6279c8429b3586523c87765e6958f093a5c4",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "MA070826",
+      "filename": "MA070826.csv",
+      "sha256": "bff682de0566a8c64e48bb9d9378bb2368c8d161dd5c16019232be3813cbf55d",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "bulk",
+      "filename": "bulk.csv",
+      "sha256": "a777e1184667deefc1fee68527839ab8f155df5056d27b552c801fd1515b5611",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "block",
+      "filename": "block.csv",
+      "sha256": "27f54f83a5791b75588d2946d27613a7f55922ff8ca8be5a7e88550baf54d22f",
+      "validation_status": "validated"
+    },
+    {
+      "report_type": "PR070826",
+      "filename": "PR070826.zip",
+      "sha256": "7544786cabaa9bcb32701e9ff62b117a238b8365514f40f8b277796c4a11d2ef",
+      "validation_status": "validated"
+    }
+  ]
+}

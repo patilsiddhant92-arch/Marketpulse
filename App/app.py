@@ -14,12 +14,13 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "Scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, USER_DB_PATH, WATCHLIST_BUCKETS
+from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, USER_DB_PATH, WATCHLIST_BUCKETS
 
 try:
     from user_data import initialize_user_db, migrate_user_data
 except ModuleNotFoundError:
     from Scripts.user_data import initialize_user_db, migrate_user_data
+
 try:
     from user_data_service import (
         ExitCommand,
@@ -44,11 +45,12 @@ except ModuleNotFoundError:
         reopen_position,
         upsert_position,
     )
+
 try:
-    from candidates_page import build_candidates_page, build_today_decision_panel
+    from candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
     from data_health_page import build_data_health_page
 except ModuleNotFoundError:
-    from App.candidates_page import build_candidates_page, build_today_decision_panel
+    from App.candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
     from App.data_health_page import build_data_health_page
 
 try:
@@ -56,6 +58,10 @@ try:
 except ImportError:
     STATUS_PATH = DB_PATH.parent / "status.json"
 
+try:
+    from ui.stock_drawer import open_stock_360_modal
+except ModuleNotFoundError:
+    from App.ui.stock_drawer import open_stock_360_modal
 
 SCREENER_RULES = {
     "10 EMA Cross 200 EMA - Today": "10 EMA crossed above 200 EMA on the latest trading day.",
@@ -71,11 +77,6 @@ SCREENER_RULES = {
     "Morning Star W": "Confirmed weekly morning-star reversal pattern (higher timeframe signal).",
     "Morning Star M": "Confirmed monthly morning-star reversal pattern (higher timeframe signal).",
 }
-# Screener formula verification (2026-06-14 feedback):
-# - Cross detection in build_database.py (ema_10_cross_200 etc): (fast > slow) AND (fast.shift(1) <= slow.shift(1)) — standard strict cross on the bar. Weekly/monthly resampled on W-FRI/ME then ffilled correctly.
-# - "Last 10 Days" in ma_cross_screener_sql + app: uses recent_dates LIMIT 10 on the cross flag dates + joins current latest snapshot (with deals/mcap). Correct and useful.
-# - Other rules use the precomputed confirmed_* flags + simple predicates in screener_condition / base sql. All right.
-# Suggested improvements (added confirmation for crosses; see ma_cross_screener_sql usage + optional filter ideas in comments): require latest close > both MAs on cross hits; expose Min RVOL/Delivery in UI for cross/near; compute days_since_cross in results. These are low-risk additive enhancements.
 
 TONE_CLASS = {
     "good": "mp-badge mp-good",
@@ -114,20 +115,51 @@ def df_query(sql: str, params=None) -> pd.DataFrame:
         return db.execute(sql, params or []).fetchdf()
 
 
-def write_execute(sql: str, params=None) -> None:
-    with duckdb.connect(str(DB_PATH)) as db:
-        db.execute(sql, params or [])
-
-
-def write_query(sql: str, params=None) -> pd.DataFrame:
-    with duckdb.connect(str(DB_PATH)) as db:
-        return db.execute(sql, params or []).fetchdf()
-
-
 def user_query(sql: str, params=None) -> pd.DataFrame:
     """Read manual data from the isolated user database."""
     with duckdb.connect(str(USER_DB_PATH), read_only=True) as db:
         return db.execute(sql, params or []).fetchdf()
+
+
+def user_execute(sql: str, params=None) -> None:
+    """Write manual data to the isolated user database only."""
+    with duckdb.connect(str(USER_DB_PATH)) as db:
+        db.execute(sql, params or [])
+
+
+def _table_count(db_path: Path, table: str, *, read_only: bool = True) -> int | None:
+    if not Path(db_path).exists():
+        return None
+    try:
+        with duckdb.connect(str(db_path), read_only=read_only) as db:
+            exists = db.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
+                [table],
+            ).fetchone()[0]
+            if not exists:
+                return None
+            return int(db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0])
+    except (duckdb.Error, OSError):
+        return None
+
+
+def audit_user_vs_market_portfolio() -> dict:
+    """Log portfolio/journal row counts; market fossils are frozen (user DB wins)."""
+    report = {
+        "market_positions": _table_count(DB_PATH, "portfolio_positions"),
+        "user_positions": _table_count(USER_DB_PATH, "portfolio_positions"),
+        "market_events": _table_count(DB_PATH, "portfolio_events"),
+        "user_events": _table_count(USER_DB_PATH, "portfolio_events"),
+        "market_journal": _table_count(DB_PATH, "trade_journal"),
+        "user_journal": _table_count(USER_DB_PATH, "trade_journal"),
+    }
+    print(
+        "User/market portfolio audit: "
+        f"positions market={report['market_positions']} user={report['user_positions']}; "
+        f"events market={report['market_events']} user={report['user_events']}; "
+        f"journal market={report['market_journal']} user={report['user_journal']}"
+    )
+    return report
 
 
 def ensure_user_data() -> None:
@@ -144,6 +176,7 @@ def ensure_user_data() -> None:
             )
         if not migrated:
             migrate_user_data(DB_PATH, USER_DB_PATH, USER_DB_PATH.parent / "backups")
+        audit_user_vs_market_portfolio()
     except (duckdb.Error, OSError):
         # The portfolio page remains usable with an empty user store even if a
         # legacy market database is unavailable or cannot be migrated.
@@ -151,112 +184,8 @@ def ensure_user_data() -> None:
 
 
 def ensure_journal_table() -> None:
-    try:
-        exists = df_query("SELECT count(*) AS c FROM information_schema.tables WHERE table_name = 'trade_journal'")["c"].iloc[0]
-        if exists:
-            return
-        write_execute(
-            """
-            CREATE TABLE IF NOT EXISTS trade_journal (
-                id BIGINT PRIMARY KEY,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP,
-                trade_date DATE,
-                symbol TEXT,
-                trade_type TEXT,
-                setup_type TEXT,
-                entry_price DOUBLE,
-                quantity DOUBLE,
-                stop_loss DOUBLE,
-                target DOUBLE,
-                position_size DOUBLE,
-                risk_amount DOUBLE,
-                risk_pct DOUBLE,
-                reward_pct DOUBLE,
-                r_multiple_target DOUBLE,
-                status TEXT,
-                exit_date DATE,
-                exit_price DOUBLE,
-                exit_reason TEXT,
-                notes TEXT,
-                mistake_tag TEXT
-            )
-            """
-        )
-    except duckdb.IOException:
-        return
-
-
-def ensure_portfolio_tables() -> None:
-    """Simple position tracker tables (manual portfolio — survives append, not full rebuild of empty DB)."""
-    if not DB_PATH.exists():
-        return
-    try:
-        with duckdb.connect(str(DB_PATH)) as db:
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS portfolio_positions (
-                    symbol VARCHAR PRIMARY KEY,
-                    status VARCHAR,
-                    qty DOUBLE,
-                    avg_buy_price DOUBLE,
-                    buy_date DATE,
-                    sell_date DATE,
-                    sell_price DOUBLE,
-                    notes VARCHAR,
-                    tags VARCHAR,
-                    created_at TIMESTAMP,
-                    updated_at TIMESTAMP
-                )
-                """
-            )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS portfolio_events (
-                    id BIGINT PRIMARY KEY,
-                    symbol VARCHAR,
-                    event_type VARCHAR,
-                    event_date DATE,
-                    qty DOUBLE,
-                    price DOUBLE,
-                    notes VARCHAR,
-                    created_at TIMESTAMP
-                )
-                """
-            )
-    except duckdb.IOException:
-        return
-
-
-def ensure_runtime_schema() -> None:
-    if not DB_PATH.exists():
-        return
-    try:
-        with duckdb.connect(str(DB_PATH)) as db:
-            cols = {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
-            if "away_52w_low_pct" not in cols:
-                db.execute("ALTER TABLE indicators_daily ADD COLUMN away_52w_low_pct DOUBLE")
-                db.execute(
-                    """
-                    UPDATE indicators_daily AS i
-                    SET away_52w_low_pct = (i.close_price / NULLIF(e.low_52w, 0) - 1) * 100
-                    FROM daily_enrichment AS e
-                    WHERE i.symbol = e.symbol AND e.low_52w IS NOT NULL
-                    """
-                )
-                cols.add("away_52w_low_pct")
-            for col, col_type, default in [
-                ("wema_200", "DOUBLE", None),
-                ("mema_200", "DOUBLE", None),
-                ("wema_10_cross_200", "BOOLEAN", "false"),
-                ("mema_10_cross_200", "BOOLEAN", "false"),
-            ]:
-                if col not in cols:
-                    db.execute(f"ALTER TABLE indicators_daily ADD COLUMN {col} {col_type}")
-                    if default is not None:
-                        db.execute(f"UPDATE indicators_daily SET {col} = {default}")
-    except duckdb.IOException:
-        return
+    """Journal lives only in the user database (schema via initialize_user_db)."""
+    initialize_user_db(USER_DB_PATH)
 
 
 def indicator_columns() -> set[str]:
@@ -274,6 +203,8 @@ def indicator_expr(alias: str, col: str, fallback: str = "NULL") -> str:
 def label_for(col: str) -> str:
     if col == "copy_symbols":
         return "Copy"
+    if col == "symbol_preview":
+        return "Stocks"
     return FRIENDLY_COLUMNS.get(col, col.replace("_", " ").title())
 
 
@@ -354,6 +285,16 @@ def copy_text_to_clipboard(label: str, text: str) -> None:
     ui.notify(f"Copied {label}" if text else f"No symbols to copy for {label}", type="positive" if text else "warning")
 
 
+def institution_copy_text(event_args) -> str:
+    """Extract the hidden institution TradingView payload from a table event."""
+    if not isinstance(event_args, dict):
+        return ""
+    value = event_args.get("symbol_list")
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value)
+
+
 def tone_for_value(value, high_good=True) -> str:
     try:
         v = float(value)
@@ -397,7 +338,15 @@ def format_inr(value, signed: bool = False) -> str:
     return f"{sign}INR {text}"
 
 
-def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_symbols: bool = True, hidden_cols=None, page_key=None):
+def table_from_df(
+    df: pd.DataFrame,
+    title: str = "",
+    pagination: int = 25,
+    copy_symbols: bool = True,
+    hidden_cols=None,
+    page_key=None,
+    compact: bool = False,
+):
     """Extended for column customization: pass page_key (e.g. 'health-movers') to enable per-page visible column chooser + save to localStorage.
     hidden_cols still works as default. Additional filters can be added by caller before calling (e.g. extra ui.number/select bound to a reactive df filter).
     """
@@ -460,7 +409,7 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
                     "weight_pct", "days_held", "net_deal_cr", "deal_rows", "clients", "symbol_count"}  # symbols is TEXT
     for col in display_cols:
         is_num = col in numeric_cols or (col in view.columns and pd.api.types.is_float_dtype(view[col]))
-        if col in {"symbol", "symbols", "symbol_list", "notes", "tags", "status"} or not is_num:
+        if col in {"symbol", "symbols", "symbol_list", "symbol_preview", "notes", "tags", "status"} or not is_num:
             # Text columns (SECTOR, INDUSTRY, SYMBOLS / long lists, and similar label columns) LEFT-aligned.
             align = "left"
             cls = "symbol-col" if col == "symbol" else ("symbols-col" if col in {"symbols", "symbol_list"} else "text-col")
@@ -472,7 +421,19 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             align = "right"
             cls = "numeric"
         # Widths sized so headers stay readable; long text columns wrap (no clip).
-        if col == "copy_symbols":
+        compact_widths = {
+            "client_name": (240, True),
+            "latest_deal_date": (112, False),
+            "buy_value_cr": (88, False),
+            "sell_value_cr": (88, False),
+            "net_value_cr": (88, False),
+            "active_days": (88, False),
+            "copy_symbols": (54, False),
+            "symbol_preview": (260, True),
+        }
+        if compact and col in compact_widths:
+            width, wrap = compact_widths[col]
+        elif col == "copy_symbols":
             width, wrap = 72, False
         elif col in {"rank"}:
             width, wrap = 48, False
@@ -497,13 +458,15 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             width, wrap = 140, False
         label = label_for(col)
         # Header must show full label (no ellipsis on th)
+        width_decl = f"width:{width}px;" if compact else ""
         if wrap:
-            style = f"min-width:{width}px;max-width:{width + 80}px;white-space:normal;word-break:break-word;vertical-align:top;"
-            header_style = f"min-width:{width}px;white-space:normal;line-height:1.2;"
+            max_width = width if compact else width + 80
+            style = f"{width_decl}min-width:{width}px;max-width:{max_width}px;white-space:normal;word-break:break-word;vertical-align:top;"
+            header_style = f"{width_decl}min-width:{width}px;white-space:normal;line-height:1.2;"
             cls = f"{cls} mp-wrap-col"
         else:
-            style = f"min-width:{width}px;white-space:nowrap;"
-            header_style = f"min-width:{width}px;white-space:nowrap;"
+            style = f"{width_decl}min-width:{width}px;white-space:nowrap;"
+            header_style = f"{width_decl}min-width:{width}px;white-space:nowrap;"
         col_def = {
             "name": col,
             "label": label,
@@ -519,12 +482,14 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
     rows = view.astype(object).where(pd.notna(view), "").to_dict("records")
     # Scroll pane with sticky thead — works for long tables
     scroll_container = ui.element("div").classes("w-full mp-table-scroll")
+    table_classes = "mp-table w-full mp-table-compact" if compact else "mp-table w-full"
     with scroll_container:
         table = (
             ui.table(columns=columns, rows=rows, pagination=pagination or False)
-            .classes("mp-table w-full")
+            .classes(table_classes)
             .props("dense flat bordered separator=cell wrap-cells")
         )
+
 
     # Auto-apply column prefs on render for page_key (no reload needed for hiding)
     if page_key:
@@ -557,9 +522,14 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             "body-cell-symbol",
             """
             <q-td :props="props">
-              <a class="mp-symbol" target="_blank"
-                 :href="'https://www.tradingview.com/chart/?symbol=NSE:' + String(props.value).replace('-', '_')">
+              <span class="mp-symbol cursor-pointer hover:underline text-[#01696f] font-bold"
+                    @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)">
                 {{ props.value }}
+              </span>
+              <a class="text-xs text-gray-400 hover:text-teal-600 ml-1" target="_blank"
+                 :href="'https://www.tradingview.com/chart/?symbol=NSE:' + String(props.value).replace('-', '_')"
+                 @click.stop>
+                ↗
               </a>
               <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Top Sec</span>
               <span v-if="props.row.is_top_industry" class="mp-mini-badge mp-industry-badge">Top Ind</span>
@@ -567,37 +537,29 @@ def table_from_df(df: pd.DataFrame, title: str = "", pagination: int = 25, copy_
             </q-td>
             """,
         )
+        table.on(
+            "stock360",
+            lambda event: open_stock_360_modal(
+                DB_PATH,
+                event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or ""),
+                copy_text=copy_text_to_clipboard,
+            ),
+        )
     if "copy_symbols" in view.columns and "symbol_list" in view.columns:
         table.add_slot(
             "body-cell-copy_symbols",
             """
             <q-td :props="props">
               <q-btn dense flat round icon="content_copy" color="primary"
-                     @click.stop="(async () => {
-                       const text = props.row.symbol_list || '';
-                       if (!text) {
-                         $q.notify({message: 'No symbols to copy', color: 'warning'});
-                         return;
-                       }
-                       try {
-                         await navigator.clipboard.writeText(text);
-                       } catch (err) {
-                         const ta = document.createElement('textarea');
-                         ta.value = text;
-                         ta.style.position = 'fixed';
-                         ta.style.left = '-9999px';
-                         document.body.appendChild(ta);
-                         ta.focus();
-                         ta.select();
-                         document.execCommand('copy');
-                         document.body.removeChild(ta);
-                       }
-                       $q.notify({message: 'Copied institution symbols', color: 'positive'});
-                     })()">
+                     @click.stop="$parent.$emit('institutionCopy', props.row)">
                 <q-tooltip>Copy institution symbols</q-tooltip>
               </q-btn>
             </q-td>
             """,
+        )
+        table.on(
+            "institutionCopy",
+            lambda event: copy_text_to_clipboard("Institution symbols", institution_copy_text(event.args)),
         )
     if "side" in view.columns:
         table.add_slot(
@@ -2555,284 +2517,17 @@ def special_watchlist_page() -> None:
     render()
 
 def deals_page() -> None:
-    section_header(
-        "Deals",
-        "Buy-side flow first (TV paste) — same filters as Telegram. Institutions are secondary drill-down.",
-    )
-
-    # --- Decision strip: latest session BUY list (aligned with telegram_deals) ---
+    """Deal Flow Desk — premium Research specialist (PR-DEALS)."""
     try:
-        from telegram_deals import query_deals_tv_lists
-
-        tg = query_deals_tv_lists(lookback_days=1, min_mcap_cr=1000.0)
-        days = tg.get("days") or []
-        latest = days[0] if days else {}
-        buy_tv = (latest.get("tv") or tg.get("buy_tv") or "").strip()
-        as_of = latest.get("date") or tg.get("as_of") or "—"
-        with ui.card().classes("w-full mp-card mb-3"):
-            with ui.row().classes("w-full items-center gap-3 flex-wrap"):
-                ui.label(f"BUY · {as_of}").classes("mp-section-title m-0")
-                compact_kpi("Names", int(latest.get("count") or 0))
-                if buy_tv:
-                    ui.button(
-                        "Copy TV list",
-                        on_click=lambda t=buy_tv: copy_text_to_clipboard("Deals BUY TV", t),
-                    ).classes("mp-primary").props("dense")
-            if buy_tv:
-                ui.label(buy_tv).classes("mp-mono-list text-xs mt-2")
-            else:
-                ui.label("No BUY names passed filters for latest deal session.").classes("text-[var(--mp-muted)] text-sm")
-    except Exception as exc:
-        ui.label(f"Buy list unavailable: {exc}").classes("text-xs text-[var(--mp-muted)]")
-
-    with ui.row().classes("gap-3 items-end flex-wrap mt-2"):
-        side = ui.select(["BUY", "SELL", "BOTH"], value="BUY", label="Side").classes("w-36")
-        min_value = ui.number("Min Activity Cr", value=5).classes("w-40")
-        days_back = ui.number("Lookback Days", value=10, min=1, max=60).classes("w-32")
-        selected_client = ui.select([""], value="", label="Institution", with_input=True).classes("w-72")
-        selected_symbol = ui.select([""], value="", label="Symbol detail", with_input=True).classes("w-56")
-        run_button = ui.button("Run").classes("mp-primary").props("dense")
-    summary_row = ui.row().classes("gap-4 flex-wrap")
-    flow_chart = ui.column().classes("w-full")
-    container = ui.column().classes("w-full")
-    initial_render = True
-
-    def render() -> None:
-        container.clear()
-        summary_row.clear()
-        flow_chart.clear()
-        where = ["coalesce(m.market_cap_cr, 0) >= 1000"]
-        params = []
-        if side.value != "BOTH":
-            where.append("d.side = ?")
-            params.append(side.value)
-        where_sql = " AND ".join(where)
-        lookback = int(days_back.value or 30)
-        client_data = df_query(
-            f"""
-            WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-            filtered_deals AS (
-                SELECT d.*, m.market_cap_cr, m.sector, m.industry
-                FROM deals d
-                JOIN stocks_master m USING(symbol)
-                WHERE {where_sql} AND d.trade_date >= (SELECT d FROM latest) - INTERVAL {lookback} DAY
-            ),
-            client_history AS (
-                SELECT client_name, min(trade_date) AS first_seen_date, max(trade_date) AS latest_seen_date
-                FROM deals
-                GROUP BY client_name
-            ),
-            client_symbols AS (
-                SELECT client_name, symbol, max(trade_date) AS latest_symbol_date
-                FROM filtered_deals
-                GROUP BY client_name, symbol
-            ),
-            symbol_rollup AS (
-                SELECT client_name,
-                       string_agg('NSE:' || replace(upper(symbol), '-', '_'), ',' ORDER BY latest_symbol_date DESC, symbol) AS symbol_list
-                FROM client_symbols
-                GROUP BY client_name
-            )
-            SELECT f.client_name,
-                   count(*) AS deal_rows,
-                   count(DISTINCT f.symbol) AS symbols,
-                   count(DISTINCT f.trade_date) AS active_days,
-                   max(f.trade_date) AS latest_deal_date,
-                   min(h.first_seen_date) AS first_seen_date,
-                   CASE WHEN min(h.first_seen_date) >= (SELECT d FROM latest) - INTERVAL 5 DAY THEN 'Yes' ELSE 'No' END AS new_addition,
-                   sum(CASE WHEN f.side='BUY' THEN f.deal_value_cr ELSE 0 END) AS buy_value_cr,
-                   sum(CASE WHEN f.side='SELL' THEN f.deal_value_cr ELSE 0 END) AS sell_value_cr,
-                   sum(CASE WHEN f.side='BUY' THEN f.deal_value_cr ELSE -f.deal_value_cr END) AS net_value_cr,
-                   max(s.symbol_list) AS symbol_list
-            FROM filtered_deals f
-            LEFT JOIN client_history h USING(client_name)
-            LEFT JOIN symbol_rollup s USING(client_name)
-            GROUP BY f.client_name
-            HAVING sum(f.deal_value_cr) >= ?
-            ORDER BY latest_deal_date DESC, new_addition DESC, abs(net_value_cr) DESC, (buy_value_cr + sell_value_cr) DESC
-            LIMIT 200
-            """,
-            [*params, float(min_value.value or 0)],
-        )
-
-        client_options = [""] + client_data["client_name"].dropna().astype(str).tolist()
-        old_client = selected_client.value
-        # Assigning QSelect options while the control tree is mounting causes
-        # a NiceGUI/Quasar render race. The initial page keeps the empty
-        # options; subsequent explicit Run clicks update the mounted select.
-        if not initial_render:
-            selected_client.options = client_options
-        if old_client not in client_options:
-            selected_client.value = ""
-
-        client_filter = ""
-        stock_params = [*params]
-        if selected_client.value:
-            client_filter = "AND d.client_name = ?"
-            stock_params.append(selected_client.value)
-
-        stock_data = df_query(
-            f"""
-            WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-            latest_indicators AS (
-                SELECT symbol, close_price, ema_200, rs_percentile, vcp_score, vcp_state, away_52w_high_pct
-                FROM indicators_daily, latest
-                WHERE trade_date = latest.d
-            ),
-            filtered_deals AS (
-                SELECT d.*, m.market_cap_cr, m.broad_industry AS master_broad_industry
-                FROM deals d
-                JOIN stocks_master m USING(symbol)
-                WHERE {where_sql} AND d.trade_date >= (SELECT d FROM latest) - INTERVAL {lookback} DAY
-                  {client_filter}
-            ),
-            symbol_latest AS (
-                SELECT symbol, max(trade_date) AS latest_deal_date
-                FROM filtered_deals
-                GROUP BY symbol
-            )
-            SELECT d.symbol,
-                   sl.latest_deal_date,
-                   sum(CASE WHEN d.trade_date = sl.latest_deal_date THEN d.deal_value_cr ELSE 0 END) AS latest_deal_value_cr,
-                   sum(CASE WHEN d.side='BUY' THEN d.deal_value_cr ELSE 0 END) AS buy_value_cr,
-                   sum(CASE WHEN d.side='SELL' THEN d.deal_value_cr ELSE 0 END) AS sell_value_cr,
-                   sum(CASE WHEN d.side='BUY' THEN d.deal_value_cr ELSE -d.deal_value_cr END) AS net_value_cr,
-                   count(DISTINCT d.trade_date) AS deal_days,
-                   count(DISTINCT CASE WHEN d.side='BUY' THEN d.client_name END) AS buy_client_count,
-                   count(DISTINCT CASE WHEN d.side='SELL' THEN d.client_name END) AS sell_client_count,
-                   max(d.deal_price_vs_close_pct) AS deal_vs_close_pct,
-                   max(d.deal_pct_volume) AS deal_volume_pct,
-                   max(d.rs_percentile) AS rs_percentile,
-                   max(d.away_52w_high_pct) AS away_52w_high_pct,
-                   max(li.close_price) AS close_price,
-                   max(li.ema_200) AS ema_200,
-                   max(li.vcp_score) AS vcp_score,
-                   max(li.vcp_state) AS vcp_state,
-                   max(d.market_cap_cr) AS market_cap_cr,
-                   max(d.master_broad_industry) AS broad_industry,
-                   max(d.industry) AS industry,
-                   string_agg(DISTINCT CASE WHEN d.side='BUY' THEN d.client_name END, ', ' ORDER BY CASE WHEN d.side='BUY' THEN d.client_name END) AS buy_clients,
-                   string_agg(DISTINCT CASE WHEN d.side='SELL' THEN d.client_name END, ', ' ORDER BY CASE WHEN d.side='SELL' THEN d.client_name END) AS sell_clients
-            FROM filtered_deals d
-            JOIN symbol_latest sl USING(symbol)
-            LEFT JOIN latest_indicators li USING(symbol)
-            GROUP BY d.symbol, sl.latest_deal_date
-            HAVING abs(sum(CASE WHEN d.side='BUY' THEN d.deal_value_cr ELSE -d.deal_value_cr END)) >= ?
-            ORDER BY latest_deal_date DESC, latest_deal_value_cr DESC, abs(net_value_cr) DESC
-            LIMIT 500
-            """,
-            [*stock_params, float(min_value.value or 0)],
-        )
-        # Deal flow over the lookback (for chart)
-        flow = df_query(
-            f"""
-            WITH latest AS (SELECT max(trade_date) d FROM indicators_daily)
-            SELECT trade_date,
-                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_cr,
-                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_cr
-            FROM deals, latest
-            WHERE trade_date >= (SELECT d FROM latest) - INTERVAL {lookback} DAY
-              AND coalesce((SELECT market_cap_cr FROM stocks_master WHERE symbol=deals.symbol),0) >= 1000
-            GROUP BY trade_date
-            ORDER BY trade_date
-            """
-        )
-
-        symbols = [""] + stock_data["symbol"].dropna().astype(str).tolist()
-        old_symbol = selected_symbol.value
-        if not initial_render:
-            selected_symbol.options = symbols
-        if old_symbol not in symbols:
-            selected_symbol.value = ""
-        buy_total = client_data["buy_value_cr"].sum() if not client_data.empty else 0
-        sell_total = client_data["sell_value_cr"].sum() if not client_data.empty else 0
-        with summary_row:
-            metric_card("BUY Cr (window)", f"{buy_total:,.0f}", "good")
-            metric_card("SELL Cr (window)", f"{sell_total:,.0f}", "bad")
-            metric_card("Institutions", len(client_data), "info")
-            metric_card("Stocks w/ Deals", len(stock_data), "info")
-            metric_card("Lookback", f"{lookback}d", "neutral")
-            copy_button("Copy Visible Symbols", lambda: symbols_text(stock_data))
-        if not stock_data.empty:
-            stock_data["clients"] = stock_data["buy_client_count"].fillna(0).astype(int).astype(str) + " | " + stock_data["sell_client_count"].fillna(0).astype(int).astype(str)
-        else:
-            stock_data["clients"] = []
-        if not client_data.empty:
-            client_data["copy_symbols"] = "Copy"
-        else:
-            client_data["copy_symbols"] = []
-
-        # Flow chart
-        with flow_chart:
-            if not flow.empty:
-                flow_view = flow.copy()
-                flow_view["trade_date"] = pd.to_datetime(flow_view["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-                flow_view["buy_cr"] = pd.to_numeric(flow_view["buy_cr"], errors="coerce").round(1)
-                flow_view["sell_cr"] = pd.to_numeric(flow_view["sell_cr"], errors="coerce").round(1)
-                table_from_df(flow_view, f"Deal Flow Last {lookback} Days (MCap>=1000)", copy_symbols=False, pagination=20, page_key="deal-flow")
-            else:
-                ui.label("No deal flow in window.").classes("text-[var(--mp-muted)]")
-
-        with container:
-            with ui.row().classes("items-center gap-3 mt-4"):
-                copy_button("Copy All Institution Symbols", lambda: tv_symbol_list_text(client_data["symbol_list"] if "symbol_list" in client_data.columns else []))
-            client_cols = [
-                "client_name", "new_addition", "latest_deal_date", "first_seen_date",
-                "buy_value_cr", "sell_value_cr", "net_value_cr",
-                "symbols", "active_days", "deal_rows", "copy_symbols", "symbol_list"
-            ]
-            # Keep the leaderboard compact; the full symbol roll-up is already
-            # available through the Copy All Institution Symbols action above.
-            leaderboard_cols = [c for c in client_cols if c in client_data.columns and c != "symbol_list"]
-            table_from_df(client_data[leaderboard_cols], "Institution Flow Leaderboard", copy_symbols=False, pagination=20)
-
-            if selected_client.value:
-                client_rows = df_query(
-                    f"""
-                    WITH latest AS (SELECT max(trade_date) d FROM indicators_daily)
-                    SELECT d.trade_date, d.symbol, d.side, d.deal_type, d.quantity, d.price, d.deal_value_cr,
-                           d.deal_pct_volume, d.deal_price_vs_close_pct, d.repeated_client_count,
-                           i.close_price, i.rs_percentile, i.vcp_score, i.vcp_state,
-                           m.sector, m.industry, m.market_cap_cr
-                    FROM deals d
-                    LEFT JOIN indicators_daily i ON d.symbol = i.symbol AND d.trade_date = i.trade_date
-                    LEFT JOIN stocks_master m ON d.symbol = m.symbol
-                    WHERE d.client_name = ? AND d.trade_date >= (SELECT d FROM latest) - INTERVAL {lookback} DAY
-                    ORDER BY d.trade_date DESC, d.deal_value_cr DESC
-                    LIMIT 200
-                    """,
-                    [selected_client.value],
-                )
-                table_from_df(client_rows, f"Institution Detail - {selected_client.value}", pagination=25)
-
-            deal_cols = [
-                "symbol", "latest_deal_date", "latest_deal_value_cr", "buy_value_cr", "sell_value_cr", "net_value_cr",
-                "deal_days", "clients", "deal_vs_close_pct", "deal_volume_pct",
-                "close_price", "ema_200", "rs_percentile", "vcp_score", "vcp_state", "away_52w_high_pct",
-                "market_cap_cr", "broad_industry", "industry",
-                "buy_clients", "sell_clients"
-            ]
-            table_from_df(stock_data[[c for c in deal_cols if c in stock_data.columns]], "Stock-Level Deals (window)", pagination=30, hidden_cols={"buy_clients", "sell_clients"})
-            if selected_symbol.value:
-                raw = df_query(
-                    """
-                    SELECT deal_type, trade_date, symbol, side, client_name, quantity, price, deal_value_cr,
-                           deal_pct_volume, deal_price_vs_close_pct, repeated_client_count, sector, industry
-                    FROM deals
-                    WHERE symbol = ?
-                    ORDER BY trade_date DESC, deal_value_cr DESC
-                    LIMIT 100
-                    """,
-                    [selected_symbol.value],
-                )
-                table_from_df(raw, f"Raw Deal Rows - {selected_symbol.value}", pagination=20, copy_symbols=False)
-
-    # Render only after an explicit Run. Updating select options during render
-    # can otherwise fire value-change callbacks recursively in Quasar/NiceGUI,
-    # leaving a partially-mounted control tree and browser-side Vue errors.
-    run_button.on_click(render)
-    render()
-    initial_render = False
+        from App.pages.research.deals import build_deals_page
+    except ModuleNotFoundError:
+        from pages.research.deals import build_deals_page  # type: ignore
+    build_deals_page(
+        DB_PATH,
+        copy_text=lambda label, text: copy_text_to_clipboard(label, text),
+        table_from_df=table_from_df,
+        metric_card=metric_card,
+    )
 
 
 def backtest_page() -> None:
@@ -2963,8 +2658,9 @@ def backtest_page() -> None:
 
 
 def journal_page() -> None:
+    ensure_user_data()
     ensure_journal_table()
-    section_header("Journal", "Local professional trade journal saved inside marketpulse.duckdb.")
+    section_header("Journal", "Local professional trade journal saved inside marketpulse_user.duckdb.")
     latest_date = df_query("SELECT max(trade_date) AS d FROM indicators_daily").iloc[0]["d"]
     symbols = df_query("SELECT symbol FROM stocks_master ORDER BY symbol")["symbol"].tolist()
     trade_types = ["Buy", "Sell", "Watch", "Avoid"]
@@ -3024,7 +2720,7 @@ def journal_page() -> None:
             return
         pos, risk_amt, risk_pct, reward_pct, r_target = calc_trade_values()
         row_id = int(pd.Timestamp.utcnow().value // 1_000_000)
-        write_execute(
+        user_execute(
             """
             INSERT INTO trade_journal VALUES (?, now(), now(), CAST(? AS DATE), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS DATE), ?, ?, ?, ?)
             """,
@@ -3042,7 +2738,7 @@ def journal_page() -> None:
             return
         pos, risk_amt, risk_pct, reward_pct, r_target = calc_trade_values()
         final_status = "Closed" if close_now else status.value
-        write_execute(
+        user_execute(
             """
             UPDATE trade_journal
             SET updated_at = now(), trade_date = CAST(? AS DATE), symbol = ?, trade_type = ?, setup_type = ?,
@@ -3063,7 +2759,7 @@ def journal_page() -> None:
     def load_selected() -> None:
         if not selected_id.value:
             return
-        row = df_query("SELECT * FROM trade_journal WHERE id = ?", [int(selected_id.value)])
+        row = user_query("SELECT * FROM trade_journal WHERE id = ?", [int(selected_id.value)])
         if row.empty:
             return
         r = row.iloc[0]
@@ -3100,7 +2796,7 @@ def journal_page() -> None:
         # in Python/pandas afterwards. This is safe, simple, and matches how 1.0
         # stayed stable. The "connect the dots" (entry-time breadth/sector state)
         # is still delivered.
-        jdf = df_query(
+        jdf = user_query(
             f"""
             SELECT * FROM trade_journal 
             WHERE {' AND '.join(where)}
@@ -3322,597 +3018,21 @@ def stock_detail_page() -> None:
 
 
 def add_styles() -> None:
-    ui.add_head_html(
-        """
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-        <style>
-          /* =========================================================
-             MarketPulse Light Theme — UI Standard (definitive)
-             Design Direction: Financial analytics dashboard. Tone = precision, sobriety, clarity.
-             Bloomberg terminal reborn in light mode — clean white surfaces, warm-neutral chrome,
-             one teal accent, data that breathes.
-          ========================================================= */
+    """Inject MarketPulse design tokens (PR-UI-KIT-A: App.ui.styles)."""
+    import sys
+    from pathlib import Path
 
-          :root {
-            /* ── SURFACES ── */
-            --mp-bg:              #f7f6f2;   /* page background — warm off-white */
-            --mp-surface:         #ffffff;   /* cards, tables, panels */
-            --mp-surface-2:       #f9f8f5;   /* nested card backgrounds */
-            --mp-surface-offset:  #f0ede8;   /* hover rows, subtle insets */
-            --mp-border:          rgba(40, 37, 29, 0.10);  /* 1px alpha border — adapts naturally */
-            --mp-divider:         rgba(40, 37, 29, 0.06);  /* table row dividers */
-
-            /* ── TEXT ── */
-            --mp-text:            #28251d;   /* primary — near-black warm */
-            --mp-muted:           #6b6760;   /* secondary labels, metadata */
-            --mp-faint:           #b0ada8;   /* placeholders, disabled, decorative */
-            --mp-inverse:         #f9f8f4;   /* text on dark/accent backgrounds */
-
-            /* ── ACCENT (primary CTA, links, active states) ── */
-            --mp-primary:         #01696f;   /* Hydra Teal */
-            --mp-primary-hover:   #0c4e54;
-            --mp-primary-active:  #0f3638;
-            --mp-primary-bg:      #e4f0ef;   /* tinted surface for active tabs, badges */
-
-            /* ── SEMANTIC SIGNALS (data meaning only — not decoration) ── */
-            --mp-good:            #22c55e;   /* bright green for positive / up */
-            --mp-good-bg:         #dcfce7;
-            --mp-bad:             #ef4444;   /* bright red for negative / down */
-            --mp-bad-bg:          #fee2e2;
-            --mp-warn:            #f59e0b;   /* bright amber for caution */
-            --mp-warn-bg:         #fef3c7;
-            --mp-info:            #3b82f6;   /* bright blue for neutral */
-            --mp-info-bg:         #dbeafe;
-            --mp-neutral-bg:      #f3f4f6;
-
-            /* ── ROTATION STATES (sector rotation badges) — bright */
-            --mp-leading:         #22c55e;   --mp-leading-bg:   #dcfce7;
-            --mp-emerging:        #3b82f6;   --mp-emerging-bg:  #dbeafe;
-            --mp-improving:       #06b6d4;   --mp-improving-bg: #cffafe;
-            --mp-weakening:       #f59e0b;   --mp-weakening-bg: #fef3c7;
-            --mp-lagging:         #ef4444;   --mp-lagging-bg:   #fee2e2;
-
-            /* ── SPACING (4px grid) ── */
-            --mp-space-1: 0.25rem;  /* 4px */
-            --mp-space-2: 0.5rem;   /* 8px */
-            --mp-space-3: 0.75rem;  /* 12px */
-            --mp-space-4: 1rem;     /* 16px */
-            --mp-space-6: 1.5rem;   /* 24px */
-            --mp-space-8: 2rem;     /* 32px */
-
-            /* ── RADIUS ── */
-            --mp-radius-sm: 4px;
-            --mp-radius-md: 6px;
-            --mp-radius-lg: 10px;
-            --mp-radius-full: 9999px;
-
-            /* ── SHADOWS ── */
-            --mp-shadow-sm: 0 1px 2px rgba(40,37,29,0.06);
-            --mp-shadow-md: 0 4px 12px rgba(40,37,29,0.08);
-
-            /* ── TYPOGRAPHY ── */
-            --mp-font: 'Inter', 'DM Sans', system-ui, sans-serif;
-            --mp-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-
-            /* ── TYPE SCALE (web app — capped at 20px) — dense dashboard */
-            --mp-text-xs:   12px;   /* badges, timestamps, faint metadata */
-            --mp-text-sm:   13px;   /* table cells, buttons, nav items */
-            --mp-text-base: 14px;   /* default body — dense dashboard standard */
-            --mp-text-lg:   16px;   /* section headings */
-            --mp-text-xl:   20px;   /* page title only — 1 per page */
-
-            /* ── TRANSITIONS ── */
-            --mp-transition: 160ms cubic-bezier(0.16, 1, 0.3, 1);
-          }
-
-          body {
-            background: var(--mp-bg);
-            color: var(--mp-text);
-            font-family: var(--mp-font);
-            font-size: var(--mp-text-base);
-          }
-
-          /* Titles & emphasis */
-          .mp-page-title, .mp-section-title, .mp-card-value, .mp-pos, .mp-neg, .mp-symbol {
-            font-weight: 700;
-          }
-          .mp-page-title { font-size: var(--mp-text-xl); font-weight: 800; color: var(--mp-text); letter-spacing: -0.3px; margin-bottom: 2px; }
-          .mp-page-subtitle { color: var(--mp-muted); margin-bottom: 6px; font-size: var(--mp-text-xs); }
-          .mp-section-title { font-size: var(--mp-text-lg); font-weight: 700; color: var(--mp-text); letter-spacing: 0px; margin: 4px 0 2px; }
-
-          .mp-header {
-            background: var(--mp-surface);
-            color: var(--mp-text);
-            border-bottom: 1px solid var(--mp-border);
-            box-shadow: var(--mp-shadow-sm);
-            height: 48px;
-            padding: 0 20px;
-            font-size: var(--mp-text-base);
-            position: sticky;
-            top: 0;
-            z-index: 3000;
-          }
-
-          /* Freeze top chrome: header + tab row */
-          .mp-sticky-nav {
-            position: sticky;
-            top: 48px;
-            z-index: 2990;
-            background: var(--mp-surface);
-            border-bottom: 1px solid var(--mp-border);
-            box-shadow: 0 1px 0 rgba(40,37,29,0.04);
-          }
-          .mp-tabs {
-            background: var(--mp-surface) !important;
-            color: var(--mp-text) !important;
-            min-height: 40px;
-          }
-          .mp-tabs .q-tab {
-            text-transform: none !important;
-            font-weight: 600 !important;
-            font-size: 13px !important;
-            min-height: 40px !important;
-            padding: 0 16px !important;
-          }
-          .mp-tabs .q-tab--active {
-            color: var(--mp-primary) !important;
-          }
-          .mp-panels {
-            min-height: calc(100vh - 100px);
-          }
-          .mp-mono-list {
-            font-family: var(--mp-font-mono);
-            word-break: break-all;
-            line-height: 1.45;
-            color: var(--mp-text);
-          }
-          .mp-rank-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            border: 1px solid var(--mp-border);
-            border-radius: var(--mp-radius-full);
-            background: var(--mp-surface);
-            font-size: 12px;
-          }
-          .mp-rank-num {
-            font-weight: 700;
-            color: var(--mp-primary);
-            font-variant-numeric: tabular-nums;
-          }
-
-          .mp-rule {
-            color: var(--mp-muted);
-            background: var(--mp-surface-offset);
-            border: 1px solid var(--mp-border);
-            padding: 4px 6px;
-            border-radius: var(--mp-radius-sm);
-            margin: 2px 0;
-            font-size: var(--mp-text-xs);
-            font-weight: 500;
-          }
-
-          /* Cards / Tiles */
-          .mp-card, .q-card {
-            background: var(--mp-surface);
-            border: 1px solid var(--mp-border);
-            border-radius: var(--mp-radius-lg);
-            box-shadow: var(--mp-shadow-sm);
-            padding: 16px;
-            transition: box-shadow var(--mp-transition);
-          }
-          .mp-card:hover, .q-card:hover {
-            box-shadow: var(--mp-shadow-md);
-          }
-          .mp-card-label {
-            color: var(--mp-muted);
-            font-size: var(--mp-text-xs);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-          }
-          .mp-card-value {
-            font-size: var(--mp-text-xl);
-            font-weight: 700;
-            color: var(--mp-text);
-            font-variant-numeric: tabular-nums;
-          }
-          .mp-card-sub { color: var(--mp-muted); font-size: var(--mp-text-xs); }
-
-          /* Badges */
-          .mp-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 1px 7px;
-            border-radius: var(--mp-radius-full);
-            font-size: var(--mp-text-xs);
-            font-weight: 600;
-            letter-spacing: 0.01em;
-          }
-          .mp-good    { background: var(--mp-good-bg);    color: var(--mp-good); }
-          .mp-bad     { background: var(--mp-bad-bg);     color: var(--mp-bad); }
-          .mp-warn    { background: var(--mp-warn-bg);    color: var(--mp-warn); }
-          .mp-info    { background: var(--mp-info-bg);    color: var(--mp-info); }
-          .mp-neutral { background: var(--mp-neutral-bg); color: var(--mp-muted); }
-
-          /* Rotation state badges */
-          .mp-state-leading   { background: var(--mp-leading-bg);   color: var(--mp-leading); }
-          .mp-state-emerging  { background: var(--mp-emerging-bg);  color: var(--mp-emerging); }
-          .mp-state-improving { background: var(--mp-improving-bg); color: var(--mp-improving); }
-          .mp-state-weakening { background: var(--mp-weakening-bg); color: var(--mp-weakening); }
-          .mp-state-lagging   { background: var(--mp-lagging-bg);   color: var(--mp-lagging); }
-          .mp-state-neutral   { background: var(--mp-neutral-bg);   color: var(--mp-muted); }
-
-          /* Hide leftover multi-select chip chrome if any page still emits it */
-          .q-select__dropdown-icon + .q-chip,
-          .mp-toolbar .q-chip { max-width: 9rem; }
-
-          /* Tables — dense terminal style + sticky header (scroll parent = .mp-table-scroll) */
-          .mp-table-scroll {
-            width: 100%;
-            max-height: min(70vh, 720px);
-            overflow: auto;
-            border: 1px solid var(--mp-border);
-            border-radius: var(--mp-radius-sm);
-            background: var(--mp-surface);
-            -webkit-overflow-scrolling: touch;
-          }
-          .mp-table-scroll .q-table__middle {
-            max-height: none !important;
-            overflow: visible !important;
-          }
-          .mp-table, .q-table, .q-table__container {
-            background: var(--mp-surface);
-            color: var(--mp-text);
-            border: none;
-            border-radius: 0;
-            font-size: 12.5px;
-          }
-          .mp-table .q-table, .q-table {
-            table-layout: auto !important;
-            width: max-content;
-            min-width: 100%;
-          }
-          .mp-table thead tr th,
-          .mp-table th.mp-th,
-          .mp-table-scroll thead th {
-            font-weight: 700 !important;
-            background: #eef1ef !important;
-            color: var(--mp-text) !important;
-            text-transform: uppercase;
-            font-size: 11px !important;
-            letter-spacing: 0.03em;
-            padding: 10px 10px !important;
-            border-bottom: 1px solid var(--mp-border);
-            overflow: visible !important;
-            text-overflow: clip !important;
-            white-space: normal !important;
-            line-height: 1.25 !important;
-            position: sticky !important;
-            top: 0 !important;
-            z-index: 20 !important;
-            box-shadow: 0 1px 0 var(--mp-border);
-          }
-          .mp-table td, .mp-table .q-td, .q-table td, .q-table .q-td {
-            color: var(--mp-text);
-            padding: 6px 10px !important;
-            border-bottom: 1px solid var(--mp-divider);
-            font-weight: 500;
-            font-variant-numeric: tabular-nums;
-            line-height: 1.35;
-            overflow: visible;
-            text-overflow: clip;
-          }
-          .mp-table td.mp-wrap-col,
-          .mp-table .q-td.mp-wrap-col {
-            white-space: normal !important;
-            word-break: break-word;
-            max-width: 360px;
-          }
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-          .mp-table tbody tr:nth-child(even) { background: var(--mp-surface-offset); }
-          .mp-table tbody tr:hover { background: var(--mp-surface-2); }
-
-          /* covered by 3-tier weight + global alignment rules above */
-
-          /* Symbol links */
-          .mp-symbol {
-            color: var(--mp-primary);
-            font-weight: 600;
-            text-decoration: none;
-          }
-          .mp-symbol:hover { text-decoration: underline; color: var(--mp-primary-hover); }
-
-          /* Buttons */
-          .mp-primary {
-            background: var(--mp-primary);
-            color: var(--mp-inverse);
-            border-radius: var(--mp-radius-md);
-            padding: 6px 14px;
-            font-size: var(--mp-text-sm);
-            font-weight: 500;
-            border: none;
-            transition: background var(--mp-transition);
-          }
-          .mp-primary:hover { background: var(--mp-primary-hover); }
-
-          .mp-button {
-            background: transparent;
-            color: var(--mp-primary);
-            border: 1px solid var(--mp-primary);
-            border-radius: var(--mp-radius-md);
-            padding: 5px 12px;
-            font-size: var(--mp-text-sm);
-            font-weight: 500;
-            transition: background var(--mp-transition);
-          }
-          .mp-button:hover { background: var(--mp-primary-bg); }
-
-          /* Compact KPI in toolbars */
-          .mp-kpi-compact {
-            display: inline-flex;
-            flex-direction: column;
-            padding: 4px 10px;
-            border-left: 2px solid var(--mp-border);
-          }
-          .mp-kpi-compact .label {
-            font-size: var(--mp-text-xs);
-            color: var(--mp-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-          }
-          .mp-kpi-compact .value {
-            font-size: 15px;
-            color: var(--mp-text);
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-          }
-
-          /* Toolbar */
-          .mp-toolbar {
-            background: var(--mp-surface-2);
-            border: 1px solid var(--mp-border);
-            border-radius: var(--mp-radius-lg);
-            padding: 10px 16px;
-          }
-
-          /* Chips / badges base */
-          .mp-chip {
-            display: inline-flex;
-            align-items: center;
-            padding: 1px 6px;
-            border-radius: var(--mp-radius-full);
-            font-size: var(--mp-text-xs);
-            font-weight: 600;
-            background: var(--mp-surface-offset);
-            color: var(--mp-muted);
-            border: 1px solid var(--mp-border);
-          }
-
-          /* Heat bars */
-          .mp-heat {
-            position: relative;
-            min-width: 70px;
-            height: 18px;
-            border-radius: 3px;
-            overflow: hidden;
-            background: var(--mp-surface-offset);
-            border: 1px solid var(--mp-border);
-          }
-          .mp-heat-fill {
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            background: linear-gradient(90deg, #f59e0b, #22c55e);
-          }
-          /* old heat span rule kept for compatibility but prefer .mp-heat-value */
-
-          /* Mini badges */
-          .mp-mini-badge {
-            margin-left: 3px;
-            padding: 0 3px;
-            border-radius: 3px;
-            font-size: 8px;
-            font-weight: 700;
-            vertical-align: middle;
-          }
-          .mp-sector-badge { background: #dbeafe; color: #1e40af; }
-          .mp-industry-badge { background: #ccfbf1; color: #0f766e; }
-          .mp-deal-badge { background: #fef3c7; color: #b45309; }
-
-          /* Charts */
-          .mp-chart {
-            background: var(--mp-surface);
-            border: 1px solid var(--mp-border);
-            border-radius: var(--mp-radius-md);
-            padding: 4px;
-          }
-
-          /* Expansion / tree nesting with visual hierarchy */
-          .mp-expansion { background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius-md); margin: 3px 0; }
-          .mp-nested { margin-left: 16px; background: var(--mp-surface-2); border-left: 3px solid var(--mp-primary); }
-          .mp-nested-2 { margin-left: 32px; background: var(--mp-surface-offset); }
-          .mp-nested-3 { margin-left: 48px; background: var(--mp-bg); color: var(--mp-muted); }
-
-          /* Tab nav */
-          .q-tab { color: var(--mp-muted); font-size: var(--mp-text-sm); font-weight: 500; }
-          .q-tab--active { color: var(--mp-primary); border-bottom: 2px solid var(--mp-primary); }
-
-          /* Quasar light overrides for consistency */
-          .q-tab-panel { background: var(--mp-bg); padding: 16px; }
-          .q-field__label { color: var(--mp-muted); }
-          .q-field__native, .q-field__control { color: var(--mp-text); background: var(--mp-surface); border-color: var(--mp-border); }
-          .q-checkbox__inner { border-color: var(--mp-border); }
-          .q-table th { background: var(--mp-surface-offset); color: var(--mp-text); font-weight: 700; }
-
-          /* Thin custom scrollbar (modern, less intrusive than default native scrollbar) */
-          ::-webkit-scrollbar { width: 6px; height: 6px; }
-          ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-          ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-          /* =========================================================
-             PROFESSIONAL TABLE ALIGNMENT (per industry standards from Bloomberg, TradingView, TOS etc.)
-             - Text / identifiers / categories (SYMBOL, SECTOR, INDUSTRY, BROAD INDUSTRY, long symbol lists): LEFT
-             - Numeric / quantitative (prices, %, mcap, turnover, vol, shock, etc.): RIGHT + tabular-nums for digit alignment
-             - Headers: centered for clean look (common practice)
-             - Avoid center on data cells — causes the "ugly ragged" look you pointed out.
-             Rules are placed LAST with high specificity + !important to defeat Quasar defaults and any prior global center forces.
-          ========================================================= */
-
-          /* Base body default left for text; headers will be overridden per type below for consistency */
-          .mp-table td, .mp-table .q-td,
-          .q-table td, .q-table .q-td {
-            text-align: left !important;
-          }
-
-          /* Headers follow the column data alignment for professional look (user feedback: "Shouldnt the header too follow the same?") */
-          /* Numeric headers: right (matches their data columns) */
-          .mp-table th.numeric, .q-table th.numeric {
-            text-align: right !important;
-          }
-          /* Text / symbol headers: left (matches their data columns) */
-          .mp-table th.text-col, .mp-table th.symbol-col,
-          .q-table th.text-col, .q-table th.symbol-col {
-            text-align: left !important;
-          }
-
-          /* Numeric columns: RIGHT + tabular numbers (standard for scannability in trading UIs) */
-          .numeric,
-          .mp-table td.numeric, .mp-table .q-td.numeric,
-          .q-table td.numeric, .q-table .q-td.numeric {
-            text-align: right !important;
-            font-variant-numeric: tabular-nums;
-            font-family: var(--mp-font-mono);
-          }
-
-          /* Explicit text columns (including symbol): LEFT (for labels and long lists like SYMBOLS / industries) */
-          .text-col,
-          .symbol-col,
-          .symbols-col,
-          .mp-table td.text-col, .mp-table .q-td.text-col,
-          .q-table td.text-col, .q-table .q-td.text-col,
-          .mp-table td.symbol-col, .mp-table .q-td.symbol-col,
-          .q-table td.symbol-col, .q-table .q-td.symbol-col,
-          .mp-table td.symbols-col, .mp-table .q-td.symbols-col,
-          .q-table td.symbols-col, .q-table .q-td.symbols-col {
-            text-align: left !important;
-          }
-          .symbols-col, .mp-table td.symbols-col, .q-table td.symbols-col {
-            white-space: normal !important;
-            word-break: break-word !important;
-            font-family: var(--mp-font-mono);
-            font-size: 11px !important;
-            line-height: 1.35;
-            max-width: 280px;
-          }
-
-          /* Momentum top sector / industry leadership chips */
-          .mp-leader-chip {
-            min-width: 160px;
-            max-width: 240px;
-            padding: 8px 10px;
-            border-radius: var(--mp-radius-md);
-            background: var(--mp-primary-bg);
-            border: 1px solid var(--mp-primary);
-            box-shadow: var(--mp-shadow-sm);
-          }
-          .mp-leader-chip-ind {
-            background: var(--mp-info-bg);
-            border-color: var(--mp-info);
-          }
-          .mp-leader-kicker {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            color: var(--mp-muted);
-          }
-          .mp-leader-name {
-            font-size: 13px;
-            font-weight: 800;
-            color: var(--mp-text);
-            line-height: 1.25;
-            word-break: break-word;
-          }
-          .mp-leader-meta {
-            font-size: 11px;
-            color: var(--mp-muted);
-            margin-bottom: 4px;
-          }
-
-          /* 3-tier weight system for scannability */
-          .mp-table .symbol-col, .q-table .symbol-col {
-            font-weight: 700 !important;
-          }
-          .mp-table .numeric, .q-table .numeric {
-            font-weight: 600 !important;
-          }
-          .mp-table .text-col, .q-table .text-col {
-            font-weight: 500 !important;
-            color: var(--mp-muted);
-          }
-
-          /* Enhanced heat/progress bars: number beside bar (no overflow), consistent, high contrast */
-          .mp-heat-container {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            min-width: 110px;
-          }
-          .mp-heat {
-            flex: 0 0 70px;
-            height: 16px;
-            border-radius: 3px;
-            overflow: hidden;
-            background: var(--mp-surface-offset);
-            border: 1px solid var(--mp-border);
-          }
-          .mp-heat-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #f59e0b, #22c55e);
-          }
-          .mp-heat-value {
-            font-size: 10px;
-            min-width: 28px;
-            text-align: right;
-            font-weight: 500;
-            color: var(--mp-text);
-          }
-
-          /* Subtle zebra + hover for scannability (standard in light finance UIs) */
-          .mp-table tbody tr:nth-child(even),
-          .q-table tbody tr:nth-child(even) {
-            background: var(--mp-surface-offset) !important;
-          }
-          .mp-table tbody tr:hover,
-          .q-table tbody tr:hover {
-            background: var(--mp-surface-2) !important;
-          }
-
-          /* Expand mp-badge usage for all tones/states (pervasive coloring) */
-          .mp-badge, .mp-chip {
-            font-weight: 600;
-          }
-          /* Ensure rotation states use exact colors from standard */
-          .mp-state-leading { background: var(--mp-leading-bg) !important; color: var(--mp-leading) !important; }
-          .mp-state-emerging { background: var(--mp-emerging-bg) !important; color: var(--mp-emerging) !important; }
-          .mp-state-improving { background: var(--mp-improving-bg) !important; color: var(--mp-improving) !important; }
-          .mp-state-weakening { background: var(--mp-weakening-bg) !important; color: var(--mp-weakening) !important; }
-          .mp-state-lagging { background: var(--mp-lagging-bg) !important; color: var(--mp-lagging) !important; }
-
-          /* Consistent green/red for all applicable (prices, %, changes) - high contrast */
-          .mp-pos, .positive { color: var(--mp-good) !important; font-weight: 600 !important; }
-          .mp-neg, .negative { color: var(--mp-bad) !important; font-weight: 600 !important; }
-        </style>
-        """
-    )
-
-
+    root = Path(__file__).resolve().parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    app_dir = Path(__file__).resolve().parent
+    if str(app_dir) not in sys.path:
+        sys.path.insert(0, str(app_dir))
+    try:
+        from App.ui.styles import add_styles as _kit_add_styles
+    except ModuleNotFoundError:
+        from ui.styles import add_styles as _kit_add_styles  # type: ignore
+    _kit_add_styles()
 
 
 def info_icon(key: str) -> None:
@@ -4007,436 +3127,101 @@ def _build_why_risk(row: pd.Series) -> tuple[str, str]:
 
 
 def today_page() -> None:
-    """Decision home: regime posture, leadership changes, ranked preparation list with evidence."""
-    build_today_decision_panel(DB_PATH, table_from_df, compact_kpi)
-    section_header("Today", "Decision desk — regime, what changed, and ranked prep candidates with evidence.")
+    """Decision home: single focused-v2 queue. No prep_score SQL on default open."""
+    import os
 
-    dates = df_query(
-        """
-        SELECT DISTINCT trade_date
-        FROM indicators_daily
-        ORDER BY trade_date DESC
-        LIMIT 2
-        """
+    build_today_page(
+        DB_PATH,
+        table_from_df,
+        compact_kpi,
+        copy_text=lambda label, text: copy_text_to_clipboard(label, text),
     )
-    if dates.empty:
-        ui.label("No indicator data. Run_MarketPulse_Auto.bat.").classes("text-red-600")
-        return
 
-    latest_d = pd.to_datetime(dates.iloc[0]["trade_date"]).date()
-    prev_d = pd.to_datetime(dates.iloc[1]["trade_date"]).date() if len(dates) > 1 else None
+    # Lazy Market context — SQL only on first expand (not prep_score / near-entry / deals-hot).
+    with ui.expansion("Market context", icon="insights", value=False).classes("w-full mt-4") as exp:
+        ctx_host = ui.column().classes("w-full")
+        loaded = {"done": False}
 
-    breadth = df_query("SELECT * FROM breadth_daily ORDER BY trade_date DESC LIMIT 2")
-    if breadth.empty:
-        ui.label("No breadth data.").classes("text-red-600")
-        return
-    b0 = breadth.iloc[0]
-    b1 = breadth.iloc[1] if len(breadth) > 1 else None
-    posture, posture_tone, guidance = _regime_posture(str(b0.get("breadth_state", "Neutral")))
-
-    # Regime banner
-    with ui.card().classes("w-full mp-card mb-3"):
-        with ui.row().classes("w-full items-start gap-4 flex-wrap"):
-            with ui.column().classes("gap-1"):
-                ui.label("MARKET POSTURE").classes("mp-card-label")
-                ui.label(posture).classes(f"text-2xl font-bold mp-badge {TONE_CLASS.get(posture_tone, TONE_CLASS['info'])}")
-                ui.label(str(b0.get("breadth_state", "—"))).classes("text-sm text-[var(--mp-muted)]")
-            with ui.column().classes("gap-1 flex-1 min-w-[240px]"):
-                ui.label(f"Session {latest_d}").classes("mp-card-label")
-                ui.label(guidance).classes("text-sm")
-                if b1 is not None:
-                    d_adv = float(b0["advance_pct"]) - float(b1["advance_pct"])
-                    d_50 = float(b0["above_50ema_pct"]) - float(b1["above_50ema_pct"])
-                    ui.label(
-                        f"vs prior: Advance {d_adv:+.1f}pp · Above 50EMA {d_50:+.1f}pp · "
-                        f"VCP cands {int(b0.get('vcp_candidates') or 0)} · Near 52W {int(b0.get('near_52w_highs') or 0)}"
-                    ).classes("text-xs text-[var(--mp-muted)]")
-            with ui.row().classes("gap-3 flex-wrap"):
-                metric_card("Advance %", f"{float(b0['advance_pct']):.1f}%", "good" if b0["advance_pct"] >= 55 else "bad" if b0["advance_pct"] <= 45 else "info")
-                metric_card("Above 50", f"{float(b0['above_50ema_pct']):.1f}%", "good" if b0["above_50ema_pct"] >= 55 else "bad")
-                metric_card("Above 200", f"{float(b0['above_200ema_pct']):.1f}%", "good" if b0["above_200ema_pct"] >= 45 else "bad")
-                metric_card("Near 52W", int(b0.get("near_52w_highs") or 0), "info")
-
-    # Leading / weakening industries
-    rotation = df_query(
-        """
-        WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
-        SELECT group_name, rotation_state, rotation_rank, score_change_5d, rank_change_5d,
-               return_5d_pct, return_1m_pct, rs_percentile, turnover_1d_cr, stocks
-        FROM sector_rotation, latest
-        WHERE trade_date = latest.d AND level = 'Industry'
-        """
-    )
-    leading = pd.DataFrame()
-    weakening = pd.DataFrame()
-    if not rotation.empty:
-        leading = rotation[rotation["rotation_state"].isin(["Leading", "Emerging"])].sort_values(
-            ["rotation_rank", "score_change_5d"], ascending=[True, False]
-        ).head(8)
-        weakening = rotation[rotation["rotation_state"].isin(["Weakening", "Lagging"])].sort_values(
-            ["rank_change_5d", "score_change_5d"], ascending=[True, True]
-        ).head(8)
-
-    with ui.grid(columns=2).classes("w-full gap-3 mb-2"):
-        with ui.column().classes("w-full"):
-            ui.label("Leading / Emerging industries").classes("mp-section-title")
-            if leading.empty:
-                ui.label("No leading groups.").classes("text-[var(--mp-muted)] text-sm")
-            else:
-                table_from_df(
-                    leading[["group_name", "rotation_state", "rotation_rank", "score_change_5d", "rank_change_5d", "return_1m_pct", "rs_percentile", "turnover_1d_cr"]],
-                    "",
-                    pagination=8,
-                    copy_symbols=False,
+        def _load_context(_=None):
+            if loaded["done"] or not exp.value:
+                return
+            loaded["done"] = True
+            ctx_host.clear()
+            with ctx_host:
+                breadth = df_query("SELECT * FROM breadth_daily ORDER BY trade_date DESC LIMIT 2")
+                if breadth.empty:
+                    ui.label("No breadth data.").classes("text-[var(--mp-muted)]")
+                    return
+                b0 = breadth.iloc[0]
+                b1 = breadth.iloc[1] if len(breadth) > 1 else None
+                posture, posture_tone, guidance = _regime_posture(str(b0.get("breadth_state", "Neutral")))
+                latest_d = pd.to_datetime(b0["trade_date"]).date()
+                with ui.card().classes("w-full mp-card mb-3"):
+                    with ui.row().classes("w-full items-start gap-4 flex-wrap"):
+                        with ui.column().classes("gap-1"):
+                            ui.label("MARKET POSTURE").classes("mp-card-label")
+                            ui.label(posture).classes(
+                                f"text-2xl font-bold mp-badge {TONE_CLASS.get(posture_tone, TONE_CLASS['info'])}"
+                            )
+                            ui.label(str(b0.get("breadth_state", "—"))).classes("text-sm text-[var(--mp-muted)]")
+                        with ui.column().classes("gap-1 flex-1 min-w-[240px]"):
+                            ui.label(f"Session {latest_d}").classes("mp-card-label")
+                            ui.label(guidance).classes("text-sm")
+                            if b1 is not None:
+                                d_adv = float(b0["advance_pct"]) - float(b1["advance_pct"])
+                                d_50 = float(b0["above_50ema_pct"]) - float(b1["above_50ema_pct"])
+                                ui.label(
+                                    f"vs prior: Advance {d_adv:+.1f}pp · Above 50EMA {d_50:+.1f}pp"
+                                ).classes("text-xs text-[var(--mp-muted)]")
+                        with ui.row().classes("gap-3 flex-wrap"):
+                            metric_card(
+                                "Advance %",
+                                f"{float(b0['advance_pct']):.1f}%",
+                                "good" if b0["advance_pct"] >= 55 else "bad" if b0["advance_pct"] <= 45 else "info",
+                            )
+                            metric_card(
+                                "Above 50",
+                                f"{float(b0['above_50ema_pct']):.1f}%",
+                                "good" if b0["above_50ema_pct"] >= 55 else "bad",
+                            )
+                            metric_card(
+                                "Above 200",
+                                f"{float(b0['above_200ema_pct']):.1f}%",
+                                "good" if b0["above_200ema_pct"] >= 45 else "bad",
+                            )
+                            metric_card("Near 52W", int(b0.get("near_52w_highs") or 0), "info")
+                rotation = df_query(
+                    """
+                    WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
+                    SELECT group_name, rotation_state, rotation_rank, score_change_5d, rank_change_5d,
+                           return_1m_pct, rs_percentile, turnover_1d_cr
+                    FROM sector_rotation, latest
+                    WHERE trade_date = latest.d AND level = 'Industry'
+                    """
                 )
-        with ui.column().classes("w-full"):
-            ui.label("Weakening / Lagging industries").classes("mp-section-title")
-            if weakening.empty:
-                ui.label("No weak groups flagged.").classes("text-[var(--mp-muted)] text-sm")
-            else:
-                table_from_df(
-                    weakening[["group_name", "rotation_state", "rotation_rank", "score_change_5d", "rank_change_5d", "return_1m_pct", "rs_percentile", "turnover_1d_cr"]],
-                    "",
-                    pagination=8,
-                    copy_symbols=False,
-                )
+                if not rotation.empty:
+                    leading = rotation[rotation["rotation_state"].isin(["Leading", "Emerging"])].sort_values(
+                        ["rotation_rank", "score_change_5d"], ascending=[True, False]
+                    ).head(8)
+                    weakening = rotation[rotation["rotation_state"].isin(["Weakening", "Lagging"])].sort_values(
+                        ["rank_change_5d", "score_change_5d"], ascending=[True, True]
+                    ).head(8)
+                    with ui.grid(columns=2).classes("w-full gap-3"):
+                        with ui.column().classes("w-full"):
+                            ui.label("Leading / Emerging").classes("mp-section-title")
+                            if not leading.empty:
+                                table_from_df(leading, "", pagination=8, copy_symbols=False)
+                        with ui.column().classes("w-full"):
+                            ui.label("Weakening / Lagging").classes("mp-section-title")
+                            if not weakening.empty:
+                                table_from_df(weakening, "", pagination=8, copy_symbols=False)
 
-    # What changed since prior session
-    ui.label("What changed").classes("mp-section-title mt-2")
-    if prev_d is None:
-        ui.label("Need at least two sessions for change detection.").classes("text-[var(--mp-muted)] text-sm")
-    else:
-        changes = df_query(
-            """
-            WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-            prev AS (
-                SELECT max(trade_date) d FROM indicators_daily, latest
-                WHERE trade_date < latest.d
-            ),
-            cur AS (
-                SELECT i.symbol, i.vcp_state, i.vcp_score, i.ema_10_cross_200, i.fresh_200ema_reclaim,
-                       i.is_vcp, i.rs_percentile, i.close_price, i.ema_200,
-                       m.market_cap_cr, m.industry, m.sector
-                FROM indicators_daily i
-                JOIN stocks_master m USING(symbol), latest
-                WHERE i.trade_date = latest.d AND coalesce(m.market_cap_cr, 0) >= 1000
-            ),
-            old AS (
-                SELECT i.symbol, i.vcp_state, i.vcp_score, i.ema_10_cross_200, i.is_vcp
-                FROM indicators_daily i, prev
-                WHERE i.trade_date = prev.d
-            ),
-            deals_today AS (
-                SELECT symbol,
-                       sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_cr,
-                       sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_cr
-                FROM deals, latest
-                WHERE trade_date = latest.d
-                GROUP BY symbol
-            )
-            SELECT c.symbol,
-                   CASE
-                     WHEN c.ema_10_cross_200 AND NOT coalesce(o.ema_10_cross_200, false) THEN 'New 10/200 cross'
-                     WHEN c.fresh_200ema_reclaim THEN '200EMA reclaim'
-                     WHEN c.vcp_state = 'Near Pivot' AND coalesce(o.vcp_state, '') <> 'Near Pivot' THEN 'New Near Pivot'
-                     WHEN c.vcp_state = 'Breakout' AND coalesce(o.vcp_state, '') <> 'Breakout' THEN 'New Breakout'
-                     WHEN c.is_vcp AND NOT coalesce(o.is_vcp, false) THEN 'Entered VCP'
-                     WHEN coalesce(d.buy_cr, 0) >= 5 THEN 'Large buy deal'
-                     WHEN coalesce(d.sell_cr, 0) >= 5 THEN 'Large sell deal'
-                     ELSE 'Improved structure'
-                   END AS change_type,
-                   c.vcp_state, c.vcp_score, c.rs_percentile,
-                   coalesce(d.buy_cr, 0) AS buy_deal_cr, coalesce(d.sell_cr, 0) AS sell_deal_cr,
-                   c.industry, c.sector, c.close_price, c.market_cap_cr
-            FROM cur c
-            LEFT JOIN old o USING(symbol)
-            LEFT JOIN deals_today d USING(symbol)
-            WHERE (c.ema_10_cross_200 AND NOT coalesce(o.ema_10_cross_200, false))
-               OR c.fresh_200ema_reclaim
-               OR (c.vcp_state = 'Near Pivot' AND coalesce(o.vcp_state, '') <> 'Near Pivot')
-               OR (c.vcp_state = 'Breakout' AND coalesce(o.vcp_state, '') <> 'Breakout')
-               OR (c.is_vcp AND NOT coalesce(o.is_vcp, false) AND c.vcp_score >= 60)
-               OR coalesce(d.buy_cr, 0) >= 5
-               OR coalesce(d.sell_cr, 0) >= 5
-            ORDER BY
-                CASE
-                  WHEN c.ema_10_cross_200 THEN 1
-                  WHEN c.vcp_state = 'Near Pivot' THEN 2
-                  WHEN c.fresh_200ema_reclaim THEN 3
-                  WHEN coalesce(d.buy_cr, 0) >= 5 THEN 4
-                  ELSE 5
-                END,
-                c.rs_percentile DESC NULLS LAST
-            LIMIT 15
-            """
-        )
-        if changes.empty:
-            ui.label(f"No high-signal changes vs {prev_d} (or filters too tight).").classes("text-[var(--mp-muted)] text-sm")
-        else:
-            # Prefer higher-RS changes for decision focus
-            if "rs_percentile" in changes.columns:
-                changes = changes[pd.to_numeric(changes["rs_percentile"], errors="coerce").fillna(0) >= 55]
-            ui.label(f"vs prior session {prev_d} · MCap ≥ 1000 · RS≥55").classes("mp-rule text-xs")
-            table_from_df(
-                changes[[
-                    "symbol", "change_type", "vcp_state", "vcp_score", "rs_percentile",
-                    "buy_deal_cr", "sell_deal_cr", "industry", "close_price", "market_cap_cr",
-                ]].head(12),
-                "Session changes (high signal)",
-                pagination=12,
-            )
+        exp.on_value_change(_load_context)
 
-    # Top 10 for charts tonight
-    ui.label("Top 10 · charts tonight").classes("mp-section-title mt-3")
-    ui.label(
-        "RS≥80 · above 200EMA · Leading/Emerging group required · within ~18% of 52W high · not extended. "
-        "Structure score is a custom composite (not full Minervini VCP). Why/Risks = evidence only."
-    ).classes("mp-rule text-xs mb-2")
-
-    prep = df_query(
-        """
-        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-        deal_sum AS (
-            SELECT symbol,
-                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
-                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr,
-                   max(repeated_client_count) AS repeated_client_count
-            FROM deals, latest
-            WHERE trade_date >= latest.d - INTERVAL 20 DAY
-            GROUP BY symbol
-        ),
-        latest_rows AS (
-            SELECT i.symbol, i.close_price, i.ema_200, i.ema_10,
-                   i.rs_percentile, i.rs_1y_percentile, i.rs_3m_percentile,
-                   i.vcp_score, i.vcp_state, i.trend_score, i.contraction_score,
-                   i.volume_dryup_score, i.pivot_proximity_score,
-                   i.away_52w_high_pct, i.away_10ema_pct, i.rvol,
-                   i.ema_stack_bullish, i.fresh_200ema_reclaim, i.delivery_spike,
-                   i.return_5d_pct, i.return_1m_pct, i.avg_volume_20d, i.turnover_cr,
-                   m.market_cap_cr, m.band, m.sector, m.industry, m.broad_industry, m.pe,
-                   sr_i.rotation_state AS industry_state,
-                   sr_s.rotation_state AS sector_state,
-                   coalesce(d.buy_deal_cr, 0) AS buy_deal_cr,
-                   coalesce(d.sell_deal_cr, 0) AS sell_deal_cr,
-                   coalesce(d.repeated_client_count, 0) AS repeated_client_count,
-                   (
-                       coalesce(i.rs_percentile, 0) * 0.35
-                       + coalesce(i.vcp_score, 0) * 0.25
-                       + coalesce(i.return_1m_pct, 0) * 0.35
-                       + CASE WHEN i.away_52w_high_pct BETWEEN -12 AND 3 THEN 10 ELSE 0 END
-                       + CASE WHEN i.ema_stack_bullish THEN 8 ELSE 0 END
-                       + CASE WHEN i.fresh_200ema_reclaim THEN 6 ELSE 0 END
-                       + CASE WHEN i.vcp_state IN ('Near Pivot', 'Breakout') THEN 8
-                              WHEN i.vcp_state = 'Building Base' THEN 4 ELSE 0 END
-                       + least(coalesce(d.buy_deal_cr, 0), 15) * 0.35
-                       + CASE WHEN coalesce(d.repeated_client_count, 0) >= 2 THEN 3 ELSE 0 END
-                       + CASE sr_i.rotation_state
-                           WHEN 'Leading' THEN 12 WHEN 'Emerging' THEN 9 WHEN 'Improving' THEN 4
-                           WHEN 'Weakening' THEN -12 WHEN 'Lagging' THEN -18 ELSE 0 END
-                       + CASE sr_s.rotation_state
-                           WHEN 'Leading' THEN 5 WHEN 'Emerging' THEN 3 WHEN 'Improving' THEN 1
-                           WHEN 'Weakening' THEN -5 WHEN 'Lagging' THEN -8 ELSE 0 END
-                       - CASE WHEN coalesce(d.sell_deal_cr, 0) > coalesce(d.buy_deal_cr, 0)
-                               AND coalesce(d.sell_deal_cr, 0) >= 5 THEN 10 ELSE 0 END
-                       - CASE WHEN coalesce(m.band, 99) <= 5 THEN 20 ELSE 0 END
-                       - CASE WHEN coalesce(i.away_10ema_pct, 0) > 8 THEN 8 ELSE 0 END
-                       - CASE WHEN i.vcp_state = 'Failed Breakout' THEN 12 ELSE 0 END
-                       - CASE WHEN coalesce(i.away_52w_high_pct, 0) < -20 THEN 10 ELSE 0 END
-                   ) AS prep_score
-            FROM indicators_daily i
-            JOIN stocks_master m USING(symbol)
-            LEFT JOIN deal_sum d USING(symbol)
-            LEFT JOIN sector_rotation sr_i
-                ON sr_i.trade_date = (SELECT d FROM latest)
-               AND sr_i.level = 'Industry' AND sr_i.group_name = m.industry
-            LEFT JOIN sector_rotation sr_s
-                ON sr_s.trade_date = (SELECT d FROM latest)
-               AND sr_s.level = 'Sector' AND sr_s.group_name = m.sector, latest
-            WHERE i.trade_date = latest.d
-              AND coalesce(m.market_cap_cr, 0) >= 1000
-              AND coalesce(i.avg_volume_20d, 0) >= 500000
-              AND (i.ema_200 IS NULL OR i.close_price > i.ema_200)
-              AND coalesce(i.rs_percentile, 0) >= 80
-              AND coalesce(i.away_10ema_pct, 0) <= 8
-              AND coalesce(m.band, 99) > 5
-              AND (
-                    sr_i.rotation_state IN ('Leading', 'Emerging')
-                 OR sr_s.rotation_state IN ('Leading', 'Emerging')
-              )
-              AND coalesce(i.away_52w_high_pct, -99) >= -18
-              AND (
-                    i.vcp_score >= 55
-                 OR i.ema_stack_bullish
-                 OR i.vcp_state IN ('Near Pivot', 'Building Base', 'Breakout')
-                 OR i.away_52w_high_pct BETWEEN -12 AND 3
-              )
-        )
-        SELECT * FROM latest_rows
-        ORDER BY prep_score DESC NULLS LAST, rs_percentile DESC NULLS LAST
-        LIMIT 10
-        """
-    )
-
-    if prep.empty:
+    if os.environ.get("MP_TODAY_LEGACY", "").strip().lower() in {"1", "true", "yes", "on"}:
         ui.label(
-            "No top-10 candidates (MCap≥1000, RS≥80, above 200EMA, Leading/Emerging or strong setup). "
-            "See Near entry below, or open Sector Intel if breadth is weak."
-        ).classes("text-[var(--mp-muted)]")
-    else:
-        why_list = []
-        risk_list = []
-        for _, row in prep.iterrows():
-            w, r = _build_why_risk(row)
-            why_list.append(w)
-            risk_list.append(r)
-        prep = prep.copy()
-        prep.insert(0, "rank", range(1, len(prep) + 1))
-        prep["why"] = why_list
-        prep["risks"] = risk_list
-        prep["setup"] = prep["vcp_state"].fillna("").replace("", "Structure")
-
-        with ui.row().classes("gap-3 flex-wrap mb-2 items-center"):
-            compact_kpi("#1", str(prep.iloc[0]["symbol"]))
-            compact_kpi("Score", f"{float(prep.iloc[0]['prep_score']):.0f}")
-            compact_kpi("Session", str(latest_d))
-            copy_button("Copy Top 10 TV", lambda: symbols_text(prep))
-
-        # Rank strip — quick scan without table noise
-        with ui.row().classes("w-full gap-2 flex-wrap mb-2"):
-            for _, row in prep.iterrows():
-                with ui.element("div").classes("mp-rank-chip"):
-                    ui.label(f"#{int(row['rank'])}").classes("mp-rank-num")
-                    ui.link(str(row["symbol"]), tradingview_url(str(row["symbol"])), new_tab=True).classes("mp-symbol")
-                    ui.label(str(row.get("setup") or "")[:14]).classes("text-xs text-[var(--mp-muted)]")
-
-        show_cols = [
-            "rank", "symbol", "prep_score", "setup", "why", "risks",
-            "rs_percentile", "vcp_score",
-            "industry_state", "buy_deal_cr",
-            "away_52w_high_pct", "industry",
-        ]
-        table_from_df(
-            prep[[c for c in show_cols if c in prep.columns]],
-            f"Top 10 detail · {latest_d}",
-            pagination=10,
-        )
-
-    # Near buy range / pattern forming (looser than Top 10 — decision support)
-    ui.label("Near entry · pattern forming").classes("mp-section-title mt-3")
-    ui.label(
-        "Looser than Top 10: RS≥60, liquid, above 200EMA, not extended on 10EMA. "
-        "Favours Near Pivot / Building Base / mild 52W pullbacks in constructive industries."
-    ).classes("mp-rule text-xs mb-2")
-    near_entry = df_query(
-        """
-        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-        deal_sum AS (
-            SELECT symbol,
-                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
-                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr
-            FROM deals, latest
-            WHERE trade_date >= latest.d - INTERVAL 15 DAY
-            GROUP BY symbol
-        )
-        SELECT i.symbol, i.vcp_state AS setup, i.vcp_score,
-               i.rs_percentile, i.away_52w_high_pct, i.away_10ema_pct,
-               i.close_price, i.return_5d_pct,
-               m.industry, m.sector, m.market_cap_cr,
-               sr_i.rotation_state AS industry_state,
-               coalesce(d.buy_deal_cr, 0) AS buy_deal_cr,
-               (
-                   coalesce(i.rs_percentile, 0) * 0.4
-                   + coalesce(i.vcp_score, 0) * 0.3
-                   + CASE WHEN i.vcp_state IN ('Near Pivot', 'Building Base') THEN 15
-                          WHEN i.vcp_state = 'Breakout' THEN 8 ELSE 0 END
-                   + CASE WHEN i.away_52w_high_pct BETWEEN -18 AND -3 THEN 12
-                          WHEN i.away_52w_high_pct BETWEEN -3 AND 2 THEN 6 ELSE 0 END
-                   + CASE WHEN i.away_10ema_pct BETWEEN 0 AND 5 THEN 10 ELSE 0 END
-                   + CASE sr_i.rotation_state
-                       WHEN 'Leading' THEN 10 WHEN 'Emerging' THEN 8 WHEN 'Improving' THEN 5
-                       WHEN 'Weakening' THEN -8 WHEN 'Lagging' THEN -12 ELSE 0 END
-                   + least(coalesce(d.buy_deal_cr, 0), 10) * 0.4
-               ) AS near_score
-        FROM indicators_daily i
-        JOIN stocks_master m USING(symbol)
-        LEFT JOIN deal_sum d USING(symbol)
-        LEFT JOIN sector_rotation sr_i
-            ON sr_i.trade_date = (SELECT d FROM latest)
-           AND sr_i.level = 'Industry' AND sr_i.group_name = m.industry, latest
-        WHERE i.trade_date = latest.d
-          AND coalesce(m.market_cap_cr, 0) >= 1000
-          AND coalesce(i.avg_volume_20d, 0) >= 300000
-          AND (i.ema_200 IS NULL OR i.close_price > i.ema_200)
-          AND coalesce(i.rs_percentile, 0) >= 60
-          AND coalesce(i.away_10ema_pct, 0) <= 6
-          AND coalesce(m.band, 99) > 5
-          AND (
-                i.vcp_state IN ('Near Pivot', 'Building Base', 'Breakout')
-             OR i.away_52w_high_pct BETWEEN -18 AND 2
-             OR (i.away_10ema_pct BETWEEN 0 AND 5 AND i.ema_stack_bullish)
-          )
-          AND coalesce(sr_i.rotation_state, 'Neutral') NOT IN ('Lagging', 'Weakening')
-        ORDER BY near_score DESC NULLS LAST, i.rs_percentile DESC
-        LIMIT 15
-        """
-    )
-    if near_entry.empty:
-        ui.label("No near-entry names under these rules today.").classes("text-[var(--mp-muted)] text-sm")
-    else:
-        with ui.row().classes("gap-2 items-center mb-1"):
-            compact_kpi("Near entry", len(near_entry))
-            copy_button("Copy Near-entry TV", lambda: symbols_text(near_entry))
-        table_from_df(
-            near_entry[
-                [
-                    c
-                    for c in [
-                        "symbol",
-                        "setup",
-                        "near_score",
-                        "rs_percentile",
-                        "away_52w_high_pct",
-                        "away_10ema_pct",
-                        "industry_state",
-                        "buy_deal_cr",
-                        "industry",
-                        "close_price",
-                    ]
-                    if c in near_entry.columns
-                ]
-            ],
-            f"Near entry · {latest_d}",
-            pagination=15,
-        )
-
-    # High-value institutional buys with structure
-    deals_hot = df_query(
-        """
-        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-        deal_sum AS (
-            SELECT symbol,
-                   sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) AS buy_deal_cr,
-                   sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr
-            FROM deals, latest
-            WHERE trade_date >= latest.d - INTERVAL 10 DAY
-            GROUP BY symbol
-            HAVING sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END) >= 5
-        )
-        SELECT i.symbol, d.buy_deal_cr, d.sell_deal_cr, i.rs_percentile, i.vcp_score, i.vcp_state,
-               i.away_52w_high_pct, m.industry, m.sector, m.market_cap_cr, i.close_price
-        FROM deal_sum d
-        JOIN indicators_daily i USING(symbol)
-        JOIN stocks_master m USING(symbol), latest
-        WHERE i.trade_date = latest.d
-          AND coalesce(m.market_cap_cr, 0) >= 1000
-          AND (i.ema_200 IS NULL OR i.close_price > i.ema_200)
-        ORDER BY d.buy_deal_cr DESC, i.rs_percentile DESC
-        LIMIT 15
-        """
-    )
-    if not deals_hot.empty:
-        ui.label("Institutional buy + tradable structure (10d)").classes("mp-section-title mt-3")
-        table_from_df(deals_hot, "", pagination=10)
+            "MP_TODAY_LEGACY is on — dual research rankings stay off in this build; use Sector / Momentum."
+        ).classes("text-xs text-[var(--mp-muted)] mt-2")
 
 
 def _portfolio_next_event_id() -> int:
@@ -5118,11 +3903,34 @@ def _lazy_panel(build_fn, loaded: dict, key: str):
 
 
 def _ui_run_kwargs() -> dict:
-    """Local + cloud: PORT / MP_HOST from env (Fly/Railway/Actions-friendly)."""
+    """Local-first bind. Non-loopback host requires MP_ALLOW_REMOTE=1 (no auth)."""
     import os
+    import socket
 
     port = int(os.environ.get("PORT") or os.environ.get("MP_PORT") or "8080")
-    host = os.environ.get("MP_HOST") or "127.0.0.1"
+    host = (os.environ.get("MP_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+    allow_remote = os.environ.get("MP_ALLOW_REMOTE", "").strip().lower() in {"1", "true", "yes", "on"}
+    loopback_names = {"127.0.0.1", "localhost", "::1"}
+    if host not in loopback_names and not allow_remote:
+        # Also treat 0.0.0.0 / :: as remote exposure surfaces.
+        raise RuntimeError(
+            f"Refusing to bind MarketPulse UI to non-loopback host {host!r}. "
+            "Set MP_ALLOW_REMOTE=1 only if you understand there is no authentication, "
+            "or leave MP_HOST unset for 127.0.0.1."
+        )
+    # Resolve hostnames that might be non-loopback.
+    if host not in loopback_names and not allow_remote:
+        try:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            for info in infos:
+                ip = info[4][0]
+                if ip not in {"127.0.0.1", "::1"}:
+                    raise RuntimeError(
+                        f"Refusing to bind MarketPulse UI to {host!r} ({ip}). "
+                        "Set MP_ALLOW_REMOTE=1 to override (no auth)."
+                    )
+        except socket.gaierror:
+            pass
     return {"title": "MarketPulse", "reload": False, "port": port, "host": host}
 
 
