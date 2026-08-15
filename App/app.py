@@ -63,6 +63,12 @@ try:
 except ModuleNotFoundError:
     from App.ui.stock_drawer import open_stock_360_modal
 
+try:
+    from pages.research.sector_intel import build_sector_intel_page
+except ModuleNotFoundError:
+    from App.pages.research.sector_intel import build_sector_intel_page
+
+
 SCREENER_RULES = {
     "10 EMA Cross 200 EMA - Today": "10 EMA crossed above 200 EMA on the latest trading day.",
     "10 EMA Cross 200 EMA - Last 10 Days": "10 EMA crossed above 200 EMA in the last 10 trading sessions.",
@@ -1212,103 +1218,8 @@ def sector_tree_page() -> None:
 
 
 def sector_rotation_page() -> None:
-    """Sector leadership — all Leading + Emerging groups at selected level."""
-    section_header(
-        "Sector Intel",
-        "All Leading & Emerging groups at the selected level. Expand a group for stocks (MCap filter applies).",
-    )
-
-    levels = ["Broad Sector", "Sector", "Broad Industry", "Industry"]
-    selected_states = ["Leading", "Emerging"]
-
-    toolbar = ui.row().classes("w-full items-center gap-3 mp-toolbar flex-wrap")
-    with toolbar:
-        level = ui.select(levels, value="Broad Industry", label="Level").classes("w-44").props("dense")
-        # Soft safety cap only — default high enough to include all L/E groups
-        max_groups = ui.number("Max groups", value=80, min=5, max=120).classes("w-28").props("dense")
-        max_stocks = ui.number("Stocks/group", value=18, min=3, max=50).classes("w-28").props("dense")
-        min_mcap = ui.number("Min MCap", value=1000, min=0, max=10000).classes("w-28").props("dense")
-        run_button = ui.button("Refresh").classes("mp-primary").props("dense")
-        ui.space()
-        with ui.row().classes("gap-1 items-center"):
-            ui.label("Leading").classes("mp-badge mp-state-leading")
-            ui.label("Emerging").classes("mp-badge mp-state-emerging")
-        right_box = ui.row().classes("gap-2 items-center")
-
-    container = ui.column().classes("w-full")
-
-    def render() -> None:
-        container.clear()
-        right_box.clear()
-        # Count all L/E at level (for KPI honesty)
-        ph = ", ".join(["?"] * len(selected_states))
-        counts = df_query(
-            f"""
-            WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
-            SELECT rotation_state, count(*) AS c
-            FROM sector_rotation, latest
-            WHERE trade_date = latest.d AND level = ? AND rotation_state IN ({ph})
-            GROUP BY 1
-            """,
-            [level.value, *selected_states],
-        )
-        n_lead = int(counts.loc[counts["rotation_state"] == "Leading", "c"].sum()) if not counts.empty else 0
-        n_emer = int(counts.loc[counts["rotation_state"] == "Emerging", "c"].sum()) if not counts.empty else 0
-        total_le = n_lead + n_emer
-        cap = int(max_groups.value or 80)
-        group_data = focus_groups(level.value, selected_states, cap)
-        with right_box:
-            compact_kpi("Leading", n_lead)
-            compact_kpi("Emerging", n_emer)
-            compact_kpi("Shown", len(group_data))
-            if total_le > len(group_data):
-                compact_kpi("Capped", f"{len(group_data)}/{total_le}")
-        with container:
-            if total_le == 0:
-                ui.label("No Leading/Emerging groups at this level today.").classes("text-[var(--mp-muted)]")
-                return
-            if total_le > cap:
-                ui.label(
-                    f"Showing top {cap} of {total_le} L/E groups by focus score. Raise Max groups to see more."
-                ).classes("mp-rule text-xs mb-1")
-            else:
-                ui.label(
-                    f"All {total_le} Leading+Emerging groups at {level.value}. Expand any group for up to {int(max_stocks.value or 18)} stocks (Min MCap filter)."
-                ).classes("mp-rule text-xs mb-1")
-            render_group_expansions(
-                group_data, level.value, int(max_stocks.value or 18), int(min_mcap.value or 1000)
-            )
-            # Copy all listed stocks across expanded groups (batch query once)
-            col = level_column(level.value)
-            if not group_data.empty:
-                names = group_data["group_name"].dropna().astype(str).tolist()
-                if names:
-                    placeholders = ", ".join(["?"] * len(names))
-                    stocks_all = df_query(
-                        f"""
-                        WITH latest AS (SELECT max(trade_date) d FROM indicators_daily)
-                        SELECT DISTINCT i.symbol
-                        FROM indicators_daily i
-                        JOIN stocks_master m USING(symbol), latest
-                        WHERE i.trade_date = latest.d
-                          AND m.{col} IN ({placeholders})
-                          AND coalesce(m.market_cap_cr, 0) >= ?
-                        ORDER BY i.symbol
-                        """,
-                        [*names, int(min_mcap.value or 1000)],
-                    )
-                    tv = symbols_text(stocks_all) if not stocks_all.empty else ""
-                    with ui.row().classes("gap-2 mt-2 items-center"):
-                        compact_kpi("L/E stocks", len(stocks_all))
-                        if tv:
-                            ui.button(
-                                "Copy all L/E symbols (TV)",
-                                on_click=lambda t=tv: copy_text_to_clipboard("Sector Intel L/E", t),
-                            ).classes("mp-primary").props("dense")
-
-    run_button.on_click(render)
-    level.on_value_change(lambda _: render())
-    render()
+    """Sector Intel 2.0 Terminal — 4-Quadrant Compass, Heatmap & Stage-2 Breakout Leaders."""
+    build_sector_intel_page(DB_PATH, copy_text=copy_text_to_clipboard)
 
 
 def strong_groups_page() -> None:
