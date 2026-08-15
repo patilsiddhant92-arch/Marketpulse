@@ -134,17 +134,7 @@ def _render_thematic_mode(
                         on_click=lambda t=tv_all: copy_text("Next-Gen Tech Universe", t),
                     ).classes("bg-[#01696f] text-white text-xs font-bold").props("dense unelevated")
 
-        # 2. 8 Sub-Pillar Action Cards
-        with ui.column().classes("w-full gap-2 mt-2"):
-            with ui.row().classes("items-center gap-2"):
-                ui.label("🎯 8 Thematic Value-Chain Pillars").classes("text-lg font-bold text-slate-800 tracking-tight")
-                ui.label("(Click any pillar card to filter the constituent stocks table below)").classes("text-xs text-slate-500")
-
-            with ui.grid().classes("w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"):
-                for p in pillars:
-                    _render_thematic_pillar_card(p, state, db_path, copy_text, on_pillar_click=lambda: render_table_section())
-
-        # 3. Dynamic Constituent Table Container
+        # Dynamic Constituent Table Container declared first
         table_container = ui.column().classes("w-full gap-3 mt-4")
 
         def render_table_section() -> None:
@@ -180,6 +170,17 @@ def _render_thematic_mode(
                 else:
                     _render_thematic_stocks_table(db_path, const_df, copy_text)
 
+        # 2. 8 Sub-Pillar Action Cards
+        with ui.column().classes("w-full gap-2 mt-2"):
+            with ui.row().classes("items-center gap-2"):
+                ui.label("🎯 8 Thematic Value-Chain Pillars").classes("text-lg font-bold text-slate-800 tracking-tight")
+                ui.label("(Click any pillar card to filter the constituent stocks table below)").classes("text-xs text-slate-500")
+
+            with ui.grid().classes("w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"):
+                for p in pillars:
+                    _render_thematic_pillar_card(p, state, db_path, copy_text, render_table_section)
+
+        # 3. Initial render of table section
         render_table_section()
 
 
@@ -380,19 +381,7 @@ def _render_taxonomy_mode(
                     ui.label(f"⚠️ Weakening: {len(quadrants.get('Weakening', []))}").classes("text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200")
                     ui.label(f"❄️ Lagging: {len(quadrants.get('Lagging', []))}").classes("text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-300")
 
-        # Top Focus Cards
-        with ui.column().classes("w-full gap-2 mt-4"):
-            ui.label("🎯 Top Focus Sectors Today").classes("text-lg font-bold text-slate-800 tracking-tight")
-            with ui.row().classes("w-full gap-4 flex-wrap items-stretch"):
-                for item in top_focus_sectors:
-                    _render_focus_card(item, state, render_deep_dive, db_path, copy_text)
-
-        # Leaderboard Table
-        with ui.column().classes("w-full gap-2 mt-4"):
-            ui.label("📊 Complete Sector Leaderboard").classes("text-lg font-bold text-slate-800 tracking-tight")
-            _render_leaderboard_table(leaderboard_df, state, render_deep_dive, copy_text)
-
-        # Deep-Dive Section
+        # Deep-Dive Section declared FIRST so render_deep_dive exists in scope
         deep_dive_container = ui.column().classes("w-full gap-3 mt-6")
 
         def render_deep_dive() -> None:
@@ -436,7 +425,23 @@ def _render_taxonomy_mode(
                     else:
                         _render_sector_stocks_table(db_path, stocks_df, copy_text)
 
+        # Top Focus Cards
+        with ui.column().classes("w-full gap-2 mt-4"):
+            ui.label("🎯 Top Focus Sectors Today").classes("text-lg font-bold text-slate-800 tracking-tight")
+            with ui.row().classes("w-full gap-4 flex-wrap items-stretch"):
+                for item in top_focus_sectors:
+                    _render_focus_card(item, state, render_deep_dive, db_path, copy_text)
+
+        # Leaderboard Table
+        with ui.column().classes("w-full gap-2 mt-4"):
+            ui.label("📊 Complete Sector Leaderboard").classes("text-lg font-bold text-slate-800 tracking-tight")
+            _render_leaderboard_table(leaderboard_df, state, render_deep_dive, copy_text)
+
+        # Initial render of deep dive
         render_deep_dive()
+
+        level_select.on_value_change(lambda _: _render_taxonomy_mode(container, db_path, state, copy_text))
+        mcap_input.on_value_change(lambda _: _render_taxonomy_mode(container, db_path, state, copy_text))
 
 
 def _render_focus_card(
