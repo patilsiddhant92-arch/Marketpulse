@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -6,6 +7,7 @@ from datetime import date, datetime
 
 import duckdb
 import pandas as pd
+import nicegui.core as core
 from nicegui import ui
 
 # Resolve Scripts dir relative to this file (App/app.py -> project root -> Scripts)
@@ -14,7 +16,25 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "Scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, USER_DB_PATH, WATCHLIST_BUCKETS
+from config import DB_PATH, FRIENDLY_COLUMNS, SPECIAL_SCREENER_DEFAULTS, USER_DB_PATH, WATCHLIST_BUCKETS
+
+try:
+    from market_status import load_market_status, non_actionable_message
+except ModuleNotFoundError:
+    from App.market_status import load_market_status, non_actionable_message
+
+
+def _run_client_javascript(code: str, *, timeout: float = 1.0):
+    """Run browser JavaScript only after NiceGUI has started its event loop.
+
+    Page builders execute once while ``main()`` is assembling the initial UI,
+    before ``ui.run()`` initializes ``nicegui.core.loop``.  NiceGUI's
+    ``run_javascript`` schedules a background task and asserts that loop
+    exists, so startup-time calls must be deferred/skipped safely.
+    """
+    if core.loop is None or core.loop.is_closed():
+        return None
+    return ui.run_javascript(code, timeout=timeout)
 
 try:
     from user_data import initialize_user_db, migrate_user_data
@@ -47,10 +67,21 @@ except ModuleNotFoundError:
     )
 
 try:
+    from portfolio_read_model import portfolio_summary, suggested_quantity
+except ModuleNotFoundError:
+    from App.portfolio_read_model import portfolio_summary, suggested_quantity
+
+try:
     from candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
+    from pages.screener import build_screener_page
+    from pages.desk import build_desk_page
+    from pages.minervini import build_minervini_page
     from data_health_page import build_data_health_page
 except ModuleNotFoundError:
     from App.candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
+    from App.pages.screener import build_screener_page
+    from App.pages.desk import build_desk_page
+    from App.pages.minervini import build_minervini_page
     from App.data_health_page import build_data_health_page
 
 try:
@@ -60,13 +91,17 @@ except ImportError:
 
 try:
     from ui.stock_drawer import open_stock_360_modal
+    from ui.number_format import NUMERIC_KINDS, classify_column, format_cell
 except ModuleNotFoundError:
     from App.ui.stock_drawer import open_stock_360_modal
+    from App.ui.number_format import NUMERIC_KINDS, classify_column, format_cell
 
 try:
     from pages.research.sector_intel import build_sector_intel_page
+    from pages.research.sector_board import build_sector_board_page
 except ModuleNotFoundError:
     from App.pages.research.sector_intel import build_sector_intel_page
+    from App.pages.research.sector_board import build_sector_board_page
 
 
 SCREENER_RULES = {
@@ -222,13 +257,24 @@ def tradingview_url(symbol: str) -> str:
     return f"https://www.tradingview.com/chart/?symbol=NSE:{tradingview_symbol(symbol)}"
 
 
-def symbols_text(df: pd.DataFrame) -> str:
+def symbols_text(
+    df: pd.DataFrame,
+    *,
+    min_mcap_cr: float | None = 1000.0,
+    require_above_ema200: bool = True,
+) -> str:
+    """Build a TradingView list with explicit caller-owned universe gates.
+
+    Research tables retain the historical ₹1,000 Cr / CMP > 200 EMA default,
+    while portfolio exports can opt out so a user's holdings are never
+    silently omitted merely because a market field is missing.
+    """
     if df.empty or "symbol" not in df.columns:
         return ""
     copy_df = df.copy()
-    if "market_cap_cr" in copy_df.columns:
-        copy_df = copy_df[pd.to_numeric(copy_df["market_cap_cr"], errors="coerce").fillna(0) >= 1000]
-    if {"close_price", "ema_200"}.issubset(copy_df.columns):
+    if min_mcap_cr is not None and "market_cap_cr" in copy_df.columns:
+        copy_df = copy_df[pd.to_numeric(copy_df["market_cap_cr"], errors="coerce").fillna(0) >= float(min_mcap_cr)]
+    if require_above_ema200 and {"close_price", "ema_200"}.issubset(copy_df.columns):
         close = pd.to_numeric(copy_df["close_price"], errors="coerce")
         ema_200 = pd.to_numeric(copy_df["ema_200"], errors="coerce")
         copy_df = copy_df[ema_200.isna() | (close > ema_200)]
@@ -267,7 +313,7 @@ def copy_button(label: str, text_func) -> None:
 def copy_text_to_clipboard(label: str, text: str) -> None:
     text = text or ""
     ui.clipboard.write(text)
-    ui.run_javascript(
+    _run_client_javascript(
         f"""
         (async () => {{
           const text = {json.dumps(text)};
@@ -366,7 +412,7 @@ def table_from_df(
                 # Column chooser — now auto-loads saved prefs and applies on render (reload not required after save)
                 all_cols = list(df.columns)
                 # Load saved hidden from localStorage (injected script sets window var for this render)
-                ui.run_javascript(f"""
+                _run_client_javascript(f"""
                   (function() {{
                     const saved = localStorage.getItem('mp_cols_{pref_key}');
                     window.mp_saved_hidden_{pref_key} = saved ? JSON.parse(saved) : [];
@@ -377,9 +423,9 @@ def table_from_df(
                 col_select = ui.select(all_cols, multiple=True, value=current_hidden, label="Hide columns (saved per page)").classes("w-64").props("use-chips dense")
                 def save_cols():
                     hidden = col_select.value or []
-                    ui.run_javascript(f"localStorage.setItem('mp_cols_{pref_key}', JSON.stringify({hidden}))")
+                    _run_client_javascript(f"localStorage.setItem('mp_cols_{pref_key}', JSON.stringify({hidden}))")
                     ui.notify(f"Column prefs saved — reloading to apply...")
-                    ui.run_javascript("location.reload()")  # ensures prefs are loaded on fresh render
+                    _run_client_javascript("location.reload()")  # ensures prefs are loaded on fresh render
                 ui.button("Save view prefs", on_click=save_cols).classes("mp-button text-xs")
     if df.empty:
         ui.label("No rows found.").classes("text-[var(--mp-muted)]")
@@ -391,30 +437,53 @@ def table_from_df(
         # On reload the localStorage is authoritative; we still respect the passed hidden_cols as default
         pass
     view = df.copy()
-    display_cols = [col for col in view.columns if col not in hidden_cols]
-    for col in view.columns:
+    # Long rationale belongs in the stock drawer, never in a comparison table.
+    tone_cols: list[str] = []
+    compact_kinds = {"signed_return", "level_pct", "distance", "rvol", "signed_delta"}
+    for col in list(view.columns):
         if pd.api.types.is_datetime64_any_dtype(view[col]):
             view[col] = view[col].dt.strftime("%Y-%m-%d")
-        if pd.api.types.is_float_dtype(view[col]):
-            view[col] = view[col].round(2)
-    view = view.fillna("—")  # show dash for missing data (e.g. some 20D ranks, BAND)
+            continue
+        kind = classify_column(col)
+        raw = df[col] if col in df.columns else view[col]
+        if kind == "other" and not pd.api.types.is_numeric_dtype(raw):
+            continue
+        texts: list[str] = []
+        tones: list[str] = []
+        for v in view[col]:
+            text, tone = format_cell(col, v)
+            texts.append(text)
+            tones.append(tone)
+        view[col] = texts
+        if any(tones):
+            view[f"{col}__k"] = tones
+            tone_cols.append(col)
+    view = view.fillna("—")
+    auto_hide = {
+        "is_top_sector",
+        "is_top_industry",
+        "is_improving_sector",
+        "is_improving_industry",
+        "is_avoid",
+        "has_deal",
+    }
+    display_cols = [
+        col
+        for col in view.columns
+        if col not in hidden_cols
+        and col not in auto_hide
+        and col != "why_now"
+        and not str(col).endswith("__k")
+    ]
 
     columns = []
-    numeric_cols = {"rs_percentile", "vcp_score", "trend_score", "contraction_score", "volume_dryup_score", "pivot_proximity_score",
-                    "above_10ema_pct", "above_50ema_pct", "above_200ema_pct", "advance_pct",
-                    "return_5d_pct", "return_1m_pct", "return_3m_pct", "return_1d_pct",
-                    "away_10ema_pct", "away_10wema_pct", "away_10mema_pct",
-                    "away_52w_high_pct", "away_52w_low_pct", "deal_price_vs_close_pct", "pnl_pct", "avg_pnl_pct", "delivery_pct", "day_change_pct",
-                    "rank_change_5d", "rank_change_20d", "market_cap_cr", "volume", "avg_volume_20d", "turnover_cr", "turnover_1w_cr", "turnover_1m_cr",
-                    "turnover_1d_cr", "turnover_expansion", "rotation_score", "score_change_5d",
-                    "focus_score", "avg_focus", "avg_rs",
-                    "buy_value_cr", "sell_value_cr", "net_value_cr", "latest_deal_value_cr", "buy_deal_cr", "sell_deal_cr",
-                    "deal_value_cr", "deal_pct_volume", "deal_volume_pct", "deal_rows", "active_days",
-                    "close_price", "trigger_close", "qty", "avg_buy_price", "sell_price", "unrealized_pct", "realized_pct",
-                    "unrealized_pnl_inr", "realized_pnl_inr", "market_value_inr", "cost_value_inr", "profit_inr",
-                    "weight_pct", "days_held", "net_deal_cr", "deal_rows", "clients", "symbol_count"}  # symbols is TEXT
     for col in display_cols:
-        is_num = col in numeric_cols or (col in view.columns and pd.api.types.is_float_dtype(view[col]))
+        kind = classify_column(col)
+        is_num = (
+            kind in NUMERIC_KINDS
+            or col.lower() in {"n", "day_pct", "week_pct", "month_pct"}
+            or (col in df.columns and pd.api.types.is_numeric_dtype(df[col]))
+        )
         if col in {"symbol", "symbols", "symbol_list", "symbol_preview", "notes", "tags", "status"} or not is_num:
             # Text columns (SECTOR, INDUSTRY, SYMBOLS / long lists, and similar label columns) LEFT-aligned.
             align = "left"
@@ -444,7 +513,9 @@ def table_from_df(
         elif col in {"rank"}:
             width, wrap = 48, False
         elif col in {"symbol", "side", "band", "status"}:
-            width, wrap = 108, False
+            width, wrap = 140, False
+        elif col == "deal_when":
+            width, wrap = 200, True
         elif col in {"rotation_state", "vcp_state", "industry_state", "sector_state", "setup"}:
             width, wrap = 120, False
         elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
@@ -458,13 +529,19 @@ def table_from_df(
             width, wrap = 200, True
         elif col in {"broad_industry", "industry", "sector", "change_type"}:
             width, wrap = 180, True
+        elif kind == "distance":
+            width, wrap = 84, False
+        elif kind in compact_kinds or col.lower() in {"rvol", "vs_20d", "vol_shock", "n"}:
+            width, wrap = 88, False
         elif is_num:
-            width, wrap = 96, False
+            width, wrap = 92, False
         else:
-            width, wrap = 140, False
+            width, wrap = 120, False
         label = label_for(col)
         # Header must show full label (no ellipsis on th)
-        width_decl = f"width:{width}px;" if compact else ""
+        # Fixed widths prevent auto-layout from donating the viewport to a
+        # single nowrap sentence such as why_now or client_name.
+        width_decl = f"width:{width}px;"
         if wrap:
             max_width = width if compact else width + 80
             style = f"{width_decl}min-width:{width}px;max-width:{max_width}px;white-space:normal;word-break:break-word;vertical-align:top;"
@@ -472,7 +549,7 @@ def table_from_df(
             cls = f"{cls} mp-wrap-col"
         else:
             style = f"{width_decl}min-width:{width}px;white-space:nowrap;"
-            header_style = f"{width_decl}min-width:{width}px;white-space:nowrap;"
+            header_style = f"{width_decl}min-width:{width}px;white-space:normal;"
         col_def = {
             "name": col,
             "label": label,
@@ -488,7 +565,7 @@ def table_from_df(
     rows = view.astype(object).where(pd.notna(view), "").to_dict("records")
     # Scroll pane with sticky thead — works for long tables
     scroll_container = ui.element("div").classes("w-full mp-table-scroll")
-    table_classes = "mp-table w-full mp-table-compact" if compact else "mp-table w-full"
+    table_classes = "mp-table w-full mp-table-compact mp-table-shell"
     with scroll_container:
         table = (
             ui.table(columns=columns, rows=rows, pagination=pagination or False)
@@ -499,7 +576,7 @@ def table_from_df(
 
     # Auto-apply column prefs on render for page_key (no reload needed for hiding)
     if page_key:
-        ui.run_javascript(f"""
+        _run_client_javascript(f"""
         setTimeout(function() {{
           const saved = localStorage.getItem('mp_cols_{page_key}');
           if (saved) {{
@@ -523,6 +600,17 @@ def table_from_df(
         }}, 150);
         """)
 
+    for col in tone_cols:
+        table.add_slot(
+            f"body-cell-{col}",
+            f"""
+            <q-td :props="props" class="numeric">
+              <span :class="props.row['{col}__k'] || ''">
+                {{{{ props.value }}}}
+              </span>
+            </q-td>
+            """,
+        )
     if "symbol" in view.columns:
         table.add_slot(
             "body-cell-symbol",
@@ -537,9 +625,11 @@ def table_from_df(
                  @click.stop>
                 ↗
               </a>
-              <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Top Sec</span>
-              <span v-if="props.row.is_top_industry" class="mp-mini-badge mp-industry-badge">Top Ind</span>
-              <span v-if="props.row.has_deal === true || props.row.has_deal === 'Yes'" class="mp-mini-badge mp-deal-badge">Deal</span>
+              <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Lead</span>
+              <span v-if="props.row.is_improving_sector" class="mp-mini-badge mp-improving-badge">Impr</span>
+              <span v-if="props.row.is_top_industry" class="mp-mini-badge mp-industry-badge">Lead Ind</span>
+              <span v-if="props.row.is_improving_industry" class="mp-mini-badge mp-improving-badge">Impr Ind</span>
+              <span v-if="props.row.has_deal && props.row.has_deal !== 'No' && props.row.has_deal !== false" class="mp-mini-badge mp-deal-badge">Deal</span>
             </q-td>
             """,
         )
@@ -599,108 +689,20 @@ def table_from_df(
         )
 
     for col in [
-        "rs_percentile",
         "vcp_score",
         "trend_score",
         "contraction_score",
         "volume_dryup_score",
         "pivot_proximity_score",
-        "above_10ema_pct",
-        "above_50ema_pct",
-        "above_200ema_pct",
-        "advance_pct",
     ]:
-        if col in view.columns:
+        if col in view.columns and col not in tone_cols:
             table.add_slot(
                 f"body-cell-{col}",
                 """
-                <q-td :props="props">
-                  <div class="mp-heat-container">
-                    <div class="mp-heat">
-                      <div class="mp-heat-fill" :style="{ width: Math.max(0, Math.min(100, Number(props.value || 0))) + '%' }"></div>
-                    </div>
-                    <span class="mp-heat-value">{{ props.value }}</span>
-                  </div>
+                <q-td :props="props" class="numeric">
+                  <span>{{ props.value }}</span>
                 </q-td>
                 """,
-            )
-    for col in [
-        "return_5d_pct",
-        "return_1m_pct",
-        "return_3m_pct",
-        "return_1d_pct",
-        "away_10ema_pct",
-        "away_10wema_pct",
-        "away_10mema_pct",
-        "away_52w_high_pct",
-        "away_52w_low_pct",
-        "deal_price_vs_close_pct",
-        "pnl_pct",
-        "avg_pnl_pct",
-        "unrealized_pct",
-        "realized_pct",
-        "delivery_pct",
-        "day_change_pct",
-        "turnover_cr",
-        "turnover_1d_cr",
-        "turnover_1w_cr",
-        "turnover_1m_cr",
-        "turnover_expansion",
-        "score_change_5d",
-        "net_value_cr",
-        "buy_deal_cr",
-        "sell_deal_cr",
-        "net_deal_cr",
-    ]:
-        if col in view.columns:
-            suffix = "%" if "pct" in col or col in ["delivery_pct"] else ""
-            table.add_slot(
-                f"body-cell-{col}",
-                f"""
-                <q-td :props="props">
-                  <span :class="Number(props.value || 0) >= 0 ? 'mp-pos' : 'mp-neg'">{{{{ props.value }}}}{suffix}</span>
-                </q-td>
-                """,
-            )
-    for col in ["rank_change_5d", "rank_change_20d"]:
-        if col in view.columns:
-            table.add_slot(
-                f"body-cell-{col}",
-                """
-                <q-td :props="props">
-                  <span :class="Number(props.value || 0) >= 0 ? 'mp-pos' : 'mp-neg'">{{ props.value }}</span>
-                </q-td>
-                """,
-            )
-    for col in [
-        "pnl_amount",
-        "risk_amount",
-        "open_risk",
-        "position_size",
-        "unrealized_pnl_inr",
-        "realized_pnl_inr",
-        "market_value_inr",
-        "profit_inr",
-    ]:
-        if col in view.columns:
-            signed = col in {
-                "pnl_amount",
-                "unrealized_pnl_inr",
-                "realized_pnl_inr",
-                "profit_inr",
-            }
-            class_expr = (
-                "Number(props.value || 0) >= 0 ? 'mp-pos' : 'mp-neg'" if signed else "''"
-            )
-            table.add_slot(
-                f"body-cell-{col}",
-                """
-                <q-td :props="props">
-                  <span :class="CLASS_EXPR">
-                    {{ (Number(props.value || 0) < 0 ? '-₹' : '₹') + Math.abs(Number(props.value || 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 }) }}
-                  </span>
-                </q-td>
-                """.replace("CLASS_EXPR", class_expr),
             )
     if "band" in view.columns:
         table.add_slot(
@@ -751,35 +753,39 @@ def section_header(title: str, subtitle: str = "") -> None:
 
 
 def app_header() -> None:
+    market_status = None
     with ui.header().classes("mp-header"):
-        ui.label("MarketPulse").classes("text-xl font-bold")
-        ui.label("NSE EOD Intelligence").classes("text-[var(--mp-muted)]")
-        ui.space()
-        try:
-            latest = df_query("SELECT max(trade_date) AS d FROM indicators_daily").iloc[0]["d"]
-            if pd.notna(latest):
-                latest_d = pd.to_datetime(latest).date()
-                ui.label(f"Data as of {latest_d}").classes("text-xs text-[var(--mp-muted)] mr-2")
-                ui.label(f"DB: {DB_PATH.name}").classes("text-xs text-[var(--mp-muted)] mr-2")
-                days_old = (datetime.now().date() - latest_d).days
-                if days_old > 1:
-                    ui.label(f"⚠ {days_old}d stale — Run_MarketPulse_Auto.bat").classes("text-xs text-red-600 font-semibold")
-        except Exception:
-            ui.label(f"DB: {DB_PATH.name}").classes("text-xs text-[var(--mp-muted)] mr-2")
-        # Pipeline status from automated EOD job (if present)
-        try:
-            if STATUS_PATH.exists():
-                status = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
-                ok = status.get("ok")
-                finished = str(status.get("finished_at") or "")[:16].replace("T", " ")
-                db_after = status.get("db_date_after") or "?"
-                if ok:
-                    ui.label(f"Pipeline OK · DB {db_after} · {finished}").classes("text-xs text-green-700 mr-2")
-                else:
-                    ui.label(f"Pipeline FAIL · {finished} — see Logs").classes("text-xs text-red-600 font-semibold mr-2")
-        except Exception:
-            pass
-        ui.link("TradingView", "https://www.tradingview.com", new_tab=True).classes("mp-symbol")
+        with ui.row().classes("mp-header-brand items-center gap-2"):
+            ui.label("MarketPulse").classes("text-xl font-bold")
+            ui.label("Champion desk").classes("text-[var(--mp-muted)]")
+        with ui.row().classes("mp-header-meta items-center gap-2 flex-wrap"):
+            try:
+                market_status = load_market_status(DB_PATH, STATUS_PATH)
+                if market_status.database_date:
+                    ui.label(f"Data {market_status.database_date}").classes("mp-header-meta-item text-xs text-[var(--mp-muted)]").props(f'title="Database: {DB_PATH.name}"')
+                    if not market_status.actionable:
+                        ui.label(
+                            f"⚠ {market_status.status} · expected {market_status.expected_session}"
+                        ).classes("mp-header-status mp-header-status-bad text-xs font-semibold")
+            except Exception:
+                ui.label("Data unavailable").classes("mp-header-meta-item text-xs text-[var(--mp-muted)]")
+            # Pipeline status from automated EOD job (if present)
+            try:
+                if STATUS_PATH.exists():
+                    status = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+                    ok = status.get("ok")
+                    finished = str(status.get("finished_at") or "")[:16].replace("T", " ")
+                    db_after = status.get("db_date_after") or "?"
+                    if ok:
+                        if market_status is not None and not market_status.actionable:
+                            ui.label(f"Last run OK · {db_after}").classes("mp-header-status mp-header-status-warn text-xs")
+                        else:
+                            ui.label(f"EOD OK · {db_after}").classes("mp-header-status mp-header-status-good text-xs")
+                    else:
+                        ui.label(f"EOD FAIL · {finished[-5:] or '?'}").classes("mp-header-status mp-header-status-bad text-xs font-semibold")
+            except Exception:
+                pass
+            ui.link("TV", "https://www.tradingview.com", new_tab=True).classes("mp-symbol text-xs")
 
 
 def chart_line(title: str, df: pd.DataFrame, x_col: str, series_cols: list[str]) -> None:
@@ -1218,8 +1224,8 @@ def sector_tree_page() -> None:
 
 
 def sector_rotation_page() -> None:
-    """Sector Intel 2.0 Terminal — 4-Quadrant Compass, Heatmap & Stage-2 Breakout Leaders."""
-    build_sector_intel_page(DB_PATH, copy_text=copy_text_to_clipboard)
+    """Sector tape: turnover and trend. Taxonomy tree is not the default."""
+    build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
 
 
 def strong_groups_page() -> None:
@@ -1955,15 +1961,18 @@ def special_watchlist_page() -> None:
         "Momentum Scanner",
         "Tighter trend template: near highs, bullish stack, liquid names. Use for chart prep — not a census.",
     )
+    momentum_status = load_market_status(DB_PATH, STATUS_PATH)
+    if not momentum_status.actionable:
+        ui.label(non_actionable_message(momentum_status)).classes("mp-badge mp-bad w-full mt-2")
     with ui.row().classes("gap-3 items-end flex-wrap"):
         lookback = ui.select([1, 3, 5, 10, 20, 30], value=SPECIAL_SCREENER_DEFAULTS["lookback_days"], label="Lookback").classes("w-32")
         min_mcap = ui.number("Min MCap Cr", value=SPECIAL_SCREENER_DEFAULTS["min_market_cap_cr"]).classes("w-36")
         with ui.row().classes("items-center gap-1"):
             check_min_vol = ui.checkbox("Min Day Vol", value=False)
-            min_volume = ui.number(value=SPECIAL_SCREENER_DEFAULTS["min_volume"]).classes("w-28")
+            min_volume = ui.number("Day volume", value=SPECIAL_SCREENER_DEFAULTS["min_volume"]).classes("w-28")
         with ui.row().classes("items-center gap-1"):
             check_avg_vol = ui.checkbox("Min 20D Avg", value=True)
-            min_avg_volume = ui.number(value=SPECIAL_SCREENER_DEFAULTS["min_avg_volume_20d"]).classes("w-28")
+            min_avg_volume = ui.number("20D avg volume", value=SPECIAL_SCREENER_DEFAULTS["min_avg_volume_20d"]).classes("w-28")
         # Tighter: within 15% of 52W high by default (was 25)
         max_52w = ui.number("Max 52W Away %", value=15).classes("w-40")
         min_52w_low = ui.number("Min Above 52W Low %", value=SPECIAL_SCREENER_DEFAULTS["min_52w_low_pct"]).classes("w-48")
@@ -2007,7 +2016,7 @@ def special_watchlist_page() -> None:
             ema_200 = pd.to_numeric(tradable["ema_200"], errors="coerce")
             tradable = tradable[ema_200.isna() | (close > ema_200)]
         if "market_cap_cr" in tradable.columns:
-            tradable = tradable[pd.to_numeric(tradable["market_cap_cr"], errors="coerce").fillna(0) >= 1000]
+            tradable = tradable[pd.to_numeric(tradable["market_cap_cr"], errors="coerce").fillna(0) >= float(min_mcap.value or 0)]
         return tradable
 
     def bucket_copy_text(df: pd.DataFrame) -> str:
@@ -2342,8 +2351,11 @@ def special_watchlist_page() -> None:
         top_sectors = set(tradable.groupby("sector")["symbol"].nunique().sort_values(ascending=False).head(3).index.tolist()) if not tradable.empty else set()
         top_industries = set(tradable.groupby("industry")["symbol"].nunique().sort_values(ascending=False).head(3).index.tolist()) if not tradable.empty else set()
         if not combined.empty:
-            combined["is_top_sector"] = combined["sector"].isin(top_sectors)
-            combined["is_top_industry"] = combined["industry"].isin(top_industries)
+            try:
+                from App.market_flags import annotate as annotate_flags
+            except ModuleNotFoundError:
+                from market_flags import annotate as annotate_flags  # type: ignore
+            combined = annotate_flags(combined, DB_PATH)
         sector_summary = grouped_summary(tradable, ["sector"])
         industry_summary = grouped_summary(tradable, ["sector", "industry"])
         bucket_copy = bucket_copy_text(data)
@@ -3446,6 +3458,9 @@ def portfolio_page() -> None:
         "Manual positions — Open vs Sold. Enriched with live CMP, RS, 52W, industry state, and institutional deals. "
         "Survives daily append; re-enter after a full DB rebuild.",
     )
+    portfolio_status = load_market_status(DB_PATH, STATUS_PATH)
+    if not portfolio_status.actionable:
+        ui.label(non_actionable_message(portfolio_status)).classes("mp-badge mp-bad w-full mt-2")
     ensure_user_data()
 
     try:
@@ -3502,6 +3517,8 @@ def portfolio_page() -> None:
                 p_tags = ui.input("Tags", placeholder="swing / core").classes("w-32").props("dense")
                 p_thesis = ui.input("Thesis", placeholder="why this trade?").classes("w-52").props("dense")
                 p_invalidation = ui.input("Invalidation", placeholder="what breaks it?").classes("w-52").props("dense")
+                p_planned_risk = ui.number("Planned risk ₹", value=None, format="%.0f").classes("w-32").props("dense")
+                p_max_risk = ui.number("Max risk %", value=1.0, min=0, max=10, step=0.25, format="%.2f").classes("w-28").props("dense")
                 p_confirm = ui.checkbox("Confirm price deviation", value=False).props("dense")
 
             edit_status = ui.label("").classes("text-xs text-[var(--mp-muted)] mb-1")
@@ -3527,6 +3544,8 @@ def portfolio_page() -> None:
                     p_tags.value = str(row.get("tags") or "")
                     p_thesis.value = str(row.get("thesis") or "")
                     p_invalidation.value = str(row.get("invalidation_note") or "")
+                    p_planned_risk.value = float(row.get("planned_risk_inr")) if pd.notna(row.get("planned_risk_inr")) else None
+                    p_max_risk.value = float(row.get("max_risk_pct")) if pd.notna(row.get("max_risk_pct")) else 1.0
                     st = str(row.get("status") or "")
                     edit_status.text = f"Editing {pick} ({st}) — change fields and click Save"
                     ui.notify(f"Loaded {pick}", type="info")
@@ -3554,6 +3573,8 @@ def portfolio_page() -> None:
                             target_price=float(p_target.value or 0),
                             thesis=p_thesis.value or "",
                             invalidation_note=p_invalidation.value or "",
+                            planned_risk_inr=float(p_planned_risk.value) if p_planned_risk.value not in (None, "") else None,
+                            max_risk_pct=float(p_max_risk.value) if p_max_risk.value not in (None, "") else None,
                             confirm_entry_deviation=bool(p_confirm.value),
                         )
                         msg = "Updated" if action == "updated" else "Added"
@@ -3643,7 +3664,41 @@ def portfolio_page() -> None:
                     med = pd.to_numeric(open_df.get("unrealized_pct"), errors="coerce").median()
                     if pd.notna(med):
                         compact_kpi("Med U/R %", f"{med:.1f}%")
-                    copy_button("Copy open TV", lambda: symbols_text(open_df))
+                    copy_button("Copy open TV", lambda: symbols_text(open_df, min_mcap_cr=None, require_above_ema200=False))
+
+            ui.label("Portfolio risk desk").classes("mp-section-title mt-3")
+            ui.label(
+                "Set the account equity and risk budget used for heat and sizing guidance. These controls do not place trades."
+            ).classes("mp-rule text-xs")
+            with ui.row().classes("gap-2 items-end flex-wrap"):
+                account_equity_input = ui.number("Account equity ₹", value=100_000, min=1, format="%.0f").classes("w-36").props("dense")
+                risk_budget_input = ui.number("Risk budget %", value=1.0, min=0, max=20, step=0.25, format="%.2f").classes("w-32").props("dense")
+                risk_summary_host = ui.row().classes("gap-2 flex-wrap items-end")
+
+            def render_portfolio_risk() -> None:
+                risk_summary_host.clear()
+                summary = portfolio_summary(
+                    open_df,
+                    account_equity=float(account_equity_input.value or 100_000),
+                    max_risk_pct=float(risk_budget_input.value or 0),
+                )
+                with risk_summary_host:
+                    compact_kpi("Current heat", f"{summary['current_heat_pct']:.2f}%")
+                    compact_kpi("Initial heat", f"{summary['initial_heat_pct']:.2f}%")
+                    compact_kpi("Largest sector", f"{summary['largest_sector']} · {summary['largest_sector_weight_pct']:.1f}%")
+                    compact_kpi("Missing stops", summary["missing_stop_count"])
+                    if summary["over_budget"]:
+                        ui.label("OVER RISK BUDGET").classes("mp-badge mp-bad")
+                    suggested = suggested_quantity(
+                        entry_price=float(p_avg.value or 0),
+                        stop_price=float(p_stop.value or 0),
+                        account_equity=summary["account_equity"],
+                        max_risk_pct=summary["risk_budget_pct"],
+                    )
+                    compact_kpi("Suggested qty", suggested)
+
+            ui.button("Recalculate risk", on_click=render_portfolio_risk).classes("mp-button").props("dense")
+            render_portfolio_risk()
 
             # Open table — DB-connected decision columns
             ui.label("Open positions").classes("mp-section-title mt-3")
@@ -3795,6 +3850,30 @@ def candidates_page() -> None:
     build_candidates_page(DB_PATH, section_header, table_from_df, compact_kpi)
 
 
+def desk_page() -> None:
+    build_desk_page(DB_PATH, section_header, table_from_df, compact_kpi)
+
+
+def minervini_page() -> None:
+    build_minervini_page(DB_PATH)
+
+
+def sma_template_page() -> None:
+    try:
+        from App.pages.sma_template import build_sma_template_page
+    except ModuleNotFoundError:
+        from pages.sma_template import build_sma_template_page  # type: ignore
+    build_sma_template_page(
+        DB_PATH,
+        table_from_df=table_from_df,
+        copy_text=copy_text_to_clipboard,
+    )
+
+
+def screener_page() -> None:
+    build_screener_page(DB_PATH, section_header, table_from_df, compact_kpi)
+
+
 def data_health_page() -> None:
     build_data_health_page(DB_PATH, STATUS_PATH, USER_DB_PATH, section_header, table_from_df, compact_kpi)
 
@@ -3814,11 +3893,15 @@ def _lazy_panel(build_fn, loaded: dict, key: str):
 
 
 def _ui_run_kwargs() -> dict:
-    """Local-first bind. Non-loopback host requires MP_ALLOW_REMOTE=1 (no auth)."""
+    """Local-first bind. Defaults to 8081 so unrelated apps can keep 8080.
+
+    ``MP_PORT`` is the app-specific override; ``PORT`` remains supported for
+    hosting environments. Non-loopback host requires MP_ALLOW_REMOTE=1.
+    """
     import os
     import socket
 
-    port = int(os.environ.get("PORT") or os.environ.get("MP_PORT") or "8080")
+    port = int(os.environ.get("MP_PORT") or os.environ.get("PORT") or "8081")
     host = (os.environ.get("MP_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     allow_remote = os.environ.get("MP_ALLOW_REMOTE", "").strip().lower() in {"1", "true", "yes", "on"}
     loopback_names = {"127.0.0.1", "localhost", "::1"}
@@ -3853,16 +3936,24 @@ def main() -> None:
         return
     app_header()
 
-    # Decision nav: Today | Candidates | Sector Intel | Momentum | Deals | Portfolio | Data Health
+    # Active nav: Desk | Momentum | Sectors | Deals | Portfolio | Health.
+    # Momentum scanner logic is unchanged. Legacy pages remain behind MP_LEGACY_PAGES.
     tab_specs = [
-        ("Today", today_page, "today", True),
-        ("Candidates", candidates_page, "candidates", False),
-        ("Sector Intel", sector_rotation_page, "rotation", False),
+        ("Desk", desk_page, "desk", True),
         ("Momentum", special_watchlist_page, "scanner", False),
+        ("Template", sma_template_page, "sma-template", False),
+        ("Sectors", sector_rotation_page, "rotation", False),
         ("Deals", deals_page, "deals", False),
         ("Portfolio", portfolio_page, "portfolio", False),
-        ("Data Health", data_health_page, "data-health", False),
+        ("Health", data_health_page, "data-health", False),
     ]
+    if os.environ.get("MP_LEGACY_PAGES", "").strip().lower() in {"1", "true", "yes", "on"}:
+        tab_specs.extend(
+            [
+                ("Today (legacy)", today_page, "today-legacy", False),
+                ("Candidates (legacy)", candidates_page, "candidates-legacy", False),
+            ]
+        )
 
     with ui.element("div").classes("mp-sticky-nav"):
         with ui.tabs().classes("w-full mp-tabs") as tabs:
@@ -3883,7 +3974,7 @@ def main() -> None:
     # NiceGUI versions while preserving the existing tab visual language.
     for name, tab_el in tab_els.items():
         tab_el.on("click", lambda _=None, tab_name=name: show_page(tab_name))
-    show_page("Today")
+    show_page("Desk")
     ui.run(**_ui_run_kwargs())
 
 

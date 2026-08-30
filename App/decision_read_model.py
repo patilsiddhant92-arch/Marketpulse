@@ -79,6 +79,16 @@ def load_decision_snapshot(db_path: Path, expected_date: date | None = None) -> 
     )
     eligible = frame.loc[eligible_mask].copy()
     blocked = frame.loc[~eligible_mask].copy()
+    # Never surface an impossible risk multiple from legacy or partially
+    # rebuilt candidate rows.  The candidate engine treats values above 10R as
+    # invalid geometry; the read model applies the same display contract to
+    # historical rows already persisted in DuckDB.
+    for view in (eligible, blocked):
+        if "reward_to_risk" not in view.columns:
+            continue
+        rr = pd.to_numeric(view["reward_to_risk"], errors="coerce")
+        valid_rr = rr.gt(0) & rr.le(10)
+        view.loc[~valid_rr, "reward_to_risk"] = pd.NA
     sort_cols = [column for column in ("total_score", "symbol") if column in frame.columns]
     if sort_cols:
         eligible = eligible.sort_values(sort_cols, ascending=[False, True][: len(sort_cols)], na_position="last")
@@ -88,6 +98,19 @@ def load_decision_snapshot(db_path: Path, expected_date: date | None = None) -> 
         regimes = frame["market_regime"].dropna().astype(str)
         if not regimes.empty:
             market_gate = regimes.iloc[0]
+    if market_gate.strip().casefold() == "risk-off" and "candidate_state" in eligible.columns:
+        risk_off = eligible["candidate_state"].astype(str).eq("Prepare")
+        if risk_off.any():
+            eligible.loc[risk_off, "candidate_state"] = "Observe"
+            if "warning_reasons" not in eligible.columns:
+                eligible["warning_reasons"] = ""
+            eligible.loc[risk_off, "warning_reasons"] = eligible.loc[risk_off, "warning_reasons"].fillna("").map(
+                lambda value: ";".join(
+                    dict.fromkeys(
+                        [part for part in [str(value).strip(), "market_regime_risk_off"] if part]
+                    )
+                )
+            )
     return DecisionSnapshot(as_of, FOCUSED_SCORE_VERSION, market_gate, eligible.reset_index(drop=True), blocked.reset_index(drop=True), int(cap_excluded.sum()), stale, diagnostic)
 
 

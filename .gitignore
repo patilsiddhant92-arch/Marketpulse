@@ -4,9 +4,14 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest-tmp*/
+.pytest_tmp*/
 
 # Local data
-# Input/ is tracked (NSE CSVs / archive for rebuild)
+# Keep current daily files available for local offline runs; archive/download
+# copies are CI artifacts and must not grow the repository.
+Input/archive/
+Input/downloads/
 Database/
 Exports/
 Logs/
@@ -30,6 +35,10 @@ Logs/
 .worktrees/
 .tmp/
 *.tmp
+.superdesign/
+.zcode/
+.review_tmp*/
+.review_latest/
 
 # Secrets (Telegram bot token, chat ids)
 

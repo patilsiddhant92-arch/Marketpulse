@@ -61,3 +61,45 @@ def test_reference_history_deduplicates_same_symbol_date():
 
     assert len(result) == 1
     assert result.iloc[0]["market_cap_cr"] == 20
+
+
+def test_reference_history_collapse_merges_last_non_null_values():
+    """Reference snapshots from separate reports must merge without row-wise Python loops."""
+    from Scripts.reference_history import _collapse_reference_rows
+
+    frame = pd.DataFrame(
+        [
+            {
+                "symbol": "AAA",
+                "effective_date": "2026-01-01",
+                "source_date": "2026-01-01",
+                "market_cap_cr": 10.0,
+                "high_52w": None,
+                "source_checksum": "mcap",
+            },
+            {
+                "symbol": "AAA",
+                "effective_date": "2026-01-01",
+                "source_date": "2026-01-01",
+                "market_cap_cr": None,
+                "high_52w": 120.0,
+                "source_checksum": "high",
+            },
+            {
+                "symbol": "AAA",
+                "effective_date": "2026-01-01",
+                "source_date": "2026-01-01",
+                "market_cap_cr": 12.0,
+                "high_52w": None,
+                "source_checksum": "latest",
+            },
+        ]
+    )
+
+    result = _collapse_reference_rows(frame)
+
+    assert len(result) == 1
+    row = result.iloc[0]
+    assert row["market_cap_cr"] == 12.0
+    assert row["high_52w"] == 120.0
+    assert row["source_checksum"] == "latest"

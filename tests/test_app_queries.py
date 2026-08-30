@@ -42,11 +42,12 @@ def test_ui_records_convert_pandas_timestamps_to_json_values():
     assert result == [{"trade_date": "2026-08-03", "symbol": "AAA"}]
 
 
-def test_main_keeps_legacy_navigation_shell():
+def test_main_uses_near_term_terminal_navigation_shell():
     source = (Path(__file__).resolve().parents[1] / "App" / "app.py").read_text(encoding="utf-8")
 
-    assert '("Today", today_page, "today", True)' in source
-    assert '("Sector Intel", sector_rotation_page, "rotation", False)' in source
-    assert '("Momentum", special_watchlist_page, "scanner", False)' in source
+    assert '("Desk", desk_page, "desk", True)' in source
+    assert '("Sectors", sector_rotation_page, "rotation", False)' in source
     assert '("Deals", deals_page, "deals", False)' in source
     assert '("Portfolio", portfolio_page, "portfolio", False)' in source
+    assert '("Health", data_health_page, "data-health", False)' in source
+    assert 'show_page("Desk")' in source

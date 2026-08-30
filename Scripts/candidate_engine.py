@@ -17,9 +17,10 @@ except ModuleNotFoundError:
 
 
 SCORE_VERSION = "focused-v2"
+MAX_REWARD_TO_RISK = 10.0
 PILLAR_WEIGHTS = {"leadership": 0.30, "setup": 0.25, "participation": 0.20, "context": 0.15, "risk": 0.10}
 OUTPUT_COLUMNS = [
-    "trade_date", "symbol", "score_version", "candidate_state", "leadership_score", "setup_score", "participation_score", "context_score", "risk_score", "total_score", "rank_overall", "rank_in_sector", "why_now", "latest_change", "risk_summary", "trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk", "setup_first_seen", "setup_age_sessions", "event_risk", "data_quality_flags", "trigger_type", "invalidation_type", "market_regime", "sector_state", "industry_state", "market_cap_cr", "avg_traded_value_cr_20d", "sector", "industry", "eligibility_status", "blocking_reasons", "warning_reasons", "geometry_valid"
+    "trade_date", "symbol", "score_version", "candidate_state", "leadership_score", "setup_score", "participation_score", "context_score", "risk_score", "total_score", "rank_overall", "rank_in_sector", "why_now", "latest_change", "risk_summary", "trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk", "setup_first_seen", "setup_age_sessions", "event_risk", "data_quality_flags", "trigger_type", "invalidation_type", "market_regime", "sector_state", "industry_state", "market_cap_cr", "avg_traded_value_cr_20d", "sector", "industry", "eligibility_status", "blocking_reasons", "warning_reasons", "geometry_valid", "geometry_warning"
 ]
 
 
@@ -48,35 +49,42 @@ def _mean_scores(values, default=50.0) -> float:
 def calculate_risk_geometry(row: Mapping[str, Any]) -> dict:
     close = _num(row, "close_price")
     if not np.isfinite(close) or close <= 0:
-        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False, "geometry_warning": "close_missing"}
     pivot = _num(row, "pivot_price", np.nan)
     if not np.isfinite(pivot):
         pivot = _num(row, "high_20d", np.nan)
     if not np.isfinite(pivot) or pivot <= close:
-        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False, "geometry_warning": "pivot_missing"}
     support_candidates = [_num(row, name, np.nan) for name in ("ema_20", "ema_50", "low_10d", "low_20d")]
     support_candidates = [value for value in support_candidates if np.isfinite(value) and value > 0]
     if not support_candidates:
-        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False, "geometry_warning": "support_missing"}
     invalidation = max(support_candidates)
     if invalidation >= pivot:
         invalidation = min(close * 0.98, pivot * 0.98)
     resistance_candidates = [_num(row, name, np.nan) for name in ("first_resistance", "high_50d", "high_100d", "high_252d")]
     resistance_candidates = [value for value in resistance_candidates if np.isfinite(value) and value > pivot]
     if not resistance_candidates:
-        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False}
+        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False, "geometry_warning": "resistance_missing"}
     resistance = min(resistance_candidates)
     distance = (pivot / close - 1.0) * 100
     initial_risk = (pivot / invalidation - 1.0) * 100 if invalidation > 0 else np.nan
     reward_to_risk = (resistance - pivot) / (pivot - invalidation) if pivot > invalidation else np.nan
+    reward_to_risk_outlier = bool(np.isfinite(reward_to_risk) and reward_to_risk > MAX_REWARD_TO_RISK)
     return {
         "trigger_price": round(pivot, 6),
         "invalidation_price": round(invalidation, 6),
         "first_resistance": round(resistance, 6),
         "distance_to_trigger_pct": round(distance, 6),
         "initial_risk_pct": round(initial_risk, 6) if np.isfinite(initial_risk) else np.nan,
-        "reward_to_risk": round(reward_to_risk, 6) if np.isfinite(reward_to_risk) else np.nan,
-        "geometry_valid": bool(np.isfinite(initial_risk) and np.isfinite(reward_to_risk) and pivot > invalidation),
+        "reward_to_risk": np.nan if reward_to_risk_outlier else (round(reward_to_risk, 6) if np.isfinite(reward_to_risk) else np.nan),
+        "geometry_valid": bool(
+            np.isfinite(initial_risk)
+            and np.isfinite(reward_to_risk)
+            and pivot > invalidation
+            and not reward_to_risk_outlier
+        ),
+        "geometry_warning": "reward_to_risk_outlier" if reward_to_risk_outlier else "",
     }
 
 
@@ -135,7 +143,7 @@ def explain_candidate(row: Mapping[str, Any]) -> tuple[str, str, str]:
         changes.append("delivery expansion")
     latest_change = ", ".join(changes) or "no major one-session change"
     risks = []
-    if _num(row, "atr_pct", 0) >= 8:
+    if _num(row, "atr_pct_primary", _num(row, "atr_pct", 0)) >= 8:
         risks.append("high ATR")
     if row.get("event_risk") in {"high", "warn"}:
         risks.append(f"{row['event_risk']} event risk")
@@ -223,7 +231,7 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         risk_penalty = 0
         if _num(row, "avg_traded_value_cr_20d", 100) < 10:
             risk_penalty += 20
-        if _num(row, "atr_pct", 0) > 8:
+        if _num(row, "atr_pct_primary", _num(row, "atr_pct", 0)) > 8:
             risk_penalty += 20
         geometry = calculate_risk_geometry(row)
         event = _row_event(events, pd.Series({**row, "symbol": row.get("symbol")}), as_of, sessions)
@@ -246,6 +254,13 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
             candidate_state = "Observe"
         else:
             candidate_state = "Blocked"
+        if candidate_state == "Prepare" and market_regime == "Risk-Off":
+            candidate_state = "Observe"
+            eligibility = EligibilityResult(
+                eligibility.eligible,
+                eligibility.blocking_reasons,
+                tuple(dict.fromkeys((*eligibility.warning_reasons, "market_regime_risk_off"))),
+            )
         output.append({
             # setup_first_seen / setup_age_sessions: leave null/1 provisional.
             # Ledger + materialize apply stable identity (do not force as_of daily).

@@ -13,7 +13,20 @@ if errorlevel 1 (
 set "ROOT=%~dp0"
 set "PY=%ROOT%.venv\Scripts\python.exe"
 set "APP=%ROOT%App\app.py"
-set "URL=http://localhost:8080"
+
+REM Pick the first free loopback port so a second launch cannot collide with
+REM an existing MarketPulse instance or another local application.
+set "PORT=8081"
+:find_free_port
+netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul 2>&1
+if not errorlevel 1 (
+  set /a PORT+=1
+  goto find_free_port
+)
+set "MP_PORT=%PORT%"
+set "URL=http://localhost:%PORT%"
+
+if not "%PORT%"=="8081" echo Port 8081 is busy; using %PORT% instead.
 
 echo Starting MarketPulse at %URL%
 start "MarketPulse Browser" /min powershell -NoProfile -ExecutionPolicy Bypass -Command ^

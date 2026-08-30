@@ -1,4 +1,4 @@
-# MarketPulse free-tier EOD: download NSE → update DuckDB → Telegram → save Input + DB cache
+# MarketPulse free-tier EOD: download NSE → update DuckDB → Telegram → archive artifacts
 # Schedule: 20:00 India Standard Time = 14:30 UTC
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
@@ -123,18 +123,16 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      - name: Commit Input updates to main
+      - name: Upload EOD input artifact
         if: success()
-        run: |
-          git config user.name "marketpulse-eod[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A Input/ || true
-          if git diff --staged --quiet; then
-            echo "No Input changes to commit."
-          else
-            git commit -m "chore(eod): NSE input $(date -u +%Y-%m-%d)"
-            git push
-          fi
+        uses: actions/upload-artifact@v4
+        with:
+          name: eod-input-${{ github.run_id }}
+          path: |
+            Input/daily/
+            Input/downloads/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Telegram failure alert
         if: failure()

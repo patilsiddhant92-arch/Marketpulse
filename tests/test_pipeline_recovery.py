@@ -90,6 +90,7 @@ def test_daily_pipeline_wires_downloaded_session_to_decision_processing():
     assert "def append_session" in append_source
     assert "_promote_manifest_to_db" in daily_source
     assert "fail-closed" in daily_source or "required bhavcopy" in daily_source
+    assert "refresh_sector_taxonomy" in daily_source
 
 
 def test_append_session_noop_when_no_new_bhav(tmp_path, monkeypatch):

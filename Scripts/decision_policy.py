@@ -19,6 +19,7 @@ class DecisionPolicy:
     max_initial_risk_pct: float = 8.0
     min_reward_to_risk: float = 1.5
     expiry_sessions: int = 20
+    block_prepare_in_risk_off: bool = True
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-"""Sector & Industry Leadership Desk — Standard Taxonomy & Next-Gen Tech Thematic Megatrends."""
+"""Sector & Industry Leadership Desk — computed NSE taxonomy metrics."""
 
 from __future__ import annotations
 
@@ -8,12 +8,26 @@ import pandas as pd
 from nicegui import ui
 
 try:
-    from App.sector_read_model import LEVEL_COLUMNS, query_sector_deep_dive, query_sector_rotation_overview
-    from App.thematic_read_model import NEXTGEN_TECH_UNIVERSE, query_thematic_constituents, query_thematic_overview
+    from App.sector_read_model import (
+        LEVEL_COLUMNS,
+        filter_taxonomy_tree,
+        query_sector_data_contract,
+        query_sector_deep_dive,
+        query_sector_rotation_overview,
+        query_taxonomy_hierarchy,
+    )
+    from App.market_status import load_market_status, non_actionable_message
     from App.ui.stock_drawer import open_stock_360_modal
 except ModuleNotFoundError:
-    from sector_read_model import LEVEL_COLUMNS, query_sector_deep_dive, query_sector_rotation_overview  # type: ignore
-    from thematic_read_model import NEXTGEN_TECH_UNIVERSE, query_thematic_constituents, query_thematic_overview  # type: ignore
+    from sector_read_model import (  # type: ignore
+        LEVEL_COLUMNS,
+        filter_taxonomy_tree,
+        query_sector_data_contract,
+        query_sector_deep_dive,
+        query_sector_rotation_overview,
+        query_taxonomy_hierarchy,
+    )
+    from market_status import load_market_status, non_actionable_message  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
 
 
@@ -42,49 +56,39 @@ def build_sector_intel_page(
     *,
     copy_text: Callable[[str, str], None] | None = None,
 ) -> None:
-    """Render the 10/10 Sector, Industry & Thematic Megatrend Leadership Desk."""
+    """Render taxonomy-only sector metrics and stock leadership."""
     db_path = Path(db_path)
 
-    # State container
     state = {
-        "view_mode": "Thematic",  # "Taxonomy" or "Thematic"
-        "level": "Sector",
-        "thematic_pillar": "All Pillars",
         "min_mcap": 1000.0,
-        "selected_sector": "",
+        "status_filter": "All",
+        "level_filter": "Sector",
+        "status_mode": "strict",
+        "search": "",
+        "selected_level": "Sector",
+        "selected_group": "",
+        "selected_node_id": "",
     }
 
-    # Top Header & Mode Toggle
-    with ui.row().classes("w-full justify-between items-center mb-3 flex-wrap gap-2"):
+    with ui.row().classes("w-full mp-sector-page justify-between items-center mb-3 flex-wrap gap-2"):
         with ui.column().classes("gap-0"):
-            ui.label("Sector & Thematic Leadership Desk").classes("text-2xl font-bold text-slate-800 tracking-tight")
-            ui.label("Institutional rotation across NSE sectors and Next-Gen AI/Data Center/Semiconductor ecosystems.").classes("text-xs text-slate-500")
+            ui.label("Sector Leadership Desk").classes("mp-page-title")
+            ui.label("Computed NSE taxonomy metrics: breadth, cap-weighted RS, concentration, setups, and flow.").classes("mp-page-subtitle")
 
-        # Mode Selector Pills
         with ui.row().classes("items-center gap-2 flex-wrap"):
-            mode_toggle = ui.toggle(
-                {
-                    "Thematic": "⚡ Next-Gen Tech (AI / DC / Semi)",
-                    "Taxonomy": "📊 Standard NSE Taxonomy",
-                },
-                value=state["view_mode"],
-            ).props("dense unelevated rounded toggle-color=teal-8").classes("bg-slate-100 p-1 border border-slate-200 text-xs font-semibold")
+            refresh_btn = ui.button("Refresh", icon="refresh").classes("mp-primary").props("dense unelevated")
 
-            refresh_btn = ui.button("Refresh", icon="refresh").classes("bg-[#01696f] text-white").props("dense unelevated")
+    sector_status = load_market_status(db_path, db_path.parent / "status.json")
+    if not sector_status.actionable:
+        ui.label(non_actionable_message(sector_status)).classes("mp-badge mp-bad w-full mt-2")
 
     # Main dynamic container
-    main_container = ui.column().classes("w-full gap-6")
+    main_container = ui.column().classes("w-full mp-sector-page gap-6")
 
     def render_content() -> None:
         main_container.clear()
-        mode = mode_toggle.value or "Thematic"
+        _render_taxonomy_tree_workspace(main_container, db_path, state, copy_text)
 
-        if mode == "Thematic":
-            _render_thematic_mode(main_container, db_path, state, copy_text)
-        else:
-            _render_taxonomy_mode(main_container, db_path, state, copy_text)
-
-    mode_toggle.on_value_change(lambda _: render_content())
     refresh_btn.on_click(render_content)
     render_content()
 
@@ -323,7 +327,343 @@ def _render_thematic_stocks_table(
 
 
 # =========================================================================
-# STANDARD NSE TAXONOMY VIEW (SECTOR / BROAD SECTOR / INDUSTRY)
+# NSE TAXONOMY TREE WORKSPACE
+# =========================================================================
+
+STATUS_OPTIONS = ("All", "Leading", "Emerging", "Improving", "Weakening", "Lagging", "Neutral")
+STATUS_ICONS = {
+    "Leading": "▲",
+    "Emerging": "↗",
+    "Improving": "↑",
+    "Weakening": "↘",
+    "Lagging": "▼",
+    "Neutral": "•",
+}
+
+
+def _walk_taxonomy(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for node in nodes:
+        flattened.append(node)
+        flattened.extend(_walk_taxonomy(node.get("children", [])))
+    return flattened
+
+
+def _taxonomy_path(nodes: list[dict[str, Any]], node_id: str) -> list[dict[str, Any]]:
+    for node in nodes:
+        if node.get("id") == node_id:
+            return [node]
+        child_path = _taxonomy_path(node.get("children", []), node_id)
+        if child_path:
+            return [node, *child_path]
+    return []
+
+
+def _decorate_taxonomy_tree(nodes: list[dict[str, Any]], min_stock_mcap: float = 0.0) -> None:
+    for node in nodes:
+        if node.get("level") == "Stock":
+            market_cap = float(node.get("market_cap_cr") or 0.0)
+            node["display_label"] = f"{node['name']} · ₹{market_cap:,.0f} Cr"
+        else:
+            rotation_state = str(node.get("rotation_state") or "Neutral")
+            icon = STATUS_ICONS.get(rotation_state, "•")
+            total_stocks = int(node.get("stock_count") or 0)
+            eligible_stocks = int(node.get("eligible_stock_count") or 0)
+            node["display_label"] = (
+                f"{icon} {node['name']} · {rotation_state} · "
+                f"{total_stocks} total / {eligible_stocks} ≥ ₹{min_stock_mcap:,.0f} Cr"
+            )
+        _decorate_taxonomy_tree(node.get("children", []), min_stock_mcap)
+
+
+def _state_badge_class(rotation_state: str) -> str:
+    return {
+        "Leading": "mp-state-leading",
+        "Emerging": "mp-state-emerging",
+        "Improving": "mp-state-improving",
+        "Weakening": "mp-state-weakening",
+        "Lagging": "mp-state-lagging",
+    }.get(rotation_state, "mp-state-neutral")
+
+
+def _render_taxonomy_tree_workspace(
+    container: ui.column,
+    db_path: Path,
+    state: dict[str, Any],
+    copy_text: Callable[[str, str], None] | None = None,
+) -> None:
+    """Render the strict NSE tree and the selected group's swing-trading detail."""
+    container.clear()
+    taxonomy_tree = query_taxonomy_hierarchy(db_path, min_mcap=float(state["min_mcap"]))
+    _decorate_taxonomy_tree(taxonomy_tree, float(state["min_mcap"]))
+    node_map = {str(node["id"]): node for node in _walk_taxonomy(taxonomy_tree)}
+    level_filter = str(state.get("level_filter") or "Sector")
+    sector_contract = query_sector_data_contract(db_path)
+
+    selected_id = str(state.get("selected_node_id") or "")
+    if (
+        selected_id not in node_map
+        or node_map[selected_id].get("level") == "Stock"
+        or node_map[selected_id].get("level") != level_filter
+    ):
+        overview = query_sector_rotation_overview(db_path, level=level_filter)
+        top_focus = overview.get("top_focus", [])
+        preferred = str(top_focus[0]["group_name"]) if top_focus else ""
+        preferred_id = f"{level_filter}|{preferred}" if preferred else ""
+        if preferred_id in node_map:
+            selected_id = preferred_id
+        else:
+            selected_id = next(
+                (node_id for node_id, node in node_map.items() if node.get("level") == level_filter),
+                next(iter(node_map), ""),
+            )
+        state["selected_node_id"] = selected_id
+        if selected_id:
+            state["selected_level"] = node_map[selected_id]["level"]
+            state["selected_group"] = node_map[selected_id]["name"]
+
+    group_nodes = [node for node in node_map.values() if node.get("level") != "Stock"]
+    level_nodes = [node for node in group_nodes if node.get("level") == level_filter]
+    level_counts = {
+        level: sum(node.get("level") == level for node in group_nodes)
+        for level in ("Broad Sector", "Sector", "Broad Industry", "Industry")
+    }
+    status_counts = {
+        option: sum(str(node.get("rotation_state") or "Neutral") == option for node in level_nodes)
+        for option in STATUS_OPTIONS
+        if option != "All"
+    }
+
+    with container:
+        with ui.row().classes("w-full mp-toolbar mp-sector-toolbar items-end gap-3 p-3"):
+            search_input = (
+                ui.input("Search taxonomy or stock", value=state.get("search", ""))
+                .classes("mp-sector-search")
+                .props("dense outlined clearable debounce=250")
+            )
+            mcap_input = (
+                ui.number(
+                    "Stock Min MCap (Cr)",
+                    value=float(state["min_mcap"]),
+                    min=0,
+                    max=50000,
+                    step=500,
+                )
+                .classes("w-36")
+                .props("dense outlined")
+            )
+            level_select = ui.select(
+                ["Broad Sector", "Sector", "Broad Industry", "Industry"],
+                value=level_filter,
+                label="Status level",
+            ).classes("w-44").props("dense outlined")
+            mode_select = ui.select(
+                ["Strict level", "Branch contains"],
+                value="Strict level" if str(state.get("status_mode")) == "strict" else "Branch contains",
+                label="Status mode",
+            ).classes("w-44").props("dense outlined")
+            ui.label(
+                "Rotation and taxonomy use the full NSE universe; this floor filters stock candidates only."
+            ).classes(
+                "mp-page-subtitle mp-sector-toolbar-help"
+            )
+
+        with ui.column().classes("w-full mp-sector-filter-strip gap-2"):
+            ui.label("Rotation status").classes("mp-filter-label")
+            status_host = ui.row().classes("w-full gap-2 flex-wrap")
+
+        with ui.element("div").classes("w-full mp-sector-workspace"):
+            with ui.card().classes("mp-card mp-taxonomy-panel"):
+                with ui.row().classes("w-full justify-between items-center gap-2"):
+                    ui.label("NSE Classification Tree").classes("mp-section-title")
+                    ui.label(f"{len(group_nodes)} taxonomy groups").classes("mp-badge mp-neutral")
+                ui.label("Broad Sector → Sector → Broad Industry → Industry → Stock").classes("mp-page-subtitle")
+                ui.label(
+                    f"{level_counts['Broad Sector']} broad sectors · {level_counts['Sector']} sectors · "
+                    f"{level_counts['Broad Industry']} broad industries · {level_counts['Industry']} industries"
+                ).classes("mp-page-subtitle mp-taxonomy-counts")
+                ui.label(f"Status filter: {level_filter} · {len(level_nodes)} groups").classes("mp-page-subtitle mp-taxonomy-counts")
+                tree_host = ui.column().classes("w-full mp-taxonomy-tree-host")
+            detail_host = ui.column().classes("w-full mp-sector-detail-host")
+
+        if sector_contract["degraded"]:
+            ui.label(
+                "DEGRADED METRICS · sector_metrics_daily is unavailable; rotation is using the legacy sector_rotation fallback."
+            ).classes("mp-badge mp-warn w-full")
+
+    status_buttons: dict[str, Any] = {}
+
+    def paint_status_buttons() -> None:
+        status_host.clear()
+        with status_host:
+            for option in STATUS_OPTIONS:
+                count_text = f" {status_counts[option]}" if option != "All" else f" {len(level_nodes)}"
+                active = option == state.get("status_filter", "All")
+                status_buttons[option] = (
+                    ui.button(
+                        f"{option}{count_text}",
+                        on_click=lambda value=option: select_status(value),
+                    )
+                    .props("dense flat no-caps")
+                    .classes("mp-filter-chip mp-filter-chip-active" if active else "mp-filter-chip")
+                )
+
+    def render_detail() -> None:
+        detail_host.clear()
+        node_id = str(state.get("selected_node_id") or "")
+        node = node_map.get(node_id)
+        if not node or node.get("level") == "Stock":
+            with detail_host:
+                ui.label("Select a taxonomy group to inspect its leaders.").classes("mp-empty-state")
+            return
+
+        level = str(node["level"])
+        group_name = str(node["name"])
+        deep = query_sector_deep_dive(
+            db_path,
+            level,
+            group_name,
+            min_mcap=float(state["min_mcap"]),
+            limit=25,
+        )
+        group_stats = deep.get("group_stats", {})
+        stocks_df = deep.get("stocks", pd.DataFrame())
+        path = _taxonomy_path(taxonomy_tree, node_id)
+        breadcrumb = "  ›  ".join(str(item["name"]) for item in path if item.get("level") != "Stock")
+        rotation_state = str(group_stats.get("rotation_state") or node.get("rotation_state") or "Neutral")
+
+        with detail_host:
+            with ui.card().classes("w-full mp-card mp-sector-selection-card"):
+                ui.label(breadcrumb).classes("mp-sector-breadcrumb")
+                with ui.row().classes("w-full justify-between items-start gap-3 flex-wrap"):
+                    with ui.column().classes("gap-1"):
+                        ui.label(group_name).classes("mp-sector-selection-title")
+                        ui.label(level).classes("mp-page-subtitle")
+                    ui.label(rotation_state).classes(
+                        f"mp-mini-badge {_state_badge_class(rotation_state)}"
+                    )
+
+                with ui.row().classes("w-full gap-2 flex-wrap mt-2"):
+                    ui.label(f"RS {_fmt_num(group_stats.get('rs_percentile', node.get('rs_percentile')), 0)}").classes(
+                        "mp-metric-pill"
+                    )
+                    ui.label(f"1M {_fmt_pct(group_stats.get('return_1m_pct'))}").classes("mp-metric-pill")
+                    ui.label(f">50 EMA {_fmt_num(group_stats.get('above_50ema_pct'), 0)}%").classes("mp-metric-pill")
+                    ui.label(f"{int(node.get('stock_count') or 0)} total constituents").classes("mp-metric-pill")
+                    ui.label(
+                        f"{int(node.get('eligible_stock_count') or 0)} ≥ ₹{float(state['min_mcap']):,.0f} Cr"
+                    ).classes("mp-metric-pill")
+
+                    if not stocks_df.empty and copy_text:
+                        symbols = ",".join(f"NSE:{symbol}" for symbol in stocks_df["symbol"])
+                        ui.button(
+                            f"Copy {len(stocks_df)} symbols",
+                            icon="content_copy",
+                            on_click=lambda text=symbols, name=group_name: copy_text(f"{name} Leaders", text),
+                        ).props("dense unelevated no-caps").classes("mp-primary")
+
+            ui.label(f"Swing candidates in {group_name}").classes("mp-section-title")
+            ui.label(
+                f"Ranked technical leaders with market cap ≥ ₹{float(state['min_mcap']):,.0f} Cr."
+            ).classes("mp-page-subtitle")
+            if stocks_df.empty:
+                ui.label("No stocks meet the current market-cap filter in this branch.").classes("mp-empty-state")
+            else:
+                with ui.element("div").classes("mp-table-scroll mp-sector-table-scroll"):
+                    _render_sector_stocks_table(db_path, stocks_df, copy_text)
+
+    def select_tree_node(node_id: str | None) -> None:
+        if not node_id or node_id not in node_map:
+            return
+        node = node_map[node_id]
+        if node.get("level") == "Stock":
+            open_stock_360_modal(db_path, str(node["name"]), copy_text=copy_text)
+            return
+        state["selected_node_id"] = node_id
+        state["selected_level"] = node["level"]
+        state["selected_group"] = node["name"]
+        render_detail()
+
+    def render_tree() -> None:
+        tree_host.clear()
+        selected_status = str(state.get("status_filter") or "All")
+        statuses = set() if selected_status == "All" else {selected_status}
+        filtered = filter_taxonomy_tree(
+            taxonomy_tree,
+            statuses=statuses,
+            search=str(state.get("search") or ""),
+            level=level_filter,
+            status_mode=str(state.get("status_mode") or "strict"),
+        )
+        with tree_host:
+            if not filtered:
+                ui.label("No taxonomy branch matches these filters.").classes("mp-empty-state")
+                return
+            tree = (
+                ui.tree(
+                    filtered,
+                    node_key="id",
+                    label_key="display_label",
+                    on_select=lambda event: select_tree_node(event.value),
+                )
+                .classes("w-full mp-taxonomy-tree")
+                .props("dense no-connectors")
+            )
+            current_id = str(state.get("selected_node_id") or "")
+            current_path = _taxonomy_path(filtered, current_id)
+            if str(state.get("search") or "").strip():
+                tree.expand()
+            elif current_path:
+                tree.expand([str(item["id"]) for item in current_path[:-1]])
+                tree.select(current_id)
+
+    def select_status(value: str) -> None:
+        state["status_filter"] = value
+        if value != "All":
+            first_match = next(
+                (
+                    node
+                    for node in level_nodes
+                    if str(node.get("rotation_state") or "Neutral") == value
+                ),
+                None,
+            )
+            if first_match is not None:
+                state["selected_node_id"] = first_match["id"]
+                state["selected_level"] = first_match["level"]
+                state["selected_group"] = first_match["name"]
+        paint_status_buttons()
+        render_tree()
+        render_detail()
+
+    def change_search(value: str | None) -> None:
+        state["search"] = value or ""
+        render_tree()
+
+    def change_level(value: str | None) -> None:
+        state["level_filter"] = value or "Sector"
+        state["status_filter"] = "All"
+        _render_taxonomy_tree_workspace(container, db_path, state, copy_text)
+
+    def change_status_mode(value: str | None) -> None:
+        state["status_mode"] = "strict" if value == "Strict level" else "branch"
+        render_tree()
+
+    def change_market_cap() -> None:
+        state["min_mcap"] = float(mcap_input.value or 0.0)
+        _render_taxonomy_tree_workspace(container, db_path, state, copy_text)
+
+    search_input.on_value_change(lambda event: change_search(event.value))
+    level_select.on_value_change(lambda event: change_level(event.value))
+    mode_select.on_value_change(lambda event: change_status_mode(event.value))
+    mcap_input.on("change", lambda _: change_market_cap())
+    paint_status_buttons()
+    render_tree()
+    render_detail()
+
+
+# =========================================================================
+# LEGACY TAXONOMY DASHBOARD (kept temporarily for reference, not routed)
 # =========================================================================
 
 def _render_taxonomy_mode(
@@ -335,7 +675,7 @@ def _render_taxonomy_mode(
     """Render the standard NSE sector and industry taxonomy dashboard."""
     with container:
         # Toolbar
-        with ui.row().classes("w-full justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-200 flex-wrap gap-2"):
+        with ui.row().classes("w-full mp-toolbar mp-sector-toolbar justify-between items-center p-3 rounded-lg border border-slate-200 flex-wrap gap-2"):
             with ui.row().classes("items-center gap-2"):
                 level_select = ui.select(
                     list(LEVEL_COLUMNS.keys()),
@@ -371,7 +711,7 @@ def _render_taxonomy_mode(
                 state["selected_sector"] = str(leaderboard_df.iloc[0]["group_name"])
 
         # Summary strip
-        with ui.row().classes("w-full justify-between items-center bg-white p-3 rounded-lg border border-slate-200 mt-2"):
+        with ui.row().classes("w-full mp-toolbar mp-sector-summary justify-between items-center p-3 rounded-lg border border-slate-200 mt-2"):
             with ui.row().classes("items-center gap-3 flex-wrap"):
                 ui.label(f"Session: {as_of_str}").classes("text-xs font-semibold text-slate-600")
                 ui.label(f"Groups: {overview['total']}").classes("text-xs text-slate-500")
@@ -396,7 +736,7 @@ def _render_taxonomy_mode(
             sub_df = deep["sub_industries"]
 
             with deep_dive_container:
-                with ui.card().classes("w-full p-5 border-2 border-teal-600/30 shadow-md bg-white rounded-xl"):
+                with ui.card().classes("w-full mp-card mp-sector-focus-card p-5 border-2 border-teal-600/30 shadow-md rounded-xl"):
                     with ui.row().classes("w-full justify-between items-center mb-4 pb-3 border-b border-slate-200 flex-wrap gap-3"):
                         with ui.row().classes("items-center gap-3"):
                             ui.label("🎯 Active Focus:").classes("text-xs font-bold text-slate-400 uppercase tracking-wider")
@@ -419,23 +759,25 @@ def _render_taxonomy_mode(
                                     on_click=lambda t=sec_tv, g=grp: copy_text(f"{g} Leaders", t),
                                 ).classes("bg-[#01696f] text-white text-xs").props("dense unelevated")
 
-                    ui.label(f"Top Stage-2 Breakout Leaders in {grp} (Min MCap ≥ ₹{min_mc:.0f} Cr)").classes("text-xs font-bold text-slate-700 mb-2")
-                    if stocks_df.empty:
-                        ui.label(f"No stocks meet the ₹{min_mc:.0f} Cr market cap filter in {grp}.").classes("text-xs text-slate-400 py-3")
-                    else:
+                ui.label(f"Top Stage-2 Breakout Leaders in {grp} (Min MCap ≥ ₹{min_mc:.0f} Cr)").classes("mp-section-title")
+                if stocks_df.empty:
+                    ui.label(f"No stocks meet the ₹{min_mc:.0f} Cr market cap filter in {grp}.").classes("mp-page-subtitle py-3")
+                else:
+                    with ui.element("div").classes("mp-table-scroll mp-sector-table-scroll"):
                         _render_sector_stocks_table(db_path, stocks_df, copy_text)
 
         # Top Focus Cards
         with ui.column().classes("w-full gap-2 mt-4"):
-            ui.label("🎯 Top Focus Sectors Today").classes("text-lg font-bold text-slate-800 tracking-tight")
+            ui.label("🎯 Top Focus Sectors Today").classes("mp-section-title")
             with ui.row().classes("w-full gap-4 flex-wrap items-stretch"):
                 for item in top_focus_sectors:
                     _render_focus_card(item, state, render_deep_dive, db_path, copy_text)
 
         # Leaderboard Table
         with ui.column().classes("w-full gap-2 mt-4"):
-            ui.label("📊 Complete Sector Leaderboard").classes("text-lg font-bold text-slate-800 tracking-tight")
-            _render_leaderboard_table(leaderboard_df, state, render_deep_dive, copy_text)
+            ui.label("📊 Complete Sector Leaderboard").classes("mp-section-title")
+            with ui.element("div").classes("mp-table-scroll mp-sector-table-scroll"):
+                _render_leaderboard_table(leaderboard_df, state, render_deep_dive, copy_text)
 
         # Initial render of deep dive
         render_deep_dive()
@@ -457,9 +799,9 @@ def _render_focus_card(
     badge = item.get("status_badge", "FOCUS")
     badge_color = item.get("status_color", "emerald")
 
-    border_cls = "border-2 border-[#01696f] shadow-md bg-teal-50/40" if is_selected else "border border-slate-200 hover:border-teal-400 bg-white hover:shadow-sm"
+    border_cls = "mp-sector-selected border-2 border-[#01696f] shadow-md" if is_selected else "mp-sector-unselected border border-slate-200 hover:border-teal-400 hover:shadow-sm"
 
-    card = ui.card().classes(f"flex-1 min-w-[280px] max-w-[360px] p-4 rounded-xl {border_cls} cursor-pointer transition-all duration-150")
+    card = ui.card().classes(f"mp-sector-focus-card flex-1 min-w-[280px] max-w-[360px] p-4 rounded-xl {border_cls} cursor-pointer transition-all duration-150")
     with card:
         with ui.row().classes("w-full justify-between items-start"):
             with ui.column().classes("gap-0.5 flex-1 pr-2"):
@@ -616,7 +958,6 @@ def _render_sector_stocks_table(
         {"name": "trigger_price", "label": "Trigger", "field": "trigger_price", "align": "right"},
         {"name": "stop_loss", "label": "Stop Loss", "field": "stop_loss", "align": "right"},
         {"name": "reward_to_risk", "label": "R:R", "field": "reward_to_risk", "align": "right"},
-        {"name": "why_now", "label": "Why Now Rationale", "field": "why_now", "align": "left"},
     ]
 
     rows = []
@@ -634,12 +975,11 @@ def _render_sector_stocks_table(
             "trigger_price": f"₹{float(s['trigger_price']):.1f}" if pd.notna(s.get("trigger_price")) else "-",
             "stop_loss": f"₹{float(s['stop_loss']):.1f}" if pd.notna(s.get("stop_loss")) else "-",
             "reward_to_risk": f"{float(s['reward_to_risk']):.1f}x" if pd.notna(s.get("reward_to_risk")) else "-",
-            "why_now": str(s.get("why_now") or "RS Leader"),
         })
 
     table = (
         ui.table(columns=cols, rows=rows, pagination=15)
-        .classes("w-full mp-table")
+        .classes("w-full mp-table mp-sector-table")
         .props("dense flat bordered wrap-cells")
     )
 

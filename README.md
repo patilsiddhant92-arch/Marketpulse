@@ -12,7 +12,7 @@ MarketPulse is an NSE end-of-day decision desk for swing traders. It separates t
 .\Launch_MarketPulse.bat
 ```
 
-The UI binds to `127.0.0.1:8080` by default. Set `MP_HOST`, `MP_PORT`, `MP_DB_PATH`, or `MP_USER_DB_PATH` for another environment. The normal UI reads the market database **read-only** and writes portfolio/journal only to `Database/marketpulse_user.duckdb`. EOD market writes happen through `Scripts/daily_pipeline.py`.
+The UI binds to `127.0.0.1:8081` by default so it does not collide with other local apps using port 8080. Set `MP_PORT` (preferred), `PORT`, `MP_HOST`, `MP_DB_PATH`, or `MP_USER_DB_PATH` for another environment. The normal UI reads the market database **read-only** and writes portfolio/journal only to `Database/marketpulse_user.duckdb`. EOD market writes happen through `Scripts/daily_pipeline.py`.
 
 **Hosting:** leave `MP_HOST` unset (loopback). Binding to `0.0.0.0` or any non-loopback host requires `MP_ALLOW_REMOTE=1`. There is **no authentication** — do not expose the UI on a public network.
 

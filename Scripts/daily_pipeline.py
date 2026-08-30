@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import traceback
@@ -167,6 +168,7 @@ def run_pipeline(
     skip_download: bool = False,
     skip_append: bool = False,
     skip_telegram: bool = False,
+    skip_taxonomy: bool = False,
     date: datetime | None = None,
     lookback: int = 7,
 ) -> int:
@@ -333,6 +335,26 @@ def run_pipeline(
             else:
                 status["steps"].append({"step": "telegram_deals", "ok": True, "skipped": True})
 
+            # Missing sector/industry only. Official sector.csv stays source of truth;
+            # this is a small rate-limited screener.in backfill (new listings).
+            skip_taxonomy = skip_taxonomy or os.environ.get("MP_SKIP_SECTOR_TAXONOMY", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            if not skip_append and not skip_taxonomy:
+                try:
+                    from refresh_sector_taxonomy import run_batch as fill_sector_taxonomy
+
+                    tax = fill_sector_taxonomy()
+                    status["steps"].append({"step": "sector_taxonomy", "ok": True, **tax})
+                    print(f"Sector taxonomy: {tax.get('message')}")
+                except Exception as exc:
+                    print(f"Sector taxonomy fill skipped/failed: {exc}")
+                    status["steps"].append({"step": "sector_taxonomy", "ok": False, "error": str(exc)})
+            elif skip_taxonomy:
+                status["steps"].append({"step": "sector_taxonomy", "ok": True, "skipped": True})
+
             exit_code = 0
     except Exception as exc:
         status["ok"] = False
@@ -388,6 +410,11 @@ def main() -> int:
         help="Do not send Telegram deals after update.",
     )
     parser.add_argument(
+        "--skip-taxonomy",
+        action="store_true",
+        help="Do not backfill missing sector/industry from screener.in.",
+    )
+    parser.add_argument(
         "--retries",
         type=int,
         default=DEFAULT_MAX_ATTEMPTS,
@@ -415,6 +442,7 @@ def main() -> int:
             skip_download=skip_download,
             skip_append=skip_append,
             skip_telegram=args.skip_telegram,
+            skip_taxonomy=args.skip_taxonomy,
             date=args.date,
             lookback=max(1, args.lookback),
         )

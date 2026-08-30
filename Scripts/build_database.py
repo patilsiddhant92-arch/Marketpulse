@@ -27,6 +27,18 @@ from config import (
 )
 from index_history import build_index_features, load_all_market_activity_history
 from reference_history import asof_reference, load_reference_history
+try:
+    from indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma
+except ModuleNotFoundError:
+    from Scripts.indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma  # type: ignore
+try:
+    from institutional_engine import enrich_deals_with_tiers
+except ModuleNotFoundError:
+    from Scripts.institutional_engine import enrich_deals_with_tiers  # type: ignore
+try:
+    from sector_metrics import compute_sector_metrics
+except ModuleNotFoundError:
+    from Scripts.sector_metrics import compute_sector_metrics  # type: ignore
 
 
 warnings.simplefilter("ignore", PerformanceWarning)
@@ -358,13 +370,7 @@ def read_all_deals() -> pd.DataFrame:
 
 
 def calc_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    return rsi_wilder(close, period=period)
 
 
 def rsi_divergence_flags(price: pd.Series, rsi: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -424,7 +430,7 @@ def resampled_timeframe_features(g: pd.DataFrame, rule: str) -> pd.DataFrame:
     if bars.empty:
         return bars
     bars = candle_features(bars)
-    bars["rsi_14"] = calc_rsi(bars["close_price"])
+    bars["rsi_14"] = rsi_wilder(bars["close_price"])
     bars["bullish_rsi_divergence"], bars["bearish_rsi_divergence"] = rsi_divergence_flags(bars["close_price"], bars["rsi_14"])
     return bars
 
@@ -439,10 +445,14 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         low = g["low_price"]
         prev_close = close.shift(1)
         for window in EMA_WINDOWS:
-            g[f"ema_{window}"] = close.ewm(span=window, adjust=False, min_periods=window).mean()
+            g[f"ema_{window}"] = ema(close, span=window)
+        g["sma_50"] = sma(close, 50)
+        g["sma_150"] = sma(close, 150)
+        g["sma_200"] = sma(close, 200)
+        g["sma_200_rising"] = g["sma_200"] > g["sma_200"].shift(20)
         for name, window in RETURN_WINDOWS.items():
             g[name] = (close / close.shift(window) - 1) * 100
-        g["rsi_14"] = calc_rsi(close)
+        g["rsi_14"] = rsi_wilder(close)
         g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = rsi_divergence_flags(close, g["rsi_14"])
         g["avg_volume_5d"] = g["volume"].rolling(5, min_periods=3).mean()
         g["avg_volume_10d"] = g["volume"].rolling(10, min_periods=3).mean()
@@ -450,14 +460,18 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         g["avg_volume_50d"] = g["volume"].rolling(50, min_periods=10).mean()
         g["avg_traded_value_cr_20d"] = g["turnover_cr"].rolling(20, min_periods=5).mean()
         g["avg_traded_value_cr_50d"] = g["turnover_cr"].rolling(50, min_periods=10).mean()
-        g["rvol"] = g["volume"] / g["avg_volume_20d"]
+        g["rvol"] = rvol(g["volume"], window=20)
         g["avg_delivery_qty_20d"] = g["delivery_qty"].rolling(20, min_periods=5).mean()
         g["avg_delivery_pct_20d"] = g["delivery_pct"].rolling(20, min_periods=5).mean()
         g["delivery_spike"] = g["delivery_qty"] > (2 * g["avg_delivery_qty_20d"])
-        true_range = pd.concat([(high - low), (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
-        g["true_range"] = true_range
-        g["atr_14"] = true_range.rolling(14, min_periods=5).mean()
+        g["true_range"] = true_range(high, low, close)
+        g["atr_14"] = atr_sma(high, low, close, period=14)
         g["atr_pct"] = g["atr_14"] / close * 100
+        g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
+        g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
+        # Primary risk volatility uses the standard Wilder smoothing. Keep
+        # legacy ``atr_pct`` intact for compatibility with older snapshots.
+        g["atr_pct_primary"] = g["atr_pct_wilder"]
         g["atr_pct_avg_5d"] = g["atr_pct"].rolling(5, min_periods=3).mean()
         g["atr_pct_avg_20d"] = g["atr_pct"].rolling(20, min_periods=5).mean()
         g["atr_pct_avg_50d"] = g["atr_pct"].rolling(50, min_periods=10).mean()
@@ -583,20 +597,9 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
             if "band_remarks" in reference_rows.columns:
                 indicators["band_remarks"] = reference_rows["band_remarks"].fillna("").astype(str).to_numpy()
         except Exception as exc:
-            print(f"Warning: as-of 52W join failed ({exc}); using latest snapshot + 252d fallback.")
-            high52 = (
-                enrichment[["symbol", "high_52w"]].dropna().drop_duplicates("symbol", keep="last")
-                if "high_52w" in enrichment.columns
-                else pd.DataFrame(columns=["symbol", "high_52w"])
-            )
-            low52 = (
-                enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
-                if "low_52w" in enrichment.columns
-                else pd.DataFrame(columns=["symbol", "low_52w"])
-            )
-            tmp = indicators[["symbol"]].merge(high52, on="symbol", how="left").merge(low52, on="symbol", how="left")
-            nse_high = pd.to_numeric(tmp["high_52w"], errors="coerce")
-            nse_low = pd.to_numeric(tmp["low_52w"], errors="coerce")
+            print(f"Warning: as-of 52W join failed ({exc}); using only row-level 252d fallback.")
+            nse_high = pd.to_numeric(indicators.get("high_252d"), errors="coerce")
+            nse_low = pd.to_numeric(indicators.get("low_252d"), errors="coerce")
         if "high_52w" in indicators.columns:
             indicators = indicators.drop(columns=["high_52w"], errors="ignore")
         if "low_52w" in indicators.columns:
@@ -615,6 +618,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         indicators["low_52w"] = indicators["low_52w"].fillna(indicators["low_252d"])
     indicators["away_52w_high_pct"] = (indicators["close_price"] / indicators["high_52w"] - 1) * 100
     indicators["away_52w_low_pct"] = (indicators["close_price"] / indicators["low_52w"] - 1) * 100
+    indicators["distance_below_52w"] = distance_below_high(indicators["close_price"], indicators["high_52w"])
     if "high_52w_date" in indicators.columns:
         indicators["is_fresh_52w_high"] = indicators["trade_date"] == indicators["high_52w_date"]
 
@@ -623,15 +627,13 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     rs_prior_q2 = (close_by_symbol.shift(63) / close_by_symbol.shift(126) - 1) * 100
     rs_prior_q3 = (close_by_symbol.shift(126) / close_by_symbol.shift(189) - 1) * 100
     rs_prior_q4 = (close_by_symbol.shift(189) / close_by_symbol.shift(252) - 1) * 100
-    rs_score = (
-        rs_latest_q.fillna(0) * 0.40
-        + rs_prior_q2.fillna(0) * 0.20
-        + rs_prior_q3.fillna(0) * 0.20
-        + rs_prior_q4.fillna(0) * 0.20
-    )
-    indicators["rs_percentile"] = rs_score.groupby(indicators["trade_date"]).rank(pct=True) * 100
+    rs_components = pd.concat([rs_latest_q, rs_prior_q2, rs_prior_q3, rs_prior_q4], axis=1)
+    rs_score_no_fill = rs_components.mul([0.40, 0.20, 0.20, 0.20], axis=1).sum(axis=1, min_count=4)
+    indicators["rs_percentile_primary"] = rs_score_no_fill.groupby(indicators["trade_date"]).rank(pct=True) * 100
+    indicators["rs_percentile"] = indicators["rs_percentile_primary"]
+    indicators["rs_percentile_no_fill"] = indicators["rs_percentile_primary"]
 
-    # Alternative RS views (additive, primary rs_percentile unchanged for compatibility).
+    # Alternative RS views. The primary percentile requires complete quarterly history.
     # These help validate / compare. The current method is a weighted multi-quarter momentum rank vs peers on the day.
     # rs_1y_percentile = pure 252-day return rank percentile (classic 1-year relative strength).
     rs_1y = (indicators["close_price"] / close_by_symbol.shift(252) - 1) * 100
@@ -642,8 +644,31 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     indicators["rs_3m_percentile"] = rs_3m.groupby(indicators["trade_date"]).rank(pct=True) * 100
 
     # NOTE on RS: All are cross-sectional daily ranks (0-100). Higher = stronger relative performance vs other stocks that day.
-    # Primary rs_percentile uses the 40/20/20/20 quarterly decay. Use the alternatives in UI/queries for comparison or when you suspect the weighting.
-    indicators["distance_to_high_pct"] = indicators[["away_database_high_pct", "away_52w_high_pct"]].abs().min(axis=1)
+    close = indicators["close_price"]
+    sma50 = indicators["sma_50"]
+    sma150 = indicators["sma_150"]
+    sma200 = indicators["sma_200"]
+    tt_price_long = (close > sma150) & (close > sma200)
+    tt_150_over_200 = sma150 > sma200
+    tt_200_rising = indicators["sma_200_rising"].fillna(False)
+    tt_50_stack = (sma50 > sma150) & (sma50 > sma200)
+    tt_price_50 = close > sma50
+    tt_off_low = indicators["away_52w_low_pct"] >= 30
+    tt_near_high = indicators["distance_below_52w"] <= 25
+    tt_rs = indicators["rs_percentile"] >= 70
+    indicators["trend_template_pass_n"] = (
+        tt_price_long.astype(int)
+        + tt_150_over_200.astype(int)
+        + tt_200_rising.astype(int)
+        + tt_50_stack.astype(int)
+        + tt_price_50.astype(int)
+        + tt_off_low.astype(int)
+        + tt_near_high.astype(int)
+        + tt_rs.astype(int)
+    )
+    indicators["trend_template_pass"] = indicators["trend_template_pass_n"] == 8
+    indicators["distance_to_high_pct_corrected"] = distance_below_high(indicators["close_price"], indicators["high_52w"])
+    indicators["distance_to_high_pct"] = indicators["distance_to_high_pct_corrected"]
     indicators["trend_score"] = (
         (indicators["close_price"] > indicators["ema_50"]).astype(float) * 20
         + (indicators["close_price"] > indicators["ema_150"]).astype(float) * 20
@@ -671,6 +696,8 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         + indicators["volume_dryup_score"] * 0.25
         + indicators["pivot_proximity_score"] * 0.15
     )
+    indicators["base_quality_score"] = indicators["vcp_score"]
+    indicators["setup_class"] = setup_class(indicators)
     indicators["vcp_state"] = np.select(
         [
             indicators["close_price"] < indicators["ema_50"],
@@ -730,7 +757,7 @@ def enrich_deals(deals: pd.DataFrame, prices: pd.DataFrame, indicators: pd.DataF
     out["client_symbol_key"] = out["deal_type"].astype(str) + "|" + out["symbol"].astype(str) + "|" + out["client_name"].astype(str) + "|" + out["side"].astype(str)
     out["repeated_client_count"] = out.groupby("client_symbol_key")["trade_date"].transform("nunique")
     out = out.drop(columns=["client_symbol_key"])
-    return out
+    return enrich_deals_with_tiers(out)
 
 
 def build_breadth_daily(indicators: pd.DataFrame) -> pd.DataFrame:
@@ -936,7 +963,16 @@ def write_database(
     breadth_daily: pd.DataFrame,
     sector_rotation: pd.DataFrame,
     screener_results: pd.DataFrame,
+    sector_metrics_daily: pd.DataFrame | None = None,
 ) -> None:
+    if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
+        sector_metrics_daily = pd.DataFrame(
+            columns=[
+                "trade_date", "level", "group_name", "stock_count", "rs_vs_nifty_21d", "rs_vs_nifty_63d",
+                "breadth_50", "breadth_200", "adv_concentration_top3", "near_52w_pct",
+                "adv_total_cr", "tech_pass_n", "funda_pass_n", "deal_net_10s_cr", "deal_prop_10s_cr", "rotation_state",
+            ]
+        )
     temp_db = DB_PATH.with_suffix(".tmp.duckdb")
     if temp_db.exists():
         temp_db.unlink()
@@ -950,6 +986,7 @@ def write_database(
         "breadth_daily": breadth_daily,
         "sector_rotation": sector_rotation,
         "screener_results": screener_results,
+        "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
     }.items():
         con.register(f"{name}_df", frame)
         con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
@@ -958,6 +995,7 @@ def write_database(
     con.execute("CREATE INDEX idx_deals_symbol_date ON deals(symbol, trade_date)")
     con.execute("CREATE INDEX idx_breadth_date ON breadth_daily(trade_date)")
     con.execute("CREATE INDEX idx_sector_rotation ON sector_rotation(level, group_name, trade_date)")
+    con.execute("CREATE INDEX idx_sector_metrics ON sector_metrics_daily(level, group_name, trade_date)")
     con.execute("CREATE INDEX idx_screener_name ON screener_results(screener_name)")
 
     # 1. Ingest index_daily from all MA files
@@ -1055,12 +1093,34 @@ def main() -> None:
     if not args.quiet:
         print("7/8: Building breadth and sector rotation metrics...")
     enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
+    if not args.quiet:
+        print("  7a/8: Calculating market breadth...")
     breadth_daily = build_breadth_daily(indicators)
+    if not args.quiet:
+        print("  7b/8: Calculating sector rotation...")
     sector_rotation = build_sector_rotation(indicators, master)
+    try:
+        if not args.quiet:
+            print("  7c/8: Loading market-index history...")
+        index_raw = load_all_market_activity_history(ROOT_DIR)
+        index_features = build_index_features(index_raw)
+    except Exception:
+        index_features = pd.DataFrame()
+    metric_reference = reference_history
+    if metric_reference.empty and {"symbol", "latest_price_date", "market_cap_cr"}.issubset(master.columns):
+        metric_reference = master[["symbol", "latest_price_date", "market_cap_cr"]].rename(
+            columns={"latest_price_date": "effective_date"}
+        )
+    if not args.quiet:
+        print("  7d/8: Computing taxonomy metrics...")
+    sector_metrics_daily = compute_sector_metrics(indicators, master, metric_reference, index_features, deals)
+    if not args.quiet:
+        print(f"  7d/8: Taxonomy metrics ready ({len(sector_metrics_daily):,} rows).")
+        print("  7e/8: Building screener results...")
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
     if not args.quiet:
         print("8/8: Writing database file...")
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily)
     if not args.quiet:
         print("MarketPulse database built successfully (FULL history rebuild).")
         print(f"Database: {DB_PATH}")

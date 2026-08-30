@@ -21,6 +21,7 @@ from build_database import (
     read_deals,
     write_database,
 )
+from sector_metrics import compute_sector_metrics
 from config import ARCHIVE_DIR, DB_PATH
 
 
@@ -107,6 +108,14 @@ def refresh_deals(clean: bool = True) -> None:
     breadth_daily = _load_table("breadth_daily")
     sector_rotation = _load_table("sector_rotation")
     try:
+        reference_for_metrics = _load_table("security_reference_daily")
+    except Exception:
+        reference_for_metrics = pd.DataFrame()
+    try:
+        index_for_metrics = _load_table("index_daily")
+    except Exception:
+        index_for_metrics = pd.DataFrame()
+    try:
         enrichment = _load_table("daily_enrichment")
     except Exception:
         enrichment = pd.DataFrame()
@@ -116,6 +125,7 @@ def refresh_deals(clean: bool = True) -> None:
 
     print("Enriching deals...")
     deals = enrich_deals(deals_raw, prices, indicators, master)
+    sector_metrics_daily = compute_sector_metrics(indicators, master, reference_for_metrics, index_for_metrics, deals)
 
     print("Rebuilding screener_results (deal-aware screens)...")
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
@@ -159,6 +169,7 @@ def refresh_deals(clean: bool = True) -> None:
         breadth_daily,
         sector_rotation,
         screener_results,
+        sector_metrics_daily,
     )
 
     with duckdb.connect(str(DB_PATH), read_only=True) as con:

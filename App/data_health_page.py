@@ -15,6 +15,16 @@ try:
 except ModuleNotFoundError:
     from Scripts.pipeline_health import assess_pipeline
 
+try:
+    from App.market_status import load_market_status
+except ModuleNotFoundError:
+    from market_status import load_market_status  # type: ignore
+
+try:
+    from App.evidence_read_model import summarize_signal_outcomes
+except ModuleNotFoundError:
+    from evidence_read_model import summarize_signal_outcomes  # type: ignore
+
 
 def _migration_state(user_db: Path) -> str:
     if not user_db.exists():
@@ -37,7 +47,8 @@ def build_data_health_page(
     table_from_df: Callable,
     compact_kpi: Callable,
 ) -> None:
-    report = assess_pipeline(db_path, status_path=status_path, user_db=user_db)
+    market_status = load_market_status(db_path, status_path)
+    report = market_status.report
     section_header(
         "Data Health",
         "Freshness and provenance checks for the market database, NSE PR reports, focused-v2 decisions, and user data.",
@@ -50,6 +61,10 @@ def build_data_health_page(
         compact_kpi("Decision version", "focused-v2")
         compact_kpi("User data", _migration_state(user_db))
     ui.label(report.message).classes(f"mp-badge mp-{tone} mt-2")
+    if not market_status.actionable:
+        ui.label(
+            f"Decision surfaces are non-actionable until the expected session {market_status.expected_session} is available."
+        ).classes("mp-badge mp-bad mt-2")
     details = report.details or {}
     counts = report.row_counts or {}
     count_frame = pd.DataFrame([{"dataset": key, "rows": value} for key, value in counts.items()])
@@ -73,6 +88,26 @@ def build_data_health_page(
         ui.label(f"Last error: {report.last_error}").classes("text-sm text-red-700 mt-2")
     if report.log_file:
         ui.label(f"Log: {report.log_file}").classes("text-xs text-[var(--mp-muted)]")
+
+    evidence = summarize_signal_outcomes(db_path, score_version="focused-v2")
+    ui.label("Decision evidence").classes("mp-section-title mt-5")
+    if evidence.empty:
+        ui.label(
+            "Evidence unavailable · no resolved walk-forward outcomes are stored yet. "
+            "Do not infer hit rate from the candidate queue."
+        ).classes("mp-badge mp-warn mt-2")
+    else:
+        display = evidence.copy()
+        for column in ("hit_rate_pct", "avg_forward_return_pct", "median_forward_return_pct", "avg_mfe_pct", "avg_mae_pct"):
+            if column in display.columns:
+                display[column] = pd.to_numeric(display[column], errors="coerce").round(2)
+        table_from_df(
+            display,
+            "Signal evidence · resolved outcomes",
+            pagination=20,
+            copy_symbols=False,
+            page_key="data-health-evidence",
+        )
 
 
 __all__ = ["build_data_health_page"]

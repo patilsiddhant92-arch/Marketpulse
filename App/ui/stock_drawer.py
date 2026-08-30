@@ -154,6 +154,12 @@ def open_stock_360_modal(
     vcp_score = profile.get("vcp_score")
     vcp_state = profile.get("vcp_state") or "None"
     band_remarks = ref.get("band_remarks") or profile.get("band_remarks") or ""
+    candidate_state = str(cand.get("candidate_state") or "No active setup")
+    market_regime = str(cand.get("market_regime") or "Unknown")
+    event_risk = str(cand.get("event_risk") or "none").title()
+    data_as_of = str(cand.get("trade_date") or profile.get("trade_date") or "—")[:10]
+    if market_regime.casefold() == "risk-off" and candidate_state == "Prepare":
+        candidate_state = "Observe (Risk-Off)"
 
     with ui.dialog().classes("mp-stock-dialog") as dialog, ui.card().classes("w-[900px] max-w-[95vw] max-h-[90vh] overflow-y-auto p-5 mp-card"):
         # Header Row
@@ -169,6 +175,12 @@ def open_stock_360_modal(
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone}")
                 ui.label(f"{sector} · {industry}").classes("text-xs text-[var(--mp-muted)]")
+
+                with ui.row().classes("gap-2 flex-wrap mt-2"):
+                    ui.label(f"Action State · {candidate_state}").classes("mp-badge mp-warn")
+                    ui.label(f"Market Regime · {market_regime}").classes("mp-badge mp-neutral")
+                    ui.label(f"Event Risk · {event_risk}").classes("mp-badge mp-neutral")
+                    ui.label(f"Data As Of · {data_as_of}").classes("mp-badge mp-neutral")
 
             with ui.column().classes("items-end gap-1"):
                 with ui.row().classes("items-center gap-2"):
@@ -193,13 +205,19 @@ def open_stock_360_modal(
         with ui.tab_panels(tabs, value=t_overview).classes("w-full"):
             # Tab 1: Overview
             with ui.tab_panel(t_overview):
-                with ui.grid(columns=4).classes("w-full gap-3 mb-4"):
+                try:
+                    from App.ui.t_graph import geometry_for_symbol, render_t_panel
+                except ModuleNotFoundError:
+                    from ui.t_graph import geometry_for_symbol, render_t_panel  # type: ignore
+                geo = geometry_for_symbol(db_path, sym)
+                render_t_panel(db_path, sym)
+                with ui.grid(columns=4).classes("w-full gap-3 mb-4 mt-3"):
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("RS Percentile").classes("text-xs text-[var(--mp-muted)]")
-                        ui.label(f"{float(rs):.0f}" if pd.notna(rs) else "—").classes("text-xl font-bold text-teal-600")
+                        ui.label(f"{float(rs):.0f}" if pd.notna(rs) else "—").classes("text-xl font-bold")
                     with ui.card().classes("p-3 mp-card text-center"):
-                        ui.label("VCP Score").classes("text-xs text-[var(--mp-muted)]")
-                        ui.label(f"{float(vcp_score):.0f}" if pd.notna(vcp_score) else "—").classes("text-xl font-bold text-indigo-600")
+                        ui.label("SMA template").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(geo["template"]["label"]).classes("text-xl font-bold")
                     with ui.card().classes("p-3 mp-card text-center"):
                         away_52w = profile.get("away_52w_high_pct")
                         ui.label("52W High %").classes("text-xs text-[var(--mp-muted)]")
@@ -279,6 +297,8 @@ def open_stock_360_modal(
                     invalidation = cand.get("invalidation_price")
                     resistance = cand.get("first_resistance")
                     rr = cand.get("reward_to_risk")
+                    rr_numeric = pd.to_numeric(rr, errors="coerce")
+                    rr_valid = pd.notna(rr_numeric) and 0 < float(rr_numeric) <= 10
                     risk_pct = cand.get("initial_risk_pct")
                     why_now = cand.get("why_now") or "—"
                     latest_chg = cand.get("latest_change") or "—"
@@ -293,7 +313,7 @@ def open_stock_360_modal(
                             ui.label(f"₹{float(invalidation):,.2f}" if invalidation and pd.notna(invalidation) else "—").classes("text-lg font-bold text-red-600")
                         with ui.card().classes("p-3 mp-card text-center"):
                             ui.label("Reward / Risk").classes("text-xs text-[var(--mp-muted)]")
-                            ui.label(f"{float(rr):.2f} R" if rr and pd.notna(rr) else "—").classes("text-lg font-bold text-blue-600")
+                            ui.label(f"{float(rr_numeric):.2f} R" if rr_valid else "Invalid geometry").classes("text-lg font-bold text-blue-600")
 
                     with ui.column().classes("gap-2 w-full p-3 mp-surface-2 rounded-lg"):
                         with ui.row().classes("gap-2"):

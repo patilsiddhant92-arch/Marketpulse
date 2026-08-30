@@ -38,6 +38,48 @@ def _checksum(row: pd.Series) -> str:
     return hashlib.sha256(values.encode("utf-8")).hexdigest()
 
 
+def _collapse_reference_rows(combined: pd.DataFrame) -> pd.DataFrame:
+    """Merge report rows that describe the same symbol and effective date.
+
+    A rebuild can contain several report types (and duplicate downloads) for a
+    single symbol/date.  ``GroupBy.last`` performs the required last-non-null
+    merge in pandas' grouped implementation; the previous implementation
+    materialised one Python dictionary per group, which made a full history
+    rebuild spend minutes in Python before indicator calculation even started.
+    """
+    if combined is None or combined.empty:
+        return pd.DataFrame(columns=REFERENCE_COLUMNS)
+
+    frame = combined.copy()
+    for col in REFERENCE_COLUMNS:
+        if col not in frame.columns:
+            frame[col] = pd.NA
+
+    aggregations = {
+        "source_date": "max",
+        "market_cap_cr": "last",
+        "pe": "last",
+        "adjusted_pe": "last",
+        "price_band": "last",
+        "band_remarks": "last",
+        "high_52w": "last",
+        "high_52w_date": "last",
+        "low_52w": "last",
+        "low_52w_date": "last",
+        "source_checksum": "last",
+    }
+    collapsed = (
+        frame.groupby(
+            ["symbol", "effective_date"],
+            dropna=False,
+            sort=False,
+            as_index=False,
+        )
+        .agg(aggregations)
+    )
+    return collapsed[REFERENCE_COLUMNS]
+
+
 def _normalize(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
     if frame is None or frame.empty:
         return pd.DataFrame(columns=REFERENCE_COLUMNS)
@@ -85,18 +127,9 @@ def build_security_reference_history(
     # Preserve source ingestion order for same-day snapshots; the final row is
     # the most recently loaded observation when a file is corrected in place.
     combined = combined.sort_values(["symbol", "effective_date"], kind="stable")
-    # Multiple report types can describe one effective date. Merge values across them,
-    # while preferring the last non-null value for each field.
-    value_columns = [col for col in REFERENCE_COLUMNS if col not in {"symbol", "effective_date", "source_date", "source_checksum"}]
-    grouped = []
-    for (symbol, effective_date), group in combined.groupby(["symbol", "effective_date"], dropna=False, sort=False):
-        row = {"symbol": symbol, "effective_date": effective_date, "source_date": group["source_date"].max()}
-        for col in value_columns:
-            values = group[col].dropna()
-            row[col] = values.iloc[-1] if not values.empty else pd.NA
-        row["source_checksum"] = group["source_checksum"].iloc[-1]
-        grouped.append(row)
-    result = pd.DataFrame(grouped, columns=REFERENCE_COLUMNS)
+    # Multiple report types can describe one effective date. Merge values across
+    # them, while preferring the last non-null value for each field.
+    result = _collapse_reference_rows(combined)
     return result.sort_values(["symbol", "effective_date"]).reset_index(drop=True)
 
 

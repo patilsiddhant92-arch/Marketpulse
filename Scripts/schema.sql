@@ -122,7 +122,28 @@ CREATE TABLE IF NOT EXISTS candidate_daily (
     blocking_reasons TEXT,
     warning_reasons TEXT,
     geometry_valid BOOLEAN,
+    geometry_warning TEXT,
     PRIMARY KEY (trade_date, symbol, score_version)
+);
+
+CREATE TABLE IF NOT EXISTS sector_metrics_daily (
+    trade_date DATE,
+    level TEXT,
+    group_name TEXT,
+    stock_count INTEGER,
+    rs_vs_nifty_21d DOUBLE,
+    rs_vs_nifty_63d DOUBLE,
+    breadth_50 DOUBLE,
+    breadth_200 DOUBLE,
+    adv_concentration_top3 DOUBLE,
+    near_52w_pct DOUBLE,
+    adv_total_cr DOUBLE,
+    tech_pass_n INTEGER,
+    funda_pass_n INTEGER,
+    deal_net_10s_cr DOUBLE,
+    deal_prop_10s_cr DOUBLE,
+    rotation_state TEXT,
+    PRIMARY KEY (trade_date, level, group_name)
 );
 
 CREATE TABLE IF NOT EXISTS watchlist_candidates (

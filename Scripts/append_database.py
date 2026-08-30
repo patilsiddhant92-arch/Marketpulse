@@ -33,6 +33,7 @@ from build_database import (
     read_sector,
     write_database,
 )
+from sector_metrics import compute_sector_metrics
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
 from reference_history import load_reference_history
 
@@ -145,11 +146,20 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
     breadth_daily = build_breadth_daily(indicators)
     sector_rotation = build_sector_rotation(indicators, master)
+    try:
+        reference_for_metrics = _load_table("security_reference_daily")
+    except Exception:
+        reference_for_metrics = reference_history
+    try:
+        index_for_metrics = _load_table("index_daily")
+    except Exception:
+        index_for_metrics = pd.DataFrame()
+    sector_metrics_daily = compute_sector_metrics(indicators, master, reference_for_metrics, index_for_metrics, deals)
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
 
     backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
     shutil.copy2(DB_PATH, backup)
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily)
     new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
     msg = f"Append update complete through {new_max}. Backup: {backup.name}"
     print(msg)
