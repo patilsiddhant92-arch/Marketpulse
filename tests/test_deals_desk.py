@@ -185,6 +185,46 @@ def test_advanced_clients_return_ordered_tradingview_symbols(tmp_path):
         )
 
     data = query_deals_advanced(db, side="BUY", min_value_cr=0, lookback_days=10)
+
+
+def test_advanced_clients_return_ordered_tradingview_symbols(tmp_path):
+    from App.deals_read_model import query_deals_advanced
+
+    db = tmp_path / "advanced-deals.duckdb"
+    with duckdb.connect(str(db)) as con:
+        con.execute(
+            "CREATE TABLE deals (trade_date DATE, symbol TEXT, side TEXT, client_name TEXT, deal_value_cr DOUBLE)"
+        )
+        con.execute(
+            "CREATE TABLE indicators_daily (symbol TEXT, trade_date DATE, close_price DOUBLE, ema_200 DOUBLE, rs_percentile DOUBLE, vcp_score DOUBLE, vcp_state TEXT, away_52w_high_pct DOUBLE)"
+        )
+        con.execute(
+            "CREATE TABLE stocks_master (symbol TEXT, market_cap_cr DOUBLE, sector TEXT, industry TEXT)"
+        )
+        con.executemany(
+            "INSERT INTO deals VALUES (?, ?, 'BUY', ?, ?)",
+            [
+                ("2026-08-10", "NEWEST", "Fund A", 10.0),
+                ("2026-08-09", "MIDDLE", "Fund A", 10.0),
+                ("2026-08-07", "OLD-EST", "Fund A", 10.0),
+                ("2026-08-10", "OTHER", "Fund B", 12.0),
+            ],
+        )
+        con.executemany(
+            "INSERT INTO indicators_daily VALUES (?, ?, 110, 100, 80, 70, 'ready', -2)",
+            [
+                ("NEWEST", "2026-08-10"),
+                ("MIDDLE", "2026-08-10"),
+                ("OLD-EST", "2026-08-10"),
+                ("OTHER", "2026-08-10"),
+            ],
+        )
+        con.executemany(
+            "INSERT INTO stocks_master VALUES (?, 2000, 'Tech', 'Software')",
+            [("NEWEST",), ("MIDDLE",), ("OLD-EST",), ("OTHER",)],
+        )
+
+    data = query_deals_advanced(db, side="BUY", min_value_cr=0, lookback_days=10)
     clients = data["clients"].set_index("client_name")
 
     assert clients.loc["Fund A", "symbols"] == 3
@@ -232,3 +272,53 @@ def test_styles_live_in_ui_kit():
     assert "def add_styles" in styles
     app = Path("App/app.py").read_text(encoding="utf-8")
     assert "App.ui.styles" in app or "ui.styles" in app
+
+
+def test_telegram_deals_tv_strings_and_db_override(tmp_path):
+    from Scripts.telegram_deals import build_deals_telegram_report
+
+    db = tmp_path / "marketpulse.duckdb"
+    _seed_deals_db(db)
+
+    report = build_deals_telegram_report(lookback_days=20, min_mcap_cr=500.0, db_path=db)
+    assert report["as_of"] == "2026-08-07"
+    assert "tv_strings" in report
+
+    tv = report["tv_strings"]
+    assert "four_plus" in tv
+    assert "three" in tv
+    assert "two" in tv
+    assert "persistence_all" in tv
+    assert "fii" in tv
+    assert "dii" in tv
+    assert "inst_buys" in tv
+    assert "others" in tv
+    assert "prop" in tv
+    assert "top_buys" in tv
+    assert "top_sells" in tv
+    assert "all_buys" in tv
+
+    # AAA and BBB were bought, CCC fails mcap/structure or side
+    assert "NSE:AAA" in tv["all_buys"]
+    assert "NSE:BBB" in tv["all_buys"]
+
+
+def test_deals_telegram_fetch_cache(tmp_path):
+    from App.pages.research.deals import fetch_deals_telegram_data
+    from App.cache_manager import invalidate_cache
+
+    invalidate_cache()
+    db = tmp_path / "marketpulse.duckdb"
+    _seed_deals_db(db)
+
+    # First fetch (cache miss -> populate)
+    r1 = fetch_deals_telegram_data(db, 20)
+    assert "tv_strings" in r1
+
+    # Second fetch (cache hit)
+    r2 = fetch_deals_telegram_data(db, 20)
+    assert r1 is r2
+
+    # Different lookback (different cache key)
+    r3 = fetch_deals_telegram_data(db, 10)
+    assert "tv_strings" in r3

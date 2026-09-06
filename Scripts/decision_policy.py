@@ -42,6 +42,11 @@ def evaluate_candidate_eligibility(row: Mapping[str, Any], policy: DecisionPolic
     blocking: list[str] = []
     warnings: list[str] = []
 
+    # Ban rights entitlements
+    sym = str(row.get("symbol") or "").upper()
+    if sym.endswith("-RE") or sym.endswith("_RE") or "-RE" in sym:
+        blocking.append("rights_entitlement_banned")
+
     market_cap = _number(row, "market_cap_cr")
     if market_cap is None:
         blocking.append("market_cap_missing")
@@ -78,6 +83,12 @@ def evaluate_candidate_eligibility(row: Mapping[str, Any], policy: DecisionPolic
     elif distance > policy.max_distance_to_trigger_pct or distance < policy.min_distance_to_trigger_pct:
         blocking.append("trigger_too_far")
 
+    # Macro trend: CMP > 200 EMA
+    close_price = _number(row, "close_price")
+    ema_200 = _number(row, "ema_200")
+    if close_price is not None and ema_200 is not None and close_price <= ema_200:
+        blocking.append("below_200_ema")
+
     band_remarks = str(row.get("band_remarks") or "").upper()
     if any(k in band_remarks for k in ("GSM", "STAGE 2", "STAGE 3", "STAGE 4", "ESM STAGE 2")):
         blocking.append("surveillance_gsm_asm_high")
@@ -91,7 +102,6 @@ def evaluate_candidate_eligibility(row: Mapping[str, Any], policy: DecisionPolic
         warnings.append("event_risk_warning")
 
     return EligibilityResult(not blocking, tuple(dict.fromkeys(blocking)), tuple(dict.fromkeys(warnings)))
-
 
 
 __all__ = ["DecisionPolicy", "EligibilityResult", "evaluate_candidate_eligibility"]

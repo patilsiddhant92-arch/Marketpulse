@@ -78,9 +78,31 @@ def _load_table(name: str) -> pd.DataFrame:
         return con.execute(f"SELECT * FROM {name}").fetchdf()
 
 
-def refresh_deals(clean: bool = True) -> None:
+def fetch_live_deals_from_nse(day: datetime | None = None) -> bool:
+    """Fetch latest bulk.csv and block.csv from NSE into Input/daily."""
+    try:
+        from datetime import datetime
+        from download_nse_reports import make_session, discover_daily_report_urls, download_deals
+        from config import DAILY_DIR
+        target_day = day or datetime.now()
+        session = make_session()
+        discovered = discover_daily_report_urls(session, target_day)
+        DAILY_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"Fetching live bulk/block deals for {target_day.strftime('%d-%m-%Y')} from NSE...")
+        sources = download_deals(session, target_day, DAILY_DIR, discovered)
+        print(f"  Downloaded: {sources}")
+        return True
+    except Exception as exc:
+        print(f"  Notice: Live deal fetch from NSE skipped: {exc}")
+        return False
+
+
+def refresh_deals(clean: bool = True, fetch: bool = False) -> None:
     if not DB_PATH.exists():
         raise SystemExit(f"Database not found: {DB_PATH}. Run a full build first.")
+
+    if fetch:
+        fetch_live_deals_from_nse()
 
     if clean:
         print("Cleaning empty bulk/block files in archive...")
@@ -96,7 +118,7 @@ def refresh_deals(clean: bool = True) -> None:
 
     print(
         f"  raw deals after dedupe: {len(deals_raw):,} rows | "
-        f"{deals_raw['trade_date'].min().date()} → {deals_raw['trade_date'].max().date()} | "
+        f"{deals_raw['trade_date'].min().date()} -> {deals_raw['trade_date'].max().date()} | "
         f"{deals_raw['trade_date'].nunique()} days"
     )
     print(deals_raw.groupby("deal_type").size().to_string())
@@ -142,7 +164,7 @@ def refresh_deals(clean: bool = True) -> None:
             enrichment["has_deal"] = enrichment["symbol"].isin(latest_syms)
 
     backup = DB_PATH.with_suffix(".predeals.backup.duckdb")
-    print(f"Backing up database → {backup.name}")
+    print(f"Backing up database -> {backup.name}")
     shutil.copy2(DB_PATH, backup)
 
     print("Writing database (prices/indicators unchanged, deals refreshed)...")
@@ -189,6 +211,7 @@ def refresh_deals(clean: bool = True) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh MarketPulse deals from CSV files.")
+    parser.add_argument("--fetch", action="store_true", help="Fetch latest live bulk and block CSVs from NSE before refreshing.")
     parser.add_argument("--no-clean", action="store_true", help="Do not delete empty archive deal files.")
     parser.add_argument("--clean-only", action="store_true", help="Only delete empty files; do not touch DB.")
     args = parser.parse_args()
@@ -197,7 +220,7 @@ def main() -> None:
         removed = clean_empty_archive_deals(dry_run=False)
         print(f"Removed {len(removed)} files.")
         return
-    refresh_deals(clean=not args.no_clean)
+    refresh_deals(clean=not args.no_clean, fetch=args.fetch)
 
 
 if __name__ == "__main__":

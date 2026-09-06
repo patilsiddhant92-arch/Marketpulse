@@ -15,9 +15,12 @@ import duckdb
 import pandas as pd
 
 try:
-    from indicators import sma
-except ModuleNotFoundError:
-    from Scripts.indicators import sma  # type: ignore
+    from Scripts.indicators import sma
+except (ModuleNotFoundError, ImportError):
+    try:
+        from indicators import sma  # type: ignore
+    except (ModuleNotFoundError, ImportError):
+        from .indicators import sma  # type: ignore
 
 
 TEMPLATE_CHECKS = (

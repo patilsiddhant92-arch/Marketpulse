@@ -6,7 +6,7 @@ import pytest
 def test_app_exposes_candidates_health_and_loopback_default():
     source = Path("App/app.py").read_text(encoding="utf-8")
     assert '("Desk", desk_page, "desk", True)' in source
-    assert '("Health", data_health_page, "data-health", False)' in source
+    assert '("Info", info_page, "info", False)' in source
     assert '("Sectors", sector_rotation_page, "rotation", False)' in source
     assert '("Deals", deals_page, "deals", False)' in source
     assert '("Portfolio", portfolio_page, "portfolio", False)' in source

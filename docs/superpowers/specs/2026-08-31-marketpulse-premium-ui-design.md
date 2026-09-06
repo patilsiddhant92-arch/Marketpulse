@@ -1,7 +1,7 @@
 # MarketPulse 2.0: Premium Trading-Desk UI Design
 
 **Date:** 2026-08-31
-**Status:** Design approved in conversation; implementation not started
+**Status:** Implemented and verified on 2026-08-31
 **Scope:** Visual system, information hierarchy, tables, charts, responsive behavior, and Stock 360 presentation
 
 ## Design decision
@@ -28,7 +28,7 @@ The current application already has several useful foundations:
 - `App/ui/stock_drawer.py` provides the Stock 360 dialog and its technical, institutional, risk, and event tabs.
 - `App/pages/desk.py`, `App/candidates_page.py`, `App/pages/screener.py`, and the research pages already expose the core data needed for a premium desk.
 
-The main visual problem is inconsistency rather than lack of capability. The shared stylesheet mixes a dark terminal palette with legacy light-theme utility classes, page-specific compatibility overrides, hardcoded chart colors, and overlapping table rules. The renderer has explicit width logic, but the active table CSS also uses `width: max-content` and auto layout in places, so a long text field can donate too much or too little space to neighboring columns. The result is a product that contains the right primitives but does not yet feel like one product.
+The main visual problem was inconsistency rather than lack of capability. The implemented pass centralizes the Institutional Midnight tokens, normalizes legacy utility classes under the shared shell, removes hardcoded chart colors, and replaces competing table sizing rules with named fixed-width contracts. The result is one cohesive product surface while preserving the existing data pipeline, scoring logic, and page workflows.
 
 ## Goals
 

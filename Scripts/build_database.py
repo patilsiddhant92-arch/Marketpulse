@@ -28,9 +28,9 @@ from config import (
 from index_history import build_index_features, load_all_market_activity_history
 from reference_history import asof_reference, load_reference_history
 try:
-    from indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma
-except ModuleNotFoundError:
-    from Scripts.indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma  # type: ignore
+    from Scripts.indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma
+except (ModuleNotFoundError, ImportError):
+    from indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma  # type: ignore
 try:
     from institutional_engine import enrich_deals_with_tiers
 except ModuleNotFoundError:

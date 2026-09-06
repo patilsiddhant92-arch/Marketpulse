@@ -46,3 +46,7 @@ Logs/
 .env.local
 Secrets/
 *.secret
+
+# Scratch files
+scratch/
+scratch_*.json

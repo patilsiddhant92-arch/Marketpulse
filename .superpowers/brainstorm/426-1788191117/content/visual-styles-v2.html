@@ -1,0 +1,558 @@
+<style>
+  #mp-style-samples {
+    --mp-sample-radius: 14px;
+    --mp-sample-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+    width: 100%;
+    max-width: 1480px;
+    margin: 0 auto;
+    color: #e9edf3;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  #mp-style-samples .mp-samples-intro {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    margin: 4px 0 22px;
+  }
+
+  #mp-style-samples .mp-samples-kicker {
+    margin: 0 0 7px;
+    color: #d8ac3d;
+    font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  #mp-style-samples .mp-samples-title {
+    margin: 0;
+    color: #f4f6f9;
+    font-size: clamp(24px, 3vw, 38px);
+    letter-spacing: -.035em;
+    line-height: 1.05;
+  }
+
+  #mp-style-samples .mp-samples-note {
+    max-width: 470px;
+    margin: 0;
+    color: #91a0b3;
+    font-size: 13px;
+    line-height: 1.55;
+    text-align: right;
+  }
+
+  #mp-style-samples .options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  #mp-style-samples .option {
+    position: relative;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid #253244;
+    border-radius: var(--mp-sample-radius);
+    background: #0e141d;
+    box-shadow: var(--mp-sample-shadow);
+    cursor: pointer;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+
+  #mp-style-samples .option:hover {
+    transform: translateY(-4px);
+    border-color: #6d7f98;
+    box-shadow: 0 24px 56px rgba(0, 0, 0, .27);
+  }
+
+  #mp-style-samples .option.selected {
+    border-color: #d8ac3d;
+    box-shadow: 0 0 0 2px rgba(216, 172, 61, .24), 0 24px 56px rgba(0, 0, 0, .3);
+  }
+
+  #mp-style-samples .mp-sample-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 15px 17px 13px;
+    background: #101721;
+    border-bottom: 1px solid #253244;
+  }
+
+  #mp-style-samples .mp-sample-label h2 {
+    margin: 0;
+    color: #f3f5f8;
+    font-size: 16px;
+    letter-spacing: -.015em;
+  }
+
+  #mp-style-samples .mp-sample-label p {
+    margin: 4px 0 0;
+    color: #8d9bad;
+    font-size: 11px;
+  }
+
+  #mp-style-samples .mp-sample-pill {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+    border-radius: 999px;
+    color: #d8ac3d;
+    background: #342b19;
+    font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+
+  #mp-style-samples .mp-sample-window {
+    min-height: 492px;
+    padding: 11px;
+  }
+
+  #mp-style-samples .mp-sample-ui {
+    position: relative;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    min-height: 470px;
+    overflow: hidden;
+    border: 1px solid #283546;
+    border-radius: 10px;
+    background: #080c12;
+  }
+
+  #mp-style-samples .mp-sample-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 0;
+    border-right: 1px solid #243244;
+    background: #0b1119;
+  }
+
+  #mp-style-samples .mp-sample-mark {
+    width: 20px;
+    height: 20px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    color: #d8ac3d;
+    font: 800 9px/18px ui-monospace, monospace;
+    text-align: center;
+  }
+
+  #mp-style-samples .mp-sample-rail-icon {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #52637a;
+    border-radius: 4px;
+    opacity: .8;
+  }
+
+  #mp-style-samples .mp-sample-main {
+    min-width: 0;
+    padding: 14px 13px 13px;
+  }
+
+  #mp-style-samples .mp-sample-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  #mp-style-samples .mp-sample-topline strong {
+    color: #edf1f5;
+    font-size: 14px;
+    letter-spacing: -.02em;
+  }
+
+  #mp-style-samples .mp-sample-topline span {
+    color: #7f90a6;
+    font: 10px ui-monospace, monospace;
+  }
+
+  #mp-style-samples .mp-sample-regime {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 9px;
+    padding: 9px 10px;
+    border: 1px solid #334154;
+    border-left: 3px solid #45d483;
+    border-radius: 7px;
+    background: #101a1b;
+  }
+
+  #mp-style-samples .mp-sample-regime b {
+    display: block;
+    margin-bottom: 3px;
+    color: #dfe8e7;
+    font-size: 10px;
+  }
+
+  #mp-style-samples .mp-sample-regime small {
+    color: #8da8a0;
+    font-size: 9px;
+  }
+
+  #mp-style-samples .mp-sample-regime strong {
+    color: #45d483;
+    font: 800 15px ui-monospace, monospace;
+  }
+
+  #mp-style-samples .mp-sample-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 9px;
+  }
+
+  #mp-style-samples .mp-sample-metric {
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid #263447;
+    border-radius: 7px;
+    background: #101721;
+  }
+
+  #mp-style-samples .mp-sample-metric span {
+    display: block;
+    overflow: hidden;
+    color: #8291a4;
+    font: 9px ui-monospace, monospace;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  #mp-style-samples .mp-sample-metric b {
+    display: block;
+    margin-top: 4px;
+    color: #edf1f5;
+    font: 700 13px ui-monospace, monospace;
+  }
+
+  #mp-style-samples .mp-sample-metric .good { color: #45d483; }
+  #mp-style-samples .mp-sample-metric .warn { color: #f0be58; }
+  #mp-style-samples .mp-sample-metric .bad { color: #f27c84; }
+
+  #mp-style-samples .mp-sample-panel {
+    min-width: 0;
+    margin-bottom: 9px;
+    padding: 9px;
+    border: 1px solid #263447;
+    border-radius: 7px;
+    background: #0f161f;
+  }
+
+  #mp-style-samples .mp-sample-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  #mp-style-samples .mp-sample-panel-head b {
+    color: #dbe3eb;
+    font-size: 10px;
+  }
+
+  #mp-style-samples .mp-sample-panel-head span {
+    color: #74869c;
+    font: 9px ui-monospace, monospace;
+  }
+
+  #mp-style-samples .mp-sample-chart {
+    display: block;
+    width: 100%;
+    height: 74px;
+  }
+
+  #mp-style-samples .mp-sample-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 9px;
+  }
+
+  #mp-style-samples .mp-sample-table th {
+    padding: 0 3px 6px;
+    color: #75879e;
+    font: 9px ui-monospace, monospace;
+    font-weight: 600;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  #mp-style-samples .mp-sample-table th:not(:first-child),
+  #mp-style-samples .mp-sample-table td:not(:first-child) { text-align: right; }
+
+  #mp-style-samples .mp-sample-table td {
+    overflow: hidden;
+    padding: 6px 3px;
+    border-top: 1px solid #202d3e;
+    color: #d4dce6;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #mp-style-samples .mp-sample-table td:first-child { color: #f0f3f6; font-weight: 700; }
+  #mp-style-samples .mp-sample-table .good { color: #45d483; }
+  #mp-style-samples .mp-sample-table .warn { color: #f0be58; }
+
+  #mp-style-samples .mp-sample-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 3px;
+    color: #718299;
+    font: 9px ui-monospace, monospace;
+  }
+
+  #mp-style-samples .mp-sample-select {
+    color: #d8ac3d;
+    font-weight: 700;
+  }
+
+  #mp-style-samples .mp-sample-window--light {
+    background: #f1eee8;
+  }
+
+  #mp-style-samples .mp-sample-ui--light {
+    border-color: #d8d5ce;
+    background: #faf9f6;
+  }
+
+  #mp-style-samples .mp-sample-ui--light .mp-sample-rail {
+    border-color: #e2ded5;
+    background: #f5f2ec;
+  }
+
+  #mp-style-samples .mp-sample-ui--light .mp-sample-mark { color: #b07a25; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-rail-icon { border-color: #9da8ad; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-topline strong { color: #192c3d; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-topline span { color: #71808b; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-regime {
+    border-color: #d7e3dc;
+    border-left-color: #187d56;
+    background: #edf6f0;
+  }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-regime b { color: #214637; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-regime small { color: #607f70; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-regime strong { color: #187d56; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-metric,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-panel {
+    border-color: #dedbd3;
+    background: #ffffff;
+  }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-metric span,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-panel-head span,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-table th,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-foot { color: #71808b; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-metric b,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-panel-head b { color: #243c50; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-metric .good,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-table .good { color: #187d56; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-metric .warn,
+  #mp-style-samples .mp-sample-ui--light .mp-sample-table .warn { color: #a56b16; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-table td {
+    border-color: #ece9e3;
+    color: #536473;
+  }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-table td:first-child { color: #19374d; }
+  #mp-style-samples .mp-sample-ui--light .mp-sample-select { color: #a56b16; }
+
+  #mp-style-samples .mp-sample-window--focus { background: #101217; }
+  #mp-style-samples .mp-sample-ui--focus { border-color: #2c3947; background: #080a0d; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-rail { border-color: #202b36; background: #0c1015; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-mark { color: #5ad3d0; border-radius: 50%; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-regime { border-left-color: #5ad3d0; background: #0e1a1c; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-regime strong { color: #5ad3d0; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-metric,
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-panel { border-color: #26323f; background: #0c1117; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-select { color: #5ad3d0; }
+  #mp-style-samples .mp-sample-ui--focus .mp-sample-table .good { color: #63e6a5; }
+
+  #mp-style-samples .mp-sample-swatches {
+    display: flex;
+    gap: 5px;
+    margin-top: 3px;
+  }
+
+  #mp-style-samples .mp-sample-swatch {
+    width: 11px;
+    height: 11px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 50%;
+  }
+
+  #mp-style-samples .mp-swatch-bg { background: #080c12; }
+  #mp-style-samples .mp-swatch-accent { background: #d8ac3d; }
+  #mp-style-samples .mp-swatch-good { background: #45d483; }
+  #mp-style-samples .mp-swatch-light { background: #faf9f6; border-color: #c6c1b7; }
+  #mp-style-samples .mp-swatch-teal { background: #187d56; }
+  #mp-style-samples .mp-swatch-copper { background: #b07a25; }
+  #mp-style-samples .mp-swatch-focus { background: #0c1117; }
+  #mp-style-samples .mp-swatch-cyan { background: #5ad3d0; }
+  #mp-style-samples .mp-swatch-amber { background: #f0be58; }
+
+  @media (max-width: 1050px) {
+    #mp-style-samples .options { grid-template-columns: 1fr; }
+    #mp-style-samples .option { max-width: 720px; margin: 0 auto; width: 100%; }
+  }
+
+  @media (max-width: 640px) {
+    #mp-style-samples .mp-samples-intro { display: block; }
+    #mp-style-samples .mp-samples-note { margin-top: 10px; text-align: left; }
+    #mp-style-samples .mp-sample-window { padding: 7px; }
+    #mp-style-samples .mp-sample-main { padding: 11px 9px; }
+  }
+</style>
+
+<div id="mp-style-samples">
+  <div class="mp-samples-intro">
+    <div>
+      <p class="mp-samples-kicker">MarketPulse · premium UI directions</p>
+      <h1 class="mp-samples-title">Choose the visual lane</h1>
+    </div>
+    <p class="mp-samples-note">Three polished directions using the same Desk content model: regime first, compact decision tiles, one useful chart, and a disciplined Prepare queue. Click a sample to select it.</p>
+  </div>
+
+  <div class="options">
+    <div class="option" data-choice="institutional-midnight" onclick="toggleSelect(this)">
+      <div class="mp-sample-label">
+        <div>
+          <h2>Institutional Midnight</h2>
+          <p>Quiet, premium, trading-desk focused</p>
+        </div>
+        <span class="mp-sample-pill">Recommended</span>
+      </div>
+      <div class="mp-sample-window">
+        <div class="mp-sample-ui">
+          <aside class="mp-sample-rail">
+            <span class="mp-sample-mark">MP</span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+          </aside>
+          <main class="mp-sample-main">
+            <div class="mp-sample-topline"><strong>Morning Desk</strong><span>31 AUG 2026 · 09:18</span></div>
+            <div class="mp-sample-regime"><div><b>Constructive · breadth improving</b><small>Leaders are holding above the 20D trend line</small></div><strong>72</strong></div>
+            <div class="mp-sample-metrics">
+              <div class="mp-sample-metric"><span>Market breadth</span><b class="good">64%</b></div>
+              <div class="mp-sample-metric"><span>Leading groups</span><b>08</b></div>
+              <div class="mp-sample-metric"><span>Risk status</span><b class="warn">Moderate</b></div>
+            </div>
+            <section class="mp-sample-panel">
+              <div class="mp-sample-panel-head"><b>Participation · 20 sessions</b><span>breadth %</span></div>
+              <svg class="mp-sample-chart" viewBox="0 0 360 74" preserveAspectRatio="none" aria-label="Participation line graph">
+                <path d="M0 58H360M0 36H360M0 14H360" stroke="#263447" stroke-width="1" fill="none"/>
+                <path d="M0 56 C24 57 31 48 48 51 S76 40 94 45 S117 49 136 33 S164 40 184 29 S208 36 226 25 S257 30 274 18 S311 24 330 12 S347 14 360 8" stroke="#d8ac3d" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <circle cx="360" cy="8" r="4" fill="#45d483"/>
+              </svg>
+            </section>
+            <section class="mp-sample-panel">
+              <div class="mp-sample-panel-head"><b>Prepare queue</b><span>3 setups</span></div>
+              <table class="mp-sample-table"><colgroup><col style="width:38%"><col style="width:25%"><col style="width:18%"><col style="width:19%"></colgroup><thead><tr><th>Symbol</th><th>Industry</th><th>RS</th><th>R:R</th></tr></thead><tbody><tr><td>ASTRAL</td><td>Plastics</td><td class="good">94</td><td class="good">3.2</td></tr><tr><td>KPITTECH</td><td>IT Services</td><td class="good">91</td><td class="good">2.8</td></tr><tr><td>JUBLFOOD</td><td>Consumer</td><td class="warn">86</td><td class="good">2.4</td></tr></tbody></table>
+            </section>
+            <div class="mp-sample-foot"><span>Warm gold = hierarchy · green = confirmed</span><span class="mp-sample-select">Select →</span></div>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <div class="option" data-choice="light-research" onclick="toggleSelect(this)">
+      <div class="mp-sample-label">
+        <div>
+          <h2>Light Research Terminal</h2>
+          <p>Bright, editorial, research-first</p>
+        </div>
+        <span class="mp-sample-pill" style="color:#187d56;background:#e2f0e8">Alternative</span>
+      </div>
+      <div class="mp-sample-window mp-sample-window--light">
+        <div class="mp-sample-ui mp-sample-ui--light">
+          <aside class="mp-sample-rail">
+            <span class="mp-sample-mark">MP</span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+          </aside>
+          <main class="mp-sample-main">
+            <div class="mp-sample-topline"><strong>Morning Desk</strong><span>31 AUG 2026 · 09:18</span></div>
+            <div class="mp-sample-regime"><div><b>Constructive · breadth improving</b><small>Leaders are holding above the 20D trend line</small></div><strong>72</strong></div>
+            <div class="mp-sample-metrics">
+              <div class="mp-sample-metric"><span>Market breadth</span><b class="good">64%</b></div>
+              <div class="mp-sample-metric"><span>Leading groups</span><b>08</b></div>
+              <div class="mp-sample-metric"><span>Risk status</span><b class="warn">Moderate</b></div>
+            </div>
+            <section class="mp-sample-panel">
+              <div class="mp-sample-panel-head"><b>Participation · 20 sessions</b><span>breadth %</span></div>
+              <svg class="mp-sample-chart" viewBox="0 0 360 74" preserveAspectRatio="none" aria-label="Participation line graph">
+                <path d="M0 58H360M0 36H360M0 14H360" stroke="#e7e5df" stroke-width="1" fill="none"/>
+                <path d="M0 56 C24 57 31 48 48 51 S76 40 94 45 S117 49 136 33 S164 40 184 29 S208 36 226 25 S257 30 274 18 S311 24 330 12 S347 14 360 8" stroke="#187d56" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <circle cx="360" cy="8" r="4" fill="#b07a25"/>
+              </svg>
+            </section>
+            <section class="mp-sample-panel">
+              <div class="mp-sample-panel-head"><b>Prepare queue</b><span>3 setups</span></div>
+              <table class="mp-sample-table"><colgroup><col style="width:38%"><col style="width:25%"><col style="width:18%"><col style="width:19%"></colgroup><thead><tr><th>Symbol</th><th>Industry</th><th>RS</th><th>R:R</th></tr></thead><tbody><tr><td>ASTRAL</td><td>Plastics</td><td class="good">94</td><td class="good">3.2</td></tr><tr><td>KPITTECH</td><td>IT Services</td><td class="good">91</td><td class="good">2.8</td></tr><tr><td>JUBLFOOD</td><td>Consumer</td><td class="warn">86</td><td class="good">2.4</td></tr></tbody></table>
+            </section>
+            <div class="mp-sample-foot"><span>Ink = content · teal = confirmation</span><span class="mp-sample-select">Select →</span></div>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <div class="option" data-choice="graphite-focus" onclick="toggleSelect(this)">
+      <div class="mp-sample-label">
+        <div>
+          <h2>Graphite Focus</h2>
+          <p>High-contrast, cinematic, fast scan</p>
+        </div>
+        <span class="mp-sample-pill" style="color:#5ad3d0;background:#123238">Alternative</span>
+      </div>
+      <div class="mp-sample-window mp-sample-window--focus">
+        <div class="mp-sample-ui mp-sample-ui--focus">
+          <aside class="mp-sample-rail">
+            <span class="mp-sample-mark">MP</span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+            <span class="mp-sample-rail-icon"></span>
+          </aside>
+          <main class="mp-sample-main">
+            <div class="mp-sample-topline"><strong>Morning Desk</strong><span>31 AUG 2026 · 09:18</span></div>
+            <div class="mp-sample-regime"><div><b>Constructive · breadth improving</b><small>Leaders are holding above the 20D trend line</small></div><strong>72</strong></div>
+            <div class="mp-sample-metrics">
+              <div class="mp-sample-metric"><span>Market breadth</span><b class="good">64%</b></div>
+              <div class="mp-sample-metric"><span>Leading groups</span><b>08</b></div>
+              <div class="mp-sample-metric"><span>Risk status</span><b class="warn">Moderate</b></div>
+            </div>
+            <section class="mp-sample-panel">
+              <div class="mp-sample-panel-head"><b>Participation · 20 sessions</b><span>breadth %</span></div>
+              <svg class="mp-sample-chart" viewBox="0 0 360 74" preserveAspectRatio="none" aria-label="Participation line graph">
+                <path d="M0 58H360M0 36H360M0 14H360" stroke="#202c38" stroke-width="1" fill="none"/>
+                <path d="M0 56 C24 57 31 48 48 51 S76 40 94 45 S117 49 136 33 S164 40 184 29 S208 36 226 25 S257 30 274 18 S311 24 330 12 S347 14 360 8" stroke="#5ad3d0" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <circle cx="360" cy="8" r="4" fill="#f0be58"/>
+              </svg>
+            </section>
+            <section class="mp-sample-panel">
+              <div class="mp-sample-panel-head"><b>Prepare queue</b><span>3 setups</span></div>
+              <table class="mp-sample-table"><colgroup><col style="width:38%"><col style="width:25%"><col style="width:18%"><col style="width:19%"></colgroup><thead><tr><th>Symbol</th><th>Industry</th><th>RS</th><th>R:R</th></tr></thead><tbody><tr><td>ASTRAL</td><td>Plastics</td><td class="good">94</td><td class="good">3.2</td></tr><tr><td>KPITTECH</td><td>IT Services</td><td class="good">91</td><td class="good">2.8</td></tr><tr><td>JUBLFOOD</td><td>Consumer</td><td class="warn">86</td><td class="good">2.4</td></tr></tbody></table>
+            </section>
+            <div class="mp-sample-foot"><span>Cyan = active signal · amber = attention</span><span class="mp-sample-select">Select →</span></div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

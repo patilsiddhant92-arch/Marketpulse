@@ -29,6 +29,7 @@ def test_app_entrypoint_imports_when_launched_from_app_directory():
         cwd=root / "App",
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
     )
 
     assert result.returncode == 0, result.stderr
@@ -49,5 +50,5 @@ def test_main_uses_near_term_terminal_navigation_shell():
     assert '("Sectors", sector_rotation_page, "rotation", False)' in source
     assert '("Deals", deals_page, "deals", False)' in source
     assert '("Portfolio", portfolio_page, "portfolio", False)' in source
-    assert '("Health", data_health_page, "data-health", False)' in source
+    assert '("Info", info_page, "info", False)' in source
     assert 'show_page("Desk")' in source

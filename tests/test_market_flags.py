@@ -24,6 +24,7 @@ def test_deal_when_uses_calendar_lags(tmp_path):
     assert labels["BBB"] == "today"
 
 
-def test_distance_format_is_plain_percent():
-    assert format_cell("away_52w_high_pct", 2.0) == ("2.0%", "")
-    assert format_cell("away_52w_high_pct", -2.0) == ("-2.0%", "")
+def test_distance_format_has_momentum_tone():
+    assert format_cell("away_52w_high_pct", 2.0) == ("2.0%", "mp-up")
+    assert format_cell("away_52w_high_pct", -2.0) == ("-2.0%", "mp-up")
+    assert format_cell("away_52w_high_pct", -18.0) == ("-18.0%", "mp-down")

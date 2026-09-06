@@ -16,6 +16,8 @@ try:
     from App.ui.stock_drawer import open_stock_360_modal
     from App.ui.styles import add_deals_desk_styles
     from App.ui.widgets import compact_kpi_row, deal_flow_card, flow_spark, symbol_chip_strip
+    from App.cache_manager import get_cached, set_cached, cache_key
+    from Scripts.telegram_deals import build_deals_telegram_report, to_tv_list
 except ModuleNotFoundError:
     from deals_read_model import query_deals_advanced, query_deals_desk_default  # type: ignore
     from market_status import load_market_status, non_actionable_message  # type: ignore
@@ -23,6 +25,19 @@ except ModuleNotFoundError:
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
     from ui.styles import add_deals_desk_styles  # type: ignore
     from ui.widgets import compact_kpi_row, deal_flow_card, flow_spark, symbol_chip_strip  # type: ignore
+    from cache_manager import get_cached, set_cached, cache_key  # type: ignore
+    from telegram_deals import build_deals_telegram_report, to_tv_list  # type: ignore
+
+
+def fetch_deals_telegram_data(db_path: Path, lookback_days: int) -> dict:
+    """Fetch cached Telegram deal intelligence and TradingView lists."""
+    ckey = cache_key(db_path, None, "deals_tg_report", lookback_days)
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+    res = build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=1000.0, db_path=db_path)
+    set_cached(ckey, res)
+    return res
 
 
 def tradingview_url(symbol: str) -> str:
@@ -80,7 +95,283 @@ def build_deals_page(
         ui.label(non_actionable_message(deals_status)).classes("mp-badge mp-bad w-full mt-2")
 
     hft_state = {"exclude_hft": False}
+    confluence_state = {"active": False}
+    hub_state = {"lookback_days": 20}
+
+    hub_container = ui.column().classes("w-full mb-3")
+
+    def render_telegram_hub() -> None:
+        hub_container.clear()
+        with hub_container:
+            days = int(hub_state["lookback_days"])
+            report = fetch_deals_telegram_data(db_path, days)
+            tv_map = report.get("tv_strings", {})
+            as_of = report.get("as_of") or "—"
+            p_data = report.get("persistence", {})
+            c_data = report.get("clientele", {})
+            h_data = report.get("highest", {})
+
+            four_plus = p_data.get("four_plus", pd.DataFrame())
+            three = p_data.get("three", pd.DataFrame())
+            two = p_data.get("two", pd.DataFrame())
+            fii = c_data.get("FII", pd.DataFrame())
+            dii = c_data.get("DII", pd.DataFrame())
+            others = c_data.get("Others", pd.DataFrame())
+            prop = c_data.get("PROP", pd.DataFrame())
+            top_buys = h_data.get("buys", pd.DataFrame())
+            top_sells = h_data.get("sells", pd.DataFrame())
+
+            with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)]"):
+                # Header row: Title + Lookback selector
+                with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mb-2"):
+                    with ui.column().classes("gap-0.5"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("📡 Institutional Deals Hub · TradingView Exporter").classes("mp-section-title m-0 text-base font-bold")
+                            ui.label(f"As of {as_of}").classes("mp-badge mp-pill text-xs")
+                        ui.label(f"Direct Telegram-matched breakdown (Persistence, Clientele, Turnover) across last {days} sessions.").classes("text-xs text-[var(--mp-muted)]")
+
+                    # Lookback selector pills
+                    with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
+                        ui.label("Lookback:").classes("text-xs text-[var(--mp-muted)] px-2 font-medium")
+                        for d_val, d_label in [(10, "10 Days"), (20, "20 Days (Default)"), (30, "30 Days")]:
+                            is_active = (days == d_val)
+                            btn_classes = "mp-primary text-xs" if is_active else "text-xs text-[var(--mp-muted)]"
+                            def _make_setter(v: int):
+                                def _setter() -> None:
+                                    hub_state["lookback_days"] = v
+                                    render_telegram_hub()
+                                return _setter
+                            ui.button(d_label, on_click=_make_setter(d_val)).classes(btn_classes).props("dense unelevated" if is_active else "dense flat")
+
+                # Master Quick Actions
+                with ui.row().classes("w-full items-center gap-2 flex-wrap p-2.5 bg-[var(--mp-surface)] rounded-lg border border-[var(--mp-border)] mb-3"):
+                    ui.label("⚡ Quick Export:").classes("text-xs font-semibold text-[var(--mp-text)]")
+                    if tv_map.get("quality_buckets"):
+                        ui.button("📋 Copy Quality Buckets (TV)", on_click=lambda t=tv_map["quality_buckets"]: copy_text("Quality Buckets (TV)", t)).classes("mp-primary text-xs").props("dense")
+                    if tv_map.get("all_deal_buckets"):
+                        ui.button("📋 Copy All Buckets (TV)", on_click=lambda t=tv_map["all_deal_buckets"]: copy_text("All Deal Buckets (TV)", t)).classes("mp-button text-xs").props("dense outline")
+                    if tv_map.get("persistence_buckets"):
+                        ui.button("📋 Persistence (TV)", on_click=lambda t=tv_map["persistence_buckets"]: copy_text("Persistence Buckets (TV)", t)).classes("mp-button text-xs").props("dense outline")
+                    if tv_map.get("clientele_buckets"):
+                        ui.button("📋 Clientele (TV)", on_click=lambda t=tv_map["clientele_buckets"]: copy_text("Clientele Buckets (TV)", t)).classes("mp-button text-xs").props("dense outline")
+                    if tv_map.get("four_plus"):
+                        ui.button("📋 4+ Days (TV)", on_click=lambda t=tv_map["four_plus"]: copy_text("4+ Deal Days TV", t)).classes("mp-button text-xs").props("dense outline")
+                    if tv_map.get("top_buys"):
+                        ui.button("📋 Top Buys (TV)", on_click=lambda t=tv_map["top_buys"]: copy_text("Top Buys TV", t)).classes("mp-button text-xs").props("dense outline")
+                    if tv_map.get("below_200ema"):
+                        ui.button("📋 Below 200EMA (TV)", on_click=lambda t=tv_map["below_200ema"]: copy_text("Below 200EMA TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
+                    if tv_map.get("below_1000cr"):
+                        ui.button("📋 <1000 Cr (TV)", on_click=lambda t=tv_map["below_1000cr"]: copy_text("<1000 Cr TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
+                    if tv_map.get("prop"):
+                        ui.button("📋 PROP Only (TV)", on_click=lambda t=tv_map["prop"]: copy_text("PROP Only TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
+                    if tv_map.get("all_buys"):
+                        ui.button("📋 All Quality Buys (Flat)", on_click=lambda t=tv_map["all_buys"]: copy_text("All Quality Buys (Flat TV)", t)).classes("mp-button text-xs").props("dense outline")
+
+                # 3 Responsive Columns: Persistence | Clientele | Turnover Leaders
+                with ui.row().classes("w-full gap-3 items-start flex-wrap lg:flex-nowrap"):
+                    # 1. PERSISTENCE
+                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
+                        with ui.row().classes("w-full items-center justify-between mb-1"):
+                            ui.label("🔥 Persistence by Count").classes("text-sm font-bold text-[var(--mp-text)]")
+                            if tv_map.get("persistence_buckets"):
+                                ui.button("Copy Buckets (TV)", on_click=lambda t=tv_map["persistence_buckets"]: copy_text("Persistence Buckets (TV)", t)).classes("text-xs").props("dense flat")
+                        ui.label(f"Quality accumulation across {days} deal sessions (Mcap ≥ 1000 Cr, Above 200 EMA)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+
+                        # 4+ Deal Days
+                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("💎 4+ Deal Days").classes("text-xs font-bold text-emerald-400")
+                                    ui.label(f"{len(four_plus)} stocks").classes("mp-badge mp-good text-[10px]")
+                                if tv_map.get("four_plus"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["four_plus"]: copy_text("4+ Days TV", t)).classes("text-[11px]").props("dense outline")
+                            if four_plus.empty:
+                                ui.label("No stocks with 4+ deal days.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                    for _, r in four_plus.head(6).iterrows():
+                                        sign = "+" if r.get("net_cr", 0) >= 0 else "-"
+                                        val = abs(r.get("net_cr", 0))
+                                        ui.chip(f"{r['symbol']} ({r['deal_days']}d · {sign}₹{val:,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                        # 3 Deal Days
+                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("⚡ 3 Deal Days").classes("text-xs font-semibold text-blue-400")
+                                    ui.label(f"{len(three)} stocks").classes("mp-badge text-[10px]")
+                                if tv_map.get("three"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["three"]: copy_text("3 Days TV", t)).classes("text-[11px]").props("dense outline")
+                            if three.empty:
+                                ui.label("No stocks with 3 deal days.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                    for _, r in three.head(5).iterrows():
+                                        sign = "+" if r.get("net_cr", 0) >= 0 else "-"
+                                        val = abs(r.get("net_cr", 0))
+                                        ui.chip(f"{r['symbol']} ({sign}₹{val:,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                        # 2 Deal Days
+                        with ui.column().classes("w-full gap-1 p-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("🎯 2 Deal Days").classes("text-xs font-semibold text-[var(--mp-text)]")
+                                    ui.label(f"{len(two)} stocks").classes("mp-badge text-[10px]")
+                                if tv_map.get("two"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["two"]: copy_text("2 Days TV", t)).classes("text-[11px]").props("dense outline")
+                            if two.empty:
+                                ui.label("No stocks with 2 deal days.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                    for _, r in two.head(5).iterrows():
+                                        sign = "+" if r.get("net_cr", 0) >= 0 else "-"
+                                        val = abs(r.get("net_cr", 0))
+                                        ui.chip(f"{r['symbol']} ({sign}₹{val:,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                    # 2. CLIENTELE FLOW BREAKDOWN
+                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
+                        with ui.row().classes("w-full items-center justify-between mb-1"):
+                            ui.label("🏛 Clientele Flow").classes("text-sm font-bold text-[var(--mp-text)]")
+                            if tv_map.get("clientele_buckets"):
+                                ui.button("Copy Buckets (TV)", on_click=lambda t=tv_map["clientele_buckets"]: copy_text("Clientele Buckets (TV)", t)).classes("text-xs").props("dense flat")
+                        ui.label(f"Segmented buying across {days} sessions").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+
+                        # FII
+                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("🌍 FII (Foreign)").classes("text-xs font-bold text-sky-400")
+                                    ui.label(f"{len(fii)} stocks").classes("mp-badge text-[10px]")
+                                if tv_map.get("fii"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["fii"]: copy_text("FII Buys TV", t)).classes("text-[11px]").props("dense outline")
+                            if fii.empty:
+                                ui.label("No FII buys in window.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                    for _, r in fii.head(5).iterrows():
+                                        ui.chip(f"{r['symbol']} (₹{r['deal_value_cr']:,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                        # DII
+                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("🏦 DII (Domestic)").classes("text-xs font-bold text-amber-400")
+                                    ui.label(f"{len(dii)} stocks").classes("mp-badge text-[10px]")
+                                if tv_map.get("dii"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["dii"]: copy_text("DII Buys TV", t)).classes("text-[11px]").props("dense outline")
+                            if dii.empty:
+                                ui.label("No DII buys in window.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                    for _, r in dii.head(5).iterrows():
+                                        ui.chip(f"{r['symbol']} (₹{r['deal_value_cr']:,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                        # Others
+                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("👥 Others (Promoters/HNIs)").classes("text-xs font-medium text-[var(--mp-text)]")
+                                    ui.label(f"{len(others)} stocks").classes("mp-badge text-[10px]")
+                                if tv_map.get("others"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["others"]: copy_text("Others Buys TV", t)).classes("text-[11px]").props("dense outline")
+                            if others.empty:
+                                ui.label("No other buys in window.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                    for _, r in others.head(4).iterrows():
+                                        ui.chip(f"{r['symbol']} (₹{r['deal_value_cr']:,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                        # PROP
+                        with ui.column().classes("w-full gap-1 p-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label("⚡ PROP (Only Prop Trading)").classes("text-xs font-medium text-[var(--mp-muted)]")
+                                    ui.label(f"{len(prop)} stocks").classes("mp-badge text-[10px]")
+                                if tv_map.get("prop"):
+                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["prop"]: copy_text("PROP Buys TV", t)).classes("text-[11px]").props("dense outline")
+
+                    # 3. TURNOVER LEADERS
+                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
+                        with ui.row().classes("w-full items-center justify-between mb-1"):
+                            ui.label("💰 Turnover Leaders").classes("text-sm font-bold text-[var(--mp-text)]")
+                            if tv_map.get("all_buys"):
+                                ui.button("Copy All Buys TV", on_click=lambda t=tv_map["all_buys"]: copy_text("All Buys TV", t)).classes("text-xs").props("dense flat")
+                        ui.label("Top capital inflows & outflows (Quality stocks)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+
+                        # Top Buys
+                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                ui.label("🟢 Highest Buy Inflows").classes("text-xs font-bold text-emerald-400")
+                                if tv_map.get("top_buys"):
+                                    ui.button("📋 Copy TV (Top 25)", on_click=lambda t=tv_map["top_buys"]: copy_text("Top Buys TV", t)).classes("text-[11px]").props("dense outline")
+                            if top_buys.empty:
+                                ui.label("No buy deals recorded.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                for idx, (_, r) in enumerate(top_buys.head(6).iterrows(), 1):
+                                    with ui.row().classes("w-full items-center justify-between text-xs py-0.5 border-b border-[var(--mp-border)]/40"):
+                                        ui.label(f"{idx}. {r['symbol']}").classes("font-mono font-semibold")
+                                        ui.label(f"₹{r['deal_value_cr']:,.1f} Cr").classes("text-emerald-400 font-mono")
+
+                        # Top Sells
+                        with ui.column().classes("w-full gap-1 p-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                ui.label("🔴 Highest Sell Outflows").classes("text-xs font-bold text-rose-400")
+                                if tv_map.get("top_sells"):
+                                    ui.button("📋 Copy TV (Top 25)", on_click=lambda t=tv_map["top_sells"]: copy_text("Top Sells TV", t)).classes("text-[11px]").props("dense outline")
+                            if top_sells.empty:
+                                ui.label("No sell deals recorded.").classes("text-[11px] text-[var(--mp-muted)]")
+                            else:
+                                for idx, (_, r) in enumerate(top_sells.head(5).iterrows(), 1):
+                                    with ui.row().classes("w-full items-center justify-between text-xs py-0.5 border-b border-[var(--mp-border)]/40"):
+                                        ui.label(f"{idx}. {r['symbol']}").classes("font-mono font-semibold")
+                                        ui.label(f"₹{r['deal_value_cr']:,.1f} Cr").classes("text-rose-400 font-mono")
+
+                # 4. QUARANTINED / FILTERED STREAMS
+                f_data = report.get("filtered", {})
+                below_200_df = f_data.get("below_200ema", pd.DataFrame())
+                below_1000cr_df = f_data.get("below_1000cr", pd.DataFrame())
+                with ui.row().classes("w-full gap-3 items-start flex-wrap lg:flex-nowrap mt-3"):
+                    # Below 200 EMA / 5% Band
+                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
+                        with ui.row().classes("w-full items-center justify-between mb-1"):
+                            with ui.row().classes("items-center gap-1.5"):
+                                ui.label("📉 Below 200 EMA & 5% Band").classes("text-sm font-bold text-amber-400")
+                                ui.label(f"{len(below_200_df)} stocks").classes("mp-badge text-[10px]")
+                            if tv_map.get("below_200ema"):
+                                ui.button("📋 Copy TV", on_click=lambda t=tv_map["below_200ema"]: copy_text("Below 200EMA TV", t)).classes("text-xs").props("dense outline")
+                        ui.label("Stocks below 200 EMA or locked in 5% circuit bands (Quarantined from main swing list)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+                        if below_200_df.empty:
+                            ui.label("No stocks below 200 EMA in window.").classes("text-[11px] text-[var(--mp-muted)]")
+                        else:
+                            with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                for _, r in below_200_df.head(10).iterrows():
+                                    ui.chip(f"{r['symbol']} (₹{r.get('buy_cr', 0):,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
+                    # <1000 Cr Micro-caps
+                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
+                        with ui.row().classes("w-full items-center justify-between mb-1"):
+                            with ui.row().classes("items-center gap-1.5"):
+                                ui.label("🪙 <1000 Cr Mcap").classes("text-sm font-bold text-amber-400")
+                                ui.label(f"{len(below_1000cr_df)} stocks").classes("mp-badge text-[10px]")
+                            if tv_map.get("below_1000cr"):
+                                ui.button("📋 Copy TV", on_click=lambda t=tv_map["below_1000cr"]: copy_text("<1000 Cr TV", t)).classes("text-xs").props("dense outline")
+                        ui.label("Micro-cap names with market cap under ₹1,000 Cr (Quarantined from main swing list)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+                        if below_1000cr_df.empty:
+                            ui.label("No micro-caps in window.").classes("text-[11px] text-[var(--mp-muted)]")
+                        else:
+                            with ui.row().classes("gap-1 flex-wrap mt-1"):
+                                for _, r in below_1000cr_df.head(10).iterrows():
+                                    ui.chip(f"{r['symbol']} (₹{r.get('buy_cr', 0):,.1f}Cr)").props("dense outline").classes("text-[10px]")
+
     desk_host = ui.column().classes("w-full")
+
+    def _toggle_hft(val: bool) -> None:
+        hft_state["exclude_hft"] = bool(val)
+        render_desk()
+
+    def _toggle_confluence(val: bool) -> None:
+        confluence_state["active"] = bool(val)
+        render_desk()
 
     def render_desk() -> None:
         desk_host.clear()
@@ -104,13 +395,17 @@ def build_deals_page(
                                 on_click=lambda t=desk.buy_tv: copy_text("Deals BUY TV", t),
                             ).classes("mp-primary").props("dense")
 
-                    with ui.row().classes("items-center gap-2"):
+                    with ui.row().classes("items-center gap-3"):
                         hft_chk = ui.checkbox(
                             "Exclude PROP",
                             value=hft_state["exclude_hft"],
                             on_change=lambda e: _toggle_hft(e.value),
                         ).props("dense")
-                        ui.label("* PROP is included by default; exclusion is opt-in").classes("text-xs text-[var(--mp-muted)]")
+                        confluence_chk = ui.checkbox(
+                            "Setup Confluence (Bullish / Near High)",
+                            value=confluence_state["active"],
+                            on_change=lambda e: _toggle_confluence(e.value),
+                        ).props("dense")
                     ui.label(desk.filter_notes).classes("text-xs text-[var(--mp-muted)] mt-1")
 
                 if desk.buy_count == 0:
@@ -137,11 +432,19 @@ def build_deals_page(
                 ui.label("Top Institutional Flow (Latest Session)").classes("mp-section-title")
                 ui.label("Inst love = 3+ funds or 3+ buy sessions. 52W % is vs the 52-week high.").classes("text-sm text-[var(--mp-muted)]")
 
-            if desk.cards.empty:
-                ui.label("No cards to show.").classes("text-sm text-[var(--mp-muted)]")
+            display_cards = desk.cards
+            if confluence_state["active"] and not display_cards.empty:
+                if "rs_percentile" in display_cards.columns and "away_52w_high_pct" in display_cards.columns:
+                    display_cards = display_cards[
+                        (display_cards["rs_percentile"].fillna(0) >= 50) |
+                        (display_cards["away_52w_high_pct"].fillna(-99) >= -20)
+                    ]
+
+            if display_cards.empty:
+                ui.label("No cards match the active filters.").classes("text-sm text-[var(--mp-muted)]")
             else:
                 with ui.row().classes("w-full gap-3 flex-wrap"):
-                    for _, row in desk.cards.iterrows():
+                    for _, row in display_cards.iterrows():
                         sym = str(row.get("symbol") or "")
                         buy_cr = float(row.get("buy_value_cr") or 0)
                         sell_cr = float(row.get("sell_value_cr") or 0)
@@ -290,6 +593,7 @@ def build_deals_page(
         hft_state["exclude_hft"] = val
         render_desk()
 
+    render_telegram_hub()
     render_desk()
 
 

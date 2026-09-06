@@ -125,6 +125,12 @@ NUMERIC_KINDS = frozenset(
 
 def classify_column(col: str) -> str:
     name = str(col).lower()
+    if name in SIGNED_MONEY:
+        return "signed_money"
+    if name in BUY_MONEY:
+        return "buy_money"
+    if name in SELL_MONEY:
+        return "sell_money"
     if name in SIGNED_RETURN or _looks_like_return(name):
         return "signed_return"
     if name in DISTANCE or name.startswith("away_") or name.startswith("distance_"):
@@ -135,25 +141,21 @@ def classify_column(col: str) -> str:
         return "level_pct"
     if name.endswith("_pct") or name.endswith("pct"):
         return "level_pct"
-    if name in SIGNED_MONEY:
-        return "signed_money"
-    if name in BUY_MONEY:
-        return "buy_money"
-    if name in SELL_MONEY:
-        return "sell_money"
     if name in RVOL:
         return "rvol"
     if name in SCORES:
         return "score"
-    if any(h in name for h in MONEY_HINTS):
+    if any(h in name for h in MONEY_HINTS) or name.endswith("_inr"):
         return "money"
     return "other"
 
 
 def _looks_like_return(name: str) -> bool:
+    if name.endswith("_inr") or name.endswith("_cr") or name.endswith("_amount"):
+        return False
     return any(
         token in name
-        for token in ("return_", "pnl", "day_pct", "week_pct", "month_pct", "change_pct", "vs_inst")
+        for token in ("return_", "pnl_pct", "day_pct", "week_pct", "month_pct", "change_pct", "vs_inst")
     )
 
 
@@ -172,15 +174,16 @@ def format_cell(col: str, value: Any) -> tuple[str, str]:
     if kind == "level_pct":
         return f"{number:.1f}%", ""
     if kind == "distance":
-        return _format_distance(name, number), ""
+        tone = _distance_tone(name, number)
+        return _format_distance(name, number), tone
     if kind == "signed_money":
-        return _format_money(number, signed=True), _signed_tone(number)
+        return _format_money(number, signed=True, is_inr=name.endswith("_inr")), _signed_tone(number)
     if kind == "buy_money":
-        return _format_money(number, signed=False), TONE_UP if number > 0 else ""
+        return _format_money(number, signed=False, is_inr=name.endswith("_inr")), TONE_UP if number > 0 else ""
     if kind == "sell_money":
-        return _format_money(number, signed=False), TONE_DOWN if number > 0 else ""
+        return _format_money(number, signed=False, is_inr=name.endswith("_inr")), TONE_DOWN if number > 0 else ""
     if kind == "money":
-        return _format_money(number, signed=False), ""
+        return _format_money(number, signed=False, is_inr=name.endswith("_inr")), ""
     if kind == "rvol":
         return f"{number:.2f}x", ""
     if kind == "score":
@@ -204,14 +207,35 @@ def _signed_tone(number: float) -> str:
     return ""
 
 
-def _format_money(number: float, *, signed: bool) -> str:
-    body = f"{abs(number):,.1f}"
+def _distance_tone(name: str, number: float) -> str:
+    if "10ema" in name or "20ema" in name or "50ema" in name:
+        if number > 0:
+            return TONE_UP
+        if number < 0:
+            return TONE_DOWN
+        return ""
+    if "52w_high" in name or "52w" in name:
+        if number >= -5.0:
+            return TONE_UP
+        if number < -15.0:
+            return TONE_DOWN
+        return ""
+    return ""
+
+
+def _format_money(number: float, *, signed: bool, is_inr: bool = False) -> str:
+    sym = "₹" if is_inr else ""
+    if is_inr:
+        body = f"{abs(number):,.0f}"
+    else:
+        body = f"{abs(number):,.1f}"
     if signed:
         if number > 0:
-            return f"+{body}"
+            return f"+{sym}{body}"
         if number < 0:
-            return f"-{body}"
-    return body if number >= 0 else f"-{body}"
+            return f"-{sym}{body}"
+        return f"{sym}0" if is_inr else body
+    return f"{sym}{body}" if number >= 0 else f"-{sym}{body}"
 
 
 def _format_distance(_name: str, number: float) -> str:

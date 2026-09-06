@@ -1,0 +1,245 @@
+<div id="mp-premium-preview">
+  <style>
+    #mp-premium-preview {
+      --mpx-bg: #080b11;
+      --mpx-shell: #0d121b;
+      --mpx-panel: #111925;
+      --mpx-panel-2: #151f2d;
+      --mpx-line: #243044;
+      --mpx-line-soft: #1b2636;
+      --mpx-ink: #f3f6fb;
+      --mpx-muted: #8f9db0;
+      --mpx-dim: #657388;
+      --mpx-gold: #e4b84a;
+      --mpx-gold-soft: #3a2f18;
+      --mpx-green: #45d483;
+      --mpx-green-soft: #163526;
+      --mpx-red: #f27c84;
+      --mpx-blue: #74a9ff;
+      --mpx-cyan: #5ad3d0;
+      display: block;
+      color: var(--mpx-ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #mp-premium-preview * { box-sizing: border-box; }
+    #mp-premium-preview .mpx-window {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      overflow: hidden;
+      background: var(--mpx-bg);
+      border: 1px solid var(--mpx-line);
+      border-radius: 18px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+    }
+    #mp-premium-preview .mpx-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 64px;
+      padding: 0 24px;
+      background: var(--mpx-shell);
+      border-bottom: 1px solid var(--mpx-line-soft);
+    }
+    #mp-premium-preview .mpx-brand { display: flex; align-items: center; gap: 10px; min-width: 190px; }
+    #mp-premium-preview .mpx-mark {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      color: var(--mpx-bg);
+      background: var(--mpx-gold);
+      font-size: 14px;
+      font-weight: 800;
+    }
+    #mp-premium-preview .mpx-brand strong { font-size: 15px; letter-spacing: -0.02em; }
+    #mp-premium-preview .mpx-brand span { display: block; margin-top: 2px; color: var(--mpx-dim); font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; }
+    #mp-premium-preview .mpx-nav { display: flex; align-items: center; gap: 4px; flex: 1; }
+    #mp-premium-preview .mpx-nav span {
+      padding: 9px 12px;
+      color: var(--mpx-muted);
+      font-size: 12px;
+      border-radius: 8px;
+    }
+    #mp-premium-preview .mpx-nav .active { color: var(--mpx-ink); background: var(--mpx-panel-2); }
+    #mp-premium-preview .mpx-session { display: flex; align-items: center; gap: 10px; color: var(--mpx-muted); font-size: 11px; white-space: nowrap; }
+    #mp-premium-preview .mpx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mpx-green); box-shadow: 0 0 0 4px rgba(69, 212, 131, 0.12); }
+
+    #mp-premium-preview .mpx-main { padding: 28px; }
+    #mp-premium-preview .mpx-kicker { color: var(--mpx-gold); font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
+    #mp-premium-preview h1 { margin: 7px 0 5px; color: var(--mpx-ink); font-size: clamp(24px, 3vw, 34px); line-height: 1.1; letter-spacing: -0.045em; }
+    #mp-premium-preview .mpx-subtitle { margin: 0; color: var(--mpx-muted); font-size: 13px; }
+    #mp-premium-preview .mpx-headline { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    #mp-premium-preview .mpx-date { color: var(--mpx-dim); font-size: 11px; text-align: right; line-height: 1.6; }
+    #mp-premium-preview .mpx-date strong { display: block; color: var(--mpx-ink); font-size: 12px; font-weight: 600; }
+
+    #mp-premium-preview .mpx-regime {
+      display: grid;
+      grid-template-columns: minmax(190px, 1.2fr) repeat(3, minmax(110px, 0.7fr)) minmax(160px, 0.9fr);
+      gap: 1px;
+      margin-bottom: 22px;
+      overflow: hidden;
+      border: 1px solid var(--mpx-line);
+      border-radius: 12px;
+      background: var(--mpx-line);
+    }
+    #mp-premium-preview .mpx-regime > div { min-height: 78px; padding: 14px 16px; background: var(--mpx-panel); }
+    #mp-premium-preview .mpx-regime .lead { background: linear-gradient(135deg, #182b28, var(--mpx-panel)); }
+    #mp-premium-preview .mpx-label { color: var(--mpx-dim); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+    #mp-premium-preview .mpx-value { margin-top: 7px; color: var(--mpx-ink); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #mp-premium-preview .mpx-value.green { color: var(--mpx-green); }
+    #mp-premium-preview .mpx-value.gold { color: var(--mpx-gold); }
+    #mp-premium-preview .mpx-note { margin-top: 5px; color: var(--mpx-muted); font-size: 10px; }
+    #mp-premium-preview .mpx-signal { display: flex; align-items: center; gap: 8px; margin-top: 7px; color: var(--mpx-green); font-size: 13px; font-weight: 700; }
+
+    #mp-premium-preview .mpx-grid { display: grid; grid-template-columns: minmax(0, 1.56fr) minmax(300px, 0.84fr); gap: 18px; align-items: start; }
+    #mp-premium-preview .mpx-panel { min-width: 0; padding: 18px; background: var(--mpx-panel); border: 1px solid var(--mpx-line); border-radius: 12px; }
+    #mp-premium-preview .mpx-panel-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    #mp-premium-preview .mpx-panel-title { color: var(--mpx-ink); font-size: 14px; font-weight: 700; }
+    #mp-premium-preview .mpx-panel-meta { margin-top: 4px; color: var(--mpx-muted); font-size: 11px; }
+    #mp-premium-preview .mpx-action { color: var(--mpx-gold); font-size: 11px; font-weight: 600; }
+
+    #mp-premium-preview table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    #mp-premium-preview th { padding: 0 8px 10px; color: var(--mpx-dim); font-size: 9px; font-weight: 700; letter-spacing: 0.09em; text-align: left; text-transform: uppercase; }
+    #mp-premium-preview th.num, #mp-premium-preview td.num { text-align: right; }
+    #mp-premium-preview td { padding: 13px 8px; color: var(--mpx-muted); font-size: 12px; border-top: 1px solid var(--mpx-line-soft); vertical-align: middle; }
+    #mp-premium-preview td:first-child, #mp-premium-preview th:first-child { padding-left: 0; }
+    #mp-premium-preview td:last-child, #mp-premium-preview th:last-child { padding-right: 0; }
+    #mp-premium-preview .mpx-symbol { color: var(--mpx-ink); font-weight: 700; letter-spacing: 0.01em; }
+    #mp-premium-preview .mpx-secondary { display: block; margin-top: 3px; color: var(--mpx-dim); font-size: 10px; font-weight: 400; }
+    #mp-premium-preview .mpx-state { display: inline-flex; padding: 4px 7px; border-radius: 5px; background: var(--mpx-green-soft); color: var(--mpx-green); font-size: 10px; font-weight: 700; }
+    #mp-premium-preview .mpx-state.watch { color: var(--mpx-gold); background: var(--mpx-gold-soft); }
+    #mp-premium-preview .mpx-positive { color: var(--mpx-green); font-variant-numeric: tabular-nums; }
+    #mp-premium-preview .mpx-price { color: var(--mpx-ink); font-variant-numeric: tabular-nums; }
+    #mp-premium-preview .mpx-risk { color: var(--mpx-muted); font-variant-numeric: tabular-nums; }
+    #mp-premium-preview .mpx-flow { display: inline-flex; align-items: center; gap: 5px; color: var(--mpx-cyan); font-size: 10px; font-weight: 600; }
+    #mp-premium-preview .mpx-flow i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    #mp-premium-preview .mpx-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 13px; color: var(--mpx-dim); font-size: 10px; }
+    #mp-premium-preview .mpx-foot strong { color: var(--mpx-muted); font-weight: 600; }
+
+    #mp-premium-preview .mpx-chart-wrap { height: 218px; margin: 4px -4px 0; }
+    #mp-premium-preview .mpx-chart { width: 100%; height: 100%; overflow: visible; }
+    #mp-premium-preview .mpx-chart text { fill: var(--mpx-dim); font-size: 9px; font-family: inherit; }
+    #mp-premium-preview .mpx-chart .axis { stroke: var(--mpx-line); stroke-width: 1; }
+    #mp-premium-preview .mpx-chart .gridline { stroke: var(--mpx-line-soft); stroke-width: 1; stroke-dasharray: 3 4; }
+    #mp-premium-preview .mpx-chart .area { fill: url(#mpx-fill); }
+    #mp-premium-preview .mpx-chart .line { fill: none; stroke: var(--mpx-gold); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    #mp-premium-preview .mpx-chart .point { fill: var(--mpx-panel); stroke: var(--mpx-gold); stroke-width: 2; }
+    #mp-premium-preview .mpx-legend { display: flex; gap: 14px; margin-top: 8px; color: var(--mpx-muted); font-size: 10px; }
+    #mp-premium-preview .mpx-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    #mp-premium-preview .mpx-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--mpx-gold); }
+    #mp-premium-preview .mpx-legend i.blue { background: var(--mpx-blue); }
+
+    #mp-premium-preview .mpx-bottom { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 18px; margin-top: 18px; }
+    #mp-premium-preview .mpx-leaders { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+    #mp-premium-preview .mpx-leader { padding: 12px; background: var(--mpx-panel-2); border: 1px solid var(--mpx-line); border-radius: 9px; }
+    #mp-premium-preview .mpx-rank { color: var(--mpx-gold); font-size: 10px; font-weight: 700; }
+    #mp-premium-preview .mpx-leader strong { display: block; margin-top: 10px; color: var(--mpx-ink); font-size: 12px; }
+    #mp-premium-preview .mpx-leader small { display: block; margin-top: 5px; color: var(--mpx-muted); font-size: 10px; }
+    #mp-premium-preview .mpx-leader b { color: var(--mpx-green); font-weight: 600; }
+    #mp-premium-preview .mpx-changes { display: grid; gap: 10px; }
+    #mp-premium-preview .mpx-change { display: grid; grid-template-columns: 8px 1fr auto; gap: 9px; align-items: center; color: var(--mpx-muted); font-size: 11px; }
+    #mp-premium-preview .mpx-change i { width: 6px; height: 6px; border-radius: 50%; background: var(--mpx-green); }
+    #mp-premium-preview .mpx-change i.gold { background: var(--mpx-gold); }
+    #mp-premium-preview .mpx-change b { color: var(--mpx-ink); font-weight: 600; }
+    #mp-premium-preview .mpx-change span { color: var(--mpx-dim); font-size: 10px; }
+
+    #mp-premium-preview .mpx-caption { margin: 13px 2px 0; color: var(--mpx-dim); font-size: 10px; text-align: right; }
+    @media (max-width: 860px) {
+      #mp-premium-preview .mpx-main { padding: 20px; }
+      #mp-premium-preview .mpx-nav { display: none; }
+      #mp-premium-preview .mpx-regime { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #mp-premium-preview .mpx-grid, #mp-premium-preview .mpx-bottom { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      #mp-premium-preview .mpx-topbar { padding: 0 15px; }
+      #mp-premium-preview .mpx-session { display: none; }
+      #mp-premium-preview .mpx-headline { display: block; }
+      #mp-premium-preview .mpx-date { margin-top: 13px; text-align: left; }
+      #mp-premium-preview .mpx-regime { grid-template-columns: 1fr 1fr; }
+      #mp-premium-preview .mpx-regime > div:first-child { grid-column: 1 / -1; }
+      #mp-premium-preview .mpx-panel { padding: 14px; }
+      #mp-premium-preview table { min-width: 590px; }
+      #mp-premium-preview .mpx-panel.queue { overflow-x: auto; }
+      #mp-premium-preview .mpx-leaders { grid-template-columns: 1fr; }
+    }
+  </style>
+
+  <div class="mpx-window">
+    <div class="mpx-topbar">
+      <div class="mpx-brand">
+        <div class="mpx-mark">M</div>
+        <div><strong>MarketPulse</strong><span>Champion desk</span></div>
+      </div>
+      <div class="mpx-nav" aria-label="Primary navigation">
+        <span class="active">Desk</span><span>Momentum</span><span>Template</span><span>Sectors</span><span>Deals</span><span>Portfolio</span>
+      </div>
+      <div class="mpx-session"><i class="mpx-dot"></i> EOD data ready · 30 Aug 2026</div>
+    </div>
+
+    <main class="mpx-main">
+      <div class="mpx-headline">
+        <div>
+          <div class="mpx-kicker">Decision desk · balanced density</div>
+          <h1>Morning opportunity set</h1>
+          <p class="mpx-subtitle">Regime first. Leadership next. A short, auditable queue for confirmation.</p>
+        </div>
+        <div class="mpx-date"><strong>Illustrative session</strong>UI direction preview · sample values</div>
+      </div>
+
+      <section class="mpx-regime" aria-label="Market regime summary">
+        <div class="lead"><div class="mpx-label">Market posture</div><div class="mpx-signal"><i class="mpx-dot"></i> Constructive</div><div class="mpx-note">Breadth supports selective longs</div></div>
+        <div><div class="mpx-label">Nifty 50</div><div class="mpx-value">22,284.35</div><div class="mpx-note mpx-positive">+0.64% today</div></div>
+        <div><div class="mpx-label">Advance / decline</div><div class="mpx-value green">58 / 42</div><div class="mpx-note">Participation improving</div></div>
+        <div><div class="mpx-label">Above 200 EMA</div><div class="mpx-value gold">54.8%</div><div class="mpx-note">Healthy breadth</div></div>
+        <div><div class="mpx-label">Fresh 52W highs</div><div class="mpx-value">37</div><div class="mpx-note">₹1,000 Cr universe</div></div>
+      </section>
+
+      <div class="mpx-grid">
+        <section class="mpx-panel queue" aria-label="Prepare queue">
+          <div class="mpx-panel-head"><div><div class="mpx-panel-title">Prepare queue</div><div class="mpx-panel-meta">4 names · trigger, invalidation, and confirmation in one glance</div></div><div class="mpx-action">Open full queue ↗</div></div>
+          <table>
+            <thead><tr><th style="width: 24%">Symbol</th><th style="width: 15%">State</th><th class="num" style="width: 16%">Trigger</th><th class="num" style="width: 14%">Stop</th><th class="num" style="width: 12%">R:R</th><th class="num" style="width: 19%">Flow</th></tr></thead>
+            <tbody>
+              <tr><td><span class="mpx-symbol">TRENT</span><span class="mpx-secondary">Retail · leading</span></td><td><span class="mpx-state">Prepare</span></td><td class="num mpx-price">7,286</td><td class="num mpx-risk">6,842</td><td class="num mpx-positive">2.4</td><td class="num"><span class="mpx-flow"><i></i> FII bulk</span></td></tr>
+              <tr><td><span class="mpx-symbol">DIXON</span><span class="mpx-secondary">Electronics · improving</span></td><td><span class="mpx-state">Prepare</span></td><td class="num mpx-price">13,420</td><td class="num mpx-risk">12,710</td><td class="num mpx-positive">2.1</td><td class="num"><span class="mpx-flow"><i></i> 3d flow</span></td></tr>
+              <tr><td><span class="mpx-symbol">HAL</span><span class="mpx-secondary">Defence · leading</span></td><td><span class="mpx-state watch">Observe</span></td><td class="num mpx-price">4,958</td><td class="num mpx-risk">4,610</td><td class="num mpx-positive">1.8</td><td class="num"><span class="mpx-flow"><i></i> Dry-up</span></td></tr>
+              <tr><td><span class="mpx-symbol">KAYNES</span><span class="mpx-secondary">EMS · emerging</span></td><td><span class="mpx-state watch">Observe</span></td><td class="num mpx-price">6,104</td><td class="num mpx-risk">5,660</td><td class="num mpx-positive">1.7</td><td class="num"><span class="mpx-flow"><i></i> RS rising</span></td></tr>
+            </tbody>
+          </table>
+          <div class="mpx-foot"><span><strong>Why now:</strong> top-ranked groups + price near actionable geometry</span><span>Click a symbol for 360°</span></div>
+        </section>
+
+        <section class="mpx-panel" aria-label="Participation trend">
+          <div class="mpx-panel-head"><div><div class="mpx-panel-title">Participation trend</div><div class="mpx-panel-meta">Breadth · last 21 sessions</div></div><div class="mpx-action">21D</div></div>
+          <div class="mpx-chart-wrap">
+            <svg class="mpx-chart" viewBox="0 0 420 218" role="img" aria-labelledby="mpx-chart-title mpx-chart-desc">
+              <title id="mpx-chart-title">Participation trend</title><desc id="mpx-chart-desc">Advance percentage rises from 44 to 58 percent while stocks above the 200 day EMA rise from 42 to 55 percent.</desc>
+              <defs><linearGradient id="mpx-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e4b84a" stop-opacity="0.23"/><stop offset="1" stop-color="#e4b84a" stop-opacity="0"/></linearGradient></defs>
+              <line class="gridline" x1="36" y1="28" x2="404" y2="28"/><line class="gridline" x1="36" y1="78" x2="404" y2="78"/><line class="gridline" x1="36" y1="128" x2="404" y2="128"/><line class="gridline" x1="36" y1="178" x2="404" y2="178"/>
+              <line class="axis" x1="36" y1="178" x2="404" y2="178"/><line class="axis" x1="36" y1="28" x2="36" y2="178"/>
+              <text x="4" y="31">60%</text><text x="4" y="81">50%</text><text x="4" y="131">40%</text><text x="4" y="181">30%</text>
+              <text x="34" y="204">05 Aug</text><text x="202" y="204">15 Aug</text><text x="365" y="204">30 Aug</text>
+              <path class="area" d="M36 130 L82 121 L128 126 L174 103 L220 111 L266 87 L312 91 L358 64 L404 52 L404 178 L36 178 Z"/>
+              <path class="line" d="M36 130 L82 121 L128 126 L174 103 L220 111 L266 87 L312 91 L358 64 L404 52"/>
+              <circle class="point" cx="404" cy="52" r="4"/><text x="361" y="43" style="fill: #e4b84a; font-weight: 700">58%</text>
+            </svg>
+          </div>
+          <div class="mpx-legend"><span><i></i> Advance %</span><span><i class="blue"></i> Above 200 EMA</span></div>
+        </section>
+      </div>
+
+      <div class="mpx-bottom">
+        <section class="mpx-panel" aria-label="Leadership groups"><div class="mpx-panel-head"><div><div class="mpx-panel-title">Leadership groups</div><div class="mpx-panel-meta">Industry rank · change · breadth</div></div><div class="mpx-action">View sectors ↗</div></div>
+          <div class="mpx-leaders"><div class="mpx-leader"><span class="mpx-rank">#01 · +3</span><strong>Capital Goods</strong><small>RS 92 · <b>68% above 50 EMA</b></small></div><div class="mpx-leader"><span class="mpx-rank">#02 · +1</span><strong>Electronics</strong><small>RS 89 · <b>61% above 50 EMA</b></small></div><div class="mpx-leader"><span class="mpx-rank">#03 · +5</span><strong>Defence</strong><small>RS 86 · <b>57% above 50 EMA</b></small></div></div>
+        </section>
+        <section class="mpx-panel" aria-label="What changed"><div class="mpx-panel-head"><div><div class="mpx-panel-title">What changed</div><div class="mpx-panel-meta">Signals worth your attention</div></div><div class="mpx-action">All signals ↗</div></div>
+          <div class="mpx-changes"><div class="mpx-change"><i></i><b>FII bulk flow</b><span>TRENT · 3 sessions</span></div><div class="mpx-change"><i class="gold"></i><b>Industry rotation</b><span>Electronics · +6 ranks</span></div><div class="mpx-change"><i></i><b>Fresh high breadth</b><span>37 names · +9 today</span></div></div>
+        </section>
+      </div>
+      <div class="mpx-caption">Recommended direction: dark graphite surfaces, warm gold for hierarchy, green/red reserved for market meaning, balanced data density.</div>
+    </main>
+  </div>
+</div>

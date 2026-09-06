@@ -11,6 +11,7 @@ if errorlevel 1 (
 )
 
 set "ROOT=%~dp0"
+set "PYTHONPATH=%ROOT%;%ROOT%App;%ROOT%Scripts"
 set "PY=%ROOT%.venv\Scripts\python.exe"
 set "APP=%ROOT%App\app.py"
 

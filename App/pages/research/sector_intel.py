@@ -17,7 +17,9 @@ try:
         query_taxonomy_hierarchy,
     )
     from App.market_status import load_market_status, non_actionable_message
+    from App.ui.columns import get_quasar_column_def
     from App.ui.stock_drawer import open_stock_360_modal
+    from App.ui.table import SYMBOL_CELL_SLOT
 except ModuleNotFoundError:
     from sector_read_model import (  # type: ignore
         LEVEL_COLUMNS,
@@ -28,7 +30,9 @@ except ModuleNotFoundError:
         query_taxonomy_hierarchy,
     )
     from market_status import load_market_status, non_actionable_message  # type: ignore
+    from ui.columns import get_quasar_column_def  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
+    from ui.table import SYMBOL_CELL_SLOT  # type: ignore
 
 
 def _fmt_pct(v: Any, plus: bool = True) -> str:
@@ -120,23 +124,23 @@ def _render_thematic_mode(
 
     with container:
         # 1. Top Summary Banner
-        with ui.row().classes("w-full justify-between items-center bg-gradient-to-r from-teal-50 via-slate-50 to-teal-50 p-4 rounded-xl border border-teal-200 shadow-xs"):
+        with ui.row().classes("w-full justify-between items-center mp-sector-hero p-4 rounded-xl border"):
             with ui.column().classes("gap-1"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.label("⚡ NEXT-GEN TECH MEGATREND").classes("text-xs font-bold text-teal-800 tracking-wider bg-teal-100 px-2 py-0.5 rounded")
+                    ui.label("⚡ NEXT-GEN TECH MEGATREND").classes("mp-eyebrow")
                     ui.label(f"Session As Of: {as_of_str}").classes("text-xs font-semibold text-slate-600")
                 ui.label(f"Tracking {total_stocks} Companies across 8 Pillars • AI Compute, Silicon Design, Data Center Cooling, Lithium Batteries & Liquid Piping").classes("text-xs text-slate-600 font-medium")
 
             # Quick Metrics & TV Copy Button
             with ui.row().classes("items-center gap-3 flex-wrap"):
-                ui.label(f"Ecosystem RS: {_fmt_num(theme_avg_rs, 0)}").classes("text-xs font-bold bg-white border border-teal-200 text-teal-900 px-3 py-1.5 rounded-lg shadow-xs")
+                ui.label(f"Ecosystem RS: {_fmt_num(theme_avg_rs, 0)}").classes("mp-metric-pill")
                 if all_symbols and copy_text:
                     tv_all = ",".join(f"NSE:{s}" for s in all_symbols)
                     ui.button(
                         f"Copy All 70 Thematic Symbols (TV)",
                         icon="content_copy",
                         on_click=lambda t=tv_all: copy_text("Next-Gen Tech Universe", t),
-                    ).classes("bg-[#01696f] text-white text-xs font-bold").props("dense unelevated")
+                    ).classes("mp-primary text-xs font-bold").props("dense unelevated")
 
         # Dynamic Constituent Table Container declared first
         table_container = ui.column().classes("w-full gap-3 mt-4")
@@ -152,7 +156,7 @@ def _render_thematic_mode(
                 with ui.row().classes("w-full justify-between items-center flex-wrap gap-2 pb-2 border-b border-slate-200"):
                     with ui.row().classes("items-center gap-2"):
                         ui.label(f"📋 Constituent Stocks:").classes("text-base font-bold text-slate-700")
-                        ui.label(active_pillar).classes("text-base font-bold text-[#01696f]")
+                        ui.label(active_pillar).classes("text-base font-bold text-[var(--mp-primary)]")
                         ui.label(f"({len(const_df)} stocks)").classes("text-xs font-semibold text-slate-500")
 
                     # Pillar filter dropdown & TV copy button
@@ -203,7 +207,7 @@ def _render_thematic_pillar_card(
     """Render an individual pillar card with leadership metrics and leader chips."""
     name = p["pillar_name"]
     is_active = state.get("thematic_pillar") == name
-    border_cls = "border-2 border-[#01696f] shadow-md bg-teal-50/50" if is_active else "border border-slate-200 hover:border-teal-400 bg-white hover:shadow-sm"
+    border_cls = "mp-sector-selected" if is_active else "mp-sector-unselected"
 
     card = ui.card().classes(f"w-full p-4 rounded-xl {border_cls} cursor-pointer transition-all duration-150")
     with card:
@@ -229,10 +233,10 @@ def _render_thematic_pillar_card(
                         chip = ui.button(
                             sym,
                             on_click=lambda _, s=sym: open_stock_360_modal(db_path, s, copy_text=copy_text),
-                        ).classes("bg-teal-50 hover:bg-teal-100 text-[#01696f] text-xs font-bold px-2 py-0.5 rounded border border-teal-200").props("dense unelevated")
+                        ).classes("mp-chip mp-chip-accent text-xs font-bold").props("dense unelevated")
 
         with ui.row().classes("w-full justify-end mt-2 pt-1 border-t border-slate-100"):
-            ui.label("View All Stocks ➔").classes("text-[11px] font-bold text-[#01696f] hover:underline")
+            ui.label("View All Stocks ➔").classes("text-[11px] font-bold text-[var(--mp-primary)] hover:underline")
 
     card.on("click", lambda _, n=name: _set_pillar(n, state, on_pillar_click))
 
@@ -244,20 +248,20 @@ def _render_thematic_stocks_table(
 ) -> None:
     """Render the thematic constituent stocks table with exact role descriptions and Stock 360 modal hooks."""
     cols = [
-        {"name": "symbol", "label": "Symbol", "field": "symbol", "align": "left", "sortable": True},
-        {"name": "security_name", "label": "Company Name", "field": "security_name", "align": "left"},
-        {"name": "pillar", "label": "Pillar", "field": "pillar", "align": "left", "sortable": True},
-        {"name": "role_desc", "label": "Role in Ecosystem", "field": "role_desc", "align": "left"},
-        {"name": "close_price", "label": "CMP", "field": "close_price", "align": "right", "sortable": True},
-        {"name": "return_5d_pct", "label": "5D %", "field": "return_5d_pct", "align": "right", "sortable": True},
-        {"name": "return_1m_pct", "label": "1M %", "field": "return_1m_pct", "align": "right", "sortable": True},
-        {"name": "rs_percentile", "label": "RS", "field": "rs_percentile", "align": "right", "sortable": True},
-        {"name": "rvol", "label": "RVOL", "field": "rvol", "align": "right", "sortable": True},
-        {"name": "delivery_pct", "label": "Deliv %", "field": "delivery_pct", "align": "right", "sortable": True},
-        {"name": "candidate_state", "label": "Setup State", "field": "candidate_state", "align": "center"},
-        {"name": "trigger_price", "label": "Trigger", "field": "trigger_price", "align": "right"},
-        {"name": "stop_loss", "label": "Stop Loss", "field": "stop_loss", "align": "right"},
-        {"name": "reward_to_risk", "label": "R:R", "field": "reward_to_risk", "align": "right"},
+        get_quasar_column_def("symbol"),
+        get_quasar_column_def("security_name"),
+        get_quasar_column_def("pillar"),
+        get_quasar_column_def("role_desc"),
+        get_quasar_column_def("close_price", label_override="CMP"),
+        get_quasar_column_def("return_5d_pct"),
+        get_quasar_column_def("return_1m_pct"),
+        get_quasar_column_def("rs_percentile"),
+        get_quasar_column_def("rvol"),
+        get_quasar_column_def("delivery_pct"),
+        get_quasar_column_def("candidate_state"),
+        get_quasar_column_def("trigger_price"),
+        get_quasar_column_def("stop_loss"),
+        get_quasar_column_def("reward_to_risk"),
     ]
 
     rows = []
@@ -279,28 +283,14 @@ def _render_thematic_stocks_table(
             "reward_to_risk": f"{float(s['reward_to_risk']):.1f}x" if pd.notna(s.get("reward_to_risk")) else "-",
         })
 
-    table = (
-        ui.table(columns=cols, rows=rows, pagination=25)
-        .classes("w-full mp-table")
-        .props("dense flat bordered wrap-cells")
-    )
+    with ui.element("div").classes("w-full mp-table-scroll"):
+        table = (
+            ui.table(columns=cols, rows=rows, pagination=25)
+            .classes("w-full mp-table")
+            .props("dense flat bordered wrap-cells")
+        )
 
-    table.add_slot(
-        "body-cell-symbol",
-        """
-        <q-td :props="props">
-          <span class="mp-symbol cursor-pointer hover:underline text-[#01696f] font-bold"
-                @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)">
-            {{ props.value }}
-          </span>
-          <a class="text-xs text-gray-400 hover:text-teal-600 ml-1" target="_blank"
-             :href="'https://www.tradingview.com/chart/?symbol=NSE:' + String(props.value).replace('-', '_')"
-             @click.stop>
-            ↗
-          </a>
-        </q-td>
-        """,
-    )
+    table.add_slot("body-cell-symbol", SYMBOL_CELL_SLOT)
     table.add_slot(
         "body-cell-candidate_state",
         """
@@ -736,11 +726,11 @@ def _render_taxonomy_mode(
             sub_df = deep["sub_industries"]
 
             with deep_dive_container:
-                with ui.card().classes("w-full mp-card mp-sector-focus-card p-5 border-2 border-teal-600/30 shadow-md rounded-xl"):
+                with ui.card().classes("w-full mp-card mp-sector-focus-card p-5 rounded-xl"):
                     with ui.row().classes("w-full justify-between items-center mb-4 pb-3 border-b border-slate-200 flex-wrap gap-3"):
                         with ui.row().classes("items-center gap-3"):
                             ui.label("🎯 Active Focus:").classes("text-xs font-bold text-slate-400 uppercase tracking-wider")
-                            ui.label(grp).classes("text-2xl font-bold text-[#01696f]")
+                            ui.label(grp).classes("text-2xl font-bold text-[var(--mp-primary)]")
                             r_state = str(g_stats.get("rotation_state") or "Neutral")
                             state_badge_cls = "bg-emerald-100 text-emerald-800 border-emerald-300" if r_state == "Leading" else "bg-blue-100 text-blue-800 border-blue-300" if r_state in ("Emerging", "Improving") else "bg-amber-100 text-amber-800 border-amber-300" if r_state == "Weakening" else "bg-slate-100 text-slate-700 border-slate-300"
                             ui.label(r_state).classes(f"text-xs font-bold px-2.5 py-1 rounded-md border {state_badge_cls}")
@@ -757,7 +747,7 @@ def _render_taxonomy_mode(
                                     f"Copy {grp[:15]} Symbols ({len(stocks_df)} TV)",
                                     icon="content_copy",
                                     on_click=lambda t=sec_tv, g=grp: copy_text(f"{g} Leaders", t),
-                                ).classes("bg-[#01696f] text-white text-xs").props("dense unelevated")
+                                ).classes("mp-primary text-xs").props("dense unelevated")
 
                 ui.label(f"Top Stage-2 Breakout Leaders in {grp} (Min MCap ≥ ₹{min_mc:.0f} Cr)").classes("mp-section-title")
                 if stocks_df.empty:
@@ -799,7 +789,7 @@ def _render_focus_card(
     badge = item.get("status_badge", "FOCUS")
     badge_color = item.get("status_color", "emerald")
 
-    border_cls = "mp-sector-selected border-2 border-[#01696f] shadow-md" if is_selected else "mp-sector-unselected border border-slate-200 hover:border-teal-400 hover:shadow-sm"
+    border_cls = "mp-sector-selected" if is_selected else "mp-sector-unselected"
 
     card = ui.card().classes(f"mp-sector-focus-card flex-1 min-w-[280px] max-w-[360px] p-4 rounded-xl {border_cls} cursor-pointer transition-all duration-150")
     with card:
@@ -840,10 +830,10 @@ def _render_focus_card(
                         chip = ui.button(
                             sym_clean,
                             on_click=lambda _, s=sym_clean: open_stock_360_modal(db_path, s, copy_text=copy_text),
-                        ).classes("bg-teal-50 hover:bg-teal-100 text-[#01696f] text-xs font-bold px-2 py-0.5 rounded border border-teal-200").props("dense unelevated")
+                        ).classes("mp-chip mp-chip-accent text-xs font-bold").props("dense unelevated")
 
         with ui.row().classes("w-full justify-end mt-3 pt-2 border-t border-slate-100"):
-            ui.label("Inspect Sector Breakouts ➔").classes("text-xs font-bold text-[#01696f] hover:underline")
+            ui.label("Inspect Sector Breakouts ➔").classes("text-xs font-bold text-[var(--mp-primary)] hover:underline")
 
     card.on("click", lambda _, n=name: _select_group(n, state, on_select))
 
@@ -865,18 +855,18 @@ def _render_leaderboard_table(
         return
 
     cols = [
-        {"name": "rank_display", "label": "Rank & 5D Trend", "field": "rank_display", "align": "center", "sortable": True},
-        {"name": "group_name", "label": "Sector / Group Name", "field": "group_name", "align": "left", "sortable": True},
-        {"name": "rotation_state", "label": "Status", "field": "rotation_state", "align": "center", "sortable": True},
-        {"name": "why_focus", "label": "Why Focus / Thesis", "field": "why_focus", "align": "left"},
-        {"name": "rs_percentile", "label": "RS Score", "field": "rs_percentile", "align": "right", "sortable": True},
-        {"name": "return_5d_pct", "label": "5D %", "field": "return_5d_pct", "align": "right", "sortable": True},
-        {"name": "return_1m_pct", "label": "1M %", "field": "return_1m_pct", "align": "right", "sortable": True},
-        {"name": "return_3m_pct", "label": "3M %", "field": "return_3m_pct", "align": "right", "sortable": True},
-        {"name": "above_50ema_pct", "label": "% > 50EMA", "field": "above_50ema_pct", "align": "right", "sortable": True},
-        {"name": "near_52w_highs", "label": "52W Highs", "field": "near_52w_highs", "align": "center", "sortable": True},
-        {"name": "turnover_share_pct", "label": "Vol Share", "field": "turnover_share_pct", "align": "right", "sortable": True},
-        {"name": "top_leaders", "label": "Top Leader Stocks", "field": "top_leaders", "align": "left"},
+        get_quasar_column_def("rank", field="rank_display", label_override="RANK & 5D"),
+        get_quasar_column_def("group_name", width_override=210),
+        get_quasar_column_def("rotation_state"),
+        get_quasar_column_def("why_focus", width_override=240),
+        get_quasar_column_def("rs_percentile"),
+        get_quasar_column_def("return_5d_pct"),
+        get_quasar_column_def("return_1m_pct"),
+        get_quasar_column_def("return_3m_pct"),
+        get_quasar_column_def("above_50ema_pct"),
+        get_quasar_column_def("near_52w_highs"),
+        get_quasar_column_def("turnover_share_pct"),
+        get_quasar_column_def("top_leaders", width_override=280, sortable=False),
     ]
 
     rows = []
@@ -904,17 +894,18 @@ def _render_leaderboard_table(
             "top_leaders": str(r.get("top_leaders") or ""),
         })
 
-    table = (
-        ui.table(columns=cols, rows=rows, pagination=25)
-        .classes("w-full mp-table")
-        .props("dense flat bordered wrap-cells")
-    )
+    with ui.element("div").classes("w-full mp-table-scroll"):
+        table = (
+            ui.table(columns=cols, rows=rows, pagination=25)
+            .classes("w-full mp-table")
+            .props("dense flat bordered wrap-cells")
+        )
 
     table.add_slot(
         "body-cell-group_name",
         """
-        <q-td :props="props">
-          <span class="font-bold text-[#01696f] cursor-pointer hover:underline text-sm"
+        <q-td :props="props" class="mp-sticky-col">
+          <span class="font-bold text-[var(--mp-primary)] cursor-pointer hover:underline text-sm"
                 @click.stop="$parent.$emit('selectSector', props.value)">
             {{ props.value }} ➔
           </span>
@@ -946,18 +937,18 @@ def _render_sector_stocks_table(
 ) -> None:
     """Render the top breakout stocks table with Stock 360 drawer click handlers."""
     cols = [
-        {"name": "symbol", "label": "Symbol", "field": "symbol", "align": "left", "sortable": True},
-        {"name": "security_name", "label": "Company Name", "field": "security_name", "align": "left"},
-        {"name": "close_price", "label": "CMP", "field": "close_price", "align": "right", "sortable": True},
-        {"name": "return_1m_pct", "label": "1M %", "field": "return_1m_pct", "align": "right", "sortable": True},
-        {"name": "rs_percentile", "label": "RS", "field": "rs_percentile", "align": "right", "sortable": True},
-        {"name": "rvol", "label": "RVOL", "field": "rvol", "align": "right", "sortable": True},
-        {"name": "delivery_pct", "label": "Deliv %", "field": "delivery_pct", "align": "right", "sortable": True},
-        {"name": "vcp_state", "label": "VCP State", "field": "vcp_state", "align": "center"},
-        {"name": "candidate_state", "label": "Setup State", "field": "candidate_state", "align": "center"},
-        {"name": "trigger_price", "label": "Trigger", "field": "trigger_price", "align": "right"},
-        {"name": "stop_loss", "label": "Stop Loss", "field": "stop_loss", "align": "right"},
-        {"name": "reward_to_risk", "label": "R:R", "field": "reward_to_risk", "align": "right"},
+        get_quasar_column_def("symbol"),
+        get_quasar_column_def("security_name"),
+        get_quasar_column_def("close_price", label_override="CMP"),
+        get_quasar_column_def("return_1m_pct"),
+        get_quasar_column_def("rs_percentile"),
+        get_quasar_column_def("rvol"),
+        get_quasar_column_def("delivery_pct"),
+        get_quasar_column_def("vcp_state"),
+        get_quasar_column_def("candidate_state"),
+        get_quasar_column_def("trigger_price"),
+        get_quasar_column_def("stop_loss"),
+        get_quasar_column_def("reward_to_risk"),
     ]
 
     rows = []
@@ -977,28 +968,14 @@ def _render_sector_stocks_table(
             "reward_to_risk": f"{float(s['reward_to_risk']):.1f}x" if pd.notna(s.get("reward_to_risk")) else "-",
         })
 
-    table = (
-        ui.table(columns=cols, rows=rows, pagination=15)
-        .classes("w-full mp-table mp-sector-table")
-        .props("dense flat bordered wrap-cells")
-    )
+    with ui.element("div").classes("w-full mp-table-scroll"):
+        table = (
+            ui.table(columns=cols, rows=rows, pagination=15)
+            .classes("w-full mp-table mp-sector-table")
+            .props("dense flat bordered wrap-cells")
+        )
 
-    table.add_slot(
-        "body-cell-symbol",
-        """
-        <q-td :props="props">
-          <span class="mp-symbol cursor-pointer hover:underline text-[#01696f] font-bold"
-                @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)">
-            {{ props.value }}
-          </span>
-          <a class="text-xs text-gray-400 hover:text-teal-600 ml-1" target="_blank"
-             :href="'https://www.tradingview.com/chart/?symbol=NSE:' + String(props.value).replace('-', '_')"
-             @click.stop>
-            ↗
-          </a>
-        </q-td>
-        """,
-    )
+    table.add_slot("body-cell-symbol", SYMBOL_CELL_SLOT)
     table.add_slot(
         "body-cell-candidate_state",
         """

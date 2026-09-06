@@ -3,10 +3,108 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any
 
 import pandas as pd
 from nicegui import ui
+
+
+def signal_tone(value: Any, *, midpoint: float = 0.0) -> str:
+    """Map a numeric value to a restrained semantic tone for a data tile."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "neutral"
+    if pd.isna(number):
+        return "neutral"
+    if number > midpoint:
+        return "good"
+    if number < midpoint:
+        return "bad"
+    return "neutral"
+
+
+def signal_tile(
+    label: str,
+    value: Any,
+    *,
+    tone: str = "neutral",
+    delta: str = "",
+    context: str = "",
+) -> None:
+    """Compact regime/KPI tile with a semantic background and readable hierarchy."""
+    safe_tone = tone if tone in {"good", "bad", "warn", "info", "neutral"} else "neutral"
+    with ui.element("article").classes(f"mp-signal-tile tone-{safe_tone}"):
+        with ui.row().classes("w-full items-center justify-between gap-2 mp-signal-topline"):
+            ui.label(label).classes("mp-signal-label")
+            if delta:
+                ui.label(delta).classes("mp-signal-delta")
+        ui.label(str(value)).classes("mp-signal-value")
+        if context:
+            ui.label(context).classes("mp-signal-context")
+
+
+def leadership_tile(
+    rank: int,
+    name: str,
+    *,
+    group_label: str,
+    rs: Any = None,
+    day_pct: Any = None,
+    week_pct: Any = None,
+    flow_multiple: Any = None,
+    tone: str = "good",
+) -> None:
+    """Ranked sector/industry tile used by the Desk leadership strip."""
+    safe_tone = tone if tone in {"good", "bad", "warn", "info", "neutral"} else "neutral"
+
+    def _value(value: Any, suffix: str = "", digits: int = 1) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "—"
+        if pd.isna(number):
+            return "—"
+        return f"{number:+.{digits}f}{suffix}" if suffix else f"{number:.{digits}f}"
+
+    with ui.element("article").classes(f"mp-leadership-tile tone-{safe_tone}"):
+        with ui.row().classes("w-full items-center justify-between gap-2"):
+            ui.label(f"#{int(rank)}").classes("mp-leadership-rank")
+            ui.label(str(group_label).upper()).classes("mp-leadership-kicker")
+        ui.label(str(name)).classes("mp-leadership-name")
+        with ui.row().classes("w-full items-center gap-3 mp-leadership-stats"):
+            with ui.column().classes("gap-0"):
+                ui.label("RS").classes("mp-leadership-stat-label")
+                ui.label(_value(rs, digits=0)).classes("mp-leadership-stat-value")
+            with ui.column().classes("gap-0"):
+                ui.label("TODAY").classes("mp-leadership-stat-label")
+                ui.label(_value(day_pct, "%")).classes("mp-leadership-stat-value")
+            with ui.column().classes("gap-0"):
+                ui.label("FLOW").classes("mp-leadership-stat-label")
+                ui.label(_value(flow_multiple, "x")).classes("mp-leadership-stat-value")
+        if week_pct is not None:
+            ui.label(f"5D {_value(week_pct, '%')}").classes("mp-leadership-context")
+
+
+@contextmanager
+def chart_panel(
+    title: str,
+    subtitle: str = "",
+    *,
+    tone: str = "neutral",
+    extra_class: str = "",
+):
+    """Bounded chart surface with consistent title, subtitle, and spacing."""
+    safe_tone = tone if tone in {"good", "bad", "warn", "info", "neutral"} else "neutral"
+    classes = f"mp-chart-panel tone-{safe_tone} {extra_class}".strip()
+    with ui.element("section").classes(classes):
+        with ui.row().classes("w-full items-start justify-between gap-3 mp-chart-panel-heading"):
+            ui.label(title).classes("mp-chart-title")
+            ui.label("DESK").classes("mp-chart-kicker")
+        if subtitle:
+            ui.label(subtitle).classes("mp-chart-subtitle")
+        yield
 
 
 def action_button(label: str, on_click: Callable[[], None], *, primary: bool = True) -> None:
@@ -59,9 +157,9 @@ def deal_flow_card(
     with card_el:
         with ui.row().classes("w-full items-center justify-between gap-2"):
             with ui.row().classes("items-center gap-2"):
-                sym_lbl = ui.label(symbol).classes("sym hover:underline")
-                if on_click:
-                    sym_lbl.on("click", lambda _=None: on_click())
+                sym_lbl = ui.label(symbol).classes("sym hover:underline cursor-pointer")
+                if on_tv:
+                    sym_lbl.on("click", lambda _: on_tv())
                 if loved:
                     ui.label("Inst love").classes("mp-mini-badge mp-deal-badge")
             ui.label(f"+{buy_cr:,.0f} Cr").classes("mp-up")
@@ -111,17 +209,23 @@ def flow_spark(flow: pd.DataFrame) -> None:
     x = rows["trade_date"].tolist()
     buy = pd.to_numeric(rows.get("buy_cr"), errors="coerce").fillna(0).round(1).tolist()
     sell = pd.to_numeric(rows.get("sell_cr"), errors="coerce").fillna(0).round(1).tolist()
+    theme = chart_theme()
     ui.echart(
         {
             "backgroundColor": "transparent",
-            "tooltip": {"trigger": "axis"},
+            "animation": False,
+            "tooltip": {
+                "trigger": "axis",
+                "axisPointer": {"type": "shadow"},
+                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono"},
+            },
             "grid": {"left": 40, "right": 12, "top": 16, "bottom": 28},
-            "legend": {"show": True, "top": 0, "right": 0, "textStyle": {"fontSize": 13, "color": "#d8d0c0"}},
-            "xAxis": {"type": "category", "data": x, "axisLabel": {"fontSize": 12, "color": "#d8d0c0"}},
-            "yAxis": {"type": "value", "axisLabel": {"fontSize": 12, "color": "#d8d0c0"}},
+            "legend": {"show": True, "top": 0, "right": 0, "textStyle": {"fontSize": 12, "color": theme["text"]}},
+            "xAxis": {"type": "category", "data": x, "axisLabel": {"fontSize": 11, "color": theme["text"]}, "axisLine": {"lineStyle": {"color": theme["grid"]}}},
+            "yAxis": {"type": "value", "axisLabel": {"fontSize": 11, "color": theme["text"]}, "splitLine": {"lineStyle": {"color": theme["grid"]}}},
             "series": [
-                {"name": "BUY Cr", "type": "bar", "data": buy, "itemStyle": {"color": "#22c55e"}},
-                {"name": "SELL Cr", "type": "bar", "data": sell, "itemStyle": {"color": "#ef4444"}},
+                {"name": "BUY Cr", "type": "bar", "data": buy, "itemStyle": {"color": theme["good"]}},
+                {"name": "SELL Cr", "type": "bar", "data": sell, "itemStyle": {"color": theme["bad"]}},
             ],
         }
     ).classes("mp-flow-spark w-full")
@@ -167,9 +271,34 @@ def return_heatmap(frame: pd.DataFrame, *, name_col: str, value_col: str = "day_
                     ui.label(" · ".join(extra)).classes("meta")
 
 
-_CHART_INK = "#d8d0c0"
-_CHART_GRID = "#2a261c"
-_LINE_PALETTE = ["#c9a227", "#58a6ff", "#3fb950", "#f85149", "#d2a8ff", "#ffa657", "#79c0ff", "#e3b341"]
+def chart_theme() -> dict[str, Any]:
+    """Return stable ECharts colors for the Institutional Midnight theme."""
+    return {
+        "text": "#98A7BA",
+        "text_strong": "#F1F4F8",
+        "faint": "#6E7E93",
+        "grid": "#263447",
+        "series": ["#D8AC3D", "#74A9FF", "#45D483", "#F27C84", "#5AD3D0", "#F0BE58"],
+        "primary": "#D8AC3D",
+        "info": "#74A9FF",
+        "good": "#45D483",
+        "bad": "#F27C84",
+        "warn": "#F0BE58",
+        "cyan": "#5AD3D0",
+    }
+
+
+def _series_color(theme: dict[str, Any], tone: str | None, index: int) -> str:
+    tone_colors = {
+        "primary": theme["primary"],
+        "info": theme["info"],
+        "good": theme["good"],
+        "bad": theme["bad"],
+        "warn": theme["warn"],
+        "cyan": theme["cyan"],
+        "neutral": theme["series"][index % len(theme["series"])],
+    }
+    return tone_colors.get(str(tone or "neutral"), tone_colors["neutral"])
 
 
 def line_chart(
@@ -178,6 +307,8 @@ def line_chart(
     date_col: str,
     series: dict[str, str],
     height_class: str = "mp-trend-chart",
+    series_tones: dict[str, str] | None = None,
+    area: bool = False,
 ) -> None:
     """Wide-frame line chart. series maps legend label → column name."""
     if frame is None or frame.empty or date_col not in frame.columns:
@@ -189,20 +320,26 @@ def line_chart(
     if rows.empty:
         return
     x = rows[date_col].dt.strftime("%d %b").tolist()
+    theme = chart_theme()
     e_series = []
     for i, (label, col) in enumerate(series.items()):
         if col not in rows.columns:
             continue
         data = [None if pd.isna(v) else round(float(v), 2) for v in pd.to_numeric(rows[col], errors="coerce")]
+        color = _series_color(theme, (series_tones or {}).get(label), i)
+        item = {
+            "name": label,
+            "type": "line",
+            "showSymbol": False,
+            "smooth": False,
+            "data": data,
+            "lineStyle": {"width": 2, "color": color},
+            "itemStyle": {"color": color},
+        }
+        if area:
+            item["areaStyle"] = {"color": color, "opacity": 0.10}
         e_series.append(
-            {
-                "name": label,
-                "type": "line",
-                "showSymbol": False,
-                "data": data,
-                "lineStyle": {"width": 2, "color": _LINE_PALETTE[i % len(_LINE_PALETTE)]},
-                "itemStyle": {"color": _LINE_PALETTE[i % len(_LINE_PALETTE)]},
-            }
+            item
         )
     if not e_series:
         return
@@ -210,22 +347,26 @@ def line_chart(
         {
             "backgroundColor": "transparent",
             "animation": False,
-            "tooltip": {"trigger": "axis"},
+            "tooltip": {
+                "trigger": "axis",
+                "axisPointer": {"type": "line"},
+                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono"},
+            },
             "legend": {
                 "top": 0,
-                "textStyle": {"color": _CHART_INK, "fontSize": 13},
+                "textStyle": {"color": theme["text"], "fontSize": 12, "fontFamily": "IBM Plex Sans"},
             },
             "grid": {"left": 48, "right": 16, "top": 36, "bottom": 28},
             "xAxis": {
                 "type": "category",
                 "data": x,
-                "axisLabel": {"color": _CHART_INK, "fontSize": 12, "hideOverlap": True},
-                "axisLine": {"lineStyle": {"color": _CHART_GRID}},
+                "axisLabel": {"color": theme["text"], "fontSize": 11, "hideOverlap": True},
+                "axisLine": {"lineStyle": {"color": theme["grid"]}},
             },
             "yAxis": {
                 "scale": True,
-                "axisLabel": {"color": _CHART_INK, "fontSize": 12},
-                "splitLine": {"lineStyle": {"color": _CHART_GRID}},
+                "axisLabel": {"color": theme["text"], "fontSize": 11},
+                "splitLine": {"lineStyle": {"color": theme["grid"]}},
             },
             "series": e_series,
         }
@@ -259,6 +400,7 @@ def grouped_line_chart(
         series[str(grp)] = [None if pd.isna(v) else round(float(v), 2) for v in aligned]
     if not series:
         return
+    theme = chart_theme()
     e_series = []
     for i, (label, data) in enumerate(series.items()):
         e_series.append(
@@ -266,32 +408,37 @@ def grouped_line_chart(
                 "name": label,
                 "type": "line",
                 "showSymbol": False,
+                "smooth": False,
                 "data": data,
-                "lineStyle": {"width": 2, "color": _LINE_PALETTE[i % len(_LINE_PALETTE)]},
-                "itemStyle": {"color": _LINE_PALETTE[i % len(_LINE_PALETTE)]},
+                "lineStyle": {"width": 2, "color": theme["series"][i % len(theme["series"])]},
+                "itemStyle": {"color": theme["series"][i % len(theme["series"])]},
             }
         )
     ui.echart(
         {
             "backgroundColor": "transparent",
             "animation": False,
-            "tooltip": {"trigger": "axis"},
+            "tooltip": {
+                "trigger": "axis",
+                "axisPointer": {"type": "line"},
+                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono"},
+            },
             "legend": {
                 "top": 0,
                 "type": "scroll",
-                "textStyle": {"color": _CHART_INK, "fontSize": 13},
+                "textStyle": {"color": theme["text"], "fontSize": 12, "fontFamily": "IBM Plex Sans"},
             },
             "grid": {"left": 48, "right": 16, "top": 36, "bottom": 28},
             "xAxis": {
                 "type": "category",
                 "data": x,
-                "axisLabel": {"color": _CHART_INK, "fontSize": 12, "hideOverlap": True},
-                "axisLine": {"lineStyle": {"color": _CHART_GRID}},
+                "axisLabel": {"color": theme["text"], "fontSize": 11, "hideOverlap": True},
+                "axisLine": {"lineStyle": {"color": theme["grid"]}},
             },
             "yAxis": {
                 "scale": True,
-                "axisLabel": {"color": _CHART_INK, "fontSize": 12, "formatter": "{value}%"},
-                "splitLine": {"lineStyle": {"color": _CHART_GRID}},
+                "axisLabel": {"color": theme["text"], "fontSize": 11, "formatter": "{value}%"},
+                "splitLine": {"lineStyle": {"color": theme["grid"]}},
             },
             "series": e_series,
         }

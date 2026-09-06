@@ -17,8 +17,10 @@ except ModuleNotFoundError:
 
 try:
     from App.market_status import load_market_status
+    from App.ui.market_health import render_market_health_strip
 except ModuleNotFoundError:
     from market_status import load_market_status  # type: ignore
+    from ui.market_health import render_market_health_strip  # type: ignore
 
 
 SWING_VIEW_COLUMNS = [
@@ -66,6 +68,7 @@ def build_screener_page(
         "Screener",
         "Focused-v2 EOD swing queue. Fundamental inputs are unavailable and are not part of the score.",
     )
+    render_market_health_strip(db_path)
     ui.label(
         "Fundamentals unavailable · this queue uses price/volume, market-cap, sector, regime, and event-risk inputs only."
     ).classes("mp-badge mp-warn w-full mt-2")

@@ -21,6 +21,16 @@ except ModuleNotFoundError:
     from market_flags import annotate  # type: ignore
     from ui.shell import page_shell  # type: ignore
 
+try:
+    from App.ui.stock_drawer import open_stock_360_modal
+except ModuleNotFoundError:
+    from ui.stock_drawer import open_stock_360_modal  # type: ignore
+
+try:
+    from App.ui.vcp_chart import render_vcp_ohlc
+except ModuleNotFoundError:
+    from ui.vcp_chart import render_vcp_ohlc  # type: ignore
+
 
 CHECKS = (
     ("price_gt_150_200", "Price > 150 SMA and 200 SMA"),
@@ -247,6 +257,29 @@ def build_sma_template_page(
                         "has_deal",
                     },
                 )
+                sym_list = hits["symbol"].dropna().astype(str).tolist()
+                if sym_list:
+                    default_sym = sym_list[0]
+                    with ui.card().classes("w-full mp-card p-3 mt-4 border border-[var(--mp-border)] bg-[var(--mp-surface-raised)]"):
+                        with ui.row().classes("w-full items-center justify-between pb-2 border-b border-[var(--mp-border)] flex-wrap gap-2"):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.label("📈 SMA Trend Template Chart Preview (OHLC + SMA 50/150/200 + RS)").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                                sel = ui.select(sym_list, value=default_sym, label="Candidate").classes("w-44").props("dense outlined")
+                            with ui.row().classes("items-center gap-2"):
+                                ui.button("Open Stock 360 ↗", on_click=lambda: open_stock_360_modal(Path(db_path), str(sel.value), copy_text=copy_text)).classes("mp-button text-xs").props("dense outline")
+
+                        chart_host = ui.column().classes("w-full mt-2")
+
+                        def update_chart():
+                            chart_host.clear()
+                            sym = str(sel.value or "").strip().upper()
+                            if not sym:
+                                return
+                            with chart_host:
+                                render_vcp_ohlc(Path(db_path), sym)
+
+                        sel.on_value_change(lambda _: update_chart())
+                        update_chart()
         ui.notify(f"{len(hits)} names passed", type="positive" if len(hits) else "warning")
 
     def copy() -> None:

@@ -188,7 +188,8 @@ def group_trend(db_path: Path, level: str = "sector", top_n: int = 6, days: int 
             LIMIT {top_n}
         )
         SELECT i.trade_date, m.{col} AS grp,
-               avg((i.close_price / nullif(i.prev_close, 0) - 1) * 100) AS day_pct
+               avg((i.close_price / nullif(i.prev_close, 0) - 1) * 100) AS day_pct,
+               avg(i.return_5d_pct) AS week_pct
         FROM indicators_daily i
         JOIN stocks_master m USING(symbol), latest
         WHERE i.trade_date >= (SELECT d FROM latest) - INTERVAL {days} DAY

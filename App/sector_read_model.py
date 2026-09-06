@@ -371,18 +371,44 @@ def _computed_sector_overview(
     )
     frame["near_52w_highs"] = frame["near_52w_highs"].fillna(0).astype(int)
     frame["why_focus"] = frame.apply(_build_why_focus, axis=1)
-    total_adv = frame["turnover_1d_cr"].sum()
-    frame["turnover_share_pct"] = np.where(total_adv > 0, frame["turnover_1d_cr"] / total_adv * 100, 0)
-    frame["top_leaders"] = ""
-    frame["leader_symbols"] = ""
+    col = LEVEL_COLUMNS.get(level, "sector")
+    leaders_sql = f"""
+    WITH top_stocks AS (
+        SELECT m.{col} AS group_name, i.symbol, i.rs_percentile, i.close_price, i.return_1m_pct,
+               ROW_NUMBER() OVER (PARTITION BY m.{col} ORDER BY i.rs_percentile DESC NULLS LAST, i.turnover_cr DESC NULLS LAST) AS rn
+        FROM indicators_daily i
+        JOIN stocks_master m ON m.symbol = i.symbol
+        WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+    )
+    SELECT group_name,
+           string_agg(symbol, ', ') AS top_leaders,
+           string_agg(symbol, ' ') AS leader_symbols
+    FROM top_stocks
+    WHERE rn <= 3
+    GROUP BY group_name
+    """
+    try:
+        cur_date = frame["trade_date"].iloc[0]
+        leaders_df = db.execute(leaders_sql, [cur_date]).fetchdf()
+        if not leaders_df.empty:
+            frame = frame.merge(leaders_df, on="group_name", how="left")
+    except Exception:
+        pass
+    if "top_leaders" not in frame.columns:
+        frame["top_leaders"] = ""
+        frame["leader_symbols"] = ""
+    else:
+        frame["top_leaders"] = frame["top_leaders"].fillna("")
+        frame["leader_symbols"] = frame["leader_symbols"].fillna("")
 
     quadrants: dict[str, list[dict[str, Any]]] = {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []}
     top_focus: list[dict[str, Any]] = []
     for _, row in frame.sort_values("rotation_rank").iterrows():
         state = str(row["rotation_state"])
         item = row.to_dict()
-        item.update({"status_badge": state.upper(), "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "slate"})
-        quadrants["Leading" if state == "Leading" else "Improving" if state == "Improving" else "Lagging"].append(item)
+        item.update({"status_badge": state.upper(), "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"})
+        quad_key = state if state in quadrants else "Lagging"
+        quadrants[quad_key].append(item)
         if len(top_focus) < 4:
             top_focus.append(item)
 
@@ -416,13 +442,31 @@ def query_sector_rotation_overview(
     col = LEVEL_COLUMNS.get(level, "sector")
 
     with duckdb.connect(str(db_path), read_only=True) as db:
-        computed = _computed_sector_overview(db, level, as_of)
-        if computed is not None:
-            return computed
+        # 1. First check if sector_rotation table exists and has data for this level
+        has_rot = False
+        try:
+            rot_table_exists = db.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_name = 'sector_rotation'"
+            ).fetchone()[0]
+            if rot_table_exists:
+                if as_of:
+                    d_count = db.execute(
+                        "SELECT count(*) FROM sector_rotation WHERE level = ? AND trade_date = ?",
+                        [level, as_of],
+                    ).fetchone()[0]
+                else:
+                    d_count = db.execute(
+                        "SELECT count(*) FROM sector_rotation WHERE level = ?",
+                        [level],
+                    ).fetchone()[0]
+                has_rot = (d_count > 0)
+        except Exception:
+            has_rot = False
 
-        # Check if table exists
-        exists = db.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'sector_rotation'").fetchone()[0]
-        if not exists:
+        if not has_rot:
+            computed = _computed_sector_overview(db, level, as_of)
+            if computed is not None:
+                return computed
             return {
                 "as_of": None,
                 "top_focus": [],

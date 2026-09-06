@@ -10,9 +10,12 @@ import pandas as pd
 import nicegui.core as core
 from nicegui import ui
 
-# Resolve Scripts dir relative to this file (App/app.py -> project root -> Scripts)
+# Resolve Root & Scripts dirs relative to this file (App/app.py -> project root -> Scripts)
 # Allows running from the relocated MarketPulse2.0 folder (or any location).
-SCRIPTS = Path(__file__).resolve().parent.parent / "Scripts"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+SCRIPTS = ROOT / "Scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -77,12 +80,14 @@ try:
     from pages.desk import build_desk_page
     from pages.minervini import build_minervini_page
     from data_health_page import build_data_health_page
+    from pages.info_page import build_info_page
 except ModuleNotFoundError:
     from App.candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
     from App.pages.screener import build_screener_page
     from App.pages.desk import build_desk_page
     from App.pages.minervini import build_minervini_page
     from App.data_health_page import build_data_health_page
+    from App.pages.info_page import build_info_page
 
 try:
     from config import STATUS_PATH
@@ -92,9 +97,40 @@ except ImportError:
 try:
     from ui.stock_drawer import open_stock_360_modal
     from ui.number_format import NUMERIC_KINDS, classify_column, format_cell
+    from ui.table import SYMBOL_CELL_SLOT
+    from ui.columns import get_column_label, get_column_contract
+    from ui.widgets import chart_panel, line_chart
 except ModuleNotFoundError:
     from App.ui.stock_drawer import open_stock_360_modal
     from App.ui.number_format import NUMERIC_KINDS, classify_column, format_cell
+    from App.ui.table import SYMBOL_CELL_SLOT
+    from App.ui.columns import get_column_label, get_column_contract
+    from App.ui.widgets import chart_panel, line_chart
+
+try:
+    from App.ui.market_health import render_market_health_strip
+except ModuleNotFoundError:
+    try:
+        from ui.market_health import render_market_health_strip
+    except ModuleNotFoundError:
+        render_market_health_strip = None
+
+try:
+    from App.ui.terminal_bar import render_market_ticker_ribbon, render_global_search
+    from App.ui.watchlist_hub import build_watchlist_page
+    from App.trade_analytics import calculate_trade_metrics, query_journal_records, log_trade_entry
+except ModuleNotFoundError:
+    try:
+        from ui.terminal_bar import render_market_ticker_ribbon, render_global_search
+        from ui.watchlist_hub import build_watchlist_page
+        from trade_analytics import calculate_trade_metrics, query_journal_records, log_trade_entry
+    except ModuleNotFoundError:
+        render_market_ticker_ribbon = None
+        render_global_search = None
+        build_watchlist_page = None
+        calculate_trade_metrics = None
+        query_journal_records = None
+        log_trade_entry = None
 
 try:
     from pages.research.sector_intel import build_sector_intel_page
@@ -246,7 +282,7 @@ def label_for(col: str) -> str:
         return "Copy"
     if col == "symbol_preview":
         return "Stocks"
-    return FRIENDLY_COLUMNS.get(col, col.replace("_", " ").title())
+    return get_column_label(col)
 
 
 def tradingview_symbol(symbol: str) -> str:
@@ -390,6 +426,52 @@ def format_inr(value, signed: bool = False) -> str:
     return f"{sign}INR {text}"
 
 
+_SECTOR_RANKS_MAP = None
+
+def get_sector_ranks_map(db_path: Path) -> dict[str, str]:
+    global _SECTOR_RANKS_MAP
+    if _SECTOR_RANKS_MAP is not None:
+        return _SECTOR_RANKS_MAP
+    ranks = {}
+    try:
+        with duckdb.connect(str(db_path), read_only=True) as db:
+            df = db.execute('''
+                WITH latest AS (SELECT max(trade_date) AS max_d FROM sector_rotation)
+                SELECT group_name, rotation_rank FROM sector_rotation s JOIN latest l ON s.trade_date = l.max_d WHERE level = 'Sector'
+            ''').fetchdf()
+            short_map = {
+                'Automobile and Auto Components': 'Auto', 'Oil, Gas & Consumable Fuels': 'Energy',
+                'Fast Moving Consumer Goods': 'FMCG', 'Metals & Mining': 'Metal', 'Financial Services': 'Fin',
+                'Telecommunication': 'Telecom', 'Capital Goods': 'CapGoods', 'Information Technology': 'IT',
+                'Consumer Durables': 'ConsDurable', 'Healthcare': 'Health',
+            }
+            for _, r in df.iterrows():
+                name = str(r['group_name'])
+                ranks[name] = f"{short_map.get(name, name[:7])} #{int(r['rotation_rank'])}"
+    except Exception:
+        pass
+    _SECTOR_RANKS_MAP = ranks
+    return _SECTOR_RANKS_MAP
+
+
+def _quick_watchlist_toggle(sym: str) -> None:
+    sym = (sym or "").strip().upper()
+    if not sym:
+        return
+    try:
+        from App.ui.stock_drawer import toggle_watchlist_symbol
+    except ModuleNotFoundError:
+        from ui.stock_drawer import toggle_watchlist_symbol  # type: ignore
+    try:
+        added = toggle_watchlist_symbol(DB_PATH, 1, sym)
+        if added:
+            ui.notify(f"★ Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
+        else:
+            ui.notify(f"Removed {sym} from Watchlist (WL1)", type="info")
+    except Exception as exc:
+        ui.notify(f"Watchlist error: {exc}", type="negative")
+
+
 def table_from_df(
     df: pd.DataFrame,
     title: str = "",
@@ -398,6 +480,10 @@ def table_from_df(
     hidden_cols=None,
     page_key=None,
     compact: bool = False,
+    on_edit_cell=None,
+    on_clear_cell=None,
+    on_close_position=None,
+    on_update_sell_price=None,
 ):
     """Extended for column customization: pass page_key (e.g. 'health-movers') to enable per-page visible column chooser + save to localStorage.
     hidden_cols still works as default. Additional filters can be added by caller before calling (e.g. extra ui.number/select bound to a reactive df filter).
@@ -437,8 +523,12 @@ def table_from_df(
         # On reload the localStorage is authoritative; we still respect the passed hidden_cols as default
         pass
     view = df.copy()
+    if "sector" in view.columns and "sector_badge" not in view.columns:
+        smap = get_sector_ranks_map(DB_PATH)
+        view["sector_badge"] = view["sector"].map(smap).fillna("")
     # Long rationale belongs in the stock drawer, never in a comparison table.
     tone_cols: list[str] = []
+    formatted_cols: list[str] = []
     compact_kinds = {"signed_return", "level_pct", "distance", "rvol", "signed_delta"}
     for col in list(view.columns):
         if pd.api.types.is_datetime64_any_dtype(view[col]):
@@ -446,7 +536,14 @@ def table_from_df(
             continue
         kind = classify_column(col)
         raw = df[col] if col in df.columns else view[col]
-        if kind == "other" and not pd.api.types.is_numeric_dtype(raw):
+        is_num = (
+            kind in NUMERIC_KINDS
+            or col.lower() in {"n", "day_pct", "week_pct", "month_pct"}
+            or (col in df.columns and pd.api.types.is_numeric_dtype(df[col]))
+            or pd.api.types.is_numeric_dtype(raw)
+        )
+        if not is_num:
+            view[col] = view[col].fillna("—")
             continue
         texts: list[str] = []
         tones: list[str] = []
@@ -454,11 +551,14 @@ def table_from_df(
             text, tone = format_cell(col, v)
             texts.append(text)
             tones.append(tone)
-        view[col] = texts
+        # Store formatted text in separate __fmt column so view[col] stays raw numeric for client-side sorting!
+        view[f"{col}__fmt"] = texts
+        formatted_cols.append(col)
+        # Ensure raw numeric column is pure numeric (with None for nulls so JSON handles it)
+        view[col] = pd.to_numeric(view[col], errors="coerce").astype(object).where(pd.notna(view[col]), None)
         if any(tones):
             view[f"{col}__k"] = tones
             tone_cols.append(col)
-    view = view.fillna("—")
     auto_hide = {
         "is_top_sector",
         "is_top_industry",
@@ -466,6 +566,8 @@ def table_from_df(
         "is_improving_industry",
         "is_avoid",
         "has_deal",
+        "sector_badge",
+        "rs_5d_trail_html",
     }
     display_cols = [
         col
@@ -473,6 +575,7 @@ def table_from_df(
         if col not in hidden_cols
         and col not in auto_hide
         and col != "why_now"
+        and not str(col).endswith("__fmt")
         and not str(col).endswith("__k")
     ]
 
@@ -484,10 +587,20 @@ def table_from_df(
             or col.lower() in {"n", "day_pct", "week_pct", "month_pct"}
             or (col in df.columns and pd.api.types.is_numeric_dtype(df[col]))
         )
-        if col in {"symbol", "symbols", "symbol_list", "symbol_preview", "notes", "tags", "status"} or not is_num:
+        if col == "close_position":
+            align = "center"
+            cls = "action-col"
+        elif col in {"symbol", "symbols", "symbol_list", "symbol_preview", "notes", "tags", "status", "top_leaders", "leaders"} or not is_num:
             # Text columns (SECTOR, INDUSTRY, SYMBOLS / long lists, and similar label columns) LEFT-aligned.
             align = "left"
-            cls = "symbol-col" if col == "symbol" else ("symbols-col" if col in {"symbols", "symbol_list"} else "text-col")
+            if col == "symbol":
+                cls = "symbol-col mp-sticky-col"
+            elif col == "group_name":
+                cls = "text-col mp-sticky-col"
+            elif col in {"symbols", "symbol_list", "top_leaders", "leaders"}:
+                cls = "symbols-col"
+            else:
+                cls = "text-col"
         else:
             # Numeric columns RIGHT-aligned (standard in all pro trading terminals).
             # This is the main reason the table in the screenshot looks "ugly" / unprofessional:
@@ -495,48 +608,51 @@ def table_from_df(
             # Right + tabular-nums makes digits line up for instant scanning/comparison.
             align = "right"
             cls = "numeric"
-        # Widths sized so headers stay readable; long text columns wrap (no clip).
-        compact_widths = {
-            "client_name": (240, True),
-            "latest_deal_date": (112, False),
-            "buy_value_cr": (88, False),
-            "sell_value_cr": (88, False),
-            "net_value_cr": (88, False),
-            "active_days": (88, False),
-            "copy_symbols": (54, False),
-            "symbol_preview": (260, True),
-        }
-        if compact and col in compact_widths:
-            width, wrap = compact_widths[col]
-        elif col == "copy_symbols":
-            width, wrap = 72, False
-        elif col in {"rank"}:
-            width, wrap = 48, False
-        elif col in {"symbol", "side", "band", "status"}:
-            width, wrap = 140, False
-        elif col == "deal_when":
-            width, wrap = 200, True
-        elif col in {"rotation_state", "vcp_state", "industry_state", "sector_state", "setup"}:
-            width, wrap = 120, False
-        elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
-            width, wrap = 320, True
-        elif col in {"rs_5d_trail"}:
-            width, wrap = 160, False
-        elif col in {"symbols", "symbol_list"}:
-            # Preview only — full TV lists live behind Copy buttons (avoids spaghetti cells)
-            width, wrap = 260, True
+        # Professional financial terminal sizing matrix (strictly prevents clipping and awkward wraps)
+        if col == "symbol":
+            width, wrap = (195, False)
+        elif col == "close_position":
+            width, wrap = (68, False)
+        elif col in {"side", "band"}:
+            width, wrap = (70, False)
+        elif col in {"rank", "rs_rank", "rotation_rank"}:
+            width, wrap = (54, False)
+        elif col in {"rs_percentile", "rs_rating", "score"}:
+            width, wrap = (76, False)
+        elif col in {"day_pct", "week_pct", "month_pct", "return_1d_pct", "return_5d_pct", "return_1m_pct", "pct_change"}:
+            width, wrap = (88, False)
+        elif col in {"close_price", "cmp", "entry_price", "exit_price", "stop_loss", "target_price", "pivot", "low", "high", "sell_price"}:
+            width, wrap = (98, False)
+        elif col in {"turnover_cr", "turnover_1d_cr", "turnover_5d_cr", "turnover_20d_cr", "market_cap_cr", "deal_value_cr", "buy_value_cr", "sell_value_cr", "net_value_cr"}:
+            width, wrap = (112, False)
+        elif col in {"volume", "vol_20d_avg", "avg_volume_20d"}:
+            width, wrap = (100, False)
+        elif col in {"rvol", "vs_20d", "vol_shock", "n"}:
+            width, wrap = (80, False)
+        elif col in {"away_10ema_pct", "away_20ema_pct", "away_50ema_pct", "away_52w_high_pct", "away_52w_low_pct"}:
+            width, wrap = (95, False)
+        elif col in {"status", "rotation_state", "vcp_state", "industry_state", "sector_state", "setup"}:
+            width, wrap = (105, False)
         elif col in {"group_name", "client_name"}:
-            width, wrap = 200, True
+            width, wrap = (220, True)
         elif col in {"broad_industry", "industry", "sector", "change_type"}:
-            width, wrap = 180, True
+            width, wrap = (175, True)
+        elif col in {"symbols", "symbol_list", "top_leaders", "leaders"}:
+            width, wrap = (280, True)
+        elif col == "rs_5d_trail":
+            width, wrap = (165, False)
+        elif col == "copy_symbols":
+            width, wrap = (72, False)
+        elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
+            width, wrap = (320, True)
+        elif col in {"deal_when", "trade_date", "latest_deal_date"}:
+            width, wrap = (115, False)
         elif kind == "distance":
-            width, wrap = 84, False
-        elif kind in compact_kinds or col.lower() in {"rvol", "vs_20d", "vol_shock", "n"}:
-            width, wrap = 88, False
+            width, wrap = (88, False)
         elif is_num:
-            width, wrap = 92, False
+            width, wrap = (95, False)
         else:
-            width, wrap = 120, False
+            width, wrap = (130, False)
         label = label_for(col)
         # Header must show full label (no ellipsis on th)
         # Fixed widths prevent auto-layout from donating the viewport to a
@@ -600,45 +716,116 @@ def table_from_df(
         }}, 150);
         """)
 
-    for col in tone_cols:
+    for col in formatted_cols:
+        if col in {"qty", "avg_buy_price", "sell_price", "close_position"}:
+            continue
         table.add_slot(
             f"body-cell-{col}",
             f"""
             <q-td :props="props" class="numeric">
               <span :class="props.row['{col}__k'] || ''">
-                {{{{ props.value }}}}
+                {{{{ props.row['{col}__fmt'] !== undefined ? props.row['{col}__fmt'] : (props.value !== null && props.value !== undefined ? props.value : '—') }}}}
               </span>
+            </q-td>
+            """,
+        )
+    if "sell_price" in view.columns:
+        table.add_slot(
+            "body-cell-sell_price",
+            """
+            <q-td :props="props" class="numeric" style="padding: 2px 4px;">
+              <input
+                type="number"
+                step="0.05"
+                :value="props.row.sell_price !== undefined && props.row.sell_price !== null && props.row.sell_price !== '' && Number(props.row.sell_price) > 0 ? props.row.sell_price : props.row.cmp"
+                class="mp-inline-input"
+                style="width: 82px; text-align: right; background: var(--mp-surface-2); color: var(--mp-text); border: 1px solid var(--mp-border); border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: 600;"
+                @input="props.row.sell_price = $event.target.value"
+                @change="$parent.$emit('update_sell_price', {symbol: props.row.symbol, price: $event.target.value})"
+                @keydown.enter.prevent="$parent.$emit('update_sell_price', {symbol: props.row.symbol, price: $event.target.value})"
+                @blur="$parent.$emit('update_sell_price', {symbol: props.row.symbol, price: $event.target.value})"
+              />
+            </q-td>
+            """,
+        )
+    if "close_position" in view.columns:
+        table.add_slot(
+            "body-cell-close_position",
+            """
+            <q-td :props="props" class="text-center" style="padding: 2px 6px;">
+              <q-toggle
+                dense
+                size="sm"
+                color="positive"
+                :model-value="false"
+                @update:model-value="$parent.$emit('close_position', {symbol: props.row.symbol, sell_price: props.row.sell_price !== undefined && props.row.sell_price !== null && props.row.sell_price !== '' ? props.row.sell_price : props.row.cmp})"
+              >
+                <q-tooltip>Close position and move to Sold archive</q-tooltip>
+              </q-toggle>
+            </q-td>
+            """,
+        )
+    if "qty" in view.columns:
+        table.add_slot(
+            "body-cell-qty",
+            """
+            <q-td :props="props" class="numeric cursor-pointer">
+              <div class="cursor-pointer inline-flex items-center justify-end w-full group select-none"
+                   @dblclick.stop="$parent.$emit('edit_cell', {symbol: props.row.symbol, field: 'qty', label: 'Quantity', value: props.row.qty})"
+                   title="Double-click to edit Quantity">
+                <span :class="props.row['qty__k'] || ''" class="font-mono">
+                  {{ props.row['qty__fmt'] !== undefined ? props.row['qty__fmt'] : (props.value !== null && props.value !== undefined ? props.value : '—') }}
+                </span>
+                <span class="opacity-0 group-hover:opacity-100 ml-1 text-zinc-400 hover:text-primary transition-opacity text-xs cursor-pointer px-0.5"
+                      @click.stop="$parent.$emit('edit_cell', {symbol: props.row.symbol, field: 'qty', label: 'Quantity', value: props.row.qty})"
+                      title="Click to edit Quantity">✎</span>
+              </div>
+              <q-tooltip>Double-click to edit Quantity</q-tooltip>
+            </q-td>
+            """,
+        )
+    if "avg_buy_price" in view.columns:
+        table.add_slot(
+            "body-cell-avg_buy_price",
+            """
+            <q-td :props="props" class="numeric cursor-pointer">
+              <div class="cursor-pointer inline-flex items-center justify-end w-full group select-none"
+                   @dblclick.stop="$parent.$emit('edit_cell', {symbol: props.row.symbol, field: 'avg_buy_price', label: 'Avg Buy Price', value: props.row.avg_buy_price})"
+                   title="Double-click to edit Avg Buy Price">
+                <span :class="props.row['avg_buy_price__k'] || ''" class="font-mono">
+                  {{ props.row['avg_buy_price__fmt'] !== undefined ? props.row['avg_buy_price__fmt'] : (props.value !== null && props.value !== undefined ? props.value : '—') }}
+                </span>
+                <span class="opacity-0 group-hover:opacity-100 ml-1 text-zinc-400 hover:text-primary transition-opacity text-xs cursor-pointer px-0.5"
+                      @click.stop="$parent.$emit('edit_cell', {symbol: props.row.symbol, field: 'avg_buy_price', label: 'Avg Buy Price', value: props.row.avg_buy_price})"
+                      title="Click to edit Avg Buy Price">✎</span>
+              </div>
+              <q-tooltip>Double-click to edit Avg Buy Price</q-tooltip>
+            </q-td>
+            """,
+        )
+    if "rs_5d_trail" in view.columns:
+        table.add_slot(
+            "body-cell-rs_5d_trail",
+            """
+            <q-td :props="props" class="text-center font-mono text-xs whitespace-nowrap" style="min-width: 155px;">
+              <span v-html="props.row.rs_5d_trail_html || props.value"></span>
             </q-td>
             """,
         )
     if "symbol" in view.columns:
-        table.add_slot(
-            "body-cell-symbol",
-            """
-            <q-td :props="props">
-              <span class="mp-symbol cursor-pointer hover:underline text-[#01696f] font-bold"
-                    @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)">
-                {{ props.value }}
-              </span>
-              <a class="text-xs text-gray-400 hover:text-teal-600 ml-1" target="_blank"
-                 :href="'https://www.tradingview.com/chart/?symbol=NSE:' + String(props.value).replace('-', '_')"
-                 @click.stop>
-                ↗
-              </a>
-              <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Lead</span>
-              <span v-if="props.row.is_improving_sector" class="mp-mini-badge mp-improving-badge">Impr</span>
-              <span v-if="props.row.is_top_industry" class="mp-mini-badge mp-industry-badge">Lead Ind</span>
-              <span v-if="props.row.is_improving_industry" class="mp-mini-badge mp-improving-badge">Impr Ind</span>
-              <span v-if="props.row.has_deal && props.row.has_deal !== 'No' && props.row.has_deal !== false" class="mp-mini-badge mp-deal-badge">Deal</span>
-            </q-td>
-            """,
-        )
+        table.add_slot("body-cell-symbol", SYMBOL_CELL_SLOT)
         table.on(
             "stock360",
             lambda event: open_stock_360_modal(
                 DB_PATH,
                 event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or ""),
                 copy_text=copy_text_to_clipboard,
+            ),
+        )
+        table.on(
+            "quick_wl",
+            lambda event: _quick_watchlist_toggle(
+                event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or "")
             ),
         )
     if "copy_symbols" in view.columns and "symbol_list" in view.columns:
@@ -657,6 +844,14 @@ def table_from_df(
             "institutionCopy",
             lambda event: copy_text_to_clipboard("Institution symbols", institution_copy_text(event.args)),
         )
+    if on_edit_cell:
+        table.on("edit_cell", on_edit_cell)
+    if on_clear_cell:
+        table.on("clear_cell", on_clear_cell)
+    if on_close_position:
+        table.on("close_position", on_close_position)
+    if on_update_sell_price:
+        table.on("update_sell_price", on_update_sell_price)
     if "side" in view.columns:
         table.add_slot(
             "body-cell-side",
@@ -731,7 +926,7 @@ def table_from_df(
 
 
 def metric_card(label: str, value, tone: str = "info", sub: str = "") -> None:
-    with ui.card().classes(f"mp-card tone-{tone}"):
+    with ui.card().classes(f"mp-card mp-kpi-tile mp-signal-tile tone-{tone}"):
         ui.label(label).classes("mp-card-label")
         ui.label(str(value)).classes("mp-card-value")
         if sub:
@@ -754,11 +949,17 @@ def section_header(title: str, subtitle: str = "") -> None:
 
 def app_header() -> None:
     market_status = None
-    with ui.header().classes("mp-header"):
-        with ui.row().classes("mp-header-brand items-center gap-2"):
-            ui.label("MarketPulse").classes("text-xl font-bold")
-            ui.label("Champion desk").classes("text-[var(--mp-muted)]")
-        with ui.row().classes("mp-header-meta items-center gap-2 flex-wrap"):
+    with ui.header().classes("mp-header p-0 flex-col"):
+        if render_market_ticker_ribbon:
+            render_market_ticker_ribbon(DB_PATH)
+        with ui.row().classes("w-full items-center justify-between px-3 py-1.5 flex-wrap"):
+            with ui.row().classes("mp-header-brand items-center gap-2"):
+                ui.label("MP").classes("mp-brand-mark")
+                ui.label("MarketPulse").classes("text-lg font-bold text-[var(--mp-text)] tracking-tight")
+                ui.label("Champion desk").classes("text-xs text-[var(--mp-muted)]")
+            with ui.row().classes("mp-header-meta items-center gap-2 flex-wrap"):
+                if render_global_search:
+                    render_global_search(DB_PATH, copy_text=copy_text_to_clipboard)
             try:
                 market_status = load_market_status(DB_PATH, STATUS_PATH)
                 if market_status.database_date:
@@ -793,23 +994,23 @@ def chart_line(title: str, df: pd.DataFrame, x_col: str, series_cols: list[str])
         return
     rows = df.tail(90).copy()
     x = pd.to_datetime(rows[x_col]).dt.strftime("%d-%b").tolist()
-    colors = ["#01696f", "#006494", "#437a22", "#964219", "#a12c7b", "#d19900"]
+    colors = ["#38bdf8", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#818cf8"]
     ui.echart(
         {
             "backgroundColor": "transparent",
-            "title": {"text": title, "left": 8, "textStyle": {"fontSize": 13, "fontWeight": 700, "color": "#28251d"}},
+            "title": {"text": title, "left": 8, "textStyle": {"fontSize": 13, "fontWeight": 700, "color": "#f8fafc"}},
             "tooltip": {"trigger": "axis"},
-            "legend": {"top": 0, "right": 10, "orient": "horizontal", "textStyle": {"color": "#6b6760", "fontSize": 11, "fontWeight": 600}},
+            "legend": {"top": 0, "right": 10, "orient": "horizontal", "textStyle": {"color": "#94a3b8", "fontSize": 11, "fontWeight": 600}},
             "color": colors,
-            "grid": {"left": 40, "right": 20, "top": 35, "bottom": 25, "borderColor": "#e0ddd8"},
-            "xAxis": {"type": "category", "data": x, "axisLabel": {"color": "#6b6760", "fontSize": 11}, "axisLine": {"lineStyle": {"color": "#e0ddd8"}}},
-            "yAxis": {"type": "value", "axisLabel": {"color": "#6b6760", "fontSize": 11}, "splitLine": {"lineStyle": {"color": "#f0ede8", "width": 1}}, "axisLine": {"lineStyle": {"color": "#e0ddd8"}}},
+            "grid": {"left": 40, "right": 20, "top": 35, "bottom": 25, "borderColor": "#334155"},
+            "xAxis": {"type": "category", "data": x, "axisLabel": {"color": "#94a3b8", "fontSize": 11}, "axisLine": {"lineStyle": {"color": "#334155"}}},
+            "yAxis": {"type": "value", "axisLabel": {"color": "#94a3b8", "fontSize": 11}, "splitLine": {"lineStyle": {"color": "#1e293b", "width": 1}}, "axisLine": {"lineStyle": {"color": "#334155"}}},
             "series": [
-                {"name": label_for(col), "type": "line", "smooth": True, "showSymbol": False, "lineStyle": {"width": 2}, "data": rows[col].round(2).fillna("").tolist()}
+                {"name": label_for(col), "type": "line", "showSymbol": False, "lineStyle": {"width": 2}, "data": rows[col].round(2).fillna("").tolist()}
                 for col in series_cols
                 if col in rows.columns
             ],
-            "textStyle": {"color": "#28251d", "fontSize": 11},
+            "textStyle": {"color": "#f8fafc", "fontSize": 11},
         }
     ).classes("w-full h-80 mp-chart")
 
@@ -857,21 +1058,19 @@ def market_health_page() -> None:
             prev = None
             for i, v in enumerate(numeric_vals):
                 fmt = f"{int(v)}" if is_count else f"{v:.1f}%"
-                color_style = ""
-                if prev is not None:
-                    if v > prev:
-                        color_style = "color:#437a22;font-weight:600;"  # green for up
-                    elif v < prev:
-                        color_style = "color:#a12c7b;font-weight:600;"  # red for down
-                html_parts.append(f'<span style="{color_style}">{fmt}</span><small style="color:#6b6760">({dates[i]})</small>')
+                if prev is None or v >= prev:
+                    color_style = "color:var(--mp-good);font-weight:600;"
+                else:
+                    color_style = "color:var(--mp-bad);font-weight:600;"
+                html_parts.append(f'<span style="{color_style}">{fmt}</span><small style="color:var(--mp-muted)">({dates[i]})</small>')
                 prev = v
             return " &gt; ".join(html_parts)
 
         with ui.row().classes("gap-2 mt-1 text-xs"):
-            ui.html(f'<span style="color:#28251d">Advance chain (oldest→today):</span> {make_colored_chain("advance_pct")}').classes("mp-rule")
-            ui.html(f'<span style="color:#28251d">Above50 chain:</span> {make_colored_chain("above_50ema_pct")}').classes("mp-rule")
-            ui.html(f'<span style="color:#28251d">New20dHighs:</span> {make_colored_chain("new_20d_highs")}').classes("mp-rule")
-            ui.html(f'<span style="color:#28251d">VCP cands:</span> {make_colored_chain("vcp_candidates")}').classes("mp-rule")
+            ui.html(f'<span style="color:var(--mp-text)">Advance chain (oldest→today):</span> {make_colored_chain("advance_pct")}').classes("mp-rule")
+            ui.html(f'<span style="color:var(--mp-text)">Above50 chain:</span> {make_colored_chain("above_50ema_pct")}').classes("mp-rule")
+            ui.html(f'<span style="color:var(--mp-text)">New20dHighs:</span> {make_colored_chain("new_20d_highs")}').classes("mp-rule")
+            ui.html(f'<span style="color:var(--mp-text)">VCP cands:</span> {make_colored_chain("vcp_candidates")}').classes("mp-rule")
             info_icon("Chained Trends")
 
     with ui.grid(columns=2).classes("w-full gap-4"):
@@ -1225,7 +1424,8 @@ def sector_tree_page() -> None:
 
 def sector_rotation_page() -> None:
     """Sector tape: turnover and trend. Taxonomy tree is not the default."""
-    build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
+    with ui.column().classes("w-full mp-page-research"):
+        build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
 
 
 def strong_groups_page() -> None:
@@ -1956,21 +2156,39 @@ def vcp_lab_page() -> None:
     render()
 
 
+try:
+    from App.pages.action_desk import build_action_desk_page, render_inline_candlestick_chart
+except ModuleNotFoundError:
+    from pages.action_desk import build_action_desk_page, render_inline_candlestick_chart  # type: ignore
+
+
+def action_desk_page() -> None:
+    with ui.column().classes("w-full mp-page-action-desk"):
+        section_header(
+            "Action Desk",
+            "Executive swing trading command center: Exposure gate, leading themes, and the 4 actionable setup queues.",
+        )
+        build_action_desk_page(DB_PATH, section_header, table_from_df, copy_text=copy_text_to_clipboard)
+
+
 def special_watchlist_page() -> None:
-    section_header(
-        "Momentum Scanner",
-        "Tighter trend template: near highs, bullish stack, liquid names. Use for chart prep — not a census.",
-    )
-    momentum_status = load_market_status(DB_PATH, STATUS_PATH)
+    with ui.column().classes("w-full mp-page-momentum"):
+        section_header(
+            "Momentum Scanner",
+            "Tighter trend template: near highs, bullish stack, liquid names. Use for chart prep — not a census.",
+        )
+        if render_market_health_strip:
+            render_market_health_strip(DB_PATH)
+        momentum_status = load_market_status(DB_PATH, STATUS_PATH)
     if not momentum_status.actionable:
         ui.label(non_actionable_message(momentum_status)).classes("mp-badge mp-bad w-full mt-2")
-    with ui.row().classes("gap-3 items-end flex-wrap"):
+    with ui.row().classes("gap-3 items-end flex-wrap mp-toolbar mp-momentum-filters"):
         lookback = ui.select([1, 3, 5, 10, 20, 30], value=SPECIAL_SCREENER_DEFAULTS["lookback_days"], label="Lookback").classes("w-32")
         min_mcap = ui.number("Min MCap Cr", value=SPECIAL_SCREENER_DEFAULTS["min_market_cap_cr"]).classes("w-36")
-        with ui.row().classes("items-center gap-1"):
+        with ui.row().classes("items-center gap-1 mp-filter-check-row"):
             check_min_vol = ui.checkbox("Min Day Vol", value=False)
             min_volume = ui.number("Day volume", value=SPECIAL_SCREENER_DEFAULTS["min_volume"]).classes("w-28")
-        with ui.row().classes("items-center gap-1"):
+        with ui.row().classes("items-center gap-1 mp-filter-check-row"):
             check_avg_vol = ui.checkbox("Min 20D Avg", value=True)
             min_avg_volume = ui.number("20D avg volume", value=SPECIAL_SCREENER_DEFAULTS["min_avg_volume_20d"]).classes("w-28")
         # Tighter: within 15% of 52W high by default (was 25)
@@ -1992,6 +2210,125 @@ def special_watchlist_page() -> None:
         ema20_gt_50 = ui.checkbox("20 > 50", value=True)
         ema50_gt_100 = ui.checkbox("50 > 100", value=True)
         ema100_gt_200 = ui.checkbox("100 > 200", value=True)
+    with ui.row().classes("gap-3 items-center flex-wrap"):
+        ui.label("Advanced Indicators:").classes("text-xs text-[var(--mp-muted)]")
+        check_delivery = ui.checkbox("Delivery Thrust", value=False)
+        check_coiling = ui.checkbox("NR7 / Coiling Range", value=False)
+        check_mtf = ui.checkbox("Weekly RSI > 60", value=False)
+
+    # Mantis-Style Recommended Presets and Active Chips
+    chips_row = ui.row().classes("items-center gap-1.5 flex-wrap my-1")
+
+    def update_chips():
+        chips_row.clear()
+        conditions = []
+        if cmp_gt_10.value: conditions.append(("CMP > 10 EMA", lambda: cmp_gt_10.set_value(False)))
+        if cmp_gt_200.value: conditions.append(("CMP > 200 EMA", lambda: cmp_gt_200.set_value(False)))
+        if ema10_gt_20.value and ema20_gt_50.value and ema50_gt_100.value and ema100_gt_200.value:
+            conditions.append(("Bullish Stack (10>20>50>100>200)", lambda: (ema10_gt_20.set_value(False), ema20_gt_50.set_value(False), ema50_gt_100.set_value(False), ema100_gt_200.set_value(False))))
+        elif ema10_gt_20.value:
+            conditions.append(("10 > 20 EMA", lambda: ema10_gt_20.set_value(False)))
+        if float(max_52w.value or 99) <= 15:
+            conditions.append((f"Within {int(max_52w.value)}% 52W", lambda: max_52w.set_value(99)))
+        if float(min_mcap.value or 0) > 0:
+            conditions.append((f"Min MCap ₹{int(min_mcap.value)}Cr", lambda: min_mcap.set_value(0)))
+        if check_delivery.value:
+            conditions.append(("Delivery Thrust", lambda: check_delivery.set_value(False)))
+        if check_coiling.value:
+            conditions.append(("Coiling (NR7/Inside)", lambda: check_coiling.set_value(False)))
+        if check_mtf.value:
+            conditions.append(("Weekly RSI > 60", lambda: check_mtf.set_value(False)))
+
+        with chips_row:
+            if conditions:
+                ui.label("Active:").classes("text-xs text-[var(--mp-muted)] mr-1")
+                for label, clear_fn in conditions:
+                    def _clear(fn=clear_fn):
+                        fn()
+                        update_chips()
+                    with ui.element("span").classes("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] text-[var(--mp-text)]"):
+                        ui.label(label)
+                        ui.button("×", on_click=_clear).props("flat dense round").classes("text-xs text-[var(--mp-muted)] hover:text-rose-400 leading-none p-0")
+
+    with ui.row().classes("items-center gap-2 flex-wrap mb-1 py-1 mp-recommended-filters"):
+        ui.label("Recommended Presets:").classes("text-xs font-semibold text-[var(--mp-text-muted)]")
+
+        def _preset_emas_aligned():
+            cmp_gt_10.value = True
+            cmp_gt_200.value = True
+            ema10_gt_20.value = True
+            ema20_gt_50.value = True
+            ema50_gt_100.value = True
+            ema100_gt_200.value = True
+            max_52w.value = 15
+            update_chips()
+
+        def _preset_converge():
+            cmp_gt_10.value = True
+            cmp_gt_200.value = True
+            ema10_gt_20.value = False
+            ema20_gt_50.value = False
+            max_52w.value = 10
+            update_chips()
+
+        def _preset_breakouts():
+            max_52w.value = 5
+            min_52w_low.value = 30
+            check_avg_vol.value = True
+            update_chips()
+
+        def _preset_stage2():
+            cmp_gt_200.value = True
+            min_52w_low.value = 30
+            max_52w.value = 25
+            ema50_gt_100.value = True
+            ema100_gt_200.value = True
+            update_chips()
+
+        def _clear_all_filters():
+            cmp_gt_10.value = False
+            cmp_gt_200.value = False
+            ohlc_gt_10.value = False
+            ohlc_gt_20.value = False
+            ema10_gt_20.value = False
+            ema20_gt_50.value = False
+            ema50_gt_100.value = False
+            ema100_gt_200.value = False
+            check_min_vol.value = False
+            check_avg_vol.value = False
+            check_delivery.value = False
+            check_coiling.value = False
+            check_mtf.value = False
+            max_52w.value = 99
+            min_52w_low.value = 0
+            update_chips()
+
+        def _preset_delivery():
+            check_delivery.value = True
+            cmp_gt_200.value = True
+            update_chips()
+
+        def _preset_coiling():
+            check_coiling.value = True
+            max_52w.value = 15
+            update_chips()
+
+        def _preset_mtf():
+            check_mtf.value = True
+            cmp_gt_10.value = True
+            cmp_gt_200.value = True
+            update_chips()
+
+        ui.button("EMAs Aligned", on_click=_preset_emas_aligned).props("dense outline").classes("mp-button text-xs")
+        ui.button("EMAs Converge", on_click=_preset_converge).props("dense outline").classes("mp-button text-xs")
+        ui.button("Breakout Stocks", on_click=_preset_breakouts).props("dense outline").classes("mp-button text-xs")
+        ui.button("Stage 2 Template", on_click=_preset_stage2).props("dense outline").classes("mp-button text-xs")
+        ui.button("Delivery Thrust", on_click=_preset_delivery).props("dense outline").classes("mp-button text-xs")
+        ui.button("Coiling (NR7)", on_click=_preset_coiling).props("dense outline").classes("mp-button text-xs")
+        ui.button("Weekly RSI > 60", on_click=_preset_mtf).props("dense outline").classes("mp-button text-xs")
+        ui.button("Clear all", on_click=_clear_all_filters).props("dense flat").classes("text-xs text-rose-400")
+
+    update_chips()
     # Tighter summary using compact KPIs for density (consistent with new toolbar pattern)
     summary_row = ui.row().classes("gap-1 flex-wrap w-full")
     container = ui.column().classes("w-full")
@@ -2128,6 +2465,12 @@ def special_watchlist_page() -> None:
             stack_current.append("(c.ema_100 IS NULL OR c.ema_200 IS NULL OR c.ema_100 > c.ema_200)")
         if stack_current:
             current_filters.extend(stack_current)
+        if check_delivery.value:
+            current_filters.append("(c.delivery_spike = true AND c.price_up_delivery_up = true AND c.close_price > c.ema_20)")
+        if check_coiling.value:
+            current_filters.append("((c.nr7 = true OR c.inside_bar = true) AND coalesce(c.vcp_score, 0) >= 40)")
+        if check_mtf.value:
+            current_filters.append("(c.rsi_14 >= 60 AND coalesce(c.rsi_14_w, 50) >= 60)")
 
         trigger_sql = " AND ".join(trigger_filters) if trigger_filters else "true"
         current_sql = " AND ".join(current_filters) if current_filters else "true"
@@ -2422,6 +2765,30 @@ def special_watchlist_page() -> None:
                 ui.button("Copy Top Industry Stocks", on_click=lambda: copy_text_to_clipboard("Top Industry Stocks", grouped_copy_text(data, ["industry"], top_industries))).classes("mp-button")
             table_from_df(table_data, "Momentum Scanner Changes", hidden_cols={"ema_200", "is_avoid", "is_top_sector", "is_top_industry"})
 
+            m_syms = table_data["symbol"].dropna().astype(str).unique().tolist() if not table_data.empty and "symbol" in table_data.columns else []
+            if m_syms:
+                m_default = m_syms[0]
+                with ui.card().classes("w-full mp-card p-3 mt-4 border border-[var(--mp-border)] bg-[var(--mp-surface-raised)]"):
+                    with ui.row().classes("w-full items-center justify-between pb-2 border-b border-[var(--mp-border)] flex-wrap gap-2"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("📈 Momentum Scanner Chart Preview (Candlestick + EMA Ribbon + Vol + RSI)").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                            m_sel = ui.select(m_syms, value=m_default, label="Candidate").classes("w-44").props("dense outlined")
+                        with ui.row().classes("items-center gap-2"):
+                            ui.button("Open Stock 360 ↗", on_click=lambda: open_stock_360_modal(DB_PATH, str(m_sel.value), copy_text=copy_text_to_clipboard)).classes("mp-button text-xs").props("dense outline")
+
+                    m_chart_host = ui.column().classes("w-full mt-2")
+
+                    def _update_m_chart():
+                        m_chart_host.clear()
+                        sym = str(m_sel.value or "").strip().upper()
+                        if not sym:
+                            return
+                        with m_chart_host:
+                            render_inline_candlestick_chart(DB_PATH, sym, is_darvas=False)
+
+                    m_sel.on_value_change(lambda _: _update_m_chart())
+                    _update_m_chart()
+
             # Sector / industry summary — symbols column is short preview only
             with ui.row().classes("w-full gap-4 items-start"):
                 with ui.column().classes("flex-1 min-w-0"):
@@ -2441,16 +2808,17 @@ def special_watchlist_page() -> None:
 
 def deals_page() -> None:
     """Deal Flow Desk — premium Research specialist (PR-DEALS)."""
-    try:
-        from App.pages.research.deals import build_deals_page
-    except ModuleNotFoundError:
-        from pages.research.deals import build_deals_page  # type: ignore
-    build_deals_page(
-        DB_PATH,
-        copy_text=lambda label, text: copy_text_to_clipboard(label, text),
-        table_from_df=table_from_df,
-        metric_card=metric_card,
-    )
+    with ui.column().classes("w-full mp-page-deals"):
+        try:
+            from App.pages.research.deals import build_deals_page
+        except ModuleNotFoundError:
+            from pages.research.deals import build_deals_page  # type: ignore
+        build_deals_page(
+            DB_PATH,
+            copy_text=lambda label, text: copy_text_to_clipboard(label, text),
+            table_from_df=table_from_df,
+            metric_card=metric_card,
+        )
 
 
 def backtest_page() -> None:
@@ -3250,9 +3618,9 @@ def portfolio_reopen(symbol: str) -> None:
 
 
 def _rs_trail_5d(symbols: list[str]) -> pd.DataFrame:
-    """Last 5 session RS percentiles per symbol as '10 - 20 - 47 - 67 - 80'."""
+    """Last 5 session RS percentiles per symbol with step-by-step colored transitions and 5D trend badge."""
     if not symbols:
-        return pd.DataFrame(columns=["symbol", "rs_5d_trail"])
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail", "rs_5d_trail_html"])
     clause = ", ".join([f"'{s}'" for s in symbols])
     hist = df_query(
         f"""
@@ -3267,16 +3635,48 @@ def _rs_trail_5d(symbols: list[str]) -> pd.DataFrame:
         SELECT symbol, trade_date, rs_percentile
         FROM recent
         WHERE rn <= 5
-        ORDER BY symbol, trade_date
+        ORDER BY symbol, trade_date ASC
         """
     )
     if hist.empty:
-        return pd.DataFrame(columns=["symbol", "rs_5d_trail"])
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail", "rs_5d_trail_html"])
     rows = []
     for sym, g in hist.groupby("symbol", sort=False):
-        vals = pd.to_numeric(g["rs_percentile"], errors="coerce")
-        parts = [f"{int(round(v))}" for v in vals.tolist() if pd.notna(v)]
-        rows.append({"symbol": sym, "rs_5d_trail": " - ".join(parts) if parts else "—"})
+        vals = [int(round(float(v))) for v in g["rs_percentile"].dropna().tolist()]
+        if not vals:
+            rows.append({"symbol": sym, "rs_5d_trail": "—", "rs_5d_trail_html": "—"})
+            continue
+        plain_trail = " - ".join(str(v) for v in vals)
+
+        html_parts = []
+        for i, val in enumerate(vals):
+            if i == 0:
+                color_class = "text-zinc-400 font-medium"
+                arrow = ""
+            else:
+                prev = vals[i - 1]
+                if val > prev:
+                    color_class = "mp-up font-bold text-emerald-400"
+                    arrow = '<span class="text-zinc-600 mx-0.5 text-[10px]">→</span>'
+                elif val < prev:
+                    color_class = "mp-down font-bold text-rose-400"
+                    arrow = '<span class="text-zinc-600 mx-0.5 text-[10px]">→</span>'
+                else:
+                    color_class = "text-zinc-400 font-medium"
+                    arrow = '<span class="text-zinc-600 mx-0.5 text-[10px]">→</span>'
+            html_parts.append(f'{arrow}<span class="{color_class}">{val}</span>')
+
+        if len(vals) > 1:
+            delta = vals[-1] - vals[0]
+            if delta > 0:
+                trend_badge = f'<span class="ml-1 text-[10px] text-emerald-400 font-bold" title="5D Net: +{delta}">▲+{delta}</span>'
+            elif delta < 0:
+                trend_badge = f'<span class="ml-1 text-[10px] text-rose-400 font-bold" title="5D Net: {delta}">▼{delta}</span>'
+            else:
+                trend_badge = '<span class="ml-1 text-[10px] text-zinc-500 font-bold" title="5D Net: 0">▬</span>'
+            html_parts.append(trend_badge)
+
+        rows.append({"symbol": sym, "rs_5d_trail": plain_trail, "rs_5d_trail_html": "".join(html_parts)})
     return pd.DataFrame(rows)
 
 
@@ -3302,9 +3702,8 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
                    sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS sell_deal_cr,
                    sum(CASE WHEN side='BUY' THEN deal_value_cr ELSE 0 END)
                      - sum(CASE WHEN side='SELL' THEN deal_value_cr ELSE 0 END) AS net_deal_cr
-            FROM deals, latest
-            WHERE trade_date >= latest.d - INTERVAL 20 DAY
-              AND symbol IN ({clause})
+            FROM deals
+            WHERE symbol IN ({clause})
             GROUP BY symbol
         ),
         turn AS (
@@ -3354,16 +3753,19 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
         out = out.merge(trail, on="symbol", how="left")
     else:
         out["rs_5d_trail"] = "—"
+        out["rs_5d_trail_html"] = "—"
 
     cmp = pd.to_numeric(out.get("cmp"), errors="coerce")
     avg = pd.to_numeric(out.get("avg_buy_price"), errors="coerce")
     qty = pd.to_numeric(out.get("qty"), errors="coerce")
     sell_px = pd.to_numeric(out.get("sell_price"), errors="coerce")
-    out["unrealized_pct"] = ((cmp / avg - 1.0) * 100.0).round(1)
+    # Effective price for open positions: if user specified a custom sell_price > 0, use it for calculations; otherwise use live cmp
+    effective_px = sell_px.where((sell_px.notna()) & (sell_px > 0), cmp)
+    out["unrealized_pct"] = ((effective_px / avg - 1.0) * 100.0).round(1)
     out["realized_pct"] = ((sell_px / avg - 1.0) * 100.0).round(1)
-    out["unrealized_pnl_inr"] = ((cmp - avg) * qty).round(0)
+    out["unrealized_pnl_inr"] = ((effective_px - avg) * qty).round(0)
     out["realized_pnl_inr"] = ((sell_px - avg) * qty).round(0)
-    out["market_value_inr"] = (cmp * qty).round(0)
+    out["market_value_inr"] = (effective_px * qty).round(0)
     out["cost_value_inr"] = (avg * qty).round(0)
     risk_rows = []
     for _, row in out.iterrows():
@@ -3417,20 +3819,18 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
 
 
 def portfolio_deals_clubbed(symbols: set[str]) -> pd.DataFrame:
-    """One row per symbol: clubbed 20d buy/sell deal flow (no individual deal lines)."""
+    """One row per symbol: clubbed buy/sell deal flow across all sessions (no individual deal lines)."""
     if not symbols:
         return pd.DataFrame()
     clause = ", ".join([f"'{s}'" for s in symbols])
     return df_query(
         f"""
-        WITH latest AS (SELECT max(trade_date) d FROM deals),
-        base AS (
+        WITH base AS (
             SELECT d.symbol, d.side, d.client_name, d.deal_value_cr, d.trade_date,
                    m.industry, m.sector
             FROM deals d
-            LEFT JOIN stocks_master m USING(symbol), latest
+            LEFT JOIN stocks_master m USING(symbol)
             WHERE d.symbol IN ({clause})
-              AND d.trade_date >= latest.d - INTERVAL 20 DAY
         )
         SELECT symbol,
                max(sector) AS sector,
@@ -3453,8 +3853,9 @@ def portfolio_deals_clubbed(symbols: set[str]) -> pd.DataFrame:
 
 
 def portfolio_page() -> None:
-    section_header(
-        "Portfolio",
+    with ui.column().classes("w-full mp-page-portfolio"):
+        section_header(
+            "Portfolio",
         "Manual positions — Open vs Sold. Enriched with live CMP, RS, 52W, industry state, and institutional deals. "
         "Survives daily append; re-enter after a full DB rebuild.",
     )
@@ -3705,68 +4106,151 @@ def portfolio_page() -> None:
             if open_df.empty:
                 ui.label("No open positions — add a symbol above.").classes("text-[var(--mp-muted)] text-sm")
             else:
-                show = open_df[
-                    [
-                        c
-                        for c in [
-                            "symbol",
-                            "qty",
-                            "avg_buy_price",
-                            "cmp",
-                            "unrealized_pct",
-                            "unrealized_pnl_inr",
-                            "market_value_inr",
-                            "weight_pct",
-                            "initial_risk_inr",
-                            "current_open_risk_inr",
-                            "r_multiple",
-                            "stop_distance_pct",
-                            "target_distance_pct",
-                            "risk_action",
-                            "days_held",
-                            "rs_5d_trail",
-                            "rs_percentile",
-                            "away_10ema_pct",
-                            "away_52w_high_pct",
-                            "turnover_cr",
-                            "turnover_1w_cr",
-                            "industry_state",
-                            "sector_state",
-                            "industry",
-                            "sector",
-                            "buy_deal_cr",
-                            "sell_deal_cr",
-                            "net_deal_cr",
-                            "notes",
-                            "tags",
-                        ]
-                        if c in open_df.columns
-                    ]
-                ].copy()
+                open_show_cols = [
+                    "symbol",
+                    "qty",
+                    "avg_buy_price",
+                    "cmp",
+                    "sell_price",
+                    "close_position",
+                    "unrealized_pct",
+                    "unrealized_pnl_inr",
+                    "weight_pct",
+                    "stop_distance_pct",
+                    "days_held",
+                    "rs_5d_trail",
+                    "rs_percentile",
+                    "away_10ema_pct",
+                    "away_52w_high_pct",
+                    "turnover_cr",
+                    "turnover_1w_cr",
+                    "industry_state",
+                    "sector_state",
+                    "industry",
+                    "sector",
+                    "buy_deal_cr",
+                    "sell_deal_cr",
+                    "net_deal_cr",
+                    "notes",
+                    "tags",
+                ]
+                show = open_df[[c for c in open_show_cols if c in open_df.columns]].copy()
+                if "sell_price" not in show.columns:
+                    show["sell_price"] = pd.to_numeric(open_df.get("sell_price"), errors="coerce").fillna(open_df.get("cmp", 0.0))
+                else:
+                    show["sell_price"] = pd.to_numeric(show["sell_price"], errors="coerce").fillna(open_df.get("cmp", 0.0))
+                show["close_position"] = False
+
+                ordered_cols = [c for c in open_show_cols if c in show.columns]
+                show = show[ordered_cols]
+                if "rs_5d_trail_html" in open_df.columns:
+                    show["rs_5d_trail_html"] = open_df["rs_5d_trail_html"]
+
                 # Round display numbers cleanly
-                for col in ("avg_buy_price", "cmp", "turnover_cr", "turnover_1w_cr", "buy_deal_cr", "sell_deal_cr", "net_deal_cr", "rs_percentile", "initial_risk_inr", "current_open_risk_inr", "r_multiple", "stop_distance_pct", "target_distance_pct"):
+                for col in ("avg_buy_price", "cmp", "sell_price", "turnover_cr", "turnover_1w_cr", "buy_deal_cr", "sell_deal_cr", "net_deal_cr", "rs_percentile", "stop_distance_pct"):
                     if col in show.columns:
                         show[col] = pd.to_numeric(show[col], errors="coerce").round(2)
-                table_from_df(show, "", pagination=25)
+
+                def _get_payload(ev):
+                    args = getattr(ev, "args", None)
+                    if isinstance(args, list) and args:
+                        return args[0] if isinstance(args[0], dict) else {"symbol": str(args[0])}
+                    if isinstance(args, dict):
+                        return args
+                    return {}
+
+                def on_edit_cell(event):
+                    payload = _get_payload(event)
+                    sym = str(payload.get("symbol") or "").strip().upper()
+                    field = str(payload.get("field") or "")
+                    label = str(payload.get("label") or field)
+                    raw_val = payload.get("value")
+                    if not sym or field not in {"qty", "avg_buy_price"}:
+                        return
+                    try:
+                        cur_val = float(raw_val) if raw_val not in (None, "", "—") else 0.0
+                    except (ValueError, TypeError):
+                        cur_val = 0.0
+
+                    with ui.dialog() as dlg, ui.card().classes("p-4 bg-[var(--mp-surface-2)] border border-[var(--mp-border)] rounded-lg min-w-[320px] shadow-2xl"):
+                        ui.label(f"Edit {label} for {sym}").classes("text-sm font-bold text-[var(--mp-text)] mb-2")
+                        val_input = ui.number(
+                            label,
+                            value=int(round(cur_val)) if field == "qty" else round(cur_val, 2),
+                            step=1 if field == "qty" else 0.05,
+                            format="%d" if field == "qty" else "%.2f",
+                        ).classes("w-full mb-4").props("autofocus dense outlined")
+
+                        def save_edit():
+                            try:
+                                new_v = float(val_input.value or 0)
+                                user_execute(
+                                    f"UPDATE portfolio_positions SET {field} = ?, updated_at = current_timestamp WHERE symbol = ?",
+                                    [new_v, sym],
+                                )
+                                dlg.close()
+                                disp = f"{int(new_v):,}" if field == "qty" else f"₹{new_v:,.2f}"
+                                ui.notify(f"Updated {label} for {sym}: {disp}", type="positive")
+                                refresh()
+                            except Exception as exc:
+                                ui.notify(f"Failed to save {label}: {exc}", type="negative")
+
+                        val_input.on("keydown.enter", save_edit)
+                        with ui.row().classes("justify-end gap-2 w-full"):
+                            ui.button("Cancel", on_click=dlg.close).classes("mp-button text-xs").props("flat dense")
+                            ui.button("Save", on_click=save_edit).classes("mp-primary text-xs").props("dense")
+                    dlg.open()
+
+                def on_close_position(event):
+                    payload = _get_payload(event)
+                    sym = str(payload.get("symbol") or "").strip().upper()
+                    if not sym:
+                        return
+                    try:
+                        raw_price = payload.get("sell_price")
+                        price = float(raw_price) if raw_price not in (None, "") else 0.0
+                        if price <= 0:
+                            r = open_df[open_df["symbol"].astype(str) == sym]
+                            if not r.empty and pd.notna(r.iloc[0].get("cmp")):
+                                price = float(r.iloc[0]["cmp"])
+                        portfolio_mark_sold(sym, price, str(date.today()), "Closed from open table")
+                        ui.notify(f"Transferred {sym} to SOLD (Sell Px: ₹{price:,.2f})", type="positive")
+                        refresh()
+                    except Exception as exc:
+                        ui.notify(f"Close position failed: {exc}", type="negative")
+
+                def on_update_sell_price(event):
+                    payload = _get_payload(event)
+                    sym = str(payload.get("symbol") or "").strip().upper()
+                    if sym:
+                        try:
+                            raw_val = payload.get("price")
+                            px = float(raw_val) if raw_val not in (None, "") else 0.0
+                            user_execute("UPDATE portfolio_positions SET sell_price = ?, updated_at = current_timestamp WHERE symbol = ?", [px, sym])
+                            ui.notify(f"Updated Sell Px for {sym} to ₹{px:,.2f} — P&L recalculated", type="info")
+                            refresh()
+                        except Exception as exc:
+                            ui.notify(f"Failed to update Sell Px: {exc}", type="negative")
+
+                table_from_df(
+                    show,
+                    "",
+                    pagination=25,
+                    on_edit_cell=on_edit_cell,
+                    on_close_position=on_close_position,
+                    on_update_sell_price=on_update_sell_price,
+                )
 
             # Deals into holdings — clubbed per symbol (not individual rows)
-            ui.label("Deals into holdings (20d, clubbed)").classes("mp-section-title mt-3")
+            ui.label("Deals into holdings (All sessions, clubbed)").classes("mp-section-title mt-3")
             hold_syms = set(open_df["symbol"].tolist() if not open_df.empty else [])
-            hold_syms |= set(
-                sold_df.loc[
-                    pd.to_datetime(sold_df.get("sell_date"), errors="coerce")
-                    >= (pd.Timestamp.now() - pd.Timedelta(days=30)),
-                    "symbol",
-                ].tolist()
-                if not sold_df.empty and "sell_date" in sold_df.columns
-                else []
-            )
+            hold_syms |= set(sold_df["symbol"].tolist() if not sold_df.empty else [])
             if not hold_syms:
                 ui.label("No holdings to match deals.").classes("text-xs text-[var(--mp-muted)]")
             else:
                 deals_h = portfolio_deals_clubbed(hold_syms)
                 if deals_h.empty:
-                    ui.label("No bulk/block deals on portfolio names in last 20 sessions.").classes(
+                    ui.label("No bulk/block deals on portfolio names found in database.").classes(
                         "text-xs text-[var(--mp-muted)]"
                     )
                 else:
@@ -3823,6 +4307,8 @@ def portfolio_page() -> None:
                         if c in sold_df.columns
                     ]
                 ].copy()
+                if "rs_5d_trail_html" in sold_df.columns:
+                    sold_show["rs_5d_trail_html"] = sold_df["rs_5d_trail_html"]
                 for col in ("avg_buy_price", "sell_price", "cmp", "rs_percentile", "turnover_cr", "buy_deal_cr", "net_deal_cr"):
                     if col in sold_show.columns:
                         sold_show[col] = pd.to_numeric(sold_show[col], errors="coerce").round(2)
@@ -3843,6 +4329,63 @@ def portfolio_page() -> None:
 
                     ui.button("Reopen as OPEN", on_click=do_reopen).classes("mp-button").props("dense")
 
+            # --- Trade Journal & Performance Analytics ---
+            ui.label("Trade Journal & Performance Analytics").classes("mp-section-title mt-6")
+            ui.label("Audit your edge: win rate, profit factor, R-multiples, and mistake tracking.").classes("mp-page-subtitle mb-2")
+
+            j_df = query_journal_records(USER_DB_PATH) if query_journal_records else pd.DataFrame()
+            metrics = calculate_trade_metrics(j_df) if calculate_trade_metrics else {}
+
+            with ui.row().classes("gap-2 flex-wrap mb-4 w-full"):
+                compact_kpi("Closed Trades", metrics.get("total_trades", 0))
+                compact_kpi("Win Rate", f"{metrics.get('win_rate', 0.0)}% ({metrics.get('wins', 0)}W / {metrics.get('losses', 0)}L)")
+                compact_kpi("Profit Factor", f"{metrics.get('profit_factor', 0.0):.2f}")
+                compact_kpi("Expectancy", f"{metrics.get('expectancy_r', 0.0):+.2f} R")
+                compact_kpi("Avg Win / Loss R", f"{metrics.get('avg_win_r', 0.0):.1f}R / -{metrics.get('avg_loss_r', 0.0):.1f}R")
+                compact_kpi("Net Realized", f"₹{metrics.get('total_pnl_inr', 0.0):,.0f}")
+
+            # Quick Log Form
+            with ui.expansion("Log Closed Trade to Journal", icon="edit_note").classes("w-full bg-[var(--mp-surface-2)] border border-[var(--mp-border)] rounded-md mb-3"):
+                with ui.row().classes("gap-3 items-end flex-wrap p-2"):
+                    all_candidates = all_port_syms if all_port_syms else [""]
+                    j_sym = ui.select(options=all_candidates, value=all_candidates[0] if all_candidates else "", label="Symbol").classes("w-36").props("dense")
+                    j_entry = ui.number("Entry Px", value=100.0).classes("w-28").props("dense")
+                    j_exit = ui.number("Exit Px", value=110.0).classes("w-28").props("dense")
+                    j_qty = ui.number("Qty", value=10).classes("w-24").props("dense")
+                    j_stop = ui.number("Stop Px", value=95.0).classes("w-28").props("dense")
+                    j_setup = ui.select(["VCP", "Breakout", "Pullback", "Stage 2", "Pocket Pivot", "Other"], value="VCP", label="Setup").classes("w-32").props("dense")
+                    j_mistake = ui.select(["None", "Chased", "Moved Stop", "Early Exit", "Overleveraged", "Other"], value="None", label="Mistake").classes("w-32").props("dense")
+                    j_notes = ui.input("Journal Notes", placeholder="e.g. Clean 3-weeks tight pivot").classes("w-64").props("dense")
+
+                    def _log_trade():
+                        if not j_sym.value:
+                            ui.notify("Select a symbol first", type="warning")
+                            return
+                        if log_trade_entry:
+                            ok = log_trade_entry(
+                                USER_DB_PATH,
+                                symbol=str(j_sym.value),
+                                entry_price=float(j_entry.value or 0),
+                                quantity=float(j_qty.value or 0),
+                                stop_loss=float(j_stop.value or 0),
+                                exit_price=float(j_exit.value or 0),
+                                setup_type=str(j_setup.value or "VCP"),
+                                mistake_tag=str(j_mistake.value) if j_mistake.value != "None" else None,
+                                notes=str(j_notes.value or ""),
+                            )
+                            if ok:
+                                ui.notify(f"Logged {j_sym.value} to Trade Journal", type="positive")
+                                refresh()
+                            else:
+                                ui.notify("Failed to log trade", type="negative")
+
+                    ui.button("Save to Journal", on_click=_log_trade).classes("mp-primary text-xs").props("dense")
+
+            if j_df.empty:
+                ui.label("No trade journal entries yet. Log completed trades above to track your historical expectancy.").classes("text-sm text-[var(--mp-muted)] py-4")
+            else:
+                table_from_df(j_df, "", pagination=15)
+
     refresh()
 
 
@@ -3851,7 +4394,8 @@ def candidates_page() -> None:
 
 
 def desk_page() -> None:
-    build_desk_page(DB_PATH, section_header, table_from_df, compact_kpi)
+    with ui.column().classes("w-full mp-page-desk"):
+        build_desk_page(DB_PATH, section_header, table_from_df, compact_kpi)
 
 
 def minervini_page() -> None:
@@ -3859,23 +4403,29 @@ def minervini_page() -> None:
 
 
 def sma_template_page() -> None:
-    try:
-        from App.pages.sma_template import build_sma_template_page
-    except ModuleNotFoundError:
-        from pages.sma_template import build_sma_template_page  # type: ignore
-    build_sma_template_page(
-        DB_PATH,
-        table_from_df=table_from_df,
-        copy_text=copy_text_to_clipboard,
-    )
+    with ui.column().classes("w-full mp-page-template"):
+        try:
+            from App.pages.sma_template import build_sma_template_page
+        except ModuleNotFoundError:
+            from pages.sma_template import build_sma_template_page  # type: ignore
+        build_sma_template_page(
+            DB_PATH,
+            table_from_df=table_from_df,
+            copy_text=copy_text_to_clipboard,
+        )
 
 
 def screener_page() -> None:
     build_screener_page(DB_PATH, section_header, table_from_df, compact_kpi)
 
 
+def info_page() -> None:
+    with ui.column().classes("w-full mp-page-info mp-page-health"):
+        build_info_page(DB_PATH, STATUS_PATH, USER_DB_PATH, section_header, table_from_df, compact_kpi)
+
+
 def data_health_page() -> None:
-    build_data_health_page(DB_PATH, STATUS_PATH, USER_DB_PATH, section_header, table_from_df, compact_kpi)
+    info_page()
 
 
 def _lazy_panel(build_fn, loaded: dict, key: str):
@@ -3936,16 +4486,25 @@ def main() -> None:
         return
     app_header()
 
-    # Active nav: Desk | Momentum | Sectors | Deals | Portfolio | Health.
+    # Active nav: Desk | Momentum | Sectors | Deals | Portfolio | Info.
     # Momentum scanner logic is unchanged. Legacy pages remain behind MP_LEGACY_PAGES.
+    def watchlist_page() -> None:
+        with ui.column().classes("w-full mp-page-watchlists"):
+            if build_watchlist_page:
+                build_watchlist_page(DB_PATH, USER_DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
+            else:
+                ui.label("Watchlists hub initializing...").classes("text-sm text-[var(--mp-muted)]")
+
     tab_specs = [
+        ("Action Desk", action_desk_page, "action-desk", False),
         ("Desk", desk_page, "desk", True),
         ("Momentum", special_watchlist_page, "scanner", False),
         ("Template", sma_template_page, "sma-template", False),
         ("Sectors", sector_rotation_page, "rotation", False),
         ("Deals", deals_page, "deals", False),
+        ("Watchlists", watchlist_page, "watchlists", False),
         ("Portfolio", portfolio_page, "portfolio", False),
-        ("Health", data_health_page, "data-health", False),
+        ("Info", info_page, "info", False),
     ]
     if os.environ.get("MP_LEGACY_PAGES", "").strip().lower() in {"1", "true", "yes", "on"}:
         tab_specs.extend(
@@ -3955,26 +4514,36 @@ def main() -> None:
             ]
         )
 
-    with ui.element("div").classes("mp-sticky-nav"):
-        with ui.tabs().classes("w-full mp-tabs") as tabs:
-            tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
+    with ui.column().classes("w-full mp-app-shell"):
+        with ui.element("div").classes("mp-sticky-nav").props('aria-label="Primary navigation"'):
+            with ui.tabs().classes("w-full mp-tabs") as tabs:
+                tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
 
-    pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
-    content_host = ui.column().classes("w-full p-3 mp-panels")
+        pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
+        pages["Health"] = info_page
 
-    def show_page(name: str) -> None:
-        build_fn = pages.get(name)
-        if build_fn is None:
-            return
-        content_host.clear()
-        with content_host:
-            build_fn()
+        # Persistent page containers: each tab is mounted once and toggled via visibility.
+        # This provides instant 0ms tab switching without rebuilding DOM or re-executing queries.
+        page_hosts: dict[str, dict[str, Any]] = {}
+        for name, build_fn, _, _ in tab_specs:
+            host_col = ui.column().classes("w-full p-3 mp-panels mp-page-canvas")
+            host_col.set_visibility(False)
+            page_hosts[name] = {"column": host_col, "built": False, "build_fn": build_fn}
 
-    # A single content host avoids stale/overlapping Quasar panels across
-    # NiceGUI versions while preserving the existing tab visual language.
-    for name, tab_el in tab_els.items():
-        tab_el.on("click", lambda _=None, tab_name=name: show_page(tab_name))
-    show_page("Desk")
+        def show_page(name: str) -> None:
+            page_info = page_hosts.get(name)
+            if not page_info:
+                return
+            for n, p in page_hosts.items():
+                p["column"].set_visibility(n == name)
+            if not page_info["built"]:
+                page_info["built"] = True
+                with page_info["column"]:
+                    page_info["build_fn"]()
+
+        tabs.on_value_change(lambda e: show_page(str(e.value)))
+        tabs.set_value("Desk")
+        show_page("Desk")
     ui.run(**_ui_run_kwargs())
 
 
