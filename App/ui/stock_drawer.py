@@ -925,3 +925,298 @@ def open_stock_360_modal(
                     ).classes("w-full mp-table text-xs")
 
     dialog.open()
+
+
+def render_stock_inspector_panel(
+    db_path: Path,
+    symbol: str,
+    *,
+    user_db: Path | None = None,
+    copy_text: Any = None,
+    on_close: Any = None,
+) -> None:
+    """Render an embedded, persistent stock inspector panel (Zero-Popup Solution)."""
+    db_path = Path(db_path)
+    if user_db is None:
+        user_db = db_path.parent / "marketpulse_user.duckdb"
+    user_db = Path(user_db)
+
+    clean_sym = str(symbol or "").strip().upper()
+    if not clean_sym:
+        with ui.card().classes("w-full mp-card p-6 text-center border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+            ui.label("🔍 Stock Inspector").classes("text-sm font-bold uppercase tracking-wider text-[var(--mp-primary)] mb-2")
+            ui.label("Click any stock from the matrix to view instant candlestick chart, Darvas levels, risk sizing, and institutional deals.").classes("text-xs text-[var(--mp-muted)] leading-relaxed")
+        return
+
+    data = query_stock_360_data(db_path, clean_sym)
+    if not data:
+        with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+            ui.label(f"No technical profile found for {clean_sym}.").classes("text-xs text-[var(--mp-muted)]")
+        return
+
+    sym = data["symbol"]
+    profile = data["profile"]
+    cand = data["candidate_setup"]
+    deals = data["deals"]
+    comp_prof = data.get("company_profile", {})
+    thematic_tags = data.get("thematic_tags", [])
+    peer_details = data.get("peer_groups", [])
+    full_name = comp_prof.get("company_name") or profile.get("security_name") or ""
+
+    close_price = profile.get("close_price") or profile.get("latest_close") or 0.0
+    day_change = profile.get("day_change_pct") or 0.0
+    sector = profile.get("sector") or "Unclassified"
+    industry = profile.get("industry") or "Unclassified"
+    mcap = profile.get("market_cap_cr")
+    rs = profile.get("rs_percentile")
+    vcp_state = profile.get("vcp_state") or "None"
+
+    with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)] shadow-lg flex flex-col gap-2.5"):
+        # 1. Header Row
+        with ui.row().classes("w-full items-start justify-between border-b border-[var(--mp-border)] pb-2 flex-wrap gap-2"):
+            with ui.column().classes("gap-0.5"):
+                with ui.row().classes("items-center gap-1.5 flex-wrap"):
+                    ui.label(sym).classes("text-xl font-bold tracking-tight text-[var(--mp-text)] font-mono")
+                    if rs and pd.notna(rs):
+                        ui.label(f"RS {float(rs):.0f}").classes("mp-badge mp-good text-[11px]")
+                    if vcp_state and vcp_state != "None":
+                        tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
+                        ui.label(vcp_state).classes(f"mp-badge {tone} text-[10px]")
+                if full_name:
+                    ui.label(full_name).classes("text-[11px] text-slate-300 font-medium truncate max-w-[280px]")
+                ui.label(f"{sector} · {industry}").classes("text-[10px] text-[var(--mp-muted)]")
+
+            with ui.column().classes("items-end gap-1"):
+                with ui.row().classes("items-center gap-1.5"):
+                    ui.label(f"₹{float(close_price):,.2f}").classes("text-xl font-bold font-mono text-[var(--mp-text)]")
+                    tone = "text-emerald-400" if float(day_change) >= 0 else "text-rose-400"
+                    ui.label(f"{float(day_change):+.2f}%").classes(f"text-xs font-semibold font-mono {tone}")
+                if mcap and pd.notna(mcap):
+                    ui.label(f"MCap ₹{float(mcap):,.0f} Cr").classes("text-[10px] text-[var(--mp-muted)] font-mono")
+
+        # 2. Quick Action Strip (Watchlist toggles + TV + Full 360)
+        with ui.row().classes("w-full items-center justify-between py-1 border-b border-[var(--mp-border)] flex-wrap gap-1.5 text-xs"):
+            with ui.row().classes("items-center gap-1"):
+                wl_names = {1: "WL1", 2: "WL2", 3: "WL3"}
+                for wl_idx in (1, 2, 3):
+                    in_wl = is_in_watchlist(user_db, wl_idx, sym)
+                    name_str = wl_names[wl_idx]
+                    btn_color = "amber-9" if in_wl else "primary"
+                    btn_txt = f"{name_str} {'★' if in_wl else '+'}"
+                    wl_btn = ui.button(btn_txt).props(f"dense {'unelevated' if in_wl else 'outline'} color={btn_color} size=xs").classes("text-[10px] font-semibold")
+
+                    def make_toggle(idx=wl_idx, b=wl_btn, nstr=name_str):
+                        def _handler():
+                            added = toggle_watchlist_symbol(user_db, idx, sym)
+                            b.props(f"dense {'unelevated' if added else 'outline'} color={'amber-9' if added else 'primary'} size=xs")
+                            b.set_text(f"{nstr} {'★' if added else '+'}")
+                            ui.notify(f"{'★ Added to' if added else 'Removed from'} {nstr}: {sym}", type="positive" if added else "info")
+                        return _handler
+                    wl_btn.on_click(make_toggle(wl_idx, wl_btn, name_str))
+
+            with ui.row().classes("items-center gap-1"):
+                tv_url = tradingview_url(sym)
+                ui.button("TV ↗", on_click=lambda: ui.run_javascript(f'window.open("{tv_url}", "_blank")')).props("dense flat size=xs").classes("text-[11px] text-sky-400")
+                ui.button("Full 360", on_click=lambda: open_stock_360_modal(db_path, sym, copy_text=copy_text)).props("dense outline size=xs").classes("mp-button text-[10px]")
+                if on_close:
+                    ui.button("✕", on_click=on_close).props("dense flat round size=xs").classes("text-slate-400 text-xs")
+
+        # 3. Interactive Candlestick + Darvas + EMAs Chart
+        cdata = query_stock_candlestick_data(db_path, sym, limit=90)
+        if cdata and cdata.get("ohlc"):
+            if cdata.get("is_darvas_squeeze"):
+                with ui.row().classes("w-full items-center justify-between px-2 py-1 rounded bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono"):
+                    ui.label("🎯 DARVAS 10 EMA SQUEEZE").classes("font-bold text-emerald-400")
+                    sq_val = f"{cdata['darvas_squeeze_pct']:.1f}%" if cdata.get("darvas_squeeze_pct") is not None else ""
+                    cr_val = f"Range: {cdata['candle_range_pct']:.1f}%" if cdata.get("candle_range_pct") is not None else ""
+                    ui.label(f"Spread: {sq_val} · {cr_val}").classes("font-semibold")
+
+            dates_len = len(cdata["dates"])
+            z_start = max(0, int(((dates_len - 30) / max(1, dates_len)) * 100))
+
+            echart_opt = {
+                "backgroundColor": "transparent",
+                "animation": False,
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
+                "legend": {
+                    "data": ["Price", "Darvas Top", "10 EMA", "20 EMA", "50 EMA", "200 EMA"],
+                    "textStyle": {"color": "#94a3b8", "fontSize": 9},
+                    "top": 0,
+                    "itemWidth": 12,
+                    "itemHeight": 6,
+                },
+                "grid": [
+                    {"left": "8%", "right": "4%", "top": "12%", "height": "54%"},
+                    {"left": "8%", "right": "4%", "top": "68%", "height": "14%"},
+                    {"left": "8%", "right": "4%", "top": "84%", "height": "12%"},
+                ],
+                "xAxis": [
+                    {"type": "category", "gridIndex": 0, "data": cdata["dates"], "boundaryGap": False, "scale": True, "axisLine": {"lineStyle": {"color": "#334155"}}, "axisLabel": {"show": False}},
+                    {"type": "category", "gridIndex": 1, "data": cdata["dates"], "boundaryGap": False, "scale": True, "axisLine": {"lineStyle": {"color": "#334155"}}, "axisLabel": {"show": False}},
+                    {"type": "category", "gridIndex": 2, "data": cdata["dates"], "boundaryGap": False, "scale": True, "axisLine": {"lineStyle": {"color": "#334155"}}, "axisLabel": {"color": "#94a3b8", "fontSize": 9}},
+                ],
+                "yAxis": [
+                    {"scale": True, "gridIndex": 0, "splitLine": {"lineStyle": {"color": "#1e293b"}}, "axisLabel": {"color": "#94a3b8", "fontSize": 9}},
+                    {"scale": True, "gridIndex": 1, "splitLine": {"show": False}, "axisLabel": {"show": False}},
+                    {"scale": True, "gridIndex": 2, "min": 0, "max": 100, "splitLine": {"lineStyle": {"color": "#1e293b"}}, "axisLabel": {"color": "#94a3b8", "fontSize": 8}},
+                ],
+                "dataZoom": [
+                    {"type": "inside", "xAxisIndex": [0, 1, 2], "start": z_start, "end": 100},
+                ],
+                "series": [
+                    {
+                        "name": "Price",
+                        "type": "candlestick",
+                        "xAxisIndex": 0,
+                        "yAxisIndex": 0,
+                        "data": cdata["ohlc"],
+                        "itemStyle": {"color": "#10b981", "color0": "#ef4444", "borderColor": "#10b981", "borderColor0": "#ef4444"},
+                    },
+                    {
+                        "name": "Darvas Top",
+                        "type": "line",
+                        "step": "end",
+                        "xAxisIndex": 0,
+                        "yAxisIndex": 0,
+                        "data": cdata.get("darvas_top", []),
+                        "lineStyle": {"color": "#22c55e", "width": 2},
+                        "showSymbol": False,
+                    },
+                    {"name": "10 EMA", "type": "line", "xAxisIndex": 0, "yAxisIndex": 0, "data": cdata["ema10"], "smooth": True, "lineStyle": {"color": "#ffffff", "width": 1.5}, "showSymbol": False},
+                    {"name": "20 EMA", "type": "line", "xAxisIndex": 0, "yAxisIndex": 0, "data": cdata["ema20"], "smooth": True, "lineStyle": {"color": "#fbbf24", "width": 1.5}, "showSymbol": False},
+                    {"name": "50 EMA", "type": "line", "xAxisIndex": 0, "yAxisIndex": 0, "data": cdata["ema50"], "smooth": True, "lineStyle": {"color": "#f97316", "width": 1.5}, "showSymbol": False},
+                    {"name": "200 EMA", "type": "line", "xAxisIndex": 0, "yAxisIndex": 0, "data": cdata["ema200"], "smooth": True, "lineStyle": {"color": "#ec4899", "width": 1.5}, "showSymbol": False},
+                    {
+                        "name": "Volume",
+                        "type": "bar",
+                        "xAxisIndex": 1,
+                        "yAxisIndex": 1,
+                        "data": cdata["volume"],
+                        "itemStyle": {"color": "#475569"},
+                    },
+                    {
+                        "name": "RSI(14)",
+                        "type": "line",
+                        "xAxisIndex": 2,
+                        "yAxisIndex": 2,
+                        "data": cdata["rsi"],
+                        "lineStyle": {"color": "#a855f7", "width": 1.5},
+                        "showSymbol": False,
+                    },
+                ],
+            }
+            inspector_chart = ui.echart(echart_opt).classes("w-full h-[320px]")
+            with ui.row().classes("w-full items-center justify-end gap-1.5 text-[10px] font-mono"):
+                ui.label("Zoom:").classes("text-[var(--mp-muted)]")
+                z20 = max(0, int(((dates_len - 20) / max(1, dates_len)) * 100))
+                z45 = max(0, int(((dates_len - 45) / max(1, dates_len)) * 100))
+                ui.button("20D", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': z20, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+                ui.button("45D", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': z45, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+                ui.button("All", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': 0, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+        else:
+            ui.label("Candlestick data not available.").classes("text-xs text-[var(--mp-muted)] py-4 text-center")
+
+        # 4. Risk & Position Sizing Calculator
+        trigger_px = float(cand.get("trigger_price") or close_price * 1.01)
+        stop_px = float(cand.get("invalidation_price") or profile.get("ema_20") or close_price * 0.95)
+        res_px = float(cand.get("first_resistance") or trigger_px + (trigger_px - stop_px) * 2.0)
+        risk_per_share = max(0.05, trigger_px - stop_px)
+        risk_pct_val = (risk_per_share / trigger_px) * 100.0 if trigger_px > 0 else 5.0
+        rr_val = ((res_px - trigger_px) / risk_per_share) if risk_per_share > 0 else 2.0
+
+        with ui.card().classes("w-full mp-card p-2.5 bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
+            with ui.row().classes("w-full items-center justify-between mb-1 text-[11px]"):
+                ui.label("🎯 RISK GEOMETRY & SIZING").classes("font-bold text-[var(--mp-primary)] uppercase tracking-wider")
+                ui.label(f"R:R {rr_val:.2f}").classes("font-bold font-mono text-sky-400 bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-500/30")
+
+            with ui.grid(columns=3).classes("w-full gap-1.5 mb-2 text-center text-xs font-mono"):
+                with ui.element("div").classes("p-1.5 rounded bg-[var(--mp-surface)] border border-[var(--mp-border)]"):
+                    ui.label("Trigger").classes("text-[9px] text-[var(--mp-muted)] uppercase")
+                    ui.label(f"₹{trigger_px:,.2f}").classes("font-bold text-emerald-400")
+                with ui.element("div").classes("p-1.5 rounded bg-[var(--mp-surface)] border border-[var(--mp-border)]"):
+                    ui.label("Stop Loss").classes("text-[9px] text-[var(--mp-muted)] uppercase")
+                    ui.label(f"₹{stop_px:,.2f}").classes("font-bold text-rose-400")
+                with ui.element("div").classes("p-1.5 rounded bg-[var(--mp-surface)] border border-[var(--mp-border)]"):
+                    ui.label("Risk %").classes("text-[9px] text-[var(--mp-muted)] uppercase")
+                    ui.label(f"{risk_pct_val:.1f}%").classes("font-bold text-amber-400")
+
+            # Visual R:R track
+            with ui.row().classes("w-full items-center justify-between text-[9px] font-mono text-[var(--mp-muted)]"):
+                ui.label(f"Stop ₹{stop_px:,.1f}")
+                ui.label(f"Target ₹{res_px:,.1f}")
+            with ui.element("div").classes("w-full h-2 rounded-full overflow-hidden bg-slate-800 border border-slate-700 flex mb-2"):
+                ui.element("div").classes("h-full bg-rose-500/60 w-[30%]")
+                ui.element("div").classes("h-full bg-emerald-500/70 w-[70%]")
+
+            # Interactive Position Sizer
+            with ui.row().classes("w-full items-center justify-between gap-2 pt-1 border-t border-[var(--mp-border)]"):
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("Cap: ₹").classes("text-[10px] text-[var(--mp-muted)]")
+                    cap_in = ui.number(value=1000000, step=100000).classes("w-20 text-[11px] font-mono").props("dense borderless")
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("Risk %:").classes("text-[10px] text-[var(--mp-muted)]")
+                    risk_in = ui.number(value=1.0, step=0.5, min=0.25, max=5.0).classes("w-14 text-[11px] font-mono").props("dense borderless")
+
+            shares_lbl = ui.label("Shares: —").classes("text-[11px] font-mono text-emerald-300 font-bold mt-1")
+
+            def update_shares():
+                cap_val = float(cap_in.value or 1000000)
+                r_pct = float(risk_in.value or 1.0)
+                r_amt = cap_val * (r_pct / 100.0)
+                shares = max(1, int(r_amt / risk_per_share))
+                tot_val = shares * float(close_price)
+                shares_lbl.set_text(f"Size: {shares:,} shares (₹{tot_val:,.0f} · {tot_val/cap_val*100:.1f}% cap)")
+
+            cap_in.on_value_change(lambda _: update_shares())
+            risk_in.on_value_change(lambda _: update_shares())
+            update_shares()
+
+        # 5. Recent Institutional Deals
+        if deals is not None and not deals.empty:
+            with ui.card().classes("w-full mp-card p-2.5 bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
+                with ui.row().classes("w-full items-center justify-between mb-1.5"):
+                    ui.label("🏛️ INSTITUTIONAL ACCUMULATION").classes("font-bold text-[10px] text-[var(--mp-primary)] uppercase tracking-wider")
+                    deal_cnt = len(deals)
+                    ui.label(f"{deal_cnt} Deals (20D)").classes("text-[10px] text-[var(--mp-muted)] font-mono")
+
+                with ui.column().classes("w-full gap-1"):
+                    for _, d in deals.head(3).iterrows():
+                        client = str(d.get("client_name") or "Institution")
+                        tier = str(d.get("tier") or "FII")
+                        side = str(d.get("side") or "BUY")
+                        d_val = float(d.get("deal_value_cr") or 0.0)
+                        d_px = float(d.get("price") or 0.0)
+                        side_tone = "text-emerald-400" if side == "BUY" else "text-rose-400"
+                        badge_cls = "mp-deal-badge-fii" if "FII" in tier else "mp-deal-badge-prop" if "HFT" in tier or "PROP" in tier else "mp-deal-badge-dii"
+
+                        with ui.row().classes("w-full items-center justify-between text-[11px] font-mono py-0.5 border-b border-slate-800"):
+                            with ui.row().classes("items-center gap-1 truncate max-w-[240px]"):
+                                ui.label(tier[:4]).classes(f"text-[9px] px-1 py-0 rounded font-bold uppercase {badge_cls}")
+                                ui.label(client).classes("truncate text-[11px] text-slate-200")
+                            with ui.row().classes("items-center gap-1"):
+                                ui.label(side).classes(f"font-bold {side_tone}")
+                                ui.label(f"₹{d_val:,.1f}Cr").classes("font-bold text-slate-100")
+
+        # 6. Themes & Peers Context
+        if thematic_tags or peer_details:
+            with ui.card().classes("w-full mp-card p-2.5 bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
+                if thematic_tags:
+                    with ui.row().classes("items-center gap-1 flex-wrap mb-2"):
+                        ui.label("THEMES:").classes("text-[9px] font-bold text-[var(--mp-muted)]")
+                        for t in thematic_tags[:3]:
+                            ui.label(f"🏷️ {t}").classes("mp-badge mp-good text-[10px] py-0 px-1.5")
+                if peer_details:
+                    with ui.row().classes("items-center justify-between mb-1"):
+                        ui.label("INDUSTRY PEERS").classes("text-[9px] font-bold text-[var(--mp-muted)] uppercase")
+                    with ui.column().classes("w-full gap-1"):
+                        for p in peer_details[:3]:
+                            p_sym = p.get("symbol")
+                            p_rs = p.get("rs_percentile")
+                            p_cmp = p.get("close_price")
+                            p_5d = p.get("return_5d_pct")
+                            p_tone = "text-emerald-400" if p_5d and float(p_5d) >= 0 else "text-rose-400"
+                            with ui.row().classes("w-full items-center justify-between text-[11px] font-mono"):
+                                ui.label(p_sym).classes("font-bold text-sky-400")
+                                ui.label(f"RS {float(p_rs):.0f}" if p_rs else "—").classes("text-[var(--mp-muted)]")
+                                ui.label(f"₹{float(p_cmp):,.1f}" if p_cmp else "—").classes("text-slate-300")
+                                ui.label(f"{float(p_5d):+.1f}%" if p_5d else "—").classes(f"font-bold {p_tone}")

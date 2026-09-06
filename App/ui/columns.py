@@ -177,7 +177,11 @@ GLOBAL_COLUMNS: dict[str, ColumnContract] = {
     "days_held": ColumnContract("days_held", "DAYS", 64, 56, align="center", format_type="numeric", group="Performance"),
     "reward_to_risk": ColumnContract("reward_to_risk", "R:R", 60, 54, align="right", format_type="multiple", group="Risk"),
     "initial_risk_pct": ColumnContract("initial_risk_pct", "RISK %", 76, 68, align="right", format_type="pct", group="Risk"),
-    "distance_to_trigger_pct": ColumnContract("distance_to_trigger_pct", "DIST", 70, 62, align="right", format_type="pct", group="Risk"),
+    "risk_pct": ColumnContract("risk_pct", "RISK %", 76, 68, align="right", format_type="pct", group="Risk"),
+    "distance_to_trigger_pct": ColumnContract("distance_to_trigger_pct", "DIST %", 74, 64, align="right", format_type="pct", group="Risk"),
+    "dist_to_trigger_pct": ColumnContract("dist_to_trigger_pct", "DIST %", 74, 64, align="right", format_type="pct", group="Risk"),
+    "deal_flow": ColumnContract("deal_flow", "DEAL FLOW", 110, 95, align="center", format_type="text", group="Flow"),
+    "setup_type": ColumnContract("setup_type", "SETUP", 120, 100, align="center", format_type="badge", group="Setup"),
     "event_risk": ColumnContract("event_risk", "EVENT", 96, 80, align="center", group="Action"),
     "event_date": ColumnContract("event_date", "EVENT DATE", 104, 90, align="center", group="Action"),
 }

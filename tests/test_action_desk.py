@@ -135,3 +135,23 @@ def test_stock_candlestick_darvas_indicators() -> None:
     res_lumax = query_stock_candlestick_data(DB_PATH, "LUMAXIND", limit=60)
     assert res_lumax["is_darvas_squeeze"] is False
 
+
+def test_action_desk_deal_accumulation_attached() -> None:
+    data = fetch_action_desk_data(DB_PATH)
+    queues = data["queues"]
+    for q_name, df in queues.items():
+        if not df.empty:
+            assert "deal_flow" in df.columns
+            # Non-empty strings
+            assert df["deal_flow"].notna().all()
+
+
+def test_action_desk_cockpit_layout_structure() -> None:
+    page_source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
+    assert "mp-cockpit-container" in page_source
+    assert "mp-funnel-col" in page_source
+    assert "mp-matrix-col" in page_source
+    assert "mp-inspector-col" in page_source
+    assert "render_stock_inspector_panel" in page_source
+    assert "queue_meta" in page_source
+

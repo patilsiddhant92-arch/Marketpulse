@@ -26,9 +26,9 @@ except ModuleNotFoundError:
     from telegram_deals import to_tv_list  # type: ignore
 
 try:
-    from App.ui.stock_drawer import open_stock_360_modal, query_stock_candlestick_data
+    from App.ui.stock_drawer import open_stock_360_modal, query_stock_candlestick_data, render_stock_inspector_panel
 except ModuleNotFoundError:
-    from ui.stock_drawer import open_stock_360_modal, query_stock_candlestick_data  # type: ignore
+    from ui.stock_drawer import open_stock_360_modal, query_stock_candlestick_data, render_stock_inspector_panel  # type: ignore
 
 try:
     from App.ui.vcp_chart import render_vcp_ohlc
@@ -41,7 +41,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v4")
+    key = cache_key(db_path, None, "action_desk_v5")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -196,6 +196,32 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             setup_pool["theme"] = setup_pool["symbol"].map(lambda s: stock_tags.get(s, ["—"])[0])
         else:
             setup_pool["theme"] = pd.Series(dtype=str)
+
+        # Attach institutional deal accumulation tags to setup pool (25-day lookback)
+        deals_agg = con.execute(
+            """
+            SELECT 
+                symbol,
+                count(*) as deals_cnt,
+                round(sum(CASE WHEN side = 'BUY' THEN quantity * price / 10000000.0 ELSE 0 END), 1) as buy_cr,
+                round(sum(CASE WHEN side = 'SELL' THEN quantity * price / 10000000.0 ELSE 0 END), 1) as sell_cr
+            FROM deals
+            WHERE trade_date >= (SELECT max(trade_date) - INTERVAL 25 DAY FROM deals)
+            GROUP BY symbol
+            """
+        ).fetchdf()
+        deal_badge_map = {}
+        if not deals_agg.empty:
+            for _, r in deals_agg.iterrows():
+                b_cr = float(r["buy_cr"] or 0)
+                if b_cr >= 10.0:
+                    deal_badge_map[r["symbol"]] = f"🏛️ +₹{b_cr:,.0f}Cr"
+                elif r["deals_cnt"] > 0:
+                    deal_badge_map[r["symbol"]] = f"🏛️ {int(r['deals_cnt'])} Deals"
+        if not setup_pool.empty:
+            setup_pool["deal_flow"] = setup_pool["symbol"].map(deal_badge_map).fillna("—")
+        else:
+            setup_pool["deal_flow"] = pd.Series(dtype=str)
 
         # Trailing bars for Darvas Box calculation across setup pool
         darvas_hist = pd.DataFrame()
@@ -630,7 +656,7 @@ def build_action_desk_page(
     table_from_df: Callable,
     copy_text: Callable | None = None,
 ) -> None:
-    """Build the Action Desk view inside NiceGUI."""
+    """Build the Action Desk view inside NiceGUI (3-Column Master-Detail Cockpit)."""
     data = fetch_action_desk_data(db_path)
     if not data.get("ready"):
         ui.label(data.get("reason", "Action Desk initializing...")).classes("text-sm text-[var(--mp-muted)] p-4")
@@ -658,186 +684,264 @@ def build_action_desk_page(
                 for item in bottom_themes:
                     ui.label(f"{item['name']} ({item['return_1d']:+.2f}%)").classes("font-semibold text-rose-300 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-500/30")
 
-    # =========================================================================
-    # STEP 1: MARKET EXPOSURE GATE (Executive Decision)
-    # =========================================================================
-    with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)] bg-[var(--mp-surface)] mb-4"):
-        with ui.row().classes("w-full items-center justify-between flex-wrap gap-2"):
-            with ui.row().classes("items-center gap-2"):
-                ui.label("STEP 1: MARKET EXPOSURE GATE").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase")
-                ui.label(f"Data: {data['trade_date']}").classes("text-xs text-[var(--mp-muted)]")
-            with ui.row().classes("items-center gap-2"):
-                ui.label("RECOMMENDED EXPOSURE:").classes("text-xs text-[var(--mp-muted)] font-semibold")
-                ui.label(exp["pct"]).classes(f"text-base font-black px-2.5 py-0.5 rounded {exp['badge']}")
-                ui.label(exp["state"]).classes("text-xs font-medium text-[var(--mp-text)]")
-
-        ui.label(exp["guidance"]).classes("text-sm text-[var(--mp-text)] mt-2 leading-relaxed font-mono")
-
-        # Breadth Strip
-        with ui.row().classes("w-full items-center gap-6 mt-3 pt-3 border-t border-[var(--mp-border)] flex-wrap text-xs"):
-            with ui.row().classes("items-center gap-1.5"):
-                ui.label("Net Advance:").classes("text-[var(--mp-muted)]")
-                ui.label(f"{exp['adv_pct']}%").classes("font-bold " + ("text-emerald-400" if exp['adv_pct'] >= 50 else "text-rose-400"))
-            with ui.row().classes("items-center gap-1.5"):
-                ui.label("Above 20 EMA:").classes("text-[var(--mp-muted)]")
-                ui.label(f"{exp['ab20_pct']}%").classes("font-bold text-[var(--mp-text)]")
-            with ui.row().classes("items-center gap-1.5"):
-                ui.label("Above 50 EMA:").classes("text-[var(--mp-muted)]")
-                ui.label(f"{exp['ab50_pct']}%").classes("font-bold text-[var(--mp-text)]")
-            with ui.row().classes("items-center gap-1.5"):
-                ui.label("Above 200 EMA:").classes("text-[var(--mp-muted)]")
-                ui.label(f"{exp['ab200_pct']}%").classes("font-bold text-[var(--mp-text)]")
-            with ui.row().classes("items-center gap-1.5"):
-                ui.label("India VIX:").classes("text-[var(--mp-muted)]")
-                ui.label(f"{exp['vix']}").classes("font-bold " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
-            with ui.row().classes("items-center gap-1.5 ml-auto"):
-                if copy_text and tv["all_focus"]:
-                    ui.button(
-                        "📋 Copy All Action Setups (TradingView)",
-                        on_click=lambda: copy_text(tv["all_focus"]),
-                    ).classes("mp-button text-xs").props("dense outline")
-
-    # =========================================================================
-    # STEP 2: LEADING SECTOR THEMES (Institutional Money Flow)
-    # =========================================================================
-    with ui.column().classes("w-full mb-4"):
-        ui.label("STEP 2: LEADING SECTOR THEMES (Top Institutional Money Flow)").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
-        with ui.grid(columns=len(themes) if len(themes) <= 4 else 4).classes("w-full gap-3"):
-            for idx, (_, sec) in enumerate(themes.iterrows(), 1):
-                with ui.card().classes("mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface-raised)] flex-col justify-between"):
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label(f"#{idx} {sec['sector']}").classes("font-bold text-sm text-[var(--mp-text)] truncate")
-                        sign = "+" if sec["avg_5d_pct"] >= 0 else ""
-                        ui.label(f"{sign}{sec['avg_5d_pct']:.1f}% 5D").classes(
-                            "text-xs font-bold " + ("text-emerald-400" if sec["avg_5d_pct"] >= 0 else "text-rose-400")
-                        )
-                    with ui.row().classes("w-full items-center justify-between text-xs text-[var(--mp-muted)] mt-2"):
-                        ui.label(f"RS: {sec['avg_rs']:.0f}")
-                        ui.label(f">50 EMA: {sec['above_50_pct']:.0f}%")
-                        ui.label(f"₹{sec['total_to_cr']:,.0f} Cr")
-                    if sec.get("leaders"):
-                        top_syms = [s.strip() for s in sec["leaders"].split(",")][:3]
-                        with ui.row().classes("w-full items-center gap-1 mt-2"):
-                            ui.label("Leaders:").classes("text-[10px] text-[var(--mp-muted)]")
-                            for sym in top_syms:
-                                ui.label(sym).classes("text-[11px] font-mono font-bold text-[var(--mp-primary)]")
-
-    # =========================================================================
-    # STEP 3: THE 5 ACTIONABLE SETUP QUEUES
-    # =========================================================================
-    ui.label("STEP 3: ACTIONABLE SWING SETUPS (Tight Risk <= 6%, Strict Quality Filters)").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
-
-    # Filter quality banner
-    with ui.row().classes("w-full items-center justify-between px-3 py-1.5 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] text-xs text-[var(--mp-muted)] mb-3 flex-wrap gap-2"):
-        ui.label("✓ Quality Rules Applied: MCap > ₹1000Cr · No 5% Circuit Band · > 200 EMA · 50>200 EMA · Within 25% 52W · 20D T/O > ₹5Cr · RS >= 70 · No _RE").classes("font-mono")
-        ui.label("Max Risk Ceiling: 6.0%").classes("font-bold text-emerald-400 font-mono")
-
-    # Display columns for the setups table
-    display_cols = [
-        "symbol", "theme", "cmp", "trigger_price", "stop_loss", "risk_pct", 
-        "day_pct", "rvol", "rs_percentile", "sector", "why_now"
-    ]
-
-    with ui.tabs().classes("w-full mp-tabs mb-2") as setup_tabs:
-        t_vcp = ui.tab("1. VCP / Coiling Breakouts")
-        t_pb = ui.tab("2. 10/20 EMA Pullbacks")
-        t_ep = ui.tab("3. Episodic Pivots (High RVOL)")
-        t_h52 = ui.tab("4. 52W High Breakouts")
-        t_darvas = ui.tab("5. Darvas 10 EMA Squeeze")
-
-    chart_slots: dict[Any, Any] = {}
-    chart_built: dict[Any, bool] = {}
-
-    with ui.tab_panels(setup_tabs, value=t_vcp).classes("w-full bg-transparent p-0"):
-        # PANEL 1: VCP Breakout
-        with ui.tab_panel(t_vcp).classes("p-0"):
-            with ui.row().classes("w-full items-center justify-between my-2"):
-                ui.label("Low-volatility contractions coiled <3.5% below 20D pivot with dry-up volume.").classes("text-xs text-[var(--mp-muted)]")
-                if copy_text and tv["vcp"]:
-                    ui.button("📋 Copy VCP Setups (TV)", on_click=lambda: copy_text(tv["vcp"])).classes("mp-button text-xs").props("dense outline")
-            df = queues["vcp"]
-            if df.empty:
-                ui.label("No VCP setups currently meeting strict <=6% risk criteria.").classes("text-sm text-[var(--mp-muted)] p-4")
-            else:
-                table_from_df(df[[c for c in display_cols if c in df.columns]], "", pagination=10)
-                chart_slots[t_vcp] = ui.column().classes("w-full")
-
-        # PANEL 2: EMA Pullback
-        with ui.tab_panel(t_pb).classes("p-0"):
-            with ui.row().classes("w-full items-center justify-between my-2"):
-                ui.label("High-RS trend leaders resting on 10/20 EMA support with low pullback volume.").classes("text-xs text-[var(--mp-muted)]")
-                if copy_text and tv["pullback"]:
-                    ui.button("📋 Copy Pullback Setups (TV)", on_click=lambda: copy_text(tv["pullback"])).classes("mp-button text-xs").props("dense outline")
-            df = queues["pullback"]
-            if df.empty:
-                ui.label("No EMA pullback setups currently meeting criteria.").classes("text-sm text-[var(--mp-muted)] p-4")
-            else:
-                table_from_df(df[[c for c in display_cols if c in df.columns]], "", pagination=10)
-                chart_slots[t_pb] = ui.column().classes("w-full")
-
-        # PANEL 3: Episodic Pivot
-        with ui.tab_panel(t_ep).classes("p-0"):
-            with ui.row().classes("w-full items-center justify-between my-2"):
-                ui.label("High RVOL (2x+) explosive breakout surges with day-low invalidation.").classes("text-xs text-[var(--mp-muted)]")
-                if copy_text and tv["episodic"]:
-                    ui.button("📋 Copy Episodic Pivots (TV)", on_click=lambda: copy_text(tv["episodic"])).classes("mp-button text-xs").props("dense outline")
-            df = queues["episodic"]
-            if df.empty:
-                ui.label("No high RVOL episodic pivots recorded today.").classes("text-sm text-[var(--mp-muted)] p-4")
-            else:
-                table_from_df(df[[c for c in display_cols if c in df.columns]], "", pagination=10)
-                chart_slots[t_ep] = ui.column().classes("w-full")
-
-        # PANEL 4: 52W Breakout
-        with ui.tab_panel(t_h52).classes("p-0"):
-            with ui.row().classes("w-full items-center justify-between my-2"):
-                ui.label("Market leaders testing or printing new 52-week highs with volume thrust.").classes("text-xs text-[var(--mp-muted)]")
-                if copy_text and tv["high52"]:
-                    ui.button("📋 Copy 52W Breakouts (TV)", on_click=lambda: copy_text(tv["high52"])).classes("mp-button text-xs").props("dense outline")
-            df = queues["high52"]
-            if df.empty:
-                ui.label("No 52-week high breakouts meeting criteria.").classes("text-sm text-[var(--mp-muted)] p-4")
-            else:
-                table_from_df(df[[c for c in display_cols if c in df.columns]], "", pagination=10)
-                chart_slots[t_h52] = ui.column().classes("w-full")
-
-        # PANEL 5: Darvas 10 EMA Squeeze
-        with ui.tab_panel(t_darvas).classes("p-0"):
-            with ui.row().classes("w-full items-center justify-between my-2"):
-                ui.label("Stocks with full OHLC strictly inside the box in near range, squeezed between Green Line (TopBox) and rising 10 EMA (spread <= 3.5%).").classes("text-xs text-[var(--mp-muted)]")
-                if copy_text and tv.get("darvas"):
-                    ui.button("📋 Copy Darvas Squeeze Setups (TV)", on_click=lambda: copy_text(tv["darvas"])).classes("mp-button text-xs").props("dense outline")
-            df = queues.get("darvas", pd.DataFrame())
-            if df.empty:
-                ui.label("No Darvas 10 EMA squeeze setups currently meeting criteria.").classes("text-sm text-[var(--mp-muted)] p-4")
-            else:
-                table_from_df(df[[c for c in display_cols if c in df.columns]], "", pagination=10)
-                chart_slots[t_darvas] = ui.column().classes("w-full")
-
-    queue_builders = {
-        t_vcp: lambda: render_queue_chart_preview(db_path, queues["vcp"], "VCP / Coiling Breakouts", is_vcp=True, copy_text=copy_text),
-        t_pb: lambda: render_queue_chart_preview(db_path, queues["pullback"], "10/20 EMA Pullbacks", is_darvas=False, copy_text=copy_text),
-        t_ep: lambda: render_queue_chart_preview(db_path, queues["episodic"], "Episodic Pivots (High RVOL)", is_darvas=False, copy_text=copy_text),
-        t_h52: lambda: render_queue_chart_preview(db_path, queues["high52"], "52W High Breakouts", is_darvas=False, copy_text=copy_text),
-        t_darvas: lambda: render_queue_chart_preview(db_path, queues.get("darvas", pd.DataFrame()), "Darvas 10 EMA Squeeze", is_darvas=True, copy_text=copy_text),
+    queue_meta = {
+        "vcp": {
+            "title": "1. VCP / Coiling Breakouts",
+            "short_title": "1. VCP Breakouts",
+            "desc": "Low-volatility contractions coiled <3.5% below 20D pivot with volume dry-up and tight <6% invalidation.",
+            "tv_key": "vcp",
+        },
+        "pullback": {
+            "title": "2. 10/20 EMA Pullbacks",
+            "short_title": "2. EMA Pullbacks",
+            "desc": "High-RS trend leaders resting orderly on 10/20 EMA support with dry pullback volume.",
+            "tv_key": "pullback",
+        },
+        "episodic": {
+            "title": "3. Episodic Pivots (High RVOL)",
+            "short_title": "3. Episodic Pivots",
+            "desc": "Explosive 2x+ RVOL surges out of base with tight day-low stop invalidation.",
+            "tv_key": "episodic",
+        },
+        "high52": {
+            "title": "4. 52W High Breakouts",
+            "short_title": "4. 52W Breakouts",
+            "desc": "Market leaders printing or testing fresh 52-week highs with volume thrust.",
+            "tv_key": "high52",
+        },
+        "darvas": {
+            "title": "5. Darvas 10 EMA Squeeze",
+            "short_title": "5. Darvas Squeeze",
+            "desc": "OHLC strictly inside the box in near range, squeezed between Green Line (TopBox) and rising 10 EMA.",
+            "tv_key": "darvas",
+        },
     }
 
-    def ensure_tab_chart(target_val: Any) -> None:
-        for t_key, builder_fn in queue_builders.items():
-            t_label = getattr(t_key, "label", None)
-            if (
-                target_val is t_key
-                or target_val == t_key
-                or target_val == t_label
-                or str(target_val) == str(t_label)
-                or (t_label and str(t_label) in str(target_val))
-            ):
-                if not chart_built.get(t_key):
-                    chart_built[t_key] = True
-                    slot = chart_slots.get(t_key)
-                    if slot:
-                        with slot:
-                            builder_fn()
+    # Initial selection
+    initial_queue = "vcp"
+    initial_sym = ""
+    for q_key in ("vcp", "pullback", "episodic", "high52", "darvas"):
+        q_df = queues.get(q_key, pd.DataFrame())
+        if not q_df.empty and "symbol" in q_df.columns:
+            if not initial_sym:
+                initial_queue = q_key
+                initial_sym = str(q_df["symbol"].iloc[0])
+                break
 
-    setup_tabs.on_value_change(lambda e: ensure_tab_chart(e.value))
-    ensure_tab_chart(t_vcp)
+    state = {
+        "active_queue": initial_queue,
+        "selected_symbol": initial_sym,
+    }
+
+    # Display columns for the matrix
+    display_cols = [
+        "symbol", "deal_flow", "theme", "cmp", "trigger_price", "stop_loss", "risk_pct", 
+        "day_pct", "rvol", "rs_percentile", "sector"
+    ]
+
+    # Cockpit 3-column split-pane layout
+    with ui.element("div").classes("mp-cockpit-container w-full"):
+
+        # =====================================================================
+        # COLUMN 1: FUNNEL & QUEUES (Left Column - 250px)
+        # =====================================================================
+        with ui.column().classes("mp-funnel-col"):
+
+            # Card 1: Market Exposure Gate
+            with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+                with ui.row().classes("w-full items-center justify-between"):
+                    ui.label("STEP 1: EXPOSURE GATE").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                    ui.label(str(data["trade_date"])).classes("text-[10px] text-[var(--mp-muted)] font-mono")
+
+                with ui.row().classes("w-full items-center justify-between mt-2"):
+                    ui.label("EXPOSURE:").classes("text-xs text-[var(--mp-muted)] font-semibold")
+                    ui.label(exp["pct"]).classes(f"text-sm font-black px-2 py-0.5 rounded {exp['badge']}")
+
+                ui.label(exp["state"]).classes("text-xs font-semibold text-[var(--mp-text)] mt-1")
+                ui.label(exp["guidance"]).classes("text-[11px] text-[var(--mp-muted)] mt-1 leading-snug font-mono")
+
+                # Market Breadth Strip
+                with ui.column().classes("w-full gap-1 mt-2 pt-2 border-t border-[var(--mp-border)] text-xs"):
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("Net Advance:").classes("text-[var(--mp-muted)] text-[11px]")
+                        ui.label(f"{exp['adv_pct']}%").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['adv_pct'] >= 50 else "text-rose-400"))
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("> 20 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
+                        ui.label(f"{exp['ab20_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("> 50 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
+                        ui.label(f"{exp['ab50_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("> 200 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
+                        ui.label(f"{exp['ab200_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("India VIX:").classes("text-[var(--mp-muted)] text-[11px]")
+                        ui.label(f"{exp['vix']}").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
+
+                if copy_text and tv.get("all_focus"):
+                    ui.button(
+                        "📋 Copy All Focus (TV)",
+                        on_click=lambda: copy_text(tv["all_focus"]),
+                    ).classes("mp-button w-full text-[11px] mt-2").props("dense outline")
+
+            # Card 2: Leading Sector Themes
+            with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+                ui.label("STEP 2: LEADING SECTORS").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
+                with ui.column().classes("w-full gap-2"):
+                    for idx, (_, sec) in enumerate(themes.iterrows(), 1):
+                        with ui.column().classes("w-full p-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] gap-0.5"):
+                            with ui.row().classes("w-full items-center justify-between"):
+                                ui.label(f"#{idx} {sec['sector']}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
+                                sign = "+" if sec["avg_5d_pct"] >= 0 else ""
+                                ui.label(f"{sign}{sec['avg_5d_pct']:.1f}%").classes(
+                                    "text-[11px] font-mono font-bold " + ("text-emerald-400" if sec["avg_5d_pct"] >= 0 else "text-rose-400")
+                                )
+                            with ui.row().classes("w-full items-center justify-between text-[10px] text-[var(--mp-muted)] font-mono"):
+                                ui.label(f"RS: {sec['avg_rs']:.0f}")
+                                ui.label(f">50: {sec['above_50_pct']:.0f}%")
+                                ui.label(f"₹{sec['total_to_cr']:,.0f}Cr")
+                            if sec.get("leaders"):
+                                top_syms = [s.strip() for s in sec["leaders"].split(",")][:3]
+                                with ui.row().classes("w-full items-center gap-1 mt-1"):
+                                    for sym in top_syms:
+                                        ui.button(
+                                            sym,
+                                            on_click=lambda s=sym: select_symbol(s),
+                                        ).props("dense flat size=xs").classes("font-mono text-[10px] text-sky-400 px-1 py-0 hover:underline")
+
+            # Card 3: Setup Queues Navigation
+            queue_nav_card = ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]")
+
+        # =====================================================================
+        # COLUMN 2: CANDIDATE MATRIX (Center Column - 52% / flex-1)
+        # =====================================================================
+        matrix_host = ui.column().classes("mp-matrix-col")
+
+        # =====================================================================
+        # COLUMN 3: EMBEDDED STOCK INSPECTOR (Right Column - 440px)
+        # =====================================================================
+        inspector_host = ui.column().classes("mp-inspector-col")
+
+    # Reactive interaction functions
+    def select_symbol(sym: str) -> None:
+        sym = str(sym or "").strip().upper()
+        if not sym:
+            return
+        state["selected_symbol"] = sym
+        render_inspector()
+        render_matrix()
+
+    def set_queue(q_key: str) -> None:
+        state["active_queue"] = q_key
+        q_df = queues.get(q_key, pd.DataFrame())
+        if not q_df.empty and "symbol" in q_df.columns:
+            state["selected_symbol"] = str(q_df["symbol"].iloc[0])
+        render_queue_nav()
+        render_matrix()
+        render_inspector()
+
+    def render_queue_nav() -> None:
+        with queue_nav_card:
+            queue_nav_card.clear()
+            ui.label("STEP 3: SETUP QUEUES").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
+            with ui.column().classes("w-full gap-1.5"):
+                for q_key, q_info in queue_meta.items():
+                    q_df = queues.get(q_key, pd.DataFrame())
+                    count = len(q_df) if not q_df.empty else 0
+                    is_active = (q_key == state["active_queue"])
+                    
+                    with ui.button(
+                        on_click=lambda k=q_key: set_queue(k)
+                    ).classes(
+                        "w-full justify-between items-center px-2.5 py-1.5 rounded text-xs font-semibold text-left transition-colors " +
+                        ("bg-emerald-600/20 text-emerald-300 border border-emerald-500/40" if is_active else "bg-[var(--mp-surface-raised)] text-[var(--mp-text)] border border-[var(--mp-border)] hover:bg-[var(--mp-surface-2)]")
+                    ).props("dense flat no-caps"):
+                        ui.label(q_info["short_title"]).classes("truncate")
+                        ui.label(str(count)).classes(
+                            "text-[10px] font-mono px-1.5 py-0.2 rounded font-bold " +
+                            ("bg-emerald-500 text-slate-950" if is_active and count > 0 else "bg-slate-800 text-slate-300")
+                        )
+
+    def render_matrix() -> None:
+        with matrix_host:
+            matrix_host.clear()
+
+            q_key = state["active_queue"]
+            q_info = queue_meta.get(q_key, queue_meta["vcp"])
+            q_df = queues.get(q_key, pd.DataFrame())
+            tv_text = tv.get(q_info["tv_key"], "")
+
+            # Header Banner
+            with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+                with ui.row().classes("w-full items-center justify-between flex-wrap gap-2"):
+                    with ui.column().classes("gap-0.5"):
+                        ui.label(q_info["title"]).classes("text-sm font-bold text-[var(--mp-text)]")
+                        ui.label(q_info["desc"]).classes("text-xs text-[var(--mp-muted)]")
+                    if copy_text and tv_text:
+                        ui.button(
+                            f"📋 Copy {q_info['short_title']} (TV)",
+                            on_click=lambda t=tv_text: copy_text(t),
+                        ).classes("mp-button text-xs").props("dense outline")
+
+                # Quality Filter Strip
+                with ui.row().classes("w-full items-center justify-between text-[11px] text-[var(--mp-muted)] font-mono mt-2 pt-2 border-t border-[var(--mp-border)] flex-wrap gap-2"):
+                    ui.label("Rules: MCap > ₹1000Cr · Circuit > 5% · > 200 EMA · 50>200 EMA · Within 25% 52W · RS >= 70").classes("truncate")
+                    ui.label("Risk Ceiling: <= 6.0%").classes("font-bold text-emerald-400 font-mono")
+
+            # Candidate Quick Selector Chips
+            if not q_df.empty and "symbol" in q_df.columns:
+                symbols = [str(s) for s in q_df["symbol"].dropna().tolist()]
+                with ui.row().classes("w-full items-center gap-1.5 flex-wrap p-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
+                    ui.label("INSPECT:").classes("text-[10px] font-bold text-[var(--mp-muted)] uppercase tracking-wider")
+                    for sym in symbols:
+                        is_sel = (sym == state["selected_symbol"])
+                        deal_str = ""
+                        if "deal_flow" in q_df.columns:
+                            match_row = q_df[q_df["symbol"] == sym]
+                            if not match_row.empty:
+                                deal_val = str(match_row["deal_flow"].iloc[0])
+                                if deal_val and deal_val != "—":
+                                    deal_str = f" {deal_val}"
+                        ui.button(
+                            f"{sym}{deal_str}",
+                            on_click=lambda s=sym: select_symbol(s),
+                        ).props("dense unelevated size=sm").classes(
+                            "font-mono font-bold text-xs px-2 py-0.5 rounded transition-all " +
+                            ("bg-emerald-600 text-white shadow" if is_sel else "bg-slate-800 text-slate-300 hover:bg-slate-700")
+                        )
+
+            # Candidates Table
+            if q_df.empty:
+                with ui.card().classes("w-full mp-card p-8 text-center border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+                    ui.label(f"No {q_info['short_title']} setups currently meeting strict <=6% risk criteria today.").classes("text-sm text-[var(--mp-muted)]")
+            else:
+                table_cols = [c for c in display_cols if c in q_df.columns]
+                tbl = table_from_df(q_df[table_cols], "", pagination=10)
+                if tbl is not None:
+                    def on_table_click(e):
+                        try:
+                            args = e.args
+                            row = args[1] if isinstance(args, (list, tuple)) and len(args) > 1 else (args if isinstance(args, dict) else {})
+                            s = row.get("symbol")
+                            if s:
+                                select_symbol(str(s))
+                        except Exception:
+                            pass
+                    tbl.on("rowClick", on_table_click)
+                    tbl.on("row-click", on_table_click)
+
+    def render_inspector() -> None:
+        with inspector_host:
+            inspector_host.clear()
+            sym = state["selected_symbol"]
+            render_stock_inspector_panel(
+                Path(db_path),
+                sym,
+                copy_text=copy_text,
+            )
+
+    # Initial render
+    render_queue_nav()
+    render_matrix()
+    render_inspector()
+

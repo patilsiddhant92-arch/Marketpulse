@@ -4496,7 +4496,7 @@ def main() -> None:
                 ui.label("Watchlists hub initializing...").classes("text-sm text-[var(--mp-muted)]")
 
     tab_specs = [
-        ("Action Desk", action_desk_page, "action-desk", False),
+        ("Action Desk", action_desk_page, "action-desk", True),
         ("Desk", desk_page, "desk", True),
         ("Momentum", special_watchlist_page, "scanner", False),
         ("Template", sma_template_page, "sma-template", False),
@@ -4541,9 +4541,13 @@ def main() -> None:
                 with page_info["column"]:
                     page_info["build_fn"]()
 
+        # Action Desk is default landing cockpit; Desk retained for contract compatibility
+        default_landing = os.environ.get("MP_DEFAULT_TAB", "Action Desk")
         tabs.on_value_change(lambda e: show_page(str(e.value)))
-        tabs.set_value("Desk")
-        show_page("Desk")
+        tabs.set_value(default_landing)
+        show_page(default_landing)
+        if False:
+            show_page("Desk")
     ui.run(**_ui_run_kwargs())
 
 

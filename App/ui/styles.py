@@ -1504,6 +1504,76 @@ STYLES_HTML = """
             .mp-sector-workspace { grid-template-columns: minmax(0, 1fr); }
             .mp-taxonomy-tree-host { max-height: 48vh; }
           }
+
+          /* =========================================================
+             Master-Detail Split-Pane Cockpit & Pro Inspector Styling
+          ========================================================= */
+          .mp-cockpit-container {
+            display: flex;
+            width: 100%;
+            gap: 16px;
+            align-items: flex-start;
+          }
+          .mp-funnel-col {
+            flex: 0 0 250px;
+            min-width: 230px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+          .mp-matrix-col {
+            flex: 1 1 52%;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+          .mp-inspector-col {
+            flex: 0 0 440px;
+            min-width: 380px;
+            max-width: 460px;
+            position: sticky;
+            top: 96px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: calc(100vh - 110px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--mp-border) transparent;
+          }
+          @media (max-width: 1300px) {
+            .mp-cockpit-container { flex-direction: column; }
+            .mp-funnel-col, .mp-matrix-col, .mp-inspector-col {
+              flex: 1 1 100%;
+              width: 100%;
+              max-width: 100%;
+              position: static;
+            }
+          }
+          /* Visual R:R Micro Gauge Bar */
+          .mp-rr-track {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            height: 14px;
+            width: 90px;
+            background: #1e293b;
+            border-radius: 9999px;
+            overflow: hidden;
+            border: 1px solid #334155;
+          }
+          .mp-rr-fill-stop {
+            height: 100%;
+            background: rgba(244, 63, 94, 0.45);
+          }
+          .mp-rr-fill-target {
+            height: 100%;
+            background: rgba(16, 185, 129, 0.55);
+          }
+          .mp-deal-badge-fii { background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
+          .mp-deal-badge-dii { background: rgba(168, 85, 247, 0.18); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
+          .mp-deal-badge-prop { background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
         </style>
         """
 

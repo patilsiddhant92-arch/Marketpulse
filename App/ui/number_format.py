@@ -70,6 +70,7 @@ DISTANCE = frozenset(
         "away_database_high_pct",
         "distance_to_high_pct",
         "distance_to_trigger_pct",
+        "dist_to_trigger_pct",
         "distance_below_52w",
     }
 )
