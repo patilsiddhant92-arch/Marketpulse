@@ -182,7 +182,7 @@ def build_sector_board_page(
         with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap border-b border-[var(--mp-border)] pb-2"):
             with ui.column().classes("gap-0"):
                 ui.label("Sector Rotation & Money Flow").classes("text-xl font-bold text-[var(--mp-text)]")
-                ui.label("Institutional turnover distribution, trend momentum, 15-session heatmaps, and leadership.").classes("text-xs text-[var(--mp-muted)]")
+                ui.label("Institutional turnover distribution, 52-week high counts, trend momentum, 15-session heatmaps, and leadership.").classes("text-xs text-[var(--mp-muted)]")
 
             with ui.row().classes("items-center gap-3"):
                 if not st.actionable:
@@ -207,7 +207,8 @@ def build_sector_board_page(
             with ui.row().classes("items-center gap-1"):
                 section_tabs = ui.toggle(
                     {
-                        "matrix": "Money Flow",
+                        "matrix": "Money Flow & Breadth",
+                        "breadth_52w": "52W High Radar",
                         "heatmaps": "15-Day Heatmaps",
                         "rs_leadership": "RS Leadership",
                         "indices": "Thematic & Sectoral (44)",
@@ -306,18 +307,21 @@ def build_sector_board_page(
                 mv = movers(db_path)
                 col = "sector" if state["level"] == "Sector" else "industry"
                 if not mv.empty and col in mv.columns:
-                    sort_key = "week_pct" if is_weekly else "turnover_cr"
+                    sort_key = "week_pct" if is_weekly else ("t_o_today" if "t_o_today" in mv.columns else "turnover_cr")
                     sub = mv[mv[col].astype(str).str.casefold() == grp.casefold()].sort_values(sort_key, ascending=False)
                     if sub.empty:
                         ui.label(f"No active constituents found for {grp} in latest session.").classes("text-xs text-[var(--mp-muted)]")
                     else:
-                        display_cols = [c for c in ["symbol", "close_price", "day_pct", "week_pct", "month_pct", "turnover_cr", "rvol", "rs_percentile", "market_cap_cr"] if c in sub.columns]
+                        if "t_o_today" in sub.columns and "turnover_cr" not in sub.columns:
+                            sub["turnover_cr"] = sub["t_o_today"]
+                        display_cols = [c for c in ["symbol", "close_price", "day_pct", "week_pct", "month_pct", "turnover_cr", "away_52w_high_pct", "rvol", "rs_percentile", "market_cap_cr"] if c in sub.columns]
                         table_data = sub[display_cols].copy()
                         table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
                         table_data["day_pct"] = table_data["day_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
                         table_data["week_pct"] = table_data["week_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
                         table_data["month_pct"] = table_data["month_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
                         table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
+                        table_data["away_52w_high_pct"] = table_data["away_52w_high_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
                         table_data["rvol"] = table_data["rvol"].map(lambda x: f"{x:.2f}x" if pd.notna(x) else "—")
                         table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
                         table_data["market_cap_cr"] = table_data["market_cap_cr"].map(lambda x: f"₹{x:,.0f} Cr" if pd.notna(x) else "—")
@@ -361,10 +365,14 @@ def build_sector_board_page(
                         ui.label("No sector rotation records found.").classes("text-sm text-[var(--mp-muted)]")
                         return
 
+                    if "rotation_rank" in df.columns:
+                        df["rs_rank"] = df["rotation_rank"]
+
                     if is_weekly and "return_5d_pct" in df.columns:
                         # Re-sort table by weekly return in weekly mode
                         df = df.sort_values(by="return_5d_pct", ascending=False).reset_index(drop=True)
                         df["rotation_rank"] = range(1, len(df) + 1)
+                        df["rs_rank"] = df["rotation_rank"]
 
                     # Top Focus Cards Row
                     top_focus = res.get("top_focus", [])
@@ -387,6 +395,8 @@ def build_sector_board_page(
                                         ui.label(f"{chg:+.0f} 5D").classes("text-emerald-400" if chg > 0 else "text-rose-400" if chg < 0 else "text-slate-400")
                                     with ui.row().classes("w-full items-center justify-between text-xs text-[var(--mp-muted)] mt-1"):
                                         ui.label(f"Share {_safe_float(item.get('turnover_share_pct')):.1f}%")
+                                        n_52 = int(item.get("near_52w_highs") or 0)
+                                        ui.label(f"52W: {n_52}").classes("font-bold text-emerald-400 font-mono")
                                         ret_5d = _fmt_pct(item.get('return_5d_pct'))
                                         ui.label(f"5D {ret_5d}").classes("font-bold text-amber-400" if is_weekly else "")
 
@@ -405,22 +415,28 @@ def build_sector_board_page(
                     # Main Ranking Table
                     cols = [
                         get_quasar_column_def("rotation_rank", label_override="WK RANK" if is_weekly else "RANK"),
-                        get_quasar_column_def("rs_rank"),
-                        get_quasar_column_def("group_name", width_override=210),
+                        get_quasar_column_def("group_name", width_override=200),
                         get_quasar_column_def("rotation_state"),
-                        get_quasar_column_def("turnover_1d_cr"),
-                        get_quasar_column_def("turnover_share_pct"),
-                        get_quasar_column_def("turnover_expansion"),
+                        get_quasar_column_def("turnover_1d_cr", label_override="TURNOVER"),
+                        get_quasar_column_def("turnover_share_pct", label_override="T/O SHARE"),
+                        get_quasar_column_def("turnover_expansion", label_override="VS 20D"),
+                        get_quasar_column_def("near_52w_highs", label_override="NEAR 52W"),
+                        get_quasar_column_def("vcp_candidates", label_override="VCP SETUPS"),
+                        get_quasar_column_def("above_50ema_pct", label_override=">50 EMA"),
+                        get_quasar_column_def("above_200ema_pct", label_override=">200 EMA"),
                         get_quasar_column_def("return_5d_pct", label_override="★ 5D % (WK)" if is_weekly else "5D %"),
-                        get_quasar_column_def("return_1m_pct"),
-                        get_quasar_column_def("rs_percentile"),
-                        get_quasar_column_def("above_50ema_pct"),
-                        get_quasar_column_def("top_leaders", width_override=280, sortable=False),
+                        get_quasar_column_def("return_1m_pct", label_override="1M %"),
+                        get_quasar_column_def("rs_percentile", label_override="RS"),
+                        get_quasar_column_def("top_leaders", width_override=260, sortable=False),
                     ]
 
                     # Prepare display records
                     records = []
                     for _, r in df.iterrows():
+                        n_stocks = int(r.get("stocks") or 0)
+                        n_52w = int(r.get("near_52w_highs") or 0)
+                        pct_52w = f" ({n_52w * 100 // n_stocks}%)" if n_stocks > 0 and n_52w > 0 else ""
+                        n_vcp = int(r.get("vcp_candidates") or 0)
                         rec = {
                             "rotation_rank": int(r.get("rotation_rank") or 99),
                             "rs_rank": int(r.get("rotation_rank") or 99),
@@ -429,10 +445,13 @@ def build_sector_board_page(
                             "turnover_1d_cr": f"₹{_safe_float(r.get('turnover_1d_cr')) / 1000:,.1f}k Cr" if _safe_float(r.get('turnover_1d_cr')) >= 1000 else f"₹{_safe_float(r.get('turnover_1d_cr')):,.0f} Cr",
                             "turnover_share_pct": f"{_safe_float(r.get('turnover_share_pct')):.1f}%",
                             "turnover_expansion": f"{_safe_float(r.get('turnover_expansion')):,.2f}x",
+                            "near_52w_highs": f"{n_52w}{pct_52w}" if n_52w > 0 else "0",
+                            "vcp_candidates": str(n_vcp) if n_vcp > 0 else "0",
+                            "above_50ema_pct": f"{_safe_float(r.get('above_50ema_pct')):.0f}%",
+                            "above_200ema_pct": f"{_safe_float(r.get('above_200ema_pct')):.0f}%",
                             "return_5d_pct": _fmt_pct(r.get("return_5d_pct")),
                             "return_1m_pct": _fmt_pct(r.get("return_1m_pct")),
                             "rs_percentile": f"{_safe_float(r.get('rs_percentile')):.0f}",
-                            "above_50ema_pct": f"{_safe_float(r.get('above_50ema_pct')):.0f}%",
                             "top_leaders": str(r.get("top_leaders") or ""),
                         }
                         records.append(rec)
@@ -445,7 +464,7 @@ def build_sector_board_page(
                                 <q-td :props="props" class="mp-sticky-col">
                                     <q-btn flat dense no-caps size="sm" color="white" :label="props.value" @click="$parent.$emit('select_group', props.value)" />
                                 </q-td>
-                                """
+                                """,
                             )
                             matrix_tbl.add_slot(
                                 "body-cell-rotation_state",
@@ -453,9 +472,110 @@ def build_sector_board_page(
                                 <q-td :props="props">
                                     <q-badge :color="props.value === 'Leading' ? 'positive' : props.value === 'Improving' ? 'info' : props.value === 'Weakening' ? 'warning' : 'grey'" :label="props.value" />
                                 </q-td>
-                                """
+                                """,
                             )
                             matrix_tbl.on("select_group", lambda e: select_group(str(e.args)))
+
+                elif sec == "breadth_52w":
+                    # ==================== 52-WEEK HIGH & BREADTH RADAR ====================
+                    res = query_sector_rotation_overview(db_path, level=lvl)
+                    df = res.get("leaderboard", pd.DataFrame())
+                    if df.empty:
+                        ui.label("No sector records found.").classes("text-sm text-[var(--mp-muted)]")
+                        return
+
+                    # Sort by near_52w_highs descending
+                    df_52w = df.sort_values(by="near_52w_highs", ascending=False).reset_index(drop=True)
+
+                    top_52w = df_52w.iloc[0] if not df_52w.empty else {}
+                    top_to = df.sort_values(by="turnover_1d_cr", ascending=False).iloc[0] if not df.empty else {}
+                    top_vcp = df.sort_values(by="vcp_candidates", ascending=False).iloc[0] if not df.empty else {}
+                    top_ab50 = df.sort_values(by="above_50ema_pct", ascending=False).iloc[0] if not df.empty else {}
+
+                    with ui.row().classes("w-full gap-3 flex-wrap mb-3"):
+                        # Card 1: 52W High Leader
+                        with ui.card().classes("p-3 rounded-lg bg-[var(--mp-surface-raised)] border border-emerald-500/40 flex-1 min-w-[220px]"):
+                            ui.label("🏔️ MOST 52W HIGHS").classes("text-[10px] font-bold text-emerald-400 tracking-wider uppercase")
+                            ui.label(f"{top_52w.get('group_name', '—')}").classes("text-base font-bold text-[var(--mp-text)] truncate mt-1")
+                            with ui.row().classes("w-full items-center justify-between mt-1 text-xs"):
+                                ui.label(f"{int(top_52w.get('near_52w_highs', 0))} stocks near 52W").classes("font-mono font-bold text-emerald-400")
+                                ui.label(f"of {int(top_52w.get('stocks', 0))} total").classes("text-[var(--mp-muted)]")
+
+                        # Card 2: Turnover Dominance
+                        with ui.card().classes("p-3 rounded-lg bg-[var(--mp-surface-raised)] border border-sky-500/40 flex-1 min-w-[220px]"):
+                            ui.label("🏛️ TURNOVER LEADER").classes("text-[10px] font-bold text-sky-400 tracking-wider uppercase")
+                            ui.label(f"{top_to.get('group_name', '—')}").classes("text-base font-bold text-[var(--mp-text)] truncate mt-1")
+                            with ui.row().classes("w-full items-center justify-between mt-1 text-xs"):
+                                to_val = _safe_float(top_to.get('turnover_1d_cr', 0))
+                                ui.label(f"₹{to_val:,.0f} Cr ({_safe_float(top_to.get('turnover_share_pct', 0)):.1f}%)").classes("font-mono font-bold text-sky-400")
+                                ui.label(f"{_safe_float(top_to.get('turnover_expansion', 1)):.2f}x vs 20D").classes("text-[var(--mp-muted)]")
+
+                        # Card 3: VCP Base Density
+                        with ui.card().classes("p-3 rounded-lg bg-[var(--mp-surface-raised)] border border-purple-500/40 flex-1 min-w-[220px]"):
+                            ui.label("🌀 VCP SETUP DENSITY").classes("text-[10px] font-bold text-purple-400 tracking-wider uppercase")
+                            ui.label(f"{top_vcp.get('group_name', '—')}").classes("text-base font-bold text-[var(--mp-text)] truncate mt-1")
+                            with ui.row().classes("w-full items-center justify-between mt-1 text-xs"):
+                                ui.label(f"{int(top_vcp.get('vcp_candidates', 0))} Coiled Setups").classes("font-mono font-bold text-purple-400")
+                                ui.label(f"RS {_safe_float(top_vcp.get('rs_percentile', 0)):.0f}").classes("text-[var(--mp-muted)]")
+
+                        # Card 4: Intermediate Breadth (>50 EMA)
+                        with ui.card().classes("p-3 rounded-lg bg-[var(--mp-surface-raised)] border border-amber-500/40 flex-1 min-w-[220px]"):
+                            ui.label("📈 INTERMEDIATE BREADTH").classes("text-[10px] font-bold text-amber-400 tracking-wider uppercase")
+                            ui.label(f"{top_ab50.get('group_name', '—')}").classes("text-base font-bold text-[var(--mp-text)] truncate mt-1")
+                            with ui.row().classes("w-full items-center justify-between mt-1 text-xs"):
+                                ui.label(f"{_safe_float(top_ab50.get('above_50ema_pct', 0)):.1f}% > 50 EMA").classes("font-mono font-bold text-amber-400")
+                                ui.label(f"{_safe_float(top_ab50.get('above_200ema_pct', 0)):.1f}% > 200").classes("text-[var(--mp-muted)]")
+
+                    # Dedicated 52W High Radar Table
+                    with chart_panel(
+                        f"52-Week High & Breadth Ranking ({lvl})",
+                        "Sectors and industries ranked by leadership breadth: stocks printing/testing 52W highs, VCP setup counts, and EMA health.",
+                        tone="good"
+                    ):
+                        cols_52w = [
+                            {"name": "rank_52w", "label": "RANK", "field": "rank_52w", "align": "center", "style": "width:54px;min-width:48px;", "headerStyle": "width:54px;"},
+                            get_quasar_column_def("group_name", width_override=210),
+                            {"name": "stocks", "label": "STOCKS", "field": "stocks", "align": "center", "style": "width:68px;min-width:60px;"},
+                            {"name": "near_52w_highs", "label": "NEAR 52W", "field": "near_52w_highs", "align": "right", "style": "width:88px;min-width:80px;"},
+                            {"name": "pct_52w", "label": "52W %", "field": "pct_52w", "align": "right", "style": "width:78px;min-width:70px;"},
+                            {"name": "vcp_candidates", "label": "VCP SETUPS", "field": "vcp_candidates", "align": "right", "style": "width:88px;min-width:80px;"},
+                            {"name": "above_50ema_pct", "label": "> 50 EMA", "field": "above_50ema_pct", "align": "right", "style": "width:84px;min-width:76px;"},
+                            {"name": "above_200ema_pct", "label": "> 200 EMA", "field": "above_200ema_pct", "align": "right", "style": "width:88px;min-width:80px;"},
+                            {"name": "turnover_1d_cr", "label": "TURNOVER", "field": "turnover_1d_cr", "align": "right", "style": "width:104px;min-width:92px;"},
+                            {"name": "turnover_share_pct", "label": "T/O SHARE", "field": "turnover_share_pct", "align": "right", "style": "width:84px;min-width:76px;"},
+                            get_quasar_column_def("top_leaders", width_override=280, sortable=False),
+                        ]
+                        rows_52w = []
+                        for idx, (_, r) in enumerate(df_52w.iterrows(), 1):
+                            n_stk = int(r.get("stocks") or 0)
+                            n_52 = int(r.get("near_52w_highs") or 0)
+                            p_52 = (n_52 / n_stk * 100) if n_stk > 0 else 0.0
+                            to_c = _safe_float(r.get("turnover_1d_cr"))
+                            rows_52w.append({
+                                "rank_52w": idx,
+                                "group_name": str(r.get("group_name") or ""),
+                                "stocks": n_stk,
+                                "near_52w_highs": n_52,
+                                "pct_52w": f"{p_52:.1f}%",
+                                "vcp_candidates": int(r.get("vcp_candidates") or 0),
+                                "above_50ema_pct": f"{_safe_float(r.get('above_50ema_pct')):.1f}%",
+                                "above_200ema_pct": f"{_safe_float(r.get('above_200ema_pct')):.1f}%",
+                                "turnover_1d_cr": f"₹{to_c / 1000:,.1f}k Cr" if to_c >= 1000 else f"₹{to_c:,.0f} Cr",
+                                "turnover_share_pct": f"{_safe_float(r.get('turnover_share_pct')):.1f}%",
+                                "top_leaders": str(r.get("top_leaders") or ""),
+                            })
+
+                        with ui.element("div").classes("w-full mp-table-scroll"):
+                            with ui.table(columns=cols_52w, rows=rows_52w, pagination=25).classes("w-full mp-table") as tbl_52:
+                                tbl_52.add_slot(
+                                    "body-cell-group_name",
+                                    """
+                                    <q-td :props="props" class="mp-sticky-col">
+                                        <q-btn flat dense no-caps size="sm" color="white" :label="props.value" @click="$parent.$emit('select_group', props.value)" />
+                                    </q-td>
+                                    """
+                                )
+                                tbl_52.on("select_group", lambda e: select_group(str(e.args)))
 
                 elif sec == "heatmaps":
                     # ==================== 2. 15-SESSION TURNOVER HEATMAPS ====================

@@ -111,7 +111,9 @@ GLOBAL_COLUMNS: dict[str, ColumnContract] = {
     "above_50ema_pct": ColumnContract("above_50ema_pct", ">50 EMA", 84, 74, align="right", format_type="pct", group="Breadth"),
     "above_200ema_pct": ColumnContract("above_200ema_pct", ">200 EMA", 88, 78, align="right", format_type="pct", group="Breadth"),
     "advance_pct": ColumnContract("advance_pct", "ADVANCE %", 88, 78, align="right", format_type="pct", group="Breadth"),
-    "near_52w_highs": ColumnContract("near_52w_highs", "NEAR 52W", 82, 72, align="center", format_type="numeric", group="Breadth"),
+    "near_52w_highs": ColumnContract("near_52w_highs", "NEAR 52W", 84, 74, align="center", format_type="numeric", group="Breadth"),
+    "vcp_candidates": ColumnContract("vcp_candidates", "VCP SETUPS", 84, 74, align="center", format_type="numeric", group="Breadth"),
+    "stocks": ColumnContract("stocks", "STOCKS", 68, 58, align="center", format_type="numeric", group="Identity"),
     "new_20d_highs": ColumnContract("new_20d_highs", "NEW 20D", 80, 70, align="center", format_type="numeric", group="Breadth"),
 
     # Turnover, Volume & Deals
