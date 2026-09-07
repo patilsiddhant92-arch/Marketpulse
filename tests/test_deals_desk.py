@@ -345,3 +345,41 @@ def test_deals_telegram_fetch_cache(tmp_path):
     # Different lookback (different cache key)
     r3 = fetch_deals_telegram_data(db, 10)
     assert "tv_strings" in r3
+
+
+def test_prop_only_stocks_excluded_from_persistence_and_routed_to_prop_header(tmp_path):
+    from Scripts.telegram_deals import build_deals_telegram_report
+
+    db = tmp_path / "prop-test.duckdb"
+    with duckdb.connect(str(db)) as con:
+        con.execute("CREATE TABLE deals (trade_date DATE, symbol TEXT, side TEXT, client_name TEXT, deal_value_cr DOUBLE)")
+        con.execute("CREATE TABLE indicators_daily (symbol TEXT, trade_date DATE, close_price DOUBLE, ema_200 DOUBLE, rs_percentile DOUBLE, away_52w_high_pct DOUBLE)")
+        con.execute("CREATE TABLE stocks_master (symbol TEXT, market_cap_cr DOUBLE, sector TEXT, industry TEXT)")
+
+        # QUADFUTURE has 3 days of deals, but all from PROP desks (Jump, Alphagrep, Silverleaf)
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'QUADFUTURE', 'BUY', 'JUMP TRADING FINANCIAL INDIA PRIVATE LIMITED', 30.0)")
+        con.execute("INSERT INTO deals VALUES ('2026-08-06', 'QUADFUTURE', 'BUY', 'ALPHAGREP SECURITIES PRIVATE LIMITED', 25.0)")
+        con.execute("INSERT INTO deals VALUES ('2026-08-05', 'QUADFUTURE', 'BUY', 'SILVERLEAF CAPITAL SERVICES PRIVATE LIMITED', 20.0)")
+
+        # REALINST has 3 days of deals from real mutual fund
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'REALINST', 'BUY', 'HDFC MUTUAL FUND', 50.0)")
+        con.execute("INSERT INTO deals VALUES ('2026-08-06', 'REALINST', 'BUY', 'SBI MUTUAL FUND', 40.0)")
+        con.execute("INSERT INTO deals VALUES ('2026-08-05', 'REALINST', 'BUY', 'NIPPON INDIA MUTUAL FUND', 30.0)")
+
+        con.execute("INSERT INTO indicators_daily VALUES ('QUADFUTURE', '2026-08-07', 400.0, 350.0, 85.0, -5.0)")
+        con.execute("INSERT INTO indicators_daily VALUES ('REALINST', '2026-08-07', 500.0, 420.0, 90.0, -3.0)")
+
+        con.execute("INSERT INTO stocks_master VALUES ('QUADFUTURE', 2000.0, 'Technology', 'Software')")
+        con.execute("INSERT INTO stocks_master VALUES ('REALINST', 5000.0, 'Finance', 'Banks')")
+
+    report = build_deals_telegram_report(lookback_days=20, min_mcap_cr=900.0, db_path=db)
+    persistence = report["persistence"]
+    three_days = persistence["three"]["symbol"].tolist()
+    prop_stocks = report["clientele"]["PROP"]["symbol"].tolist()
+
+    # QUADFUTURE must NOT be in 3 Deal Days persistence
+    assert "QUADFUTURE" not in three_days
+    # REALINST must be in 3 Deal Days persistence
+    assert "REALINST" in three_days
+    # QUADFUTURE must be in PROP category header
+    assert "QUADFUTURE" in prop_stocks

@@ -330,8 +330,12 @@ def build_deals_telegram_report(
         axis=1,
     )
 
-    # 2. Only in PROP filter: all recorded deals were PROP
-    sym_meta["is_only_prop"] = sym_meta["categories"].map(lambda cats: cats == {"PROP"})
+    # 2. Only in PROP filter: all recorded deals were PROP, or deals contain PROP without real institutional backing (no FII and no DII)
+    sym_meta["has_real_inst"] = sym_meta["categories"].map(lambda cats: bool(cats & {"FII", "DII"}))
+    sym_meta["is_only_prop"] = sym_meta.apply(
+        lambda r: ("PROP" in r["categories"] and not r["has_real_inst"]),
+        axis=1,
+    )
 
     # Quarantined streams (All have Market Cap >= min_mcap_val)
     below_1000cr_df = pd.DataFrame()  # Stocks below min_mcap_cr are completely excluded
