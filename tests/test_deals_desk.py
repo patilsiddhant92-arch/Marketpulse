@@ -383,3 +383,85 @@ def test_prop_only_stocks_excluded_from_persistence_and_routed_to_prop_header(tm
     assert "REALINST" in three_days
     # QUADFUTURE must be in PROP category header
     assert "QUADFUTURE" in prop_stocks
+
+
+def test_streamlined_3tier_deals_architecture(tmp_path):
+    from Scripts.telegram_deals import build_deals_telegram_report
+
+    db = tmp_path / "3tier-test.duckdb"
+    with duckdb.connect(str(db)) as con:
+        con.execute("CREATE TABLE deals (trade_date DATE, symbol TEXT, side TEXT, client_name TEXT, deal_value_cr DOUBLE)")
+        con.execute("CREATE TABLE indicators_daily (symbol TEXT, trade_date DATE, close_price DOUBLE, ema_200 DOUBLE, rs_percentile DOUBLE, away_52w_high_pct DOUBLE)")
+        con.execute("CREATE TABLE stocks_master (symbol TEXT, market_cap_cr DOUBLE, sector TEXT, industry TEXT)")
+
+        # 1. TIER 1: MULTI_ACC (2 deal days, FII backed)
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'MULTI_ACC', 'BUY', 'MORGAN STANLEY ASIA', 25.0)")
+        con.execute("INSERT INTO deals VALUES ('2026-08-06', 'MULTI_ACC', 'BUY', 'GOLDMAN SACHS', 20.0)")
+
+        # 2. TIER 1: WHALE_ONE (1 deal day, but net buy >= 50 Cr whale inflow)
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'WHALE_ONE', 'BUY', 'HDFC MUTUAL FUND', 75.0)")
+
+        # 3. TIER 2: FRESH_RADAR (1 deal day, net buy < 50 Cr, DII backed)
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'FRESH_RADAR', 'BUY', 'SBI MUTUAL FUND', 30.0)")
+
+        # 4. TIER 3A: PURE_PROP (Prop desk only, Jump Trading)
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'PURE_PROP', 'BUY', 'JUMP TRADING FINANCIAL INDIA', 40.0)")
+
+        # 5. TIER 3B: QUARANTINED (Close < 200 EMA)
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'BELOW_EMA', 'BUY', 'NIPPON MUTUAL FUND', 60.0)")
+
+        # Indicators
+        con.execute("INSERT INTO indicators_daily VALUES ('MULTI_ACC', '2026-08-07', 300.0, 250.0, 85.0, -4.0)")
+        con.execute("INSERT INTO indicators_daily VALUES ('WHALE_ONE', '2026-08-07', 500.0, 420.0, 90.0, -2.0)")
+        con.execute("INSERT INTO indicators_daily VALUES ('FRESH_RADAR', '2026-08-07', 200.0, 180.0, 75.0, -6.0)")
+        con.execute("INSERT INTO indicators_daily VALUES ('PURE_PROP', '2026-08-07', 150.0, 130.0, 70.0, -8.0)")
+        con.execute("INSERT INTO indicators_daily VALUES ('BELOW_EMA', '2026-08-07', 80.0, 100.0, 40.0, -25.0)")
+
+        # Stocks master (all Mcap >= 900 Cr)
+        con.execute("INSERT INTO stocks_master VALUES ('MULTI_ACC', 3000.0, 'Technology', 'Software')")
+        con.execute("INSERT INTO stocks_master VALUES ('WHALE_ONE', 5000.0, 'Finance', 'Banks')")
+        con.execute("INSERT INTO stocks_master VALUES ('FRESH_RADAR', 1800.0, 'Auto', 'OEM')")
+        con.execute("INSERT INTO stocks_master VALUES ('PURE_PROP', 2200.0, 'Metals', 'Steel')")
+        con.execute("INSERT INTO stocks_master VALUES ('BELOW_EMA', 4000.0, 'Energy', 'Power')")
+
+    report = build_deals_telegram_report(lookback_days=20, min_mcap_cr=900.0, db_path=db)
+    tiers = report["tiers"]
+    tv = report["tv_strings"]
+    msgs = report["messages"]
+
+    tier1_syms = set(tiers["conviction"]["symbol"])
+    tier2_syms = set(tiers["fresh_radar"]["symbol"])
+    prop_syms = set(tiers["prop_only"]["symbol"])
+    quarantine_syms = set(tiers["quarantined"]["symbol"])
+
+    # 1. Tier membership checks
+    assert "MULTI_ACC" in tier1_syms
+    assert "WHALE_ONE" in tier1_syms
+    assert "FRESH_RADAR" in tier2_syms
+    assert "PURE_PROP" in prop_syms
+    assert "BELOW_EMA" in quarantine_syms
+
+    # 2. Strict Mutual Exclusivity (Zero duplicate symbols across all tiers)
+    all_tier_sets = [tier1_syms, tier2_syms, prop_syms, quarantine_syms]
+    total_unique = len(tier1_syms | tier2_syms | prop_syms | quarantine_syms)
+    total_elements = sum(len(s) for s in all_tier_sets)
+    assert total_unique == total_elements, "Duplicate tickers detected across tiers!"
+
+    # 3. TV Strings validation
+    assert "NSE:MULTI_ACC" in tv["master_tv"]
+    assert "NSE:WHALE_ONE" in tv["master_tv"]
+    assert "NSE:FRESH_RADAR" in tv["master_tv"]
+    assert "NSE:PURE_PROP" not in tv["master_tv"]
+    assert "NSE:BELOW_EMA" not in tv["master_tv"]
+
+    assert "NSE:MULTI_ACC" in tv["conviction_tv"]
+    assert "NSE:WHALE_ONE" in tv["conviction_tv"]
+    assert "NSE:FRESH_RADAR" not in tv["conviction_tv"]
+
+    assert "NSE:FRESH_RADAR" in tv["fresh_radar_tv"]
+    assert "NSE:PURE_PROP" in tv["prop_tv"]
+    assert "NSE:BELOW_EMA" in tv["quarantined_tv"]
+
+    # 4. Message count check
+    assert len(msgs) == 2
+

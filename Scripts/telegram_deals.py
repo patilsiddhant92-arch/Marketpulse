@@ -238,18 +238,24 @@ def build_deals_telegram_report(
         # Check available columns in stocks_master and tables
         master_cols = [c[0] for c in db.execute("DESCRIBE stocks_master").fetchall()]
         band_col = "m.band," if "band" in master_cols else "NULL as band,"
+        sec_col = "m.sector, m.industry," if "sector" in master_cols else "NULL as sector, NULL as industry,"
 
         tables = [t[0] for t in db.execute("SHOW TABLES").fetchall()]
         if "indicators_daily" in tables:
+            ind_cols = [c[0] for c in db.execute("DESCRIBE indicators_daily").fetchall()]
+            close_col = "i.close_price" if "close_price" in ind_cols else "NULL as close_price"
+            ema_col = "i.ema_200" if "ema_200" in ind_cols else "NULL as ema_200"
+            away_col = "i.away_52w_high_pct" if "away_52w_high_pct" in ind_cols else "NULL as away_52w_high_pct"
+            rs_col = "i.rs_percentile" if "rs_percentile" in ind_cols else "NULL as rs_percentile"
             indicators_join = "LEFT JOIN indicators_daily i ON i.symbol = d.symbol AND i.trade_date = (SELECT max(trade_date) FROM indicators_daily)"
-            ind_select = "i.close_price, i.ema_200"
+            ind_select = f"{close_col}, {ema_col}, {away_col}, {rs_col}"
         else:
             indicators_join = ""
-            ind_select = "NULL as close_price, NULL as ema_200"
+            ind_select = "NULL as close_price, NULL as ema_200, NULL as away_52w_high_pct, NULL as rs_percentile"
 
         sql = f"""
         SELECT d.trade_date, d.symbol, d.client_name, d.side, d.deal_value_cr,
-               m.market_cap_cr, {band_col}
+               m.market_cap_cr, {sec_col} {band_col}
                {ind_select}
         FROM deals d
         LEFT JOIN stocks_master m USING(symbol)
@@ -277,6 +283,14 @@ def build_deals_telegram_report(
         df["ema_200"] = pd.to_numeric(df["ema_200"], errors="coerce")
     else:
         df["ema_200"] = float("nan")
+    if "away_52w_high_pct" in df.columns:
+        df["away_52w_high_pct"] = pd.to_numeric(df["away_52w_high_pct"], errors="coerce")
+    else:
+        df["away_52w_high_pct"] = float("nan")
+    if "rs_percentile" in df.columns:
+        df["rs_percentile"] = pd.to_numeric(df["rs_percentile"], errors="coerce")
+    else:
+        df["rs_percentile"] = float("nan")
 
     # Hard ban on rights entitlements (-RE / _RE)
     df = df[~df["symbol"].astype(str).str.upper().str.endswith(("-RE", "_RE"))].copy()
@@ -311,9 +325,13 @@ def build_deals_telegram_report(
         deal_days=("trade_date", "nunique"),
         categories=("category", lambda c: set(c)),
         market_cap_cr=("market_cap_cr", "first"),
+        sector=("sector", "first") if "sector" in df.columns else ("close_price", lambda _: None),
+        industry=("industry", "first") if "industry" in df.columns else ("close_price", lambda _: None),
         band=("band", "first"),
         close_price=("close_price", "first"),
         ema_200=("ema_200", "first"),
+        away_52w_high_pct=("away_52w_high_pct", "first") if "away_52w_high_pct" in df.columns else ("close_price", lambda _: None),
+        rs_percentile=("rs_percentile", "first") if "rs_percentile" in df.columns else ("close_price", lambda _: None),
         buy_cr=("deal_value_cr", lambda v: v[df.loc[v.index, "side"] == "BUY"].sum()),
         sell_cr=("deal_value_cr", lambda v: v[df.loc[v.index, "side"] == "SELL"].sum()),
         total_cr=("deal_value_cr", "sum"),
@@ -337,9 +355,11 @@ def build_deals_telegram_report(
         axis=1,
     )
 
-    # Quarantined streams (All have Market Cap >= min_mcap_val)
+    # Tier 3B: Quarantined streams (Below 200 EMA / 5% Band)
     below_1000cr_df = pd.DataFrame()  # Stocks below min_mcap_cr are completely excluded
     below_200_df = sym_meta[sym_meta["is_below_200_or_band5"]].sort_values("buy_cr", ascending=False)
+
+    # Tier 3A: Prop HFT Churn (Only Prop Desks, Above 200 EMA)
     prop_only_df = sym_meta[(~sym_meta["is_below_200_or_band5"]) & sym_meta["is_only_prop"]].sort_values("buy_cr", ascending=False)
 
     # Pure Quality Universe (Market Cap >= min_mcap_val, Above 200 EMA, Band > 5%, Real Institutional Backing)
@@ -353,8 +373,23 @@ def build_deals_telegram_report(
     quality_deals = df[df["symbol"].isin(quality_syms)].copy()
 
     # -------------------------------------------------------------
-    # 1. GROUP BY DEAL DAYS COUNT (PERSISTENCE) — QUALITY ONLY
+    # 3-TIER ACTION-FIRST CLASSIFICATION (MUTUALLY EXCLUSIVE)
     # -------------------------------------------------------------
+    # Tier 1: Conviction Accumulation — Net Buyer AND (2+ Deal Days OR Single-Day Whale Inflow >= 50 Cr)
+    conviction_df = quality_df[
+        (quality_df["net_cr"] > 0)
+        & ((quality_df["deal_days"] >= 2) | (quality_df["net_cr"] >= 50.0))
+    ].sort_values(["deal_days", "net_cr", "buy_cr"], ascending=[False, False, False]).copy()
+
+    conviction_syms = set(conviction_df["symbol"])
+
+    # Tier 2: Fresh Whale Radar — Net Buyer, Day-1 Inflow (< 50 Cr) with Real Institutional / Quality Backing
+    fresh_radar_df = quality_df[
+        (quality_df["net_cr"] > 0)
+        & (~quality_df["symbol"].isin(conviction_syms))
+    ].sort_values(["net_cr", "buy_cr"], ascending=[False, False]).copy()
+
+    # Retain backward-compatible persistence slices
     four_plus = quality_df[quality_df["deal_days"] >= 4].sort_values(
         ["deal_days", "net_cr", "buy_cr"], ascending=[False, False, False]
     )
@@ -365,9 +400,7 @@ def build_deals_telegram_report(
         ["net_cr", "buy_cr"], ascending=[False, False]
     )
 
-    # -------------------------------------------------------------
-    # 2. CLIENTELE BREAKDOWN — QUALITY (FII, DII, Others) + PROP ONLY
-    # -------------------------------------------------------------
+    # Retain backward-compatible clientele slices
     clientele_buys = {}
     for cat in ["FII", "DII", "Others"]:
         cat_deals = quality_deals[quality_deals["category"] == cat]
@@ -380,13 +413,10 @@ def build_deals_telegram_report(
         )
         clientele_buys[cat] = buys
 
-    # PROP header receives ONLY the stocks that were only in prop!
     prop_buys = prop_only_df[["symbol", "buy_cr"]].rename(columns={"buy_cr": "deal_value_cr"})
     clientele_buys["PROP"] = prop_buys
 
-    # -------------------------------------------------------------
-    # 3. HIGHEST BUY / SELL (QUALITY TURNOVER LEADERS)
-    # -------------------------------------------------------------
+    # Quality turnover leaders
     top_buys = (
         quality_deals[quality_deals["side"] == "BUY"]
         .groupby("symbol")["deal_value_cr"]
@@ -403,132 +433,141 @@ def build_deals_telegram_report(
     )
 
     # -------------------------------------------------------------
-    # 4. FORMAT TELEGRAM MESSAGES
+    # TRADINGVIEW LISTS
+    # -------------------------------------------------------------
+    sec_conviction = to_tv_list(conviction_df["symbol"].tolist(), header="💎 Conviction Accumulation") if not conviction_df.empty else ""
+    sec_fresh = to_tv_list(fresh_radar_df["symbol"].head(25).tolist(), header="⚡ Fresh Whale Radar") if not fresh_radar_df.empty else ""
+    sec_prop = to_tv_list(prop_only_df["symbol"].head(30).tolist(), header="🎯 Prop HFT Churn") if not prop_only_df.empty else ""
+    sec_below_200 = to_tv_list(below_200_df["symbol"].head(30).tolist(), header="📉 Below 200 EMA") if not below_200_df.empty else ""
+    sec_top_sells = to_tv_list(top_sells["symbol"].head(25).tolist(), header="🔴 Institutional Exits") if not top_sells.empty else ""
+
+    # Master TV string: Tier 1 + Tier 2 combined cleanly
+    master_tv = ",".join([s for s in [sec_conviction, sec_fresh] if s])
+    all_tiers_tv = ",".join([s for s in [sec_conviction, sec_fresh, sec_prop, sec_below_200] if s])
+
+    # Backward compatibility TV strings
+    sec_4plus = to_tv_list(four_plus["symbol"].tolist(), header="4+ Deal Days") if not four_plus.empty else ""
+    sec_3days = to_tv_list(three["symbol"].tolist(), header="3 Deal Days") if not three.empty else ""
+    sec_2days = to_tv_list(two["symbol"].tolist(), header="2 Deal Days") if not two.empty else ""
+    sec_fii = to_tv_list(clientele_buys.get("FII", pd.DataFrame())["symbol"].tolist(), header="FII") if not clientele_buys.get("FII", pd.DataFrame()).empty else ""
+    sec_dii = to_tv_list(clientele_buys.get("DII", pd.DataFrame())["symbol"].tolist(), header="DII") if not clientele_buys.get("DII", pd.DataFrame()).empty else ""
+    sec_others = to_tv_list(clientele_buys.get("Others", pd.DataFrame())["symbol"].head(30).tolist(), header="Others") if not clientele_buys.get("Others", pd.DataFrame()).empty else ""
+    sec_top_buys = to_tv_list(top_buys["symbol"].head(25).tolist(), header="Highest Buys") if not top_buys.empty else ""
+    sec_below_1000cr = ""
+
+    persistence_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days] if s])
+    clientele_buckets = ",".join([s for s in [sec_fii, sec_dii, sec_others, sec_prop] if s])
+    quality_buckets = master_tv if master_tv else ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys] if s])
+    all_deal_buckets = all_tiers_tv if all_tiers_tv else ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys, sec_prop, sec_below_200] if s])
+
+    # -------------------------------------------------------------
+    # FORMAT TELEGRAM MESSAGES (CONSOLIDATED 2 HIGH-IMPACT MESSAGES)
     # -------------------------------------------------------------
     messages = []
 
-    # MESSAGE 1: Deal Persistence by Count (Quality Only)
+    # Calculate Institutional Net Flow across the window
+    inst_deals = quality_deals[quality_deals["category"].isin(["FII", "DII"])]
+    inst_buy_cr = float(inst_deals[inst_deals["side"] == "BUY"]["deal_value_cr"].sum()) if not inst_deals.empty else 0.0
+    inst_sell_cr = float(inst_deals[inst_deals["side"] == "SELL"]["deal_value_cr"].sum()) if not inst_deals.empty else 0.0
+    inst_net_cr = inst_buy_cr - inst_sell_cr
+    inst_sign = "+" if inst_net_cr >= 0 else "-"
+
+    # MESSAGE 1: 🎯 SWING DEALS: CONVICTION & RADAR (With Master TV Paste)
     msg1_lines = [
-        "📊 *MARKETPULSE DEALS — PERSISTENCE REPORT*",
+        "🎯 *MARKETPULSE DEALS — SWING RADAR*",
         f"🗓 *As of:* `{as_of}` | *Window:* Last {len(dates)} Deal Sessions",
+        f"🏛 *Total Inst Flow:* `{inst_sign}₹{abs(inst_net_cr):,.1f} Cr` (Buy: ₹{inst_buy_cr:,.1f} Cr | Sell: ₹{inst_sell_cr:,.1f} Cr)",
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
-        "🔥 *DEAL PERSISTENCE BY COUNT (QUALITY STOCKS)*",
+        f"💎 *TIER 1: CONVICTION ACCUMULATION* ({len(conviction_df)} stocks)",
+        "_Multi-day persistence (2+ days) or Whale Inflows (>=₹50Cr)_",
         "━━━━━━━━━━━━━━━━━━━━━",
-        "",
-        f"💎 *4+ DEAL DAYS* ({len(four_plus)} stocks · Heavy Accumulation)",
     ]
-    for _, r in four_plus.head(8).iterrows():
-        tags = "/".join(sorted(list(r["categories"])))
-        sign = "+" if r["net_cr"] >= 0 else "-"
-        msg1_lines.append(f"• `{r['symbol']}`: {r['deal_days']}d | Net ₹{abs(r['net_cr']):,.1f}Cr ({sign}) [{tags}]")
-    if not four_plus.empty:
-        msg1_lines.extend(["", "📋 *TV Paste (4+ Days):*", f"`{to_tv_list(four_plus['symbol'].tolist(), header='4+ Deal Days')}`", ""])
+    if conviction_df.empty:
+        msg1_lines.append("• No conviction accumulation deals recorded in window.")
+    else:
+        for _, r in conviction_df.head(8).iterrows():
+            tags = "/".join(sorted(list(r["categories"])))
+            sign = "+" if r["net_cr"] >= 0 else "-"
+            close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
+            away_str = f"{r['away_52w_high_pct']:+.1f}% 52W" if pd.notna(r["away_52w_high_pct"]) else ""
+            metrics = " · ".join([s for s in [close_str, away_str] if s])
+            m_bracket = f" | {metrics}" if metrics else ""
+            msg1_lines.append(f"• `{r['symbol']}`: {r['deal_days']}d | Net ₹{abs(r['net_cr']):,.1f}Cr ({sign}) [{tags}]{m_bracket}")
 
-    msg1_lines.append(f"⚡ *3 DEAL DAYS* ({len(three)} stocks)")
-    for _, r in three.head(6).iterrows():
-        tags = "/".join(sorted(list(r["categories"])))
-        sign = "+" if r["net_cr"] >= 0 else "-"
-        msg1_lines.append(f"• `{r['symbol']}`: Net ₹{abs(r['net_cr']):,.1f}Cr ({sign}) [{tags}]")
-    if not three.empty:
-        msg1_lines.extend(["", "📋 *TV Paste (3 Days):*", f"`{to_tv_list(three['symbol'].tolist(), header='3 Deal Days')}`", ""])
+    msg1_lines.extend([
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"⚡ *TIER 2: FRESH WHALE RADAR* ({len(fresh_radar_df)} stocks)",
+        "_Day-1 institutional entries with real FII/DII backing_",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ])
+    if fresh_radar_df.empty:
+        msg1_lines.append("• No fresh institutional entries recorded.")
+    else:
+        for _, r in fresh_radar_df.head(6).iterrows():
+            tags = "/".join(sorted(list(r["categories"])))
+            close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
+            away_str = f"{r['away_52w_high_pct']:+.1f}% 52W" if pd.notna(r["away_52w_high_pct"]) else ""
+            metrics = " · ".join([s for s in [close_str, away_str] if s])
+            m_bracket = f" | {metrics}" if metrics else ""
+            msg1_lines.append(f"• `{r['symbol']}`: 1d | Net ₹{r['net_cr']:,.1f}Cr (+) [{tags}]{m_bracket}")
 
-    msg1_lines.append(f"🎯 *2 DEAL DAYS* ({len(two)} stocks)")
-    for _, r in two.head(6).iterrows():
-        tags = "/".join(sorted(list(r["categories"])))
-        sign = "+" if r["net_cr"] >= 0 else "-"
-        msg1_lines.append(f"• `{r['symbol']}`: Net ₹{abs(r['net_cr']):,.1f}Cr ({sign}) [{tags}]")
-    if not two.empty:
-        msg1_lines.extend(["", "📋 *TV Paste (2 Days):*", f"`{to_tv_list(two['symbol'].tolist(), header='2 Deal Days')}`"])
-
+    if master_tv:
+        msg1_lines.extend([
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━",
+            "📋 *TRADINGVIEW MASTER PASTE (Tier 1 & 2):*",
+            f"`{master_tv}`",
+        ])
     messages.append("\n".join(msg1_lines))
 
-    # MESSAGE 2: Clientele Breakdown
+    # MESSAGE 2: 🛡️ DEALS: DISTRIBUTION, PROP CHURN & QUARANTINE
     msg2_lines = [
-        "🏛 *CLIENTELE FLOW BREAKDOWN*",
+        "🛡 *MARKETPULSE DEALS — RISK & CONTEXT*",
         f"🗓 *As of:* `{as_of}` | *Window:* Last {len(dates)} Deal Sessions",
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
-        "🌍 *FII (Foreign Institutional Investors)*",
+        f"🔴 *INSTITUTIONAL EXITS / DISTRIBUTION* ({len(top_sells)} stocks)",
+        "━━━━━━━━━━━━━━━━━━━━━",
     ]
-    fii_df = clientele_buys.get("FII", pd.DataFrame())
-    if fii_df.empty:
-        msg2_lines.append("• No FII buy deals recorded.")
+    if top_sells.empty:
+        msg2_lines.append("• No significant institutional distribution recorded.")
     else:
-        for _, r in fii_df.head(6).iterrows():
-            msg2_lines.append(f"• `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr")
-        msg2_lines.extend(["", "📋 *TV Paste (FII):*", f"`{to_tv_list(fii_df['symbol'].tolist(), header='FII')}`"])
+        for idx, (_, r) in enumerate(top_sells.head(6).iterrows(), 1):
+            msg2_lines.append(f"{idx}. `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr sell")
 
-    msg2_lines.extend(["", "━━━━━━━━━━━━━━━━━━━━━", "🏦 *DII (Mutual Funds, Insurance, Pension)*"])
-    dii_df = clientele_buys.get("DII", pd.DataFrame())
-    if dii_df.empty:
-        msg2_lines.append("• No DII buy deals recorded.")
+    msg2_lines.extend([
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"⚡ *TIER 3A: PROP DESK CHURN (HFT Only)* ({len(prop_only_df)} stocks)",
+        "_Intraday scalp turnover — NO institutional FII/DII sponsorship_",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ])
+    if prop_only_df.empty:
+        msg2_lines.append("• No prop-only churn recorded.")
     else:
-        for _, r in dii_df.head(6).iterrows():
-            msg2_lines.append(f"• `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr")
-        msg2_lines.extend(["", "📋 *TV Paste (DII):*", f"`{to_tv_list(dii_df['symbol'].tolist(), header='DII')}`"])
+        for _, r in prop_only_df.head(6).iterrows():
+            msg2_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
+        if sec_prop:
+            msg2_lines.extend(["", "📋 *TV Paste (Prop HFT):*", f"`{sec_prop}`"])
 
-    msg2_lines.extend(["", "━━━━━━━━━━━━━━━━━━━━━", "👥 *OTHERS (Promoters, Super Investors, HNIs)*"])
-    oth_df = clientele_buys.get("Others", pd.DataFrame())
-    if oth_df.empty:
-        msg2_lines.append("• No Other buy deals recorded.")
+    msg2_lines.extend([
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"📉 *TIER 3B: QUARANTINED* ({len(below_200_df)} stocks)",
+        "_Below 200 EMA or locked in <=5% Circuit Bands_",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ])
+    if below_200_df.empty:
+        msg2_lines.append("• No stocks quarantined below 200 EMA / 5% band.")
     else:
-        for _, r in oth_df.head(6).iterrows():
-            msg2_lines.append(f"• `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr")
-        msg2_lines.extend(["", "📋 *TV Paste (Others):*", f"`{to_tv_list(oth_df['symbol'].head(30).tolist(), header='Others')}`"])
-
-    msg2_lines.extend(["", "━━━━━━━━━━━━━━━━━━━━━", "⚡ *PROP (Only Prop Trading Desks)*"])
-    prop_df = clientele_buys.get("PROP", pd.DataFrame())
-    if prop_df.empty:
-        msg2_lines.append("• No Prop deals recorded.")
-    else:
-        for _, r in prop_df.head(6).iterrows():
-            msg2_lines.append(f"• `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr")
-        msg2_lines.extend(["", "📋 *TV Paste (PROP):*", f"`{to_tv_list(prop_df['symbol'].head(30).tolist(), header='PROP')}`"])
+        for _, r in below_200_df.head(6).iterrows():
+            msg2_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
+        if sec_below_200:
+            msg2_lines.extend(["", "📋 *TV Paste (Quarantined):*", f"`{sec_below_200}`"])
 
     messages.append("\n".join(msg2_lines))
-
-    # MESSAGE 3: Highest Buy / Sell Leaders
-    msg3_lines = [
-        "💰 *HIGHEST TURNOVER DEALS (BUY / SELL)*",
-        f"🗓 *As of:* `{as_of}` | *Window:* Last {len(dates)} Deal Sessions",
-        "",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        "🟢 *HIGHEST BUY (Top Institutional Inflows)*",
-    ]
-    for idx, (_, r) in enumerate(top_buys.head(10).iterrows(), 1):
-        msg3_lines.append(f"{idx}. `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr")
-    if not top_buys.empty:
-        msg3_lines.extend(["", "📋 *TV Paste (Highest Buys):*", f"`{to_tv_list(top_buys['symbol'].head(25).tolist(), header='Highest Buys')}`"])
-
-    msg3_lines.extend(["", "━━━━━━━━━━━━━━━━━━━━━", "🔴 *HIGHEST SELL (Top Distribution / Exits)*"])
-    for idx, (_, r) in enumerate(top_sells.head(10).iterrows(), 1):
-        msg3_lines.append(f"{idx}. `{r['symbol']}` — ₹{r['deal_value_cr']:,.1f} Cr")
-    if not top_sells.empty:
-        msg3_lines.extend(["", "📋 *TV Paste (Highest Sells):*", f"`{to_tv_list(top_sells['symbol'].head(25).tolist(), header='Highest Sells')}`"])
-
-    messages.append("\n".join(msg3_lines))
-
-    # MESSAGE 4: Filtered / Quarantined Streams
-    msg4_lines = [
-        "🛡 *FILTERED / QUARANTINED STREAMS*",
-        f"🗓 *As of:* `{as_of}` | *Window:* Last {len(dates)} Deal Sessions",
-        "",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📉 *BELOW 200EMA & 5% BAND* ({len(below_200_df)} stocks · Trend/Circuit Filter)",
-    ]
-    for _, r in below_200_df.head(6).iterrows():
-        msg4_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
-    if not below_200_df.empty:
-        msg4_lines.extend(["", "📋 *TV Paste (Below 200EMA):*", f"`{to_tv_list(below_200_df['symbol'].tolist(), header='below 200EMA')}`", ""])
-
-    msg4_lines.append(f"⚡ *ONLY IN PROP* ({len(prop_only_df)} stocks · Prop-Only Churn)")
-    for _, r in prop_only_df.head(6).iterrows():
-        msg4_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
-    if not prop_only_df.empty:
-        msg4_lines.extend(["", "📋 *TV Paste (PROP):*", f"`{to_tv_list(prop_only_df['symbol'].tolist(), header='PROP')}`"])
-
-    messages.append("\n".join(msg4_lines))
 
     # Backwards compatibility day_rows
     day_rows = []
@@ -537,37 +576,13 @@ def build_deals_telegram_report(
         sub_syms = sub.sort_values("deal_value_cr", ascending=False)["symbol"].dropna().unique().tolist()
         day_rows.append({"date": str(d), "tv": to_tv_list(sub_syms), "count": len(sub_syms), "symbols": sub_syms})
 
-    # Sectioned TV strings (matching Momentum tab bucket_copy_text: ###Section,NSE:...)
-    sec_4plus = to_tv_list(four_plus["symbol"].tolist(), header="4+ Deal Days") if not four_plus.empty else ""
-    sec_3days = to_tv_list(three["symbol"].tolist(), header="3 Deal Days") if not three.empty else ""
-    sec_2days = to_tv_list(two["symbol"].tolist(), header="2 Deal Days") if not two.empty else ""
-    sec_fii = to_tv_list(clientele_buys.get("FII", pd.DataFrame())["symbol"].tolist(), header="FII") if not clientele_buys.get("FII", pd.DataFrame()).empty else ""
-    sec_dii = to_tv_list(clientele_buys.get("DII", pd.DataFrame())["symbol"].tolist(), header="DII") if not clientele_buys.get("DII", pd.DataFrame()).empty else ""
-    sec_others = to_tv_list(clientele_buys.get("Others", pd.DataFrame())["symbol"].head(30).tolist(), header="Others") if not clientele_buys.get("Others", pd.DataFrame()).empty else ""
-    sec_prop = to_tv_list(prop_only_df["symbol"].tolist(), header="PROP") if not prop_only_df.empty else ""
-    sec_top_buys = to_tv_list(top_buys["symbol"].head(25).tolist(), header="Highest Buys") if not top_buys.empty else ""
-    sec_top_sells = to_tv_list(top_sells["symbol"].head(25).tolist(), header="Highest Sells") if not top_sells.empty else ""
-
-    sec_below_200 = to_tv_list(below_200_df["symbol"].tolist(), header="below 200EMA") if not below_200_df.empty else ""
-    sec_below_1000cr = ""
-
-    persistence_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days] if s])
-    clientele_buckets = ",".join([s for s in [sec_fii, sec_dii, sec_others, sec_prop] if s])
-    quality_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys] if s])
-    all_deal_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys, sec_prop, sec_below_200] if s])
-
     tv_strings = {
-        "four_plus": sec_4plus,
-        "three": sec_3days,
-        "two": sec_2days,
-        "fii": sec_fii,
-        "dii": sec_dii,
-        "others": sec_others,
-        "prop": sec_prop,
-        "top_buys": sec_top_buys,
-        "top_sells": sec_top_sells,
-        "below_200ema": sec_below_200,
-        "below_1000cr": sec_below_1000cr,
+        "master_tv": master_tv,
+        "conviction_tv": sec_conviction,
+        "fresh_radar_tv": sec_fresh,
+        "prop_tv": sec_prop,
+        "quarantined_tv": sec_below_200,
+        "all_tiers_tv": all_tiers_tv,
         "quality_buckets": quality_buckets,
         "persistence_buckets": persistence_buckets,
         "clientele_buckets": clientele_buckets,
@@ -581,6 +596,17 @@ def build_deals_telegram_report(
             + (clientele_buys.get("DII", pd.DataFrame())["symbol"].tolist() if not clientele_buys.get("DII", pd.DataFrame()).empty else []),
             header="Institutional Buys",
         ),
+        "four_plus": sec_4plus,
+        "three": sec_3days,
+        "two": sec_2days,
+        "fii": sec_fii,
+        "dii": sec_dii,
+        "others": sec_others,
+        "prop": sec_prop,
+        "top_buys": sec_top_buys,
+        "top_sells": sec_top_sells,
+        "below_200ema": sec_below_200,
+        "below_1000cr": sec_below_1000cr,
     }
 
     return {
@@ -590,6 +616,13 @@ def build_deals_telegram_report(
         "buy_count": len(top_buys),
         "buy_tv": day_rows[0]["tv"] if day_rows else "",
         "tv_strings": tv_strings,
+        "tiers": {
+            "conviction": conviction_df,
+            "fresh_radar": fresh_radar_df,
+            "prop_only": prop_only_df,
+            "quarantined": below_200_df,
+            "distribution": top_sells,
+        },
         "persistence": {
             "four_plus": four_plus,
             "three": three,

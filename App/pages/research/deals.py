@@ -76,6 +76,31 @@ def prepare_institution_leaderboard(clients_df: pd.DataFrame) -> tuple[pd.DataFr
     return view, [column for column in columns if column in view.columns]
 
 
+def _prepare_tier_table_df(df_in: pd.DataFrame) -> pd.DataFrame:
+    if df_in.empty:
+        return pd.DataFrame()
+    out = df_in.copy()
+    if "categories" in out.columns:
+        out["clientele"] = out["categories"].map(
+            lambda c: "/".join(sorted(list(c))) if isinstance(c, (set, list)) else str(c)
+        )
+    cols = [
+        "symbol",
+        "deal_days",
+        "clientele",
+        "net_cr",
+        "buy_cr",
+        "close_price",
+        "ema_200",
+        "away_52w_high_pct",
+        "rs_percentile",
+        "market_cap_cr",
+        "sector",
+    ]
+    avail_cols = [c for c in cols if c in out.columns]
+    return out[avail_cols]
+
+
 def build_deals_page(
     db_path: Path,
     *,
@@ -107,28 +132,28 @@ def build_deals_page(
             report = fetch_deals_telegram_data(db_path, days)
             tv_map = report.get("tv_strings", {})
             as_of = report.get("as_of") or "—"
-            p_data = report.get("persistence", {})
-            c_data = report.get("clientele", {})
-            h_data = report.get("highest", {})
+            tiers = report.get("tiers", {})
 
-            four_plus = p_data.get("four_plus", pd.DataFrame())
-            three = p_data.get("three", pd.DataFrame())
-            two = p_data.get("two", pd.DataFrame())
-            fii = c_data.get("FII", pd.DataFrame())
-            dii = c_data.get("DII", pd.DataFrame())
-            others = c_data.get("Others", pd.DataFrame())
-            prop = c_data.get("PROP", pd.DataFrame())
-            top_buys = h_data.get("buys", pd.DataFrame())
-            top_sells = h_data.get("sells", pd.DataFrame())
+            conviction_df = tiers.get("conviction", pd.DataFrame())
+            fresh_radar_df = tiers.get("fresh_radar", pd.DataFrame())
+            prop_only_df = tiers.get("prop_only", pd.DataFrame())
+            quarantined_df = tiers.get("quarantined", pd.DataFrame())
+            distribution_df = tiers.get("distribution", pd.DataFrame())
+
+            master_tv = tv_map.get("master_tv", "")
+            conviction_tv = tv_map.get("conviction_tv", "")
+            fresh_radar_tv = tv_map.get("fresh_radar_tv", "")
+            prop_tv = tv_map.get("prop_tv", "")
+            quarantined_tv = tv_map.get("quarantined_tv", "")
 
             with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)]"):
                 # Header row: Title + Lookback selector
                 with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mb-2"):
                     with ui.column().classes("gap-0.5"):
                         with ui.row().classes("items-center gap-2"):
-                            ui.label("📡 Institutional Deals Hub · TradingView Exporter").classes("mp-section-title m-0 text-base font-bold")
+                            ui.label("📡 Institutional Deals Desk · Action Radar (3-Tier)").classes("mp-section-title m-0 text-base font-bold")
                             ui.label(f"As of {as_of}").classes("mp-badge mp-pill text-xs")
-                        ui.label(f"Direct Telegram-matched breakdown (Persistence, Clientele, Turnover) across last {days} sessions.").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"Streamlined 3-Tier institutional deal flow across last {days} sessions. Zero duplicate tickers.").classes("text-xs text-[var(--mp-muted)]")
 
                     # Lookback selector pills
                     with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
@@ -146,203 +171,81 @@ def build_deals_page(
                 # Master Quick Actions
                 with ui.row().classes("w-full items-center gap-2 flex-wrap p-2.5 bg-[var(--mp-surface)] rounded-lg border border-[var(--mp-border)] mb-3"):
                     ui.label("⚡ Quick Export:").classes("text-xs font-semibold text-[var(--mp-text)]")
-                    if tv_map.get("quality_buckets"):
-                        ui.button("📋 Copy Quality Buckets (TV)", on_click=lambda t=tv_map["quality_buckets"]: copy_text("Quality Buckets (TV)", t)).classes("mp-primary text-xs").props("dense")
-                    if tv_map.get("all_deal_buckets"):
-                        ui.button("📋 Copy All Buckets (TV)", on_click=lambda t=tv_map["all_deal_buckets"]: copy_text("All Deal Buckets (TV)", t)).classes("mp-button text-xs").props("dense outline")
-                    if tv_map.get("persistence_buckets"):
-                        ui.button("📋 Persistence (TV)", on_click=lambda t=tv_map["persistence_buckets"]: copy_text("Persistence Buckets (TV)", t)).classes("mp-button text-xs").props("dense outline")
-                    if tv_map.get("clientele_buckets"):
-                        ui.button("📋 Clientele (TV)", on_click=lambda t=tv_map["clientele_buckets"]: copy_text("Clientele Buckets (TV)", t)).classes("mp-button text-xs").props("dense outline")
-                    if tv_map.get("four_plus"):
-                        ui.button("📋 4+ Days (TV)", on_click=lambda t=tv_map["four_plus"]: copy_text("4+ Deal Days TV", t)).classes("mp-button text-xs").props("dense outline")
-                    if tv_map.get("top_buys"):
-                        ui.button("📋 Top Buys (TV)", on_click=lambda t=tv_map["top_buys"]: copy_text("Top Buys TV", t)).classes("mp-button text-xs").props("dense outline")
-                    if tv_map.get("below_200ema"):
-                        ui.button("📋 Below 200EMA (TV)", on_click=lambda t=tv_map["below_200ema"]: copy_text("Below 200EMA TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
-                    if tv_map.get("prop"):
-                        ui.button("📋 PROP Only (TV)", on_click=lambda t=tv_map["prop"]: copy_text("PROP Only TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
-                    if tv_map.get("all_buys"):
-                        ui.button("📋 All Quality Buys (Flat)", on_click=lambda t=tv_map["all_buys"]: copy_text("All Quality Buys (Flat TV)", t)).classes("mp-button text-xs").props("dense outline")
+                    if master_tv:
+                        ui.button("📋 Copy Master TV (Tier 1 & 2)", on_click=lambda t=master_tv: copy_text("Master Deals TV", t)).classes("mp-primary text-xs font-bold").props("dense")
+                    if conviction_tv:
+                        ui.button("📋 Copy Conviction Only", on_click=lambda t=conviction_tv: copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
+                    if fresh_radar_tv:
+                        ui.button("📋 Copy Fresh Radar", on_click=lambda t=fresh_radar_tv: copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
+                    if prop_tv:
+                        ui.button("📋 Copy Prop HFT Only", on_click=lambda t=prop_tv: copy_text("Prop HFT Deals TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
+                    if quarantined_tv:
+                        ui.button("📋 Copy Quarantined (<200 EMA)", on_click=lambda t=quarantined_tv: copy_text("Quarantined Deals TV", t)).classes("mp-button text-xs text-rose-400").props("dense outline")
 
-                # 3 Responsive Columns: Persistence | Clientele | Turnover Leaders
-                with ui.row().classes("w-full gap-3 items-start flex-wrap lg:flex-nowrap"):
-                    # 1. PERSISTENCE
-                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
-                        with ui.row().classes("w-full items-center justify-between mb-1"):
-                            ui.label("🔥 Persistence by Count").classes("text-sm font-bold text-[var(--mp-text)]")
-                            if tv_map.get("persistence_buckets"):
-                                ui.button("Copy Buckets (TV)", on_click=lambda t=tv_map["persistence_buckets"]: copy_text("Persistence Buckets (TV)", t)).classes("text-xs").props("dense flat")
-                        ui.label(f"Quality accumulation across {days} deal sessions (Mcap ≥ 900 Cr, Above 200 EMA)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+                # Tabs for Clean Inspection
+                with ui.tabs().classes("w-full bg-[var(--mp-surface)] rounded-t-lg border border-[var(--mp-border)]") as hub_tabs:
+                    t1 = ui.tab(f"💎 Tier 1: Conviction Accumulation ({len(conviction_df)})")
+                    t2 = ui.tab(f"⚡ Tier 2: Fresh Whale Radar ({len(fresh_radar_df)})")
+                    t3 = ui.tab(f"🎯 Tier 3A: Prop HFT Churn ({len(prop_only_df)})")
+                    t4 = ui.tab(f"📉 Tier 3B: Quarantined ({len(quarantined_df)})")
+                    t5 = ui.tab(f"🔴 Distribution ({len(distribution_df)})")
 
-                        # 4+ Deal Days
-                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("💎 4+ Deal Days").classes("text-xs font-bold text-emerald-400")
-                                    ui.label(f"{len(four_plus)} stocks").classes("mp-badge mp-good text-[10px]")
-                                if tv_map.get("four_plus"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["four_plus"]: copy_text("4+ Days TV", t)).classes("text-[11px]").props("dense outline")
-                            if four_plus.empty:
-                                ui.label("No stocks with 4+ deal days.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                    for _, r in four_plus.head(6).iterrows():
-                                        sign = "+" if r.get("net_cr", 0) >= 0 else "-"
-                                        val = abs(r.get("net_cr", 0))
-                                        ui.chip(f"{r['symbol']} ({r['deal_days']}d · {sign}₹{val:,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                        # 3 Deal Days
-                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("⚡ 3 Deal Days").classes("text-xs font-semibold text-blue-400")
-                                    ui.label(f"{len(three)} stocks").classes("mp-badge text-[10px]")
-                                if tv_map.get("three"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["three"]: copy_text("3 Days TV", t)).classes("text-[11px]").props("dense outline")
-                            if three.empty:
-                                ui.label("No stocks with 3 deal days.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                    for _, r in three.head(5).iterrows():
-                                        sign = "+" if r.get("net_cr", 0) >= 0 else "-"
-                                        val = abs(r.get("net_cr", 0))
-                                        ui.chip(f"{r['symbol']} ({sign}₹{val:,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                        # 2 Deal Days
-                        with ui.column().classes("w-full gap-1 p-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("🎯 2 Deal Days").classes("text-xs font-semibold text-[var(--mp-text)]")
-                                    ui.label(f"{len(two)} stocks").classes("mp-badge text-[10px]")
-                                if tv_map.get("two"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["two"]: copy_text("2 Days TV", t)).classes("text-[11px]").props("dense outline")
-                            if two.empty:
-                                ui.label("No stocks with 2 deal days.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                    for _, r in two.head(5).iterrows():
-                                        sign = "+" if r.get("net_cr", 0) >= 0 else "-"
-                                        val = abs(r.get("net_cr", 0))
-                                        ui.chip(f"{r['symbol']} ({sign}₹{val:,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                    # 2. CLIENTELE FLOW BREAKDOWN
-                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
-                        with ui.row().classes("w-full items-center justify-between mb-1"):
-                            ui.label("🏛 Clientele Flow").classes("text-sm font-bold text-[var(--mp-text)]")
-                            if tv_map.get("clientele_buckets"):
-                                ui.button("Copy Buckets (TV)", on_click=lambda t=tv_map["clientele_buckets"]: copy_text("Clientele Buckets (TV)", t)).classes("text-xs").props("dense flat")
-                        ui.label(f"Segmented buying across {days} sessions").classes("text-[11px] text-[var(--mp-muted)] mb-2")
-
-                        # FII
-                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("🌍 FII (Foreign)").classes("text-xs font-bold text-sky-400")
-                                    ui.label(f"{len(fii)} stocks").classes("mp-badge text-[10px]")
-                                if tv_map.get("fii"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["fii"]: copy_text("FII Buys TV", t)).classes("text-[11px]").props("dense outline")
-                            if fii.empty:
-                                ui.label("No FII buys in window.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                    for _, r in fii.head(5).iterrows():
-                                        ui.chip(f"{r['symbol']} (₹{r['deal_value_cr']:,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                        # DII
-                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("🏦 DII (Domestic)").classes("text-xs font-bold text-amber-400")
-                                    ui.label(f"{len(dii)} stocks").classes("mp-badge text-[10px]")
-                                if tv_map.get("dii"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["dii"]: copy_text("DII Buys TV", t)).classes("text-[11px]").props("dense outline")
-                            if dii.empty:
-                                ui.label("No DII buys in window.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                    for _, r in dii.head(5).iterrows():
-                                        ui.chip(f"{r['symbol']} (₹{r['deal_value_cr']:,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                        # Others
-                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("👥 Others (Promoters/HNIs)").classes("text-xs font-medium text-[var(--mp-text)]")
-                                    ui.label(f"{len(others)} stocks").classes("mp-badge text-[10px]")
-                                if tv_map.get("others"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["others"]: copy_text("Others Buys TV", t)).classes("text-[11px]").props("dense outline")
-                            if others.empty:
-                                ui.label("No other buys in window.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                    for _, r in others.head(4).iterrows():
-                                        ui.chip(f"{r['symbol']} (₹{r['deal_value_cr']:,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                        # PROP
-                        with ui.column().classes("w-full gap-1 p-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.row().classes("items-center gap-1.5"):
-                                    ui.label("⚡ PROP (Only Prop Trading)").classes("text-xs font-medium text-[var(--mp-muted)]")
-                                    ui.label(f"{len(prop)} stocks").classes("mp-badge text-[10px]")
-                                if tv_map.get("prop"):
-                                    ui.button("📋 Copy TV", on_click=lambda t=tv_map["prop"]: copy_text("PROP Buys TV", t)).classes("text-[11px]").props("dense outline")
-
-                    # 3. TURNOVER LEADERS
-                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
-                        with ui.row().classes("w-full items-center justify-between mb-1"):
-                            ui.label("💰 Turnover Leaders").classes("text-sm font-bold text-[var(--mp-text)]")
-                            if tv_map.get("all_buys"):
-                                ui.button("Copy All Buys TV", on_click=lambda t=tv_map["all_buys"]: copy_text("All Buys TV", t)).classes("text-xs").props("dense flat")
-                        ui.label("Top capital inflows & outflows (Quality stocks)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
-
-                        # Top Buys
-                        with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                ui.label("🟢 Highest Buy Inflows").classes("text-xs font-bold text-emerald-400")
-                                if tv_map.get("top_buys"):
-                                    ui.button("📋 Copy TV (Top 25)", on_click=lambda t=tv_map["top_buys"]: copy_text("Top Buys TV", t)).classes("text-[11px]").props("dense outline")
-                            if top_buys.empty:
-                                ui.label("No buy deals recorded.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                for idx, (_, r) in enumerate(top_buys.head(6).iterrows(), 1):
-                                    with ui.row().classes("w-full items-center justify-between text-xs py-0.5 border-b border-[var(--mp-border)]/40"):
-                                        ui.label(f"{idx}. {r['symbol']}").classes("font-mono font-semibold")
-                                        ui.label(f"₹{r['deal_value_cr']:,.1f} Cr").classes("text-emerald-400 font-mono")
-
-                        # Top Sells
-                        with ui.column().classes("w-full gap-1 p-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                ui.label("🔴 Highest Sell Outflows").classes("text-xs font-bold text-rose-400")
-                                if tv_map.get("top_sells"):
-                                    ui.button("📋 Copy TV (Top 25)", on_click=lambda t=tv_map["top_sells"]: copy_text("Top Sells TV", t)).classes("text-[11px]").props("dense outline")
-                            if top_sells.empty:
-                                ui.label("No sell deals recorded.").classes("text-[11px] text-[var(--mp-muted)]")
-                            else:
-                                for idx, (_, r) in enumerate(top_sells.head(5).iterrows(), 1):
-                                    with ui.row().classes("w-full items-center justify-between text-xs py-0.5 border-b border-[var(--mp-border)]/40"):
-                                        ui.label(f"{idx}. {r['symbol']}").classes("font-mono font-semibold")
-                                        ui.label(f"₹{r['deal_value_cr']:,.1f} Cr").classes("text-rose-400 font-mono")
-
-                # 4. QUARANTINED / FILTERED STREAMS (Stocks with Mcap >= 900 Cr)
-                f_data = report.get("filtered", {})
-                below_200_df = f_data.get("below_200ema", pd.DataFrame())
-                with ui.row().classes("w-full gap-3 items-start flex-wrap lg:flex-nowrap mt-3"):
-                    # Below 200 EMA / 5% Band
-                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
-                        with ui.row().classes("w-full items-center justify-between mb-1"):
-                            with ui.row().classes("items-center gap-1.5"):
-                                ui.label("📉 Below 200 EMA & 5% Band").classes("text-sm font-bold text-amber-400")
-                                ui.label(f"{len(below_200_df)} stocks").classes("mp-badge text-[10px]")
-                            if tv_map.get("below_200ema"):
-                                ui.button("📋 Copy TV", on_click=lambda t=tv_map["below_200ema"]: copy_text("Below 200EMA TV", t)).classes("text-xs").props("dense outline")
-                        ui.label("Stocks with Mcap ≥ 900 Cr below 200 EMA or locked in 5% circuit bands (Quarantined from main swing list)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
-                        if below_200_df.empty:
-                            ui.label("No stocks below 200 EMA in window.").classes("text-[11px] text-[var(--mp-muted)]")
+                with ui.tab_panels(hub_tabs, value=t1).classes("w-full bg-transparent p-2 border border-t-0 border-[var(--mp-border)] rounded-b-lg"):
+                    # Tab 1: Conviction Accumulation
+                    with ui.tab_panel(t1).classes("p-2 gap-2"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            ui.label("🔥 Primary Swing Watchlist: Multi-day persistence (2+ days) or Whale Inflows (≥₹50Cr) with real FII/DII backing and price above 200 EMA.").classes("text-xs text-[var(--mp-muted)]")
+                            if conviction_tv:
+                                ui.button("📋 Copy TV List", on_click=lambda t=conviction_tv: copy_text("Conviction TV", t)).classes("text-xs").props("dense outline")
+                        if conviction_df.empty:
+                            ui.label("No stocks meet Tier 1 conviction accumulation criteria in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
                         else:
-                            with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                for _, r in below_200_df.head(10).iterrows():
-                                    ui.chip(f"{r['symbol']} (₹{r.get('buy_cr', 0):,.1f}Cr)").props("dense outline").classes("text-[10px]")
+                            table_from_df(_prepare_tier_table_df(conviction_df), "", pagination=15, compact=True)
+
+                    # Tab 2: Fresh Whale Radar
+                    with ui.tab_panel(t2).classes("p-2 gap-2"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            ui.label("⚡ Early Radar: Day-1 institutional entry with genuine institutional sponsorship. Watch for follow-through.").classes("text-xs text-[var(--mp-muted)]")
+                            if fresh_radar_tv:
+                                ui.button("📋 Copy TV List", on_click=lambda t=fresh_radar_tv: copy_text("Fresh Radar TV", t)).classes("text-xs").props("dense outline")
+                        if fresh_radar_df.empty:
+                            ui.label("No fresh institutional entries in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
+                        else:
+                            table_from_df(_prepare_tier_table_df(fresh_radar_df), "", pagination=15, compact=True)
+
+                    # Tab 3: Prop HFT Churn
+                    with ui.tab_panel(t3).classes("p-2 gap-2"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            ui.label("🎯 Prop & Algo Scalp Only: Trading desks (Jump, AlphaGrep, Silverleaf, etc.) with NO FII/DII institutional backing. Kept separate from swing accumulation.").classes("text-xs text-amber-400/80")
+                            if prop_tv:
+                                ui.button("📋 Copy TV List", on_click=lambda t=prop_tv: copy_text("Prop HFT TV", t)).classes("text-xs").props("dense outline")
+                        if prop_only_df.empty:
+                            ui.label("No prop-only churn stocks in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
+                        else:
+                            table_from_df(_prepare_tier_table_df(prop_only_df), "", pagination=15, compact=True)
+
+                    # Tab 4: Quarantined
+                    with ui.tab_panel(t4).classes("p-2 gap-2"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            ui.label("📉 Quarantined from Swings: MCap ≥ 900 Cr but below 200 EMA or locked in ≤5% circuit bands.").classes("text-xs text-rose-400/80")
+                            if quarantined_tv:
+                                ui.button("📋 Copy TV List", on_click=lambda t=quarantined_tv: copy_text("Quarantined TV", t)).classes("text-xs").props("dense outline")
+                        if quarantined_df.empty:
+                            ui.label("No quarantined stocks in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
+                        else:
+                            table_from_df(_prepare_tier_table_df(quarantined_df), "", pagination=15, compact=True)
+
+                    # Tab 5: Distribution
+                    with ui.tab_panel(t5).classes("p-2 gap-2"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            ui.label("🔴 Heavy Institutional Distribution / Exits across the window.").classes("text-xs text-rose-400")
+                            sec_top_sells = tv_map.get("top_sells", "")
+                            if sec_top_sells:
+                                ui.button("📋 Copy TV List", on_click=lambda t=sec_top_sells: copy_text("Distribution TV", t)).classes("text-xs").props("dense outline")
+                        if distribution_df.empty:
+                            ui.label("No institutional distribution recorded in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
+                        else:
+                            table_from_df(distribution_df, "", pagination=15, compact=True)
 
     desk_host = ui.column().classes("w-full")
 

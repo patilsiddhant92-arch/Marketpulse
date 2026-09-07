@@ -199,37 +199,24 @@ def test_telegram_deals_persistence_and_clientele_structure() -> None:
     report = build_deals_telegram_report(lookback_days=5, min_mcap_cr=500.0)
     assert "as_of" in report
     assert "messages" in report
-    assert len(report["messages"]) == 4
+    assert len(report["messages"]) == 2
 
-    msg1, msg2, msg3, msg4 = report["messages"]
-    # Message 1: Persistence by count
-    assert "4+ DEAL DAYS" in msg1
-    assert "3 DEAL DAYS" in msg1
-    assert "2 DEAL DAYS" in msg1
-    assert "TV Paste" in msg1
+    msg1, msg2 = report["messages"]
+    # Message 1: 3-Tier Swing Radar (Alpha & Action)
+    assert "TIER 1: CONVICTION ACCUMULATION" in msg1
+    assert "TIER 2: FRESH WHALE RADAR" in msg1
+    assert "TRADINGVIEW MASTER PASTE" in msg1
 
-    # Message 2: Clientele breakdown
-    assert "FII" in msg2
-    assert "DII" in msg2
-    assert "OTHERS" in msg2 or "Others" in msg2
-    assert "PROP" in msg2
-    assert "TV Paste" in msg2
-
-    # Message 3: Highest Buy / Sell
-    assert "HIGHEST BUY" in msg3
-    assert "HIGHEST SELL" in msg3
-    assert "TV Paste" in msg3
-
-    # Message 4: Quarantined / Filtered streams (Sub-900 Cr stocks strictly excluded)
-    assert "BELOW 200EMA" in msg4
-    assert "ONLY IN PROP" in msg4
-    assert "TV Paste" in msg4
-    assert "<1000 CR" not in msg4
-    assert "<900 CR" not in msg4
+    # Message 2: Risk & Context
+    assert "INSTITUTIONAL EXITS / DISTRIBUTION" in msg2
+    assert "TIER 3A: PROP DESK CHURN" in msg2
+    assert "TIER 3B: QUARANTINED" in msg2
+    assert "<1000 CR" not in msg2
+    assert "<900 CR" not in msg2
 
     # Dry-run execution
     res = notify_deals(dry_run=True, lookback_days=5)
     assert res["sent"] is False
     assert res["dry_run"] is True
-    assert res["message_count"] == 4
+    assert res["message_count"] == 2
 
