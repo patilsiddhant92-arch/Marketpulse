@@ -296,7 +296,7 @@ def tradingview_url(symbol: str) -> str:
 def symbols_text(
     df: pd.DataFrame,
     *,
-    min_mcap_cr: float | None = 1000.0,
+    min_mcap_cr: float | None = 900.0,
     require_above_ema200: bool = True,
 ) -> str:
     """Build a TradingView list with explicit caller-owned universe gates.

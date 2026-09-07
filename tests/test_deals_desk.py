@@ -126,8 +126,31 @@ def test_default_deals_reject_missing_market_cap_and_label_the_universe(tmp_path
     desk = query_deals_desk_default(db)
 
     assert desk.buy_count == 0
-    assert desk.universe_label == "₹1,000 Cr+ and CMP > 200 EMA"
+    assert desk.universe_label == "₹900 Cr+ and CMP > 200 EMA"
     assert "missing market cap" in desk.filter_notes.lower()
+
+
+def test_deals_desk_rejects_stocks_below_900_cr(tmp_path):
+    from App.deals_read_model import query_deals_desk_default
+
+    db = tmp_path / "sub-900-mcap.duckdb"
+    with duckdb.connect(str(db)) as con:
+        con.execute("CREATE TABLE deals (trade_date DATE, symbol TEXT, side TEXT, client_name TEXT, deal_value_cr DOUBLE)")
+        con.execute("CREATE TABLE indicators_daily (symbol TEXT, trade_date DATE, close_price DOUBLE, ema_200 DOUBLE, rs_percentile DOUBLE, away_52w_high_pct DOUBLE)")
+        con.execute("CREATE TABLE stocks_master (symbol TEXT, market_cap_cr DOUBLE, sector TEXT, industry TEXT)")
+        # Micro-cap 850 Cr should be rejected
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'MICRO850', 'BUY', 'Fund', 50)")
+        con.execute("INSERT INTO indicators_daily VALUES ('MICRO850', '2026-08-07', 110, 100, 80, -2)")
+        con.execute("INSERT INTO stocks_master VALUES ('MICRO850', 850.0, 'Tech', 'Software')")
+        # Quality 950 Cr should pass
+        con.execute("INSERT INTO deals VALUES ('2026-08-07', 'PASS950', 'BUY', 'Fund', 50)")
+        con.execute("INSERT INTO indicators_daily VALUES ('PASS950', '2026-08-07', 110, 100, 80, -2)")
+        con.execute("INSERT INTO stocks_master VALUES ('PASS950', 950.0, 'Tech', 'Software')")
+
+    desk = query_deals_desk_default(db)
+    assert "MICRO850" not in desk.symbols_for_tv
+    assert "PASS950" in desk.symbols_for_tv
+    assert desk.buy_count == 1
 
 
 def test_default_deals_reject_missing_structure_values(tmp_path):

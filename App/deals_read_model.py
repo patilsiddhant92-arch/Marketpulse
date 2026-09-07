@@ -45,7 +45,7 @@ class DealsDeskDefault:
     flow: pd.DataFrame
     query_count: int
     cluster_buys: pd.DataFrame = None  # type: ignore
-    universe_label: str = "₹1,000 Cr+ and CMP > 200 EMA"
+    universe_label: str = "₹900 Cr+ and CMP > 200 EMA"
     filter_notes: str = ""
 
 
@@ -59,7 +59,7 @@ def _empty(as_of: str | None = None) -> DealsDeskDefault:
         flow=pd.DataFrame(),
         query_count=0,
         cluster_buys=pd.DataFrame(),
-        universe_label="₹1,000 Cr+ and CMP > 200 EMA",
+        universe_label="₹900 Cr+ and CMP > 200 EMA",
         filter_notes="No deal rows passed the latest-session universe gates.",
     )
 
@@ -67,7 +67,7 @@ def _empty(as_of: str | None = None) -> DealsDeskDefault:
 def query_deals_desk_default(
     db_path: Path,
     *,
-    min_mcap_cr: float = 1000.0,
+    min_mcap_cr: float = 900.0,
     card_limit: int = 12,
     flow_lookback_days: int = 10,
     exclude_hft: bool | None = None,
@@ -273,7 +273,7 @@ def query_deals_advanced(
     side: str = "BUY",
     min_value_cr: float = 5.0,
     lookback_days: int = 10,
-    min_mcap_cr: float = 1000.0,
+    min_mcap_cr: float = 900.0,
     client_name: str | None = None,
     tier_filter: str | None = None,
     exclude_hft: bool | None = None,
@@ -282,7 +282,7 @@ def query_deals_advanced(
     """On-demand Advanced research queries with Institutional classification and cluster radar."""
     db_path = Path(db_path)
     lookback_days = max(1, min(60, int(lookback_days)))
-    where = ["coalesce(m.market_cap_cr, 0) >= ?"]
+    where = ["m.market_cap_cr IS NOT NULL", "m.market_cap_cr >= ?"]
     params: list = [min_mcap_cr]
     if side and side != "BOTH":
         where.append("d.side = ?")
@@ -317,6 +317,14 @@ def query_deals_advanced(
             """
         ).fetchdf()
 
+    if raw_deals.empty:
+        return {"clients": pd.DataFrame(), "stocks": pd.DataFrame(), "cluster": pd.DataFrame()}
+
+    # Enforce strict market cap floor
+    raw_deals = raw_deals[
+        raw_deals["market_cap_cr"].notna()
+        & (pd.to_numeric(raw_deals["market_cap_cr"], errors="coerce") >= float(min_mcap_cr))
+    ].copy()
     if raw_deals.empty:
         return {"clients": pd.DataFrame(), "stocks": pd.DataFrame(), "cluster": pd.DataFrame()}
 

@@ -317,7 +317,7 @@ def run_pipeline(
 
                     # Always notify after a successful pipeline so deals stay current
                     # even when append is noop (download refreshed daily deals).
-                    tg = notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=1000.0)
+                    tg = notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=900.0)
                     status["steps"].append(
                         {
                             "step": "telegram_deals",

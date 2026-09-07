@@ -198,7 +198,7 @@ except ModuleNotFoundError:
 
 def build_deals_telegram_report(
     lookback_days: int = 20,
-    min_mcap_cr: float = 1000.0,
+    min_mcap_cr: float = 900.0,
     db_path: Path | None = None,
 ) -> dict:
     """
@@ -283,6 +283,12 @@ def build_deals_telegram_report(
     if df.empty:
         return {"as_of": as_of, "messages": ["No valid deals found in window."], "days": [], "tv_strings": {}}
 
+    # Hard gate: strictly exclude any stock below min_mcap_cr (default 900 Cr) or with missing/NaN market cap
+    min_mcap_val = float(min_mcap_cr if min_mcap_cr is not None else 900.0)
+    df = df[df["market_cap_cr"].notna() & (df["market_cap_cr"] >= min_mcap_val)].copy()
+    if df.empty:
+        return {"as_of": as_of, "messages": [f"No valid deals found in window with market cap >= ₹{min_mcap_val:,.0f} Cr."], "days": [], "tv_strings": {}}
+
     # Classify client
     df["client_info"] = df["client_name"].map(classify_client)
     df["clientele"] = df["client_info"].map(lambda x: x.get("clientele") or "OTHER")
@@ -317,30 +323,24 @@ def build_deals_telegram_report(
     # -------------------------------------------------------------
     # QUALITY & QUARANTINE CLASSIFICATION
     # -------------------------------------------------------------
-    # 1. Micro-caps: Market Cap < 1000 Cr
-    sym_meta["is_below_1000cr"] = sym_meta["market_cap_cr"].map(
-        lambda m: pd.notna(m) and float(m) < float(min_mcap_cr)
-    )
-
-    # 2. Trend & Circuit filter: Below 200 EMA or in 5% Band
+    # 1. Trend & Circuit filter: Below 200 EMA or in 5% Band
     sym_meta["is_below_200_or_band5"] = sym_meta.apply(
         lambda r: (pd.notna(r["band"]) and float(r["band"]) <= 5.0)
         or (pd.notna(r["close_price"]) and pd.notna(r["ema_200"]) and float(r["close_price"]) < float(r["ema_200"])),
         axis=1,
     )
 
-    # 3. Only in PROP filter: all recorded deals were PROP
+    # 2. Only in PROP filter: all recorded deals were PROP
     sym_meta["is_only_prop"] = sym_meta["categories"].map(lambda cats: cats == {"PROP"})
 
-    # Quarantined streams
-    below_1000cr_df = sym_meta[sym_meta["is_below_1000cr"]].sort_values("buy_cr", ascending=False)
-    below_200_df = sym_meta[(~sym_meta["is_below_1000cr"]) & sym_meta["is_below_200_or_band5"]].sort_values("buy_cr", ascending=False)
-    prop_only_df = sym_meta[(~sym_meta["is_below_1000cr"]) & (~sym_meta["is_below_200_or_band5"]) & sym_meta["is_only_prop"]].sort_values("buy_cr", ascending=False)
+    # Quarantined streams (All have Market Cap >= min_mcap_val)
+    below_1000cr_df = pd.DataFrame()  # Stocks below min_mcap_cr are completely excluded
+    below_200_df = sym_meta[sym_meta["is_below_200_or_band5"]].sort_values("buy_cr", ascending=False)
+    prop_only_df = sym_meta[(~sym_meta["is_below_200_or_band5"]) & sym_meta["is_only_prop"]].sort_values("buy_cr", ascending=False)
 
-    # Pure Quality Universe (Market Cap >= 1000 Cr, Above 200 EMA, Band > 5%, Real Institutional Backing)
+    # Pure Quality Universe (Market Cap >= min_mcap_val, Above 200 EMA, Band > 5%, Real Institutional Backing)
     quality_df = sym_meta[
-        (~sym_meta["is_below_1000cr"])
-        & (~sym_meta["is_below_200_or_band5"])
+        (~sym_meta["is_below_200_or_band5"])
         & (~sym_meta["is_only_prop"])
     ].copy()
 
@@ -518,12 +518,6 @@ def build_deals_telegram_report(
     if not below_200_df.empty:
         msg4_lines.extend(["", "📋 *TV Paste (Below 200EMA):*", f"`{to_tv_list(below_200_df['symbol'].tolist(), header='below 200EMA')}`", ""])
 
-    msg4_lines.append(f"🪙 *<1000 CR MCAP* ({len(below_1000cr_df)} stocks · Micro-Cap Filter)")
-    for _, r in below_1000cr_df.head(6).iterrows():
-        msg4_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
-    if not below_1000cr_df.empty:
-        msg4_lines.extend(["", "📋 *TV Paste (<1000 Cr):*", f"`{to_tv_list(below_1000cr_df['symbol'].tolist(), header='<1000 Cr')}`", ""])
-
     msg4_lines.append(f"⚡ *ONLY IN PROP* ({len(prop_only_df)} stocks · Prop-Only Churn)")
     for _, r in prop_only_df.head(6).iterrows():
         msg4_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
@@ -551,12 +545,12 @@ def build_deals_telegram_report(
     sec_top_sells = to_tv_list(top_sells["symbol"].head(25).tolist(), header="Highest Sells") if not top_sells.empty else ""
 
     sec_below_200 = to_tv_list(below_200_df["symbol"].tolist(), header="below 200EMA") if not below_200_df.empty else ""
-    sec_below_1000cr = to_tv_list(below_1000cr_df["symbol"].tolist(), header="<1000 Cr") if not below_1000cr_df.empty else ""
+    sec_below_1000cr = ""
 
     persistence_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days] if s])
     clientele_buckets = ",".join([s for s in [sec_fii, sec_dii, sec_others, sec_prop] if s])
     quality_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys] if s])
-    all_deal_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys, sec_prop, sec_below_200, sec_below_1000cr] if s])
+    all_deal_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys, sec_prop, sec_below_200] if s])
 
     tv_strings = {
         "four_plus": sec_4plus,
@@ -610,7 +604,7 @@ def build_deals_telegram_report(
     }
 
 
-def query_deals_tv_lists(lookback_days: int = 20, min_mcap_cr: float = 1000.0, db_path: Path | None = None) -> dict:
+def query_deals_tv_lists(lookback_days: int = 20, min_mcap_cr: float = 900.0, db_path: Path | None = None) -> dict:
     """Retained for backward compatibility with external callers."""
     return build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=min_mcap_cr, db_path=db_path)
 
@@ -619,7 +613,7 @@ def notify_deals(
     *,
     dry_run: bool = False,
     lookback_days: int = 20,
-    min_mcap_cr: float = 1000.0,
+    min_mcap_cr: float = 900.0,
     token: str | None = None,
     chat_id: str | None = None,
     db_path: Path | None = None,
@@ -758,7 +752,7 @@ def main() -> int:
         default=20,
         help="Number of recent deal sessions (default 20, newest first).",
     )
-    parser.add_argument("--min-mcap", type=float, default=1000.0, help="Min market cap Cr (default 1000).")
+    parser.add_argument("--min-mcap", type=float, default=900.0, help="Min market cap Cr (default 900).")
     args = parser.parse_args()
     try:
         if args.setup:

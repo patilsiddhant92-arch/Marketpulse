@@ -168,7 +168,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
         try:
             from telegram_deals import notify_deals
 
-            notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=1000.0)
+            notify_deals(dry_run=False, lookback_days=10, min_mcap_cr=900.0)
         except Exception as exc:
             print(f"Telegram deals notify skipped/failed: {exc}")
 

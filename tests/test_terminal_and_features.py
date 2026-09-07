@@ -220,11 +220,12 @@ def test_telegram_deals_persistence_and_clientele_structure() -> None:
     assert "HIGHEST SELL" in msg3
     assert "TV Paste" in msg3
 
-    # Message 4: Quarantined / Filtered streams
+    # Message 4: Quarantined / Filtered streams (Sub-900 Cr stocks strictly excluded)
     assert "BELOW 200EMA" in msg4
-    assert "<1000 CR" in msg4
     assert "ONLY IN PROP" in msg4
     assert "TV Paste" in msg4
+    assert "<1000 CR" not in msg4
+    assert "<900 CR" not in msg4
 
     # Dry-run execution
     res = notify_deals(dry_run=True, lookback_days=5)

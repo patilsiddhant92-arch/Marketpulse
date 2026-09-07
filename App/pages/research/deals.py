@@ -35,7 +35,7 @@ def fetch_deals_telegram_data(db_path: Path, lookback_days: int) -> dict:
     cached = get_cached(ckey)
     if cached is not None:
         return cached
-    res = build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=1000.0, db_path=db_path)
+    res = build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=900.0, db_path=db_path)
     set_cached(ckey, res)
     return res
 
@@ -160,8 +160,6 @@ def build_deals_page(
                         ui.button("📋 Top Buys (TV)", on_click=lambda t=tv_map["top_buys"]: copy_text("Top Buys TV", t)).classes("mp-button text-xs").props("dense outline")
                     if tv_map.get("below_200ema"):
                         ui.button("📋 Below 200EMA (TV)", on_click=lambda t=tv_map["below_200ema"]: copy_text("Below 200EMA TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
-                    if tv_map.get("below_1000cr"):
-                        ui.button("📋 <1000 Cr (TV)", on_click=lambda t=tv_map["below_1000cr"]: copy_text("<1000 Cr TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
                     if tv_map.get("prop"):
                         ui.button("📋 PROP Only (TV)", on_click=lambda t=tv_map["prop"]: copy_text("PROP Only TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
                     if tv_map.get("all_buys"):
@@ -175,7 +173,7 @@ def build_deals_page(
                             ui.label("🔥 Persistence by Count").classes("text-sm font-bold text-[var(--mp-text)]")
                             if tv_map.get("persistence_buckets"):
                                 ui.button("Copy Buckets (TV)", on_click=lambda t=tv_map["persistence_buckets"]: copy_text("Persistence Buckets (TV)", t)).classes("text-xs").props("dense flat")
-                        ui.label(f"Quality accumulation across {days} deal sessions (Mcap ≥ 1000 Cr, Above 200 EMA)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+                        ui.label(f"Quality accumulation across {days} deal sessions (Mcap ≥ 900 Cr, Above 200 EMA)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
 
                         # 4+ Deal Days
                         with ui.column().classes("w-full gap-1 p-2 mb-2 bg-[var(--mp-surface)] rounded border border-[var(--mp-border)]"):
@@ -326,10 +324,9 @@ def build_deals_page(
                                         ui.label(f"{idx}. {r['symbol']}").classes("font-mono font-semibold")
                                         ui.label(f"₹{r['deal_value_cr']:,.1f} Cr").classes("text-rose-400 font-mono")
 
-                # 4. QUARANTINED / FILTERED STREAMS
+                # 4. QUARANTINED / FILTERED STREAMS (Stocks with Mcap >= 900 Cr)
                 f_data = report.get("filtered", {})
                 below_200_df = f_data.get("below_200ema", pd.DataFrame())
-                below_1000cr_df = f_data.get("below_1000cr", pd.DataFrame())
                 with ui.row().classes("w-full gap-3 items-start flex-wrap lg:flex-nowrap mt-3"):
                     # Below 200 EMA / 5% Band
                     with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
@@ -339,28 +336,12 @@ def build_deals_page(
                                 ui.label(f"{len(below_200_df)} stocks").classes("mp-badge text-[10px]")
                             if tv_map.get("below_200ema"):
                                 ui.button("📋 Copy TV", on_click=lambda t=tv_map["below_200ema"]: copy_text("Below 200EMA TV", t)).classes("text-xs").props("dense outline")
-                        ui.label("Stocks below 200 EMA or locked in 5% circuit bands (Quarantined from main swing list)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
+                        ui.label("Stocks with Mcap ≥ 900 Cr below 200 EMA or locked in 5% circuit bands (Quarantined from main swing list)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
                         if below_200_df.empty:
                             ui.label("No stocks below 200 EMA in window.").classes("text-[11px] text-[var(--mp-muted)]")
                         else:
                             with ui.row().classes("gap-1 flex-wrap mt-1"):
                                 for _, r in below_200_df.head(10).iterrows():
-                                    ui.chip(f"{r['symbol']} (₹{r.get('buy_cr', 0):,.1f}Cr)").props("dense outline").classes("text-[10px]")
-
-                    # <1000 Cr Micro-caps
-                    with ui.card().classes("flex-1 min-w-[300px] p-3 mp-card border border-[var(--mp-border)]"):
-                        with ui.row().classes("w-full items-center justify-between mb-1"):
-                            with ui.row().classes("items-center gap-1.5"):
-                                ui.label("🪙 <1000 Cr Mcap").classes("text-sm font-bold text-amber-400")
-                                ui.label(f"{len(below_1000cr_df)} stocks").classes("mp-badge text-[10px]")
-                            if tv_map.get("below_1000cr"):
-                                ui.button("📋 Copy TV", on_click=lambda t=tv_map["below_1000cr"]: copy_text("<1000 Cr TV", t)).classes("text-xs").props("dense outline")
-                        ui.label("Micro-cap names with market cap under ₹1,000 Cr (Quarantined from main swing list)").classes("text-[11px] text-[var(--mp-muted)] mb-2")
-                        if below_1000cr_df.empty:
-                            ui.label("No micro-caps in window.").classes("text-[11px] text-[var(--mp-muted)]")
-                        else:
-                            with ui.row().classes("gap-1 flex-wrap mt-1"):
-                                for _, r in below_1000cr_df.head(10).iterrows():
                                     ui.chip(f"{r['symbol']} (₹{r.get('buy_cr', 0):,.1f}Cr)").props("dense outline").classes("text-[10px]")
 
     desk_host = ui.column().classes("w-full")
@@ -376,7 +357,7 @@ def build_deals_page(
     def render_desk() -> None:
         desk_host.clear()
         with desk_host:
-            desk = query_deals_desk_default(db_path, exclude_hft=hft_state["exclude_hft"])
+            desk = query_deals_desk_default(db_path, min_mcap_cr=900.0, exclude_hft=hft_state["exclude_hft"])
 
             # --- Action strip ---
             with ui.card().classes("w-full mp-card mb-3 p-4"):
@@ -508,6 +489,7 @@ def build_deals_page(
                     side=str(side.value or "BOTH"),
                     min_value_cr=float(min_value.value or 0),
                     lookback_days=int(days_back.value or 10),
+                    min_mcap_cr=900.0,
                     client_name=client_name,
                     tier_filter=None,
                     clientele=None if clientele_sel.value == "ALL" else (str(clientele_sel.value),),
