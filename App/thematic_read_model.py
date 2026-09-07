@@ -98,37 +98,181 @@ NEXTGEN_TECH_UNIVERSE: dict[str, dict[str, str]] = {
     },
 }
 
+DEFENCE_UNIVERSE: dict[str, dict[str, str]] = {
+    "Aerospace & Avionics": {
+        "HAL": "Hindustan Aeronautics - Tejas LCA Fighter Jets, Helicopters & Sukhoi Upgrade",
+        "BEL": "Bharat Electronics - Radars, Electronic Warfare (EW), Missile Guidance Systems",
+        "DATAPATTNS": "Data Patterns - Airborne Radars, Electronic Warfare & Satellite Payloads",
+        "ASTRAMICRO": "Astra Microwave - Radar Electronics, EW Subsystems & Space Modules",
+        "PARAS": "Paras Defence - Submarine Periscopes, Space Optics & Anti-Drone Systems",
+        "DCXINDIA": "DCX Systems - System Integration & Cable Harnessing for Defense OEMs",
+    },
+    "Shipbuilding & Marine Warfare": {
+        "MAZDOCK": "Mazagon Dock Shipbuilders - Scorpene Submarines & Guided Missile Destroyers",
+        "COCHINSHIP": "Cochin Shipyard - Indigenous Aircraft Carrier & Next-Gen Corvettes",
+        "GRSE": "Garden Reach Shipbuilders - Anti-Submarine Warfare Corvettes & Frigates",
+    },
+    "Missiles, Artillery & Armor": {
+        "BDL": "Bharat Dynamics - Akash, BrahMos, Astra Missiles & Torpedoes",
+        "SOLARINDS": "Solar Industries - Pinaka Rocket Propellants, High-Energy Warheads & Loitering Munitions",
+        "ZENITH": "Zen Technologies - Anti-Drone Combat Systems & Military Simulators",
+        "MIDHANI": "Mishra Dhatu Nigam - Superalloys & Titanium Armor for Missiles and Space",
+        "BEML": "BEML - Heavy Mobility Vehicles for Pinaka/Missile Launchers & Combat Armor",
+        "MTARTECH": "MTAR Technologies - Precision Machined Assemblies for Missiles & Chandrayaan",
+    },
+}
 
-def get_all_thematic_symbols() -> list[str]:
-    """Get the flat unique list of all thematic symbols."""
+POWER_GRID_UNIVERSE: dict[str, dict[str, str]] = {
+    "Heavy Grid Equipment & Transformers": {
+        "ABB": "Heavy Electrification, Substation Switchgears & Grid Automation",
+        "SIEMENS": "HVDC Grid Interconnections, Gas-Insulated Switchgears (GIS)",
+        "POWERINDIA": "Hitachi Energy - HVDC Mega Transmission Links & Substation Automation",
+        "GVT&D": "GE Vernova T&D - Ultra-High Voltage Grid Substations & Switchgears",
+        "TARIL": "Transformers & Rectifiers - 765kV Power Utility Transformers",
+        "VOLTAMP": "Dry-Type & Industrial Distribution Transformers",
+        "SCHNEIDER": "Medium-Voltage Switchgear & Smart Grid Distribution",
+    },
+    "Transmission EPC & Towers": {
+        "POWERGRID": "Power Grid Corp of India - Central Transmission Utility (CTU) Monopoly",
+        "KPIL": "Kalpataru Projects - Turnkey Power Transmission Lines & Substations EPC",
+        "KEC": "KEC International - EHV Transmission Line EPC & Railway Electrification",
+        "SKIPPER": "Skipper - High-Tonnage Power Transmission Towers & Monopoles",
+    },
+    "Power Generation & Wind/Solar": {
+        "NTPC": "NTPC - Mega Power Utility & Green Hydrogen / Renewable Expansion",
+        "TATAPOWER": "Tata Power - Integrated Generation, Transmission, Solar EPC & EV Charging",
+        "BHEL": "Bharat Heavy Electricals - Supercritical Thermal & Nuclear Turbines EPC",
+        "SUZLON": "Suzlon Energy - Wind Turbine OEM & Turnkey Wind Energy EPC",
+        "INOXWIND": "Inox Wind - 3MW+ Mega Wind Turbine Generators OEM",
+    },
+    "Power Financing & Exchanges": {
+        "PFC": "Power Finance Corp - Sovereign Power & Green Capex Lender",
+        "REC": "REC Limited - Power Generation, Transmission & Distribution NBFC",
+        "IEX": "Indian Energy Exchange - Spot Electricity & Green Trading Market",
+    },
+}
+
+RAILWAYS_UNIVERSE: dict[str, dict[str, str]] = {
+    "Rolling Stock & Wagons": {
+        "TITAGARH": "Titagarh Rail Systems - Vande Bharat Trainsets & Metro Coaches OEM",
+        "JUPITERWAG": "Jupiter Wagons - Freight Wagons, Braking Systems & Disc Brakes",
+        "TEXRAIL": "Texmaco Rail & Engineering - Heavy Freight Wagons, Steel Bridges & Bogies",
+        "BEML": "BEML - Vande Bharat Sleeper Trains & Metro Coach Manufacturing",
+    },
+    "Railway Infrastructure & Track EPC": {
+        "RVNL": "Rail Vikas Nigam - Turnkey Railway Track Doubling, High-Speed Lines & Bridges",
+        "IRCON": "Ircon International - Specialized Rail, Tunnels, Bridges & Turnkey EPC",
+        "RAILTEL": "RailTel Corp - Modern Railway Signaling (KAVACH), Telecom & Edge Data",
+        "RITES": "RITES - Railway Design Consultancy, Rolling Stock Leasing & Export EPC",
+    },
+    "Financing, Catering & Freight": {
+        "IRCTC": "IRCTC - Monopolistic Online Rail Ticketing, Catering & Rail Tourism",
+        "IRFC": "Indian Railway Finance Corp - Sovereign Non-Banking Financier for Rail Assets",
+        "CONCOR": "Container Corp of India - Multi-Modal Rail Freight & Inland Container Depots",
+    },
+}
+
+EMS_UNIVERSE: dict[str, dict[str, str]] = {
+    "Precision EMS & Box Build": {
+        "DIXON": "Dixon Technologies - Consumer Electronics, Mobile PLI, Laptops & IT Hardware",
+        "KAYNES": "Kaynes Technology - Industrial, Automotive & Aerospace Precision EMS",
+        "SYRMA": "Syrma SGS - Precision Box-Build, RFID & Power Electronics Manufacturing",
+        "AVALON": "Avalon Technologies - High-Complexity Cable Assemblies, Box-Build & Aerospace",
+        "CYIENTDLM": "Cyient DLM - Defense & Aerospace Electronic Manufacturing Services",
+        "PGEL": "PG Electroplast - Consumer Appliances, Air Conditioners & Plastic Molding EMS",
+        "AMBER": "Amber Enterprises - Turnkey HVAC & Room AC Electronics Assembly",
+        "CENTUM": "Centum Electronics - Strategic Defense, Space & Telecom Electronics",
+        "IKIO": "IKIO Lighting - Precision LED & Architectural Electronics Manufacturing",
+        "TEJASNET": "Tejas Networks - Optical, Broadband & Wireless Networking Equipment EMS",
+        "DCXINDIA": "DCX Systems - Electronic Subsystems, Cable Harnessing & Defense Box-Build",
+    },
+}
+
+REALTY_UNIVERSE: dict[str, dict[str, str]] = {
+    "Real Estate Developers": {
+        "DLF": "DLF - Super-Luxury Residential & Commercial CyberCity Portfolio",
+        "GODREJPROP": "Godrej Properties - Pan-India Premium Residential Development",
+        "PRESTIGE": "Prestige Estates - Mega Residential & Commercial Campuses",
+        "OBEROIRLTY": "Oberoi Realty - High-End Luxury Residential & Mixed-Use Projects",
+        "BRIGADE": "Brigade Enterprises - Integrated Townships & Commercial Tech Parks",
+        "SOBHA": "Sobha - Backward-Integrated Luxury Residential & Contractual Construction",
+        "PHOENIXLTD": "Phoenix Mills - Flagship Destination Malls & Retail Entertainment",
+    },
+    "Building Materials & Cabling": {
+        "ASTRAL": "Astral - CPVC Plumbing Pipes, Water Tanks & Adhesives",
+        "SUPREMEIND": "Supreme Industries - PVC/CPVC Piping, Industrial Plastics & Packaging",
+        "POLYCAB": "Polycab India - Extra High Voltage Cabling & Residential Wires",
+        "KEI": "KEI Industries - EHV Power Transmission Cables & Wires",
+        "HAVELLS": "Havells India - Industrial Switchgear, Cables, Lighting & FMEG",
+        "KAJARIACER": "Kajaria Ceramics - Vitrified & Ceramic Wall/Floor Tiles",
+        "CERA": "Cera Sanitaryware - Sanitaryware, Faucets & Bath Fixtures",
+    },
+}
+
+THEMATIC_UNIVERSES: dict[str, dict[str, dict[str, str]]] = {
+    "Next-Gen Tech": NEXTGEN_TECH_UNIVERSE,
+    "Defence & Aerospace": DEFENCE_UNIVERSE,
+    "Power & Grid Capex": POWER_GRID_UNIVERSE,
+    "Railways Infrastructure": RAILWAYS_UNIVERSE,
+    "EMS & Precision": EMS_UNIVERSE,
+    "Real Estate & Building": REALTY_UNIVERSE,
+}
+
+
+def get_all_thematic_symbols(theme_name: str = "Next-Gen Tech") -> list[str]:
+    """Get flat unique list of symbols for the given theme or all themes."""
+    if theme_name == "All":
+        syms: list[str] = []
+        for universe in THEMATIC_UNIVERSES.values():
+            for pillar in universe.values():
+                syms.extend(pillar.keys())
+        return sorted(set(syms))
+
+    target_universe = THEMATIC_UNIVERSES.get(theme_name, NEXTGEN_TECH_UNIVERSE)
     syms = []
-    for pillar in NEXTGEN_TECH_UNIVERSE.values():
+    for pillar in target_universe.values():
         syms.extend(pillar.keys())
     return sorted(set(syms))
 
 
-def get_symbol_thematic_metadata(symbol: str) -> tuple[str, str]:
+def get_symbol_thematic_metadata(symbol: str, theme_name: str | None = None) -> tuple[str, str]:
     """Return (pillar_name, role_description) for a symbol."""
+    if theme_name and theme_name in THEMATIC_UNIVERSES:
+        for pillar_name, mapping in THEMATIC_UNIVERSES[theme_name].items():
+            if symbol in mapping:
+                return pillar_name, mapping[symbol]
+
+    # Search in default Next-Gen Tech first, then fallback across all universes
     for pillar_name, mapping in NEXTGEN_TECH_UNIVERSE.items():
         if symbol in mapping:
             return pillar_name, mapping[symbol]
-    return "Next-Gen Tech", "Thematic Ecosystem Constituent"
+
+    for uni_name, uni in THEMATIC_UNIVERSES.items():
+        for pillar_name, mapping in uni.items():
+            if symbol in mapping:
+                return pillar_name, mapping[symbol]
+
+    return "Thematic Constituent", "Ecosystem Constituent"
 
 
-def query_thematic_overview(db_path: Path) -> dict[str, Any]:
-    """Aggregate momentum, breadth, and leadership metrics across all 8 thematic pillars."""
+def query_thematic_overview(db_path: Path, theme_name: str = "Next-Gen Tech") -> dict[str, Any]:
+    """Aggregate momentum, breadth, and leadership metrics across thematic pillars."""
     db_path = Path(db_path)
     if not db_path.exists():
-        return {"as_of": None, "pillars": [], "total_stocks": 0, "all_symbols": []}
+        return {"as_of": None, "theme_name": theme_name, "pillars": [], "total_stocks": 0, "all_symbols": []}
 
-    all_symbols = get_all_thematic_symbols()
+    target_universe = THEMATIC_UNIVERSES.get(theme_name, NEXTGEN_TECH_UNIVERSE)
+    all_symbols = get_all_thematic_symbols(theme_name)
+    if not all_symbols:
+        return {"as_of": None, "theme_name": theme_name, "pillars": [], "total_stocks": 0, "all_symbols": []}
+
     placeholders = ", ".join([repr(s) for s in all_symbols])
 
     with duckdb.connect(str(db_path), read_only=True) as db:
         # 1. Latest trade date
         max_d = db.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()[0]
         if max_d is None:
-            return {"as_of": None, "pillars": [], "total_stocks": 0, "all_symbols": all_symbols}
+            return {"as_of": None, "theme_name": theme_name, "pillars": [], "total_stocks": 0, "all_symbols": all_symbols}
 
         as_of_str = str(pd.to_datetime(max_d).date())
 
@@ -155,7 +299,6 @@ def query_thematic_overview(db_path: Path) -> dict[str, Any]:
         JOIN stocks_master m ON m.symbol = i.symbol
         WHERE i.trade_date = ?
           AND i.symbol IN ({placeholders})
-
         """
         try:
             df = db.execute(sql, [max_d]).fetchdf()
@@ -163,14 +306,14 @@ def query_thematic_overview(db_path: Path) -> dict[str, Any]:
             df = pd.DataFrame()
 
     if df.empty:
-        return {"as_of": as_of_str, "pillars": [], "total_stocks": 0, "all_symbols": all_symbols}
+        return {"as_of": as_of_str, "theme_name": theme_name, "pillars": [], "total_stocks": 0, "all_symbols": all_symbols}
 
     # Map each stock to its pillar
-    df["pillar"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s)[0])
-    df["role_desc"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s)[1])
+    df["pillar"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s, theme_name)[0])
+    df["role_desc"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s, theme_name)[1])
 
     pillars_summary = []
-    for pillar_name, mapping in NEXTGEN_TECH_UNIVERSE.items():
+    for pillar_name, mapping in target_universe.items():
         sub_df = df[df["pillar"] == pillar_name]
         stock_count = len(sub_df)
         if stock_count == 0:
@@ -205,6 +348,7 @@ def query_thematic_overview(db_path: Path) -> dict[str, Any]:
 
     return {
         "as_of": as_of_str,
+        "theme_name": theme_name,
         "pillars": pillars_summary,
         "total_stocks": len(df),
         "all_symbols": all_symbols,
@@ -215,6 +359,7 @@ def query_thematic_overview(db_path: Path) -> dict[str, Any]:
 def query_thematic_constituents(
     db_path: Path,
     pillar_name: str | None = None,
+    theme_name: str = "Next-Gen Tech",
     min_mcap: float = 0.0,
     limit: int = 60,
 ) -> pd.DataFrame:
@@ -223,7 +368,10 @@ def query_thematic_constituents(
     if not db_path.exists():
         return pd.DataFrame()
 
-    all_symbols = get_all_thematic_symbols()
+    all_symbols = get_all_thematic_symbols(theme_name)
+    if not all_symbols:
+        return pd.DataFrame()
+
     placeholders = ", ".join([repr(s) for s in all_symbols])
 
     with duckdb.connect(str(db_path), read_only=True) as db:
@@ -249,7 +397,6 @@ def query_thematic_constituents(
                i.return_5d_pct,
                i.return_1m_pct,
                i.return_3m_pct,
-
                i.rs_percentile,
                coalesce(i.rvol, 1.0) AS rvol,
                i.delivery_pct,
@@ -283,8 +430,8 @@ def query_thematic_constituents(
     if df.empty:
         return df
 
-    df["pillar"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s)[0])
-    df["role_desc"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s)[1])
+    df["pillar"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s, theme_name)[0])
+    df["role_desc"] = df["symbol"].apply(lambda s: get_symbol_thematic_metadata(s, theme_name)[1])
 
     if pillar_name and pillar_name != "All Pillars":
         df = df[df["pillar"] == pillar_name]

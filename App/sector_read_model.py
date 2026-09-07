@@ -355,23 +355,93 @@ def _computed_sector_overview(
     frame["turnover_5d_cr"] = frame["turnover_1d_cr"]
     frame["turnover_20d_cr"] = frame["turnover_1d_cr"]
     frame["turnover_expansion"] = 1.0
+
+    # Dynamically enrich from indicators_daily + stocks_master if available
+    col = LEVEL_COLUMNS.get(level, "sector")
+    has_indicators = False
+    try:
+        has_indicators = db.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_name = 'indicators_daily'"
+        ).fetchone()[0] > 0
+    except Exception:
+        has_indicators = False
+
+    cur_date = frame["trade_date"].iloc[0]
+    if has_indicators:
+        dynamic_sql = f"""
+        SELECT m.{col} AS group_name,
+               round(avg(i.return_5d_pct), 2) AS dyn_return_5d_pct,
+               round(sum(i.turnover_cr), 1) AS dyn_turnover_1d_cr,
+               round(sum(i.turnover_cr) / nullif(sum(coalesce(i.avg_traded_value_cr_20d, i.turnover_cr)), 0), 2) AS dyn_turnover_expansion,
+               count(CASE WHEN i.away_52w_high_pct >= -5.0 THEN 1 END) AS dyn_near_52w_highs,
+               round(count(CASE WHEN i.close_price > i.ema_20 THEN 1 END) * 100.0 / nullif(count(*), 0), 1) AS breadth_20,
+               round(count(CASE WHEN i.close_price > i.ema_50 THEN 1 END) * 100.0 / nullif(count(*), 0), 1) AS dyn_breadth_50,
+               round(count(CASE WHEN i.close_price > i.ema_200 THEN 1 END) * 100.0 / nullif(count(*), 0), 1) AS dyn_breadth_200
+        FROM indicators_daily i
+        JOIN stocks_master m ON m.symbol = i.symbol
+        WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+        GROUP BY m.{col}
+        """
+        try:
+            dyn_df = db.execute(dynamic_sql, [cur_date]).fetchdf()
+            if not dyn_df.empty:
+                frame = frame.merge(dyn_df, on="group_name", how="left")
+                if "dyn_return_5d_pct" in frame.columns:
+                    frame["return_5d_pct"] = frame["dyn_return_5d_pct"].fillna(frame["return_5d_pct"])
+                if "dyn_turnover_expansion" in frame.columns:
+                    frame["turnover_expansion"] = frame["dyn_turnover_expansion"].fillna(1.0)
+                if "dyn_near_52w_highs" in frame.columns:
+                    frame["near_52w_highs"] = frame["dyn_near_52w_highs"].fillna(frame["near_52w_highs"]).astype(int)
+                if "dyn_turnover_1d_cr" in frame.columns:
+                    frame["turnover_1d_cr"] = frame["dyn_turnover_1d_cr"].fillna(frame["turnover_1d_cr"])
+                if "dyn_breadth_50" in frame.columns:
+                    frame["above_50ema_pct"] = frame["above_50ema_pct"].fillna(frame["dyn_breadth_50"])
+                if "dyn_breadth_200" in frame.columns:
+                    frame["above_200ema_pct"] = frame["above_200ema_pct"].fillna(frame["dyn_breadth_200"])
+        except Exception:
+            pass
+
+    # Dynamic turnover share %
+    total_turnover = frame["turnover_1d_cr"].sum()
+    if total_turnover > 0:
+        frame["turnover_share_pct"] = (frame["turnover_1d_cr"] / total_turnover * 100.0).round(1)
+    else:
+        frame["turnover_share_pct"] = 0.0
+
     frame["rotation_score"] = (
         frame["rs_percentile"].fillna(0) * 0.40
-        + frame["breadth_50"].fillna(0) * 0.30
-        + frame["breadth_200"].fillna(0) * 0.20
-        + frame["rs_vs_nifty_21d"].fillna(0).clip(-20, 20) * 0.50
+        + frame["above_50ema_pct"].fillna(0) * 0.30
+        + frame["above_200ema_pct"].fillna(0) * 0.20
+        + frame["return_1m_pct"].fillna(0).clip(-20, 20) * 0.50
     )
     frame["rotation_rank"] = frame["rotation_score"].rank(ascending=False, method="min")
     frame["rank_change_5d"] = 0
     frame["score_change_5d"] = 0.0
+
+    # RRG (Relative Rotation Graph) 4-Quadrant calculations
+    if "rs_vs_nifty_63d" in frame.columns and frame["rs_vs_nifty_63d"].notna().any() and (frame["rs_vs_nifty_63d"].abs().sum() > 0):
+        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"].fillna(0.0) / 1.5).clip(-30.0, 30.0)
+    else:
+        frame["rs_ratio"] = 100.0 + (frame["rs_percentile"].fillna(50.0) - 50.0)
+
+    if "rs_vs_nifty_21d" in frame.columns and frame["rs_vs_nifty_21d"].notna().any() and (frame["rs_vs_nifty_21d"].abs().sum() > 0):
+        frame["rs_momentum"] = 100.0 + ((frame["rs_vs_nifty_21d"].fillna(0.0) - (frame["rs_vs_nifty_63d"].fillna(0.0) / 3.0)) * 2.0).clip(-30.0, 30.0)
+    else:
+        frame["rs_momentum"] = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
+
+    rrg_conditions = [
+        (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
+        (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
+        (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
+    ]
     frame["rotation_state"] = np.select(
-        [frame["rotation_rank"] <= 5, frame["rotation_rank"] <= 10],
-        ["Leading", "Improving"],
+        rrg_conditions,
+        ["Leading", "Weakening", "Improving"],
         default="Lagging",
     )
     frame["near_52w_highs"] = frame["near_52w_highs"].fillna(0).astype(int)
     frame["why_focus"] = frame.apply(_build_why_focus, axis=1)
-    col = LEVEL_COLUMNS.get(level, "sector")
+
     leaders_sql = f"""
     WITH top_stocks AS (
         SELECT m.{col} AS group_name, i.symbol, i.rs_percentile, i.close_price, i.return_1m_pct,
@@ -388,7 +458,6 @@ def _computed_sector_overview(
     GROUP BY group_name
     """
     try:
-        cur_date = frame["trade_date"].iloc[0]
         leaders_df = db.execute(leaders_sql, [cur_date]).fetchdf()
         if not leaders_df.empty:
             frame = frame.merge(leaders_df, on="group_name", how="left")
@@ -406,7 +475,10 @@ def _computed_sector_overview(
     for _, row in frame.sort_values("rotation_rank").iterrows():
         state = str(row["rotation_state"])
         item = row.to_dict()
-        item.update({"status_badge": state.upper(), "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"})
+        item.update({
+            "status_badge": state.upper(),
+            "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"
+        })
         quad_key = state if state in quadrants else "Lagging"
         quadrants[quad_key].append(item)
         if len(top_focus) < 4:
@@ -552,6 +624,32 @@ def query_sector_rotation_overview(
     else:
         rot_df["turnover_share_pct"] = 0.0
 
+    # RRG (Relative Rotation Graph) 4-Quadrant coordinates
+    rot_df["rs_ratio"] = 100.0 + (rot_df["rs_percentile"].fillna(50.0) - 50.0)
+    rot_df["rs_momentum"] = 100.0 + (
+        rot_df["score_change_5d"].fillna(0.0) * 3.0 + rot_df["return_5d_pct"].fillna(0.0) * 1.5
+    ).clip(-25.0, 25.0)
+
+    # Normalize rotation states to standard 4 RRG quadrants
+    def _clean_rrg_state(r: pd.Series) -> str:
+        st = str(r.get("rotation_state") or "").strip()
+        if st == "Emerging":
+            return "Improving"
+        if st in ("Leading", "Improving", "Weakening", "Lagging"):
+            return st
+        ratio = float(r.get("rs_ratio") or 100.0)
+        mom = float(r.get("rs_momentum") or 100.0)
+        if ratio >= 100.0 and mom >= 100.0:
+            return "Leading"
+        elif ratio >= 100.0 and mom < 100.0:
+            return "Weakening"
+        elif ratio < 100.0 and mom >= 100.0:
+            return "Improving"
+        else:
+            return "Lagging"
+
+    rot_df["rotation_state"] = rot_df.apply(_clean_rrg_state, axis=1)
+
     # Build 'why_focus' column
     rot_df["why_focus"] = rot_df.apply(_build_why_focus, axis=1)
 
@@ -566,7 +664,9 @@ def query_sector_rotation_overview(
     top_focus_list: list[dict[str, Any]] = []
 
     for _, row in rot_df.iterrows():
-        state = str(row.get("rotation_state") or "Neutral")
+        state = str(row.get("rotation_state") or "Lagging")
+        if state not in quadrants:
+            state = "Lagging"
         rank = int(row.get("rotation_rank") or 99)
         rank_chg = float(row.get("rank_change_5d") or 0.0)
         rs = float(row.get("rs_percentile") or 0.0)
@@ -579,7 +679,7 @@ def query_sector_rotation_overview(
         elif rank <= 4 and rs >= 55:
             status_badge = "TOP FOCUS"
             status_color = "emerald"
-        elif state in ("Leading", "Emerging", "Improving"):
+        elif state in ("Leading", "Improving"):
             status_badge = state.upper()
             status_color = "emerald" if state == "Leading" else "blue"
         elif state == "Weakening" or (rank <= 8 and score_chg < 0):
@@ -599,6 +699,8 @@ def query_sector_rotation_overview(
             "rotation_score": float(row.get("rotation_score") or 0.0),
             "score_change_5d": score_chg,
             "rs_percentile": rs,
+            "rs_ratio": float(row.get("rs_ratio") or 100.0),
+            "rs_momentum": float(row.get("rs_momentum") or 100.0),
             "return_1d_pct": float(row.get("return_1d_pct") or 0.0) if "return_1d_pct" in row else 0.0,
             "return_5d_pct": float(row.get("return_5d_pct") or 0.0),
             "return_1m_pct": float(row.get("return_1m_pct") or 0.0),
@@ -616,15 +718,8 @@ def query_sector_rotation_overview(
             "why_focus": str(row.get("why_focus") or ""),
         }
 
-        # Quadrant placement
-        if state == "Leading" or (rank <= 5 and rs >= 55):
-            quadrants["Leading"].append(item)
-        elif state in ("Emerging", "Improving") or (rank_chg >= 3 and rank > 5):
-            quadrants["Improving"].append(item)
-        elif state == "Weakening" or (rank <= 8 and score_chg < 0):
-            quadrants["Weakening"].append(item)
-        else:
-            quadrants["Lagging"].append(item)
+        # Quadrant placement strictly to one of the 4 quadrants
+        quadrants[state].append(item)
 
         # High-Conviction Top Focus Cards (Top 4 ranked or surging)
         if len(top_focus_list) < 4 and (rank <= 4 or rank_chg >= 4):
@@ -759,3 +854,220 @@ def query_sector_deep_dive(
         "stocks": stocks_df,
         "sub_industries": sub_df,
     }
+
+
+def query_sector_turnover_overview(
+    db_path: Path,
+    level: str = "Sector",
+    as_of: date | None = None,
+) -> pd.DataFrame:
+    """Fetch sector turnover distribution, market share %, expansion ratio, and volume surge flags."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame()
+
+    col = LEVEL_COLUMNS.get(level, "sector")
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        if as_of is not None:
+            target_date = as_of
+        else:
+            max_res = db.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()
+            target_date = max_res[0] if max_res else None
+        if target_date is None:
+            return pd.DataFrame()
+
+        sql = f"""
+        WITH stock_stats AS (
+            SELECT m.{col} AS group_name,
+                   i.symbol,
+                   i.turnover_cr,
+                   coalesce(i.avg_traded_value_cr_20d, i.turnover_cr) AS adv_20d,
+                   ROW_NUMBER() OVER (PARTITION BY m.{col} ORDER BY i.turnover_cr DESC) AS rn
+            FROM indicators_daily i
+            JOIN stocks_master m ON m.symbol = i.symbol
+            WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+        ),
+        group_turnover AS (
+            SELECT group_name,
+                   round(sum(turnover_cr), 1) AS turnover_1d_cr,
+                   round(sum(adv_20d), 1) AS turnover_20d_adv_cr,
+                   round(sum(turnover_cr) / nullif(sum(adv_20d), 0), 2) AS turnover_expansion,
+                   count(*) AS total_stocks
+            FROM stock_stats
+            GROUP BY group_name
+        ),
+        top_drivers AS (
+            SELECT group_name,
+                   string_agg(symbol || ' (' || round(turnover_cr, 0)::text || 'Cr)', ', ') AS top_turnover_stocks
+            FROM stock_stats
+            WHERE rn <= 3
+            GROUP BY group_name
+        )
+        SELECT g.group_name,
+               g.turnover_1d_cr,
+               g.turnover_20d_adv_cr,
+               g.turnover_expansion,
+               g.total_stocks,
+               coalesce(t.top_turnover_stocks, '') AS top_turnover_stocks
+        FROM group_turnover g
+        LEFT JOIN top_drivers t ON g.group_name = t.group_name
+        ORDER BY g.turnover_1d_cr DESC
+        """
+        try:
+            df = db.execute(sql, [target_date]).fetchdf()
+        except duckdb.Error:
+            return pd.DataFrame()
+
+        if df.empty:
+            return df
+
+        total_market_turnover = df["turnover_1d_cr"].sum()
+        if total_market_turnover > 0:
+            df["turnover_share_pct"] = (df["turnover_1d_cr"] / total_market_turnover * 100.0).round(1)
+        else:
+            df["turnover_share_pct"] = 0.0
+
+        df["turnover_surge"] = (df["turnover_expansion"] >= 1.25) & (df["turnover_share_pct"] >= 3.0)
+        return df
+
+
+def query_sector_52w_highs_overview(
+    db_path: Path,
+    level: str = "Sector",
+    as_of: date | None = None,
+) -> pd.DataFrame:
+    """Fetch clustering of stocks at or near 52-week highs across sectors."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame()
+
+    col = LEVEL_COLUMNS.get(level, "sector")
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        if as_of is not None:
+            target_date = as_of
+        else:
+            max_res = db.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()
+            target_date = max_res[0] if max_res else None
+        if target_date is None:
+            return pd.DataFrame()
+
+        sql = f"""
+        WITH stock_highs AS (
+            SELECT m.{col} AS group_name,
+                   i.symbol,
+                   i.close_price,
+                   i.away_52w_high_pct,
+                   i.rs_percentile,
+                   i.return_1m_pct,
+                   CASE WHEN i.away_52w_high_pct >= -5.0 THEN 1 ELSE 0 END AS near_52w,
+                   CASE WHEN i.away_52w_high_pct >= -2.0 THEN 1 ELSE 0 END AS at_52w,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY m.{col} 
+                       ORDER BY CASE WHEN i.away_52w_high_pct >= -5.0 THEN 0 ELSE 1 END, 
+                                i.away_52w_high_pct DESC, 
+                                i.rs_percentile DESC
+                   ) AS rn
+            FROM indicators_daily i
+            JOIN stocks_master m ON m.symbol = i.symbol
+            WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+        ),
+        group_counts AS (
+            SELECT group_name,
+                   count(*) AS total_stocks,
+                   sum(near_52w) AS near_52w_count,
+                   sum(at_52w) AS at_52w_count,
+                   round(sum(near_52w) * 100.0 / count(*), 1) AS high_density_pct
+            FROM stock_highs
+            GROUP BY group_name
+        ),
+        top_high_stocks AS (
+            SELECT group_name,
+                   string_agg(symbol || ' (' || round(away_52w_high_pct, 1)::text || '%)', ', ') AS stocks_near_high
+            FROM stock_highs
+            WHERE rn <= 5 AND near_52w = 1
+            GROUP BY group_name
+        )
+        SELECT g.group_name,
+               g.total_stocks,
+               g.near_52w_count,
+               g.at_52w_count,
+               g.high_density_pct,
+               coalesce(t.stocks_near_high, 'None') AS stocks_near_high
+        FROM group_counts g
+        LEFT JOIN top_high_stocks t ON g.group_name = t.group_name
+        ORDER BY g.near_52w_count DESC, g.high_density_pct DESC
+        """
+        try:
+            return db.execute(sql, [target_date]).fetchdf()
+        except duckdb.Error:
+            return pd.DataFrame()
+
+
+def query_sector_breadth_divergence(
+    db_path: Path,
+    level: str = "Sector",
+    as_of: date | None = None,
+) -> pd.DataFrame:
+    """Detect breadth divergence, heavyweight traps, and stealth accumulation per sector."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame()
+
+    col = LEVEL_COLUMNS.get(level, "sector")
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        if as_of is not None:
+            target_date = as_of
+        else:
+            max_res = db.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()
+            target_date = max_res[0] if max_res else None
+        if target_date is None:
+            return pd.DataFrame()
+
+        sql = f"""
+        WITH stock_breadth AS (
+            SELECT m.{col} AS group_name,
+                   i.symbol,
+                   i.return_5d_pct,
+                   i.return_1m_pct,
+                   CASE WHEN i.close_price > i.ema_20 THEN 1.0 ELSE 0.0 END AS gt_ema20,
+                   CASE WHEN i.close_price > i.ema_50 THEN 1.0 ELSE 0.0 END AS gt_ema50,
+                   CASE WHEN i.close_price > i.ema_200 THEN 1.0 ELSE 0.0 END AS gt_ema200
+            FROM indicators_daily i
+            JOIN stocks_master m ON m.symbol = i.symbol
+            WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+        )
+        SELECT group_name,
+               count(*) AS total_stocks,
+               round(avg(return_5d_pct), 2) AS return_5d_pct,
+               round(avg(return_1m_pct), 2) AS return_1m_pct,
+               round(avg(gt_ema20) * 100.0, 1) AS breadth_20,
+               round(avg(gt_ema50) * 100.0, 1) AS breadth_50,
+               round(avg(gt_ema200) * 100.0, 1) AS breadth_200
+        FROM stock_breadth
+        GROUP BY group_name
+        ORDER BY return_5d_pct DESC
+        """
+        try:
+            df = db.execute(sql, [target_date]).fetchdf()
+        except duckdb.Error:
+            return pd.DataFrame()
+
+        if df.empty:
+            return df
+
+        def classify_divergence(row: pd.Series) -> str:
+            ret5 = float(row.get("return_5d_pct") or 0.0)
+            b50 = float(row.get("breadth_50") or 0.0)
+            if ret5 >= 1.0 and b50 < 40.0:
+                return "Heavyweight Trap / Narrow Rally"
+            elif b50 >= 60.0 and ret5 > 0:
+                return "Bullish Expansion"
+            elif b50 >= 55.0 and ret5 <= 0.5:
+                return "Stealth Accumulation"
+            elif b50 < 35.0 and ret5 < 0:
+                return "Broad Breakdown"
+            else:
+                return "Consolidating / Neutral"
+
+        df["divergence_status"] = df.apply(classify_divergence, axis=1)
+        return df

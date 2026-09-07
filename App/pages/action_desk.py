@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import duckdb
+import numpy as np
 import pandas as pd
 from nicegui import ui
 
@@ -75,20 +76,49 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         ab50_pct = round(breadth_row[3] or 50.0, 1)
         ab200_pct = round(breadth_row[4] or 50.0, 1)
 
-        # India VIX
-        vix_res = con.execute(
-            "SELECT close_price FROM index_daily WHERE trade_date = ? AND index_name = 'India VIX'",
+        # India VIX and 1-Day change
+        vix_val = 11.3
+        vix_1d_pct = 0.0
+        try:
+            vix_res = con.execute(
+                """
+                SELECT close_price,
+                       (close_price / nullif(prev_close, 0) - 1.0) * 100 AS vix_1d_pct
+                FROM index_daily
+                WHERE trade_date = ? AND index_name = 'India VIX'
+                """,
+                [trade_date],
+            ).fetchone()
+            if vix_res and vix_res[0]:
+                vix_val = round(float(vix_res[0]), 2)
+                vix_1d_pct = round(float(vix_res[1] or 0.0), 1)
+        except Exception:
+            pass
+
+        # Net 52-Week Highs / Lows Breadth Gate
+        high_low_row = con.execute(
+            """
+            SELECT 
+                count(CASE WHEN away_52w_high_pct >= -2.0 THEN 1 END) AS count_52w_highs,
+                count(CASE WHEN (close_price / nullif(low_52w, 0) - 1.0) <= 0.02 THEN 1 END) AS count_52w_lows
+            FROM indicators_daily
+            WHERE trade_date = ?
+            """,
             [trade_date],
         ).fetchone()
-        vix_val = round(vix_res[0], 2) if vix_res and vix_res[0] else 11.3
+        count_52w_highs = int(high_low_row[0] or 0) if high_low_row else 0
+        count_52w_lows = int(high_low_row[1] or 0) if high_low_row else 0
+        net_highs = count_52w_highs - count_52w_lows
+        net_lows_expanding = count_52w_lows > count_52w_highs
+        vix_spike = vix_1d_pct >= 10.0
 
-        # Exposure Decision Logic (Minervini / O'Neil Progressive Exposure)
-        if adv_pct >= 58.0 and ab20_pct >= 48.0 and ab200_pct >= 45.0 and vix_val < 16.0:
+        # Exposure Decision Logic (Minervini / O'Neil Progressive Exposure + VIX Regimes)
+        if adv_pct >= 58.0 and ab20_pct >= 48.0 and ab200_pct >= 45.0 and vix_val < 15.0 and not vix_spike and not net_lows_expanding:
             exposure_pct = "75% - 100%"
             exposure_state = "Aggressive / Full Trend"
             exposure_badge = "mp-badge-good"
-            exposure_guidance = "Broad market participation is strong. Deploy normal swing size (10-15% per position), use 3-5% stops, and let winning leaders compound."
-        elif adv_pct >= 45.0 and ab20_pct >= 38.0 and vix_val < 18.0:
+            exposure_guidance = "Broad market participation is strong and volatility is low (<15 VIX). Deploy normal swing size (10-15% per position), use 3-5% stops, and let winning leaders compound."
+        elif adv_pct >= 45.0 and ab20_pct >= 38.0 and vix_val < 18.0 and not (vix_spike and net_lows_expanding):
             exposure_pct = "50% - 75%"
             exposure_state = "Constructive / Selective"
             exposure_badge = "mp-badge-good"
@@ -97,12 +127,17 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             exposure_pct = "25% - 50%"
             exposure_state = "Selective / Caution"
             exposure_badge = "mp-badge-warn"
-            exposure_guidance = "Diverging market breadth. Cut position size in half, take quick partial profits at 2R to 3R, and trail stops tightly."
+            if net_lows_expanding:
+                exposure_guidance = f"Net 52W Lows expanding ({count_52w_lows} lows vs {count_52w_highs} highs). Cut position sizes in half, take quick 2R profits, and trail stops tightly."
+            elif vix_spike:
+                exposure_guidance = f"VIX surge of +{vix_1d_pct:.1f}% indicates sudden volatility expansion. Avoid chasing breakouts; wait for calm base resets."
+            else:
+                exposure_guidance = "Diverging market breadth. Cut position size in half, take quick partial profits at 2R to 3R, and trail stops tightly."
         else:
             exposure_pct = "0% - 15%"
             exposure_state = "Risk-Off / Defensive"
             exposure_badge = "mp-badge-bad"
-            exposure_guidance = "Net distribution and breadth breakdown. Protect capital in cash. Do not force new breakout buys until breadth recovers above 20 EMA."
+            exposure_guidance = "Net distribution, breadth breakdown, or high volatility. Protect capital in cash. Do not force new breakout buys until breadth recovers above 20 EMA."
 
         # 3. Top Leading Themes (Sector Money Flow)
         top_sectors = con.execute(
@@ -259,7 +294,12 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         & (vcp_df["risk_pct"] <= 6.0)
     ].sort_values(["rs_percentile", "dist_to_trigger_pct"], ascending=[False, True]).head(10)
     vcp_df["setup_type"] = "VCP Breakout"
-    vcp_df["why_now"] = "Coiling <3.5% below 20D pivot with tight <6% invalidation"
+    vcp_df["is_vdu"] = vcp_df["rvol"] <= 0.70
+    vcp_df["why_now"] = np.where(
+        vcp_df["is_vdu"],
+        "Coiling <3.5% below pivot with confirmed Volume Dry-Up (VDU)",
+        "Coiling <3.5% below 20D pivot with tight <6% invalidation",
+    )
 
     # -------------------------------------------------------------
     # Queue 2: 10/20 EMA Pullback (Continuation)
@@ -381,6 +421,10 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "ab50_pct": ab50_pct,
             "ab200_pct": ab200_pct,
             "vix": vix_val,
+            "vix_1d_pct": vix_1d_pct,
+            "count_52w_highs": count_52w_highs,
+            "count_52w_lows": count_52w_lows,
+            "net_highs": net_highs,
             "total_stocks": total_stocks,
         },
         "themes": top_sectors,
@@ -731,6 +775,7 @@ def build_action_desk_page(
     state = {
         "active_queue": initial_queue,
         "selected_symbol": initial_sym,
+        "real_inst_flow_only": False,
     }
 
     # Display columns for the matrix
@@ -776,7 +821,12 @@ def build_action_desk_page(
                         ui.label(f"{exp['ab200_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("India VIX:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(f"{exp['vix']}").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
+                        vix_sign = "+" if exp.get("vix_1d_pct", 0) > 0 else ""
+                        ui.label(f"{exp['vix']} ({vix_sign}{exp.get('vix_1d_pct', 0):.1f}%)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("Net 52W Highs:").classes("text-[var(--mp-muted)] text-[11px]")
+                        net_h = exp.get("net_highs", 0)
+                        ui.label(f"{'+' if net_h > 0 else ''}{net_h} ({exp.get('count_52w_highs', 0)}H / {exp.get('count_52w_lows', 0)}L)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if net_h >= 0 else "text-rose-400"))
 
                 if copy_text and tv.get("all_focus"):
                     ui.button(
@@ -869,7 +919,9 @@ def build_action_desk_page(
             q_key = state["active_queue"]
             q_info = queue_meta.get(q_key, queue_meta["vcp"])
             q_df = queues.get(q_key, pd.DataFrame())
-            tv_text = tv.get(q_info["tv_key"], "")
+            if state.get("real_inst_flow_only") and not q_df.empty and "deal_flow" in q_df.columns:
+                q_df = q_df[q_df["deal_flow"].astype(str).str.strip().ne("—")]
+            tv_text = to_tv_list(q_df["symbol"].tolist()) if (not q_df.empty and "symbol" in q_df.columns) else tv.get(q_info["tv_key"], "")
 
             # Header Banner
             with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
@@ -886,7 +938,18 @@ def build_action_desk_page(
                 # Quality Filter Strip
                 with ui.row().classes("w-full items-center justify-between text-[11px] text-[var(--mp-muted)] font-mono mt-2 pt-2 border-t border-[var(--mp-border)] flex-wrap gap-2"):
                     ui.label("Rules: MCap > ₹1000Cr · Circuit > 5% · > 200 EMA · 50>200 EMA · Within 25% 52W · RS >= 70").classes("truncate")
-                    ui.label("Risk Ceiling: <= 6.0%").classes("font-bold text-emerald-400 font-mono")
+                    with ui.row().classes("items-center gap-3"):
+                        ui.label("Risk Ceiling: <= 6.0%").classes("font-bold text-emerald-400 font-mono")
+                        ui.button(
+                            "🏛️ Real Inst Flow Only",
+                            on_click=lambda: (
+                                state.update({"real_inst_flow_only": not state.get("real_inst_flow_only", False)}),
+                                render_matrix(),
+                            ),
+                        ).props("dense size=xs").classes(
+                            "font-mono font-bold px-2 py-0.5 rounded transition-all " +
+                            ("bg-emerald-600 text-white shadow" if state.get("real_inst_flow_only") else "bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700")
+                        )
 
             # Candidate Quick Selector Chips
             if not q_df.empty and "symbol" in q_df.columns:

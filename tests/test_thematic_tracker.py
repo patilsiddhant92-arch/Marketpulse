@@ -60,3 +60,28 @@ def test_query_thematic_constituents():
     silicon_df = query_thematic_constituents(DB_PATH, pillar_name="Silicon & Chip Design")
     assert not silicon_df.empty
     assert (silicon_df["pillar"] == "Silicon & Chip Design").all()
+
+
+@pytest.mark.skipif(not DB_PATH.exists(), reason="Database not built")
+def test_expanded_thematic_universes():
+    from App.thematic_read_model import THEMATIC_UNIVERSES
+
+    expected_themes = [
+        "Next-Gen Tech",
+        "Defence & Aerospace",
+        "Power & Grid Capex",
+        "Railways Infrastructure",
+        "EMS & Precision",
+        "Real Estate & Building",
+    ]
+    for theme in expected_themes:
+        assert theme in THEMATIC_UNIVERSES
+        symbols = get_all_thematic_symbols(theme)
+        assert len(symbols) >= 10, f"Theme {theme} should have at least 10 symbols"
+
+    # Test Defence overview
+    def_overview = query_thematic_overview(DB_PATH, theme_name="Defence & Aerospace")
+    assert def_overview["as_of"] is not None
+    assert def_overview["total_stocks"] >= 10
+    assert len(def_overview["pillars"]) >= 3
+

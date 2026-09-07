@@ -11,9 +11,12 @@ try:
     from App.sector_read_model import (
         LEVEL_COLUMNS,
         filter_taxonomy_tree,
+        query_sector_breadth_divergence,
         query_sector_data_contract,
         query_sector_deep_dive,
+        query_sector_52w_highs_overview,
         query_sector_rotation_overview,
+        query_sector_turnover_overview,
         query_taxonomy_hierarchy,
     )
     from App.market_status import load_market_status, non_actionable_message
@@ -24,9 +27,12 @@ except ModuleNotFoundError:
     from sector_read_model import (  # type: ignore
         LEVEL_COLUMNS,
         filter_taxonomy_tree,
+        query_sector_breadth_divergence,
         query_sector_data_contract,
         query_sector_deep_dive,
+        query_sector_52w_highs_overview,
         query_sector_rotation_overview,
+        query_sector_turnover_overview,
         query_taxonomy_hierarchy,
     )
     from market_status import load_market_status, non_actionable_message  # type: ignore
@@ -55,12 +61,21 @@ def _fmt_num(v: Any, dec: int = 1) -> str:
         return "-"
 
 
+VIEW_TABS = [
+    ("🎯 RRG Matrix", "rrg"),
+    ("💰 Turnover Share & Surge", "turnover"),
+    ("🏔️ 52W High Leaders", "highs52"),
+    ("⚖️ Breadth Divergence", "divergence"),
+    ("🌳 Taxonomy Tree", "tree"),
+]
+
+
 def build_sector_intel_page(
     db_path: Path,
     *,
     copy_text: Callable[[str, str], None] | None = None,
 ) -> None:
-    """Render taxonomy-only sector metrics and stock leadership."""
+    """Render comprehensive sector leadership, RRG quadrants, turnover, 52W highs, and breadth divergence."""
     db_path = Path(db_path)
 
     state = {
@@ -72,12 +87,13 @@ def build_sector_intel_page(
         "selected_level": "Sector",
         "selected_group": "",
         "selected_node_id": "",
+        "active_view": "rrg",
     }
 
     with ui.row().classes("w-full mp-sector-page justify-between items-center mb-3 flex-wrap gap-2"):
         with ui.column().classes("gap-0"):
             ui.label("Sector Leadership Desk").classes("mp-page-title")
-            ui.label("Computed NSE taxonomy metrics: breadth, cap-weighted RS, concentration, setups, and flow.").classes("mp-page-subtitle")
+            ui.label("Institutional money flow, Relative Rotation Graph (RRG), turnover expansion, and 52W high clusters.").classes("mp-page-subtitle")
 
         with ui.row().classes("items-center gap-2 flex-wrap"):
             refresh_btn = ui.button("Refresh", icon="refresh").classes("mp-primary").props("dense unelevated")
@@ -86,234 +102,407 @@ def build_sector_intel_page(
     if not sector_status.actionable:
         ui.label(non_actionable_message(sector_status)).classes("mp-badge mp-bad w-full mt-2")
 
+    # View Navigation Tabs Bar
+    nav_row = ui.row().classes("w-full items-center gap-2 mb-2 p-1.5 rounded-lg bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] flex-wrap")
+
     # Main dynamic container
     main_container = ui.column().classes("w-full mp-sector-page gap-6")
 
+    def render_nav() -> None:
+        nav_row.clear()
+        with nav_row:
+            ui.label("VIEWS:").classes("text-[11px] font-bold text-[var(--mp-muted)] uppercase tracking-wider px-2")
+            for label, key in VIEW_TABS:
+                is_active = (state["active_view"] == key)
+                btn = ui.button(
+                    label,
+                    on_click=lambda k=key: switch_view(k),
+                ).props("dense unelevated size=sm").classes(
+                    "font-semibold text-xs px-3 py-1 rounded transition-all " +
+                    ("bg-emerald-600 text-white shadow font-bold" if is_active else "bg-slate-800 text-slate-300 hover:bg-slate-700")
+                )
+
+    def switch_view(key: str) -> None:
+        state["active_view"] = key
+        render_nav()
+        render_content()
+
     def render_content() -> None:
         main_container.clear()
-        _render_taxonomy_tree_workspace(main_container, db_path, state, copy_text)
+        view = state.get("active_view", "rrg")
+        if view == "rrg":
+            _render_rrg_quadrants_view(main_container, db_path, state, copy_text)
+        elif view == "turnover":
+            _render_turnover_view(main_container, db_path, state, copy_text)
+        elif view == "highs52":
+            _render_52w_highs_view(main_container, db_path, state, copy_text)
+        elif view == "divergence":
+            _render_breadth_divergence_view(main_container, db_path, state, copy_text)
+        else:
+            _render_taxonomy_tree_workspace(main_container, db_path, state, copy_text)
 
+    render_nav()
     refresh_btn.on_click(render_content)
     render_content()
 
 
 # =========================================================================
-# THEMATIC MEGATREND VIEW (AI / DATA CENTERS / SEMICONDUCTORS / ANCILLARIES)
+# 1. RELATIVE ROTATION GRAPH (RRG) 4-QUADRANT VIEW
 # =========================================================================
 
-def _render_thematic_mode(
+def _render_quadrant_card(
+    title: str,
+    formula: str,
+    desc: str,
+    items: list[dict[str, Any]],
+    style_classes: str,
+    db_path: Path,
+    copy_text: Callable[[str, str], None] | None = None,
+) -> None:
+    with ui.card().classes(f"w-full p-4 rounded-xl border {style_classes}"):
+        with ui.row().classes("w-full justify-between items-center pb-2 border-b border-white/10 flex-wrap gap-2"):
+            with ui.column().classes("gap-0"):
+                ui.label(title).classes("font-black text-sm tracking-wider uppercase")
+                ui.label(formula).classes("text-[10px] font-mono opacity-80")
+            with ui.row().classes("items-center gap-2"):
+                ui.label(f"{len(items)} Groups").classes("text-xs font-bold px-2 py-0.5 rounded bg-black/30")
+                if copy_text and items:
+                    all_leaders = []
+                    for it in items:
+                        for s in str(it.get("leader_symbols") or "").split():
+                            if s.strip():
+                                all_leaders.append(s.strip())
+                    if all_leaders:
+                        tv_str = ",".join(f"NSE:{s}" for s in sorted(set(all_leaders)))
+                        ui.button(
+                            "Copy Leaders (TV)",
+                            icon="content_copy",
+                            on_click=lambda t=tv_str, title=title: copy_text(f"{title} Leaders", t),
+                        ).props("dense flat size=xs").classes("text-[10px] text-white/90 bg-black/40 px-2 py-0.5 rounded hover:bg-black/60")
+
+        ui.label(desc).classes("text-xs opacity-80 my-2 leading-relaxed")
+
+        if not items:
+            ui.label("No sectors currently in this quadrant.").classes("text-xs opacity-60 italic py-3 text-center w-full")
+            return
+
+        with ui.column().classes("w-full gap-2 mt-1"):
+            for it in items:
+                with ui.column().classes("w-full p-2.5 rounded-lg bg-black/40 border border-white/10 gap-1"):
+                    with ui.row().classes("w-full justify-between items-center"):
+                        ui.label(f"#{it.get('rotation_rank', '-')} {it['group_name']}").classes("font-bold text-xs text-white truncate")
+                        ret_sign = "+" if float(it.get("return_5d_pct", 0)) > 0 else ""
+                        ui.label(f"5D: {ret_sign}{float(it.get('return_5d_pct', 0)):.1f}%").classes("text-xs font-mono font-bold")
+
+                    with ui.row().classes("w-full justify-between items-center text-[10px] opacity-75 font-mono"):
+                        ui.label(f"RS: {float(it.get('rs_percentile', 0)):.0f}")
+                        ui.label(f">50 EMA: {float(it.get('above_50ema_pct', 0)):.0f}%")
+                        ui.label(f"Turnover: ₹{float(it.get('turnover_1d_cr', 0)):,.0f}Cr")
+                        if it.get("near_52w_highs", 0) > 0:
+                            ui.label(f"🏔️ {it['near_52w_highs']} Highs")
+
+                    # Leader symbols
+                    leaders = [s.strip() for s in str(it.get("top_leaders") or "").split(",") if s.strip()]
+                    if leaders:
+                        with ui.row().classes("w-full items-center gap-1.5 mt-1 pt-1 border-t border-white/5 flex-wrap"):
+                            ui.label("Top:").classes("text-[10px] opacity-60 uppercase")
+                            for sym in leaders[:4]:
+                                ui.button(
+                                    sym,
+                                    on_click=lambda s=sym: open_stock_360_modal(db_path, s, copy_text=copy_text),
+                                ).props("dense flat size=xs").classes("font-mono text-[10px] text-sky-300 px-1 py-0 hover:underline bg-white/5 rounded")
+
+
+def _render_rrg_quadrants_view(
     container: ui.column,
     db_path: Path,
     state: dict[str, Any],
     copy_text: Callable[[str, str], None] | None = None,
 ) -> None:
-    """Render the Next-Gen Tech Thematic Megatrend dashboard."""
-    overview = query_thematic_overview(db_path)
+    lvl = str(state.get("level_filter") or "Sector")
+    overview = query_sector_rotation_overview(db_path, level=lvl)
     if not overview.get("as_of"):
         with container:
-            ui.label("No thematic market data available in database.").classes("text-slate-400 p-8")
+            ui.label("No sector rotation data available in database.").classes("text-slate-400 p-8")
         return
 
     as_of_str = overview["as_of"]
-    pillars = overview["pillars"]
-    total_stocks = overview["total_stocks"]
-    all_symbols = overview["all_symbols"]
-
-    # Calculate overall theme average RS
-    theme_avg_rs = sum(p["avg_rs"] * p["stock_count"] for p in pillars) / max(total_stocks, 1)
+    quads = overview.get("quadrants", {})
 
     with container:
-        # 1. Top Summary Banner
-        with ui.row().classes("w-full justify-between items-center mp-sector-hero p-4 rounded-xl border"):
+        # 1. Hero / RRG Overview Bar
+        with ui.row().classes("w-full justify-between items-center mp-sector-hero p-4 rounded-xl border flex-wrap gap-3"):
             with ui.column().classes("gap-1"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.label("⚡ NEXT-GEN TECH MEGATREND").classes("mp-eyebrow")
-                    ui.label(f"Session As Of: {as_of_str}").classes("text-xs font-semibold text-slate-600")
-                ui.label(f"Tracking {total_stocks} Companies across 8 Pillars • AI Compute, Silicon Design, Data Center Cooling, Lithium Batteries & Liquid Piping").classes("text-xs text-slate-600 font-medium")
+                    ui.label("🎯 RELATIVE ROTATION GRAPH (RRG)").classes("mp-eyebrow")
+                    ui.label(f"Session As Of: {as_of_str}").classes("text-xs font-semibold text-slate-400")
+                ui.label("4-Quadrant Sector Leadership Matrix: RS-Ratio (Relative Strength vs Nifty) × RS-Momentum (Rate of Change)").classes("text-xs text-slate-300 font-medium")
 
-            # Quick Metrics & TV Copy Button
-            with ui.row().classes("items-center gap-3 flex-wrap"):
-                ui.label(f"Ecosystem RS: {_fmt_num(theme_avg_rs, 0)}").classes("mp-metric-pill")
-                if all_symbols and copy_text:
-                    tv_all = ",".join(f"NSE:{s}" for s in all_symbols)
-                    ui.button(
-                        f"Copy All 70 Thematic Symbols (TV)",
-                        icon="content_copy",
-                        on_click=lambda t=tv_all: copy_text("Next-Gen Tech Universe", t),
-                    ).classes("mp-primary text-xs font-bold").props("dense unelevated")
+            with ui.row().classes("items-center gap-2 flex-wrap"):
+                lvl_select = ui.select(
+                    ["Sector", "Broad Sector", "Broad Industry", "Industry"],
+                    value=lvl,
+                    label="Taxonomy Level",
+                ).classes("w-40").props("dense outlined")
+                lvl_select.on_value_change(lambda e: (state.update({"level_filter": e.value}), container.clear(), _render_rrg_quadrants_view(container, db_path, state, copy_text)))
 
-        # Dynamic Constituent Table Container declared first
-        table_container = ui.column().classes("w-full gap-3 mt-4")
-
-        def render_table_section() -> None:
-            table_container.clear()
-            active_pillar = state.get("thematic_pillar", "All Pillars")
-            min_mc = float(state.get("min_mcap", 0.0))
-
-            const_df = query_thematic_constituents(db_path, pillar_name=active_pillar if active_pillar != "All Pillars" else None, min_mcap=min_mc, limit=75)
-
-            with table_container:
-                with ui.row().classes("w-full justify-between items-center flex-wrap gap-2 pb-2 border-b border-slate-200"):
-                    with ui.row().classes("items-center gap-2"):
-                        ui.label(f"📋 Constituent Stocks:").classes("text-base font-bold text-slate-700")
-                        ui.label(active_pillar).classes("text-base font-bold text-[var(--mp-primary)]")
-                        ui.label(f"({len(const_df)} stocks)").classes("text-xs font-semibold text-slate-500")
-
-                    # Pillar filter dropdown & TV copy button
-                    with ui.row().classes("items-center gap-2"):
-                        pillar_options = ["All Pillars"] + [p["pillar_name"] for p in pillars]
-                        pillar_sel = ui.select(pillar_options, value=active_pillar, label="Filter Pillar").classes("w-56").props("dense outlined")
-                        pillar_sel.on_value_change(lambda e: _set_pillar(e.value, state, render_table_section))
-
-                        if not const_df.empty and copy_text:
-                            sub_tv = ",".join(f"NSE:{s}" for s in const_df["symbol"])
-                            ui.button(
-                                f"Copy Filtered ({len(const_df)} TV)",
-                                icon="content_copy",
-                                on_click=lambda t=sub_tv, p=active_pillar: copy_text(f"{p} Symbols", t),
-                            ).classes("bg-slate-700 text-white text-xs").props("dense unelevated")
-
-                if const_df.empty:
-                    ui.label("No constituent stocks found for selected filter.").classes("text-slate-400 p-4")
-                else:
-                    _render_thematic_stocks_table(db_path, const_df, copy_text)
-
-        # 2. 8 Sub-Pillar Action Cards
-        with ui.column().classes("w-full gap-2 mt-2"):
-            with ui.row().classes("items-center gap-2"):
-                ui.label("🎯 8 Thematic Value-Chain Pillars").classes("text-lg font-bold text-slate-800 tracking-tight")
-                ui.label("(Click any pillar card to filter the constituent stocks table below)").classes("text-xs text-slate-500")
-
-            with ui.grid().classes("w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"):
-                for p in pillars:
-                    _render_thematic_pillar_card(p, state, db_path, copy_text, render_table_section)
-
-        # 3. Initial render of table section
-        render_table_section()
-
-
-def _set_pillar(p_name: str, state: dict[str, Any], on_update: Callable[[], None]) -> None:
-    state["thematic_pillar"] = p_name
-    on_update()
-
-
-def _render_thematic_pillar_card(
-    p: dict[str, Any],
-    state: dict[str, Any],
-    db_path: Path,
-    copy_text: Callable[[str, str], None] | None,
-    on_pillar_click: Callable[[], None],
-) -> None:
-    """Render an individual pillar card with leadership metrics and leader chips."""
-    name = p["pillar_name"]
-    is_active = state.get("thematic_pillar") == name
-    border_cls = "mp-sector-selected" if is_active else "mp-sector-unselected"
-
-    card = ui.card().classes(f"w-full p-4 rounded-xl {border_cls} cursor-pointer transition-all duration-150")
-    with card:
-        with ui.row().classes("w-full justify-between items-start"):
-            ui.label(name).classes("text-sm font-bold text-slate-800 leading-snug flex-1 pr-1")
-            ui.label(f"{p['stock_count']} stocks").classes("text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded")
-
-        # KPI stats line
-        with ui.row().classes("w-full justify-between items-center text-xs text-slate-600 mt-2 py-1.5 border-y border-slate-100"):
-            ui.label(f"RS: {_fmt_num(p['avg_rs'], 0)}").classes("font-bold text-slate-800")
-            ui.label(f"1M: {_fmt_pct(p['avg_1m_pct'])}").classes(
-                "font-bold text-emerald-600" if p.get("avg_1m_pct", 0) > 0 else "font-bold text-rose-600"
+        # 2. Quadrants Grid: 2x2 Grid
+        with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-4 mt-2"):
+            # Quadrant 1: LEADING (Green)
+            _render_quadrant_card(
+                "🟢 LEADING QUADRANT",
+                "RS-Ratio ≥ 100 · RS-Momentum ≥ 100",
+                "Market leaders outperforming Nifty with accelerating momentum. Primary swing focus.",
+                quads.get("Leading", []),
+                "border-emerald-500/40 bg-emerald-950/20 text-emerald-400",
+                db_path,
+                copy_text,
             )
-            ui.label(f">50 EMA: {_fmt_num(p['breadth_50_pct'], 0)}%").classes("font-semibold text-slate-500")
 
-        # Top Stock Chips
-        top_syms = p.get("top_symbols", [])
-        if top_syms:
-            with ui.column().classes("w-full mt-2 gap-1"):
-                ui.label("TOP LEADERS:").classes("text-[10px] font-bold text-slate-400 tracking-wider")
-                with ui.row().classes("items-center gap-1.5 flex-wrap"):
-                    for sym in top_syms:
-                        chip = ui.button(
-                            sym,
-                            on_click=lambda _, s=sym: open_stock_360_modal(db_path, s, copy_text=copy_text),
-                        ).classes("mp-chip mp-chip-accent text-xs font-bold").props("dense unelevated")
+            # Quadrant 2: WEAKENING (Amber)
+            _render_quadrant_card(
+                "🟡 WEAKENING QUADRANT",
+                "RS-Ratio ≥ 100 · RS-Momentum < 100",
+                "Outperforming Nifty but momentum is decelerating. Protect profits, tighten stops.",
+                quads.get("Weakening", []),
+                "border-amber-500/40 bg-amber-950/20 text-amber-400",
+                db_path,
+                copy_text,
+            )
 
-        with ui.row().classes("w-full justify-end mt-2 pt-1 border-t border-slate-100"):
-            ui.label("View All Stocks ➔").classes("text-[11px] font-bold text-[var(--mp-primary)] hover:underline")
+            # Quadrant 3: IMPROVING (Blue)
+            _render_quadrant_card(
+                "🔵 IMPROVING QUADRANT",
+                "RS-Ratio < 100 · RS-Momentum ≥ 100",
+                "Underperforming Nifty but momentum is inflecting upward. Early bottom reversals.",
+                quads.get("Improving", []),
+                "border-blue-500/40 bg-blue-950/20 text-blue-400",
+                db_path,
+                copy_text,
+            )
 
-    card.on("click", lambda _, n=name: _set_pillar(n, state, on_pillar_click))
+            # Quadrant 4: LAGGING (Red/Slate)
+            _render_quadrant_card(
+                "🔴 LAGGING QUADRANT",
+                "RS-Ratio < 100 · RS-Momentum < 100",
+                "Underperforming Nifty with decelerating momentum. Avoid capital allocation.",
+                quads.get("Lagging", []),
+                "border-rose-500/40 bg-rose-950/20 text-rose-400",
+                db_path,
+                copy_text,
+            )
 
 
-def _render_thematic_stocks_table(
+# =========================================================================
+# 2. SECTOR TURNOVER & EXPANSION VIEW
+# =========================================================================
+
+def _render_turnover_view(
+    container: ui.column,
     db_path: Path,
-    df: pd.DataFrame,
+    state: dict[str, Any],
     copy_text: Callable[[str, str], None] | None = None,
 ) -> None:
-    """Render the thematic constituent stocks table with exact role descriptions and Stock 360 modal hooks."""
-    cols = [
-        get_quasar_column_def("symbol"),
-        get_quasar_column_def("security_name"),
-        get_quasar_column_def("pillar"),
-        get_quasar_column_def("role_desc"),
-        get_quasar_column_def("close_price", label_override="CMP"),
-        get_quasar_column_def("return_5d_pct"),
-        get_quasar_column_def("return_1m_pct"),
-        get_quasar_column_def("rs_percentile"),
-        get_quasar_column_def("rvol"),
-        get_quasar_column_def("delivery_pct"),
-        get_quasar_column_def("candidate_state"),
-        get_quasar_column_def("trigger_price"),
-        get_quasar_column_def("stop_loss"),
-        get_quasar_column_def("reward_to_risk"),
-    ]
+    lvl = str(state.get("level_filter") or "Sector")
+    df = query_sector_turnover_overview(db_path, level=lvl)
+    if df.empty:
+        with container:
+            ui.label("No sector turnover data available.").classes("text-slate-400 p-8")
+        return
 
-    rows = []
-    for _, s in df.iterrows():
-        rows.append({
-            "symbol": str(s["symbol"]),
-            "security_name": str(s.get("security_name") or s["symbol"]),
-            "pillar": str(s.get("pillar") or "Thematic"),
-            "role_desc": str(s.get("role_desc") or "Thematic Constituent"),
-            "close_price": f"₹{float(s['close_price']):.2f}",
-            "return_5d_pct": _fmt_pct(s.get("return_5d_pct")),
-            "return_1m_pct": _fmt_pct(s.get("return_1m_pct")),
-            "rs_percentile": _fmt_num(s.get("rs_percentile"), 1),
-            "rvol": f"{_fmt_num(s.get('rvol'), 1)}x",
-            "delivery_pct": f"{_fmt_num(s.get('delivery_pct'), 1)}%",
-            "candidate_state": str(s.get("candidate_state") or "Monitor"),
-            "trigger_price": f"₹{float(s['trigger_price']):.1f}" if pd.notna(s.get("trigger_price")) else "-",
-            "stop_loss": f"₹{float(s['stop_loss']):.1f}" if pd.notna(s.get("stop_loss")) else "-",
-            "reward_to_risk": f"{float(s['reward_to_risk']):.1f}x" if pd.notna(s.get("reward_to_risk")) else "-",
-        })
+    total_market_turnover = df["turnover_1d_cr"].sum()
+    surging_count = int(df["turnover_surge"].sum()) if "turnover_surge" in df.columns else 0
 
-    with ui.element("div").classes("w-full mp-table-scroll"):
-        table = (
-            ui.table(columns=cols, rows=rows, pagination=25)
-            .classes("w-full mp-table")
-            .props("dense flat bordered wrap-cells")
-        )
+    with container:
+        # Top banner
+        with ui.row().classes("w-full justify-between items-center mp-sector-hero p-4 rounded-xl border flex-wrap gap-3"):
+            with ui.column().classes("gap-1"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.label("💰 SECTOR TURNOVER & EXPANSION").classes("mp-eyebrow")
+                    ui.label(f"Total Market: ₹{total_market_turnover:,.0f} Cr").classes("text-xs font-semibold text-emerald-400 font-mono")
+                ui.label("Track institutional money flow concentration: Turnover Share (% of NSE) and 20D ADV Expansion Ratio.").classes("text-xs text-slate-300 font-medium")
 
-    table.add_slot("body-cell-symbol", SYMBOL_CELL_SLOT)
-    table.add_slot(
-        "body-cell-candidate_state",
-        """
-        <q-td :props="props">
-          <span :class="{
-            'mp-mini-badge mp-state-leading': props.value === 'Ready' || props.value === 'Focus',
-            'mp-mini-badge mp-state-emerging': props.value === 'Prepare',
-            'mp-mini-badge mp-state-weakening': props.value === 'Observe',
-            'mp-mini-badge mp-state-lagging': props.value === 'Blocked' || props.value === 'Monitor'
-          }">
-            {{ props.value }}
-          </span>
-        </q-td>
-        """,
-    )
-    table.on(
-        "stock360",
-        lambda event: open_stock_360_modal(
-            db_path,
-            event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or ""),
-            copy_text=copy_text,
-        ),
-    )
+            with ui.row().classes("items-center gap-2 flex-wrap"):
+                ui.label(f"🔥 {surging_count} Volume Surges").classes("mp-metric-pill")
+                lvl_select = ui.select(
+                    ["Sector", "Broad Sector", "Broad Industry", "Industry"],
+                    value=lvl,
+                    label="Taxonomy Level",
+                ).classes("w-40").props("dense outlined")
+                lvl_select.on_value_change(lambda e: (state.update({"level_filter": e.value}), container.clear(), _render_turnover_view(container, db_path, state, copy_text)))
+
+        cols = [
+            {"name": "group_name", "label": "Group / Sector", "field": "group_name", "align": "left", "sortable": True},
+            {"name": "turnover_share_pct", "label": "Turnover Share %", "field": "turnover_share_pct", "align": "right", "sortable": True},
+            {"name": "turnover_expansion", "label": "20D Expansion", "field": "turnover_expansion", "align": "right", "sortable": True},
+            {"name": "turnover_1d_cr", "label": "1D Turnover (₹Cr)", "field": "turnover_1d_cr", "align": "right", "sortable": True},
+            {"name": "turnover_20d_adv_cr", "label": "20D ADV (₹Cr)", "field": "turnover_20d_adv_cr", "align": "right", "sortable": True},
+            {"name": "total_stocks", "label": "Stocks", "field": "total_stocks", "align": "right", "sortable": True},
+            {"name": "top_turnover_stocks", "label": "Key Drivers (1D Turnover)", "field": "top_turnover_stocks", "align": "left"},
+        ]
+
+        rows = []
+        for _, r in df.iterrows():
+            exp_val = float(r.get("turnover_expansion") or 1.0)
+            surge = bool(r.get("turnover_surge", False))
+            rows.append({
+                "group_name": str(r["group_name"]),
+                "turnover_share_pct": f"{float(r.get('turnover_share_pct', 0)):.1f}%",
+                "turnover_expansion": f"{'🔥 ' if surge else ''}{exp_val:.2f}x",
+                "turnover_1d_cr": f"₹{float(r.get('turnover_1d_cr', 0)):,.1f}",
+                "turnover_20d_adv_cr": f"₹{float(r.get('turnover_20d_adv_cr', 0)):,.1f}",
+                "total_stocks": int(r.get("total_stocks", 0)),
+                "top_turnover_stocks": str(r.get("top_turnover_stocks", "")),
+            })
+
+        with ui.element("div").classes("w-full mp-table-scroll mt-2"):
+            ui.table(columns=cols, rows=rows, pagination=25).classes("w-full mp-table").props("dense flat bordered wrap-cells")
+
+
+# =========================================================================
+# 3. 52-WEEK HIGH SECTOR CLUSTERS VIEW
+# =========================================================================
+
+def _render_52w_highs_view(
+    container: ui.column,
+    db_path: Path,
+    state: dict[str, Any],
+    copy_text: Callable[[str, str], None] | None = None,
+) -> None:
+    lvl = str(state.get("level_filter") or "Sector")
+    df = query_sector_52w_highs_overview(db_path, level=lvl)
+    if df.empty:
+        with container:
+            ui.label("No 52-week high sector data available.").classes("text-slate-400 p-8")
+        return
+
+    total_near_high = int(df["near_52w_count"].sum())
+
+    with container:
+        # Banner
+        with ui.row().classes("w-full justify-between items-center mp-sector-hero p-4 rounded-xl border flex-wrap gap-3"):
+            with ui.column().classes("gap-1"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.label("🏔️ 52-WEEK HIGH SECTOR CLUSTERS").classes("mp-eyebrow")
+                    ui.label(f"{total_near_high} Stocks within 5% of 52W High").classes("text-xs font-semibold text-emerald-400 font-mono")
+                ui.label("True institutional market leadership clusters where new highs are expanding at fastest velocity.").classes("text-xs text-slate-300 font-medium")
+
+            with ui.row().classes("items-center gap-2 flex-wrap"):
+                lvl_select = ui.select(
+                    ["Sector", "Broad Sector", "Broad Industry", "Industry"],
+                    value=lvl,
+                    label="Taxonomy Level",
+                ).classes("w-40").props("dense outlined")
+                lvl_select.on_value_change(lambda e: (state.update({"level_filter": e.value}), container.clear(), _render_52w_highs_view(container, db_path, state, copy_text)))
+
+        cols = [
+            {"name": "group_name", "label": "Group / Sector", "field": "group_name", "align": "left", "sortable": True},
+            {"name": "near_52w_count", "label": "Within 5% of 52W High", "field": "near_52w_count", "align": "right", "sortable": True},
+            {"name": "at_52w_count", "label": "At 52W High (<2%)", "field": "at_52w_count", "align": "right", "sortable": True},
+            {"name": "high_density_pct", "label": "High Density %", "field": "high_density_pct", "align": "right", "sortable": True},
+            {"name": "total_stocks", "label": "Total Stocks", "field": "total_stocks", "align": "right", "sortable": True},
+            {"name": "stocks_near_high", "label": "Leading Stocks Near 52W High", "field": "stocks_near_high", "align": "left"},
+        ]
+
+        rows = []
+        for _, r in df.iterrows():
+            density = float(r.get("high_density_pct", 0))
+            rows.append({
+                "group_name": str(r["group_name"]),
+                "near_52w_count": int(r.get("near_52w_count", 0)),
+                "at_52w_count": int(r.get("at_52w_count", 0)),
+                "high_density_pct": f"{'🔥 ' if density >= 15.0 else ''}{density:.1f}%",
+                "total_stocks": int(r.get("total_stocks", 0)),
+                "stocks_near_high": str(r.get("stocks_near_high", "")),
+            })
+
+        with ui.element("div").classes("w-full mp-table-scroll mt-2"):
+            ui.table(columns=cols, rows=rows, pagination=25).classes("w-full mp-table").props("dense flat bordered wrap-cells")
+
+
+# =========================================================================
+# 4. BREADTH DIVERGENCE & HEAVYWEIGHT TRAPS VIEW
+# =========================================================================
+
+def _render_breadth_divergence_view(
+    container: ui.column,
+    db_path: Path,
+    state: dict[str, Any],
+    copy_text: Callable[[str, str], None] | None = None,
+) -> None:
+    lvl = str(state.get("level_filter") or "Sector")
+    df = query_sector_breadth_divergence(db_path, level=lvl)
+    if df.empty:
+        with container:
+            ui.label("No sector breadth divergence data available.").classes("text-slate-400 p-8")
+        return
+
+    traps = df[df["divergence_status"] == "Heavyweight Trap / Narrow Rally"]
+
+    with container:
+        # Banner
+        with ui.row().classes("w-full justify-between items-center mp-sector-hero p-4 rounded-xl border flex-wrap gap-3"):
+            with ui.column().classes("gap-1"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.label("⚖️ BREADTH DIVERGENCE & HEAVYWEIGHT TRAPS").classes("mp-eyebrow")
+                    if not traps.empty:
+                        ui.label(f"⚠️ {len(traps)} Heavyweight Traps Detected").classes("text-xs font-semibold text-amber-400 font-mono")
+                    else:
+                        ui.label("Healthy Breadth Alignment").classes("text-xs font-semibold text-emerald-400 font-mono")
+                ui.label("Detect deceptive index moves where a single heavyweight masks widespread underlying stock breakdown.").classes("text-xs text-slate-300 font-medium")
+
+            with ui.row().classes("items-center gap-2 flex-wrap"):
+                lvl_select = ui.select(
+                    ["Sector", "Broad Sector", "Broad Industry", "Industry"],
+                    value=lvl,
+                    label="Taxonomy Level",
+                ).classes("w-40").props("dense outlined")
+                lvl_select.on_value_change(lambda e: (state.update({"level_filter": e.value}), container.clear(), _render_breadth_divergence_view(container, db_path, state, copy_text)))
+
+        cols = [
+            {"name": "group_name", "label": "Group / Sector", "field": "group_name", "align": "left", "sortable": True},
+            {"name": "divergence_status", "label": "Divergence Diagnosis", "field": "divergence_status", "align": "center", "sortable": True},
+            {"name": "return_5d_pct", "label": "5D Return", "field": "return_5d_pct", "align": "right", "sortable": True},
+            {"name": "return_1m_pct", "label": "1M Return", "field": "return_1m_pct", "align": "right", "sortable": True},
+            {"name": "breadth_20", "label": "% > 20 EMA", "field": "breadth_20", "align": "right", "sortable": True},
+            {"name": "breadth_50", "label": "% > 50 EMA", "field": "breadth_50", "align": "right", "sortable": True},
+            {"name": "breadth_200", "label": "% > 200 EMA", "field": "breadth_200", "align": "right", "sortable": True},
+            {"name": "total_stocks", "label": "Stocks", "field": "total_stocks", "align": "right", "sortable": True},
+        ]
+
+        rows = []
+        for _, r in df.iterrows():
+            ret5 = float(r.get("return_5d_pct", 0))
+            ret1m = float(r.get("return_1m_pct", 0))
+            rows.append({
+                "group_name": str(r["group_name"]),
+                "divergence_status": str(r.get("divergence_status", "")),
+                "return_5d_pct": f"{'+' if ret5 > 0 else ''}{ret5:.1f}%",
+                "return_1m_pct": f"{'+' if ret1m > 0 else ''}{ret1m:.1f}%",
+                "breadth_20": f"{float(r.get('breadth_20', 0)):.1f}%",
+                "breadth_50": f"{float(r.get('breadth_50', 0)):.1f}%",
+                "breadth_200": f"{float(r.get('breadth_200', 0)):.1f}%",
+                "total_stocks": int(r.get("total_stocks", 0)),
+            })
+
+        with ui.element("div").classes("w-full mp-table-scroll mt-2"):
+            table = ui.table(columns=cols, rows=rows, pagination=25).classes("w-full mp-table").props("dense flat bordered wrap-cells")
+            table.add_slot(
+                "body-cell-divergence_status",
+                """
+                <q-td :props="props">
+                  <span :class="{
+                    'mp-mini-badge mp-state-leading': props.value === 'Bullish Expansion',
+                    'mp-mini-badge mp-state-emerging': props.value === 'Stealth Accumulation',
+                    'mp-mini-badge mp-state-weakening': props.value === 'Heavyweight Trap / Narrow Rally',
+                    'mp-mini-badge mp-state-lagging': props.value === 'Broad Breakdown',
+                    'mp-mini-badge mp-state-neutral': props.value === 'Consolidating / Neutral'
+                  }">
+                    {{ props.value }}
+                  </span>
+                </q-td>
+                """,
+            )
 
 
 # =========================================================================

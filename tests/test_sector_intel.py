@@ -2,7 +2,14 @@
 
 from pathlib import Path
 import pytest
-from App.sector_read_model import LEVEL_COLUMNS, query_sector_deep_dive, query_sector_rotation_overview
+from App.sector_read_model import (
+    LEVEL_COLUMNS,
+    query_sector_breadth_divergence,
+    query_sector_deep_dive,
+    query_sector_52w_highs_overview,
+    query_sector_rotation_overview,
+    query_sector_turnover_overview,
+)
 
 
 DB_PATH = Path("Database/marketpulse.duckdb")
@@ -44,3 +51,35 @@ def test_all_taxonomy_levels():
         res = query_sector_rotation_overview(DB_PATH, level=lvl)
         assert res["total"] > 0
         assert not res["heatmap"].empty
+
+
+@pytest.mark.skipif(not DB_PATH.exists(), reason="Database not built")
+def test_query_sector_turnover_overview():
+    df = query_sector_turnover_overview(DB_PATH, level="Sector")
+    assert not df.empty
+    assert "turnover_1d_cr" in df.columns
+    assert "turnover_share_pct" in df.columns
+    assert "turnover_expansion" in df.columns
+    assert "turnover_surge" in df.columns
+    assert df["turnover_1d_cr"].sum() > 0
+
+
+@pytest.mark.skipif(not DB_PATH.exists(), reason="Database not built")
+def test_query_sector_52w_highs_overview():
+    df = query_sector_52w_highs_overview(DB_PATH, level="Sector")
+    assert not df.empty
+    assert "near_52w_count" in df.columns
+    assert "high_density_pct" in df.columns
+    assert "total_stocks" in df.columns
+    assert df["total_stocks"].sum() > 0
+
+
+@pytest.mark.skipif(not DB_PATH.exists(), reason="Database not built")
+def test_query_sector_breadth_divergence():
+    df = query_sector_breadth_divergence(DB_PATH, level="Sector")
+    assert not df.empty
+    assert "return_5d_pct" in df.columns
+    assert "breadth_50" in df.columns
+    assert "breadth_200" in df.columns
+    assert "divergence_status" in df.columns
+
