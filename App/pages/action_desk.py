@@ -42,12 +42,102 @@ except ModuleNotFoundError:
     from ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner  # type: ignore
 
 
+def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[float | None, float]:
+    """Load India VIX for the session. Missing row is (None, 0.0) — never a silent 11.3."""
+    try:
+        vix_res = con.execute(
+            """
+            SELECT close_price,
+                   coalesce(
+                       return_1d_pct,
+                       (close_price / nullif(previous_close, 0) - 1.0) * 100
+                   ) AS vix_1d_pct
+            FROM index_daily
+            WHERE trade_date = ? AND index_name = 'India VIX'
+            """,
+            [trade_date],
+        ).fetchone()
+        if vix_res and vix_res[0] is not None:
+            return round(float(vix_res[0]), 2), round(float(vix_res[1] or 0.0), 1)
+    except Exception:
+        pass
+    return None, 0.0
+
+
+def compute_exposure_gate(
+    *,
+    adv_pct: float,
+    ab20_pct: float,
+    ab200_pct: float,
+    vix: float | None,
+    vix_1d_pct: float,
+    net_lows_expanding: bool,
+    count_52w_highs: int,
+    count_52w_lows: int,
+) -> dict[str, Any]:
+    """Four live exposure branches. VIX n/a skips every vix-threshold branch."""
+    vix_available = vix is not None
+    vix_spike = bool(vix_available and vix_1d_pct >= 10.0)
+
+    if (
+        adv_pct >= 58.0
+        and ab20_pct >= 48.0
+        and ab200_pct >= 45.0
+        and vix_available
+        and vix < 15.0
+        and not vix_spike
+        and not net_lows_expanding
+    ):
+        exposure_pct = "75% - 100%"
+        exposure_state = "Aggressive / Full Trend"
+        exposure_badge = "mp-badge-good"
+        exposure_guidance = "Broad market participation is strong and volatility is low (<15 VIX). Deploy normal swing size (10-15% per position), use 3-5% stops, and let winning leaders compound."
+    elif (
+        adv_pct >= 45.0
+        and ab20_pct >= 38.0
+        and vix_available
+        and vix < 18.0
+        and not (vix_spike and net_lows_expanding)
+    ):
+        exposure_pct = "50% - 75%"
+        exposure_state = "Constructive / Selective"
+        exposure_badge = "mp-badge-good"
+        exposure_guidance = "Market is constructive but selective. Focus strictly on top relative strength leaders in leading sectors. Maintain normal 3-5% stops."
+    elif adv_pct >= 35.0 and vix_available and vix < 22.0:
+        exposure_pct = "25% - 50%"
+        exposure_state = "Selective / Caution"
+        exposure_badge = "mp-badge-warn"
+        if net_lows_expanding:
+            exposure_guidance = f"Net 52W Lows expanding ({count_52w_lows} lows vs {count_52w_highs} highs). Cut position sizes in half, take quick 2R profits, and trail stops tightly."
+        elif vix_spike:
+            exposure_guidance = f"VIX surge of +{vix_1d_pct:.1f}% indicates sudden volatility expansion. Avoid chasing breakouts; wait for calm base resets."
+        else:
+            exposure_guidance = "Diverging market breadth. Cut position size in half, take quick partial profits at 2R to 3R, and trail stops tightly."
+    else:
+        exposure_pct = "0% - 15%"
+        exposure_state = "Risk-Off / Defensive"
+        exposure_badge = "mp-badge-bad"
+        exposure_guidance = "Net distribution, breadth breakdown, or high volatility. Protect capital in cash. Do not force new breakout buys until breadth recovers above 20 EMA."
+
+    return {
+        "pct": exposure_pct,
+        "state": exposure_state,
+        "badge": exposure_badge,
+        "guidance": exposure_guidance,
+        "vix": vix,
+        "vix_1d_pct": vix_1d_pct,
+        "vix_available": vix_available,
+        "vix_label": "VIX n/a" if not vix_available else f"{vix}",
+        "vix_spike": vix_spike,
+    }
+
+
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     """
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v8")
+    key = cache_key(db_path, None, "action_desk_v9")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -81,24 +171,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         ab50_pct = round(breadth_row[3] or 50.0, 1)
         ab200_pct = round(breadth_row[4] or 50.0, 1)
 
-        # India VIX and 1-Day change
-        vix_val = 11.3
-        vix_1d_pct = 0.0
-        try:
-            vix_res = con.execute(
-                """
-                SELECT close_price,
-                       (close_price / nullif(prev_close, 0) - 1.0) * 100 AS vix_1d_pct
-                FROM index_daily
-                WHERE trade_date = ? AND index_name = 'India VIX'
-                """,
-                [trade_date],
-            ).fetchone()
-            if vix_res and vix_res[0]:
-                vix_val = round(float(vix_res[0]), 2)
-                vix_1d_pct = round(float(vix_res[1] or 0.0), 1)
-        except Exception:
-            pass
+        vix_val, vix_1d_pct = resolve_india_vix(con, trade_date)
 
         # Net 52-Week Highs / Lows Breadth Gate
         high_low_row = con.execute(
@@ -115,34 +188,21 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         count_52w_lows = int(high_low_row[1] or 0) if high_low_row else 0
         net_highs = count_52w_highs - count_52w_lows
         net_lows_expanding = count_52w_lows > count_52w_highs
-        vix_spike = vix_1d_pct >= 10.0
 
-        # Exposure Decision Logic (Minervini / O'Neil Progressive Exposure + VIX Regimes)
-        if adv_pct >= 58.0 and ab20_pct >= 48.0 and ab200_pct >= 45.0 and vix_val < 15.0 and not vix_spike and not net_lows_expanding:
-            exposure_pct = "75% - 100%"
-            exposure_state = "Aggressive / Full Trend"
-            exposure_badge = "mp-badge-good"
-            exposure_guidance = "Broad market participation is strong and volatility is low (<15 VIX). Deploy normal swing size (10-15% per position), use 3-5% stops, and let winning leaders compound."
-        elif adv_pct >= 45.0 and ab20_pct >= 38.0 and vix_val < 18.0 and not (vix_spike and net_lows_expanding):
-            exposure_pct = "50% - 75%"
-            exposure_state = "Constructive / Selective"
-            exposure_badge = "mp-badge-good"
-            exposure_guidance = "Market is constructive but selective. Focus strictly on top relative strength leaders in leading sectors. Maintain normal 3-5% stops."
-        elif adv_pct >= 35.0 and vix_val < 22.0:
-            exposure_pct = "25% - 50%"
-            exposure_state = "Selective / Caution"
-            exposure_badge = "mp-badge-warn"
-            if net_lows_expanding:
-                exposure_guidance = f"Net 52W Lows expanding ({count_52w_lows} lows vs {count_52w_highs} highs). Cut position sizes in half, take quick 2R profits, and trail stops tightly."
-            elif vix_spike:
-                exposure_guidance = f"VIX surge of +{vix_1d_pct:.1f}% indicates sudden volatility expansion. Avoid chasing breakouts; wait for calm base resets."
-            else:
-                exposure_guidance = "Diverging market breadth. Cut position size in half, take quick partial profits at 2R to 3R, and trail stops tightly."
-        else:
-            exposure_pct = "0% - 15%"
-            exposure_state = "Risk-Off / Defensive"
-            exposure_badge = "mp-badge-bad"
-            exposure_guidance = "Net distribution, breadth breakdown, or high volatility. Protect capital in cash. Do not force new breakout buys until breadth recovers above 20 EMA."
+        gate = compute_exposure_gate(
+            adv_pct=adv_pct,
+            ab20_pct=ab20_pct,
+            ab200_pct=ab200_pct,
+            vix=vix_val,
+            vix_1d_pct=vix_1d_pct,
+            net_lows_expanding=net_lows_expanding,
+            count_52w_highs=count_52w_highs,
+            count_52w_lows=count_52w_lows,
+        )
+        exposure_pct = gate["pct"]
+        exposure_state = gate["state"]
+        exposure_badge = gate["badge"]
+        exposure_guidance = gate["guidance"]
 
         # 3. Top Leading Themes (Sector Money Flow)
         top_sectors = con.execute(
@@ -580,6 +640,8 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "ab200_pct": ab200_pct,
             "vix": vix_val,
             "vix_1d_pct": vix_1d_pct,
+            "vix_available": gate["vix_available"],
+            "vix_label": gate["vix_label"],
             "count_52w_highs": count_52w_highs,
             "count_52w_lows": count_52w_lows,
             "net_highs": net_highs,
@@ -1009,8 +1071,11 @@ def build_action_desk_page(
                         ui.label(f"{exp['ab200_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("India VIX:").classes("text-[var(--mp-muted)] text-[11px]")
-                        vix_sign = "+" if exp.get("vix_1d_pct", 0) > 0 else ""
-                        ui.label(f"{exp['vix']} ({vix_sign}{exp.get('vix_1d_pct', 0):.1f}%)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
+                        if exp.get("vix") is None:
+                            ui.label("VIX n/a").classes("font-mono font-bold text-[11px] text-[var(--mp-muted)]")
+                        else:
+                            vix_sign = "+" if exp.get("vix_1d_pct", 0) > 0 else ""
+                            ui.label(f"{exp['vix']} ({vix_sign}{exp.get('vix_1d_pct', 0):.1f}%)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("Net 52W Highs:").classes("text-[var(--mp-muted)] text-[11px]")
                         net_h = exp.get("net_highs", 0)

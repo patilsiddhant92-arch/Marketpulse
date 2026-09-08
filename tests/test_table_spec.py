@@ -57,6 +57,13 @@ def test_canonical_global_column_registry_coverage() -> None:
     assert get_column_label("turnover_1d_cr") == "TURNOVER"
     assert get_column_label("turnover_cr") == "TURNOVER"
     assert get_column_label("rs_percentile") == "RS"
+    assert get_column_label("rs_vs_nifty_21d") == "VS NIFTY 21D"
+    assert get_column_label("rs_vs_nifty_63d") == "VS NIFTY 63D"
+    vs21 = get_quasar_column_def("rs_vs_nifty_21d")
+    vs63 = get_quasar_column_def("rs_vs_nifty_63d")
+    assert vs21["align"] == vs63["align"] == "right"
+    assert "numeric" in vs21["classes"]
+    assert "numeric" in vs63["classes"]
     assert get_column_label("above_50ema_pct") == ">50 EMA"
     assert get_column_label("above_200ema_pct") == ">200 EMA"
     assert get_column_label("top_leaders") == "LEADERS"
