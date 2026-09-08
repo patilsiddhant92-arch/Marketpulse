@@ -841,11 +841,10 @@ def build_breadth_daily(indicators: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
-    base = indicators.merge(
-        master[["symbol", "broad_sector", "sector", "broad_industry", "industry"]],
-        on="symbol",
-        how="left",
-    )
+    master_cols = ["symbol", "broad_sector", "sector", "broad_industry", "industry"]
+    if "market_cap_cr" in master.columns:
+        master_cols.append("market_cap_cr")
+    base = indicators.merge(master[master_cols], on="symbol", how="left")
     frames = []
     levels = {
         "Broad Sector": "broad_sector",
@@ -853,6 +852,7 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
         "Broad Industry": "broad_industry",
         "Industry": "industry",
     }
+    has_prev_close = "prev_close" in base.columns
     for level_name, col in levels.items():
         d = base.dropna(subset=[col]).copy()
         d = d[d[col].astype(str).str.strip() != ""]
@@ -872,6 +872,11 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
                     "near_52w_highs": g["near_52w_high"].sum(),
                     "vcp_candidates": g["is_vcp"].sum(),
                     "turnover_cr": g["turnover_cr"].sum(),
+                    "adv_pct": (
+                        (g["close_price"] > g["prev_close"]).sum() / g["symbol"].nunique() * 100
+                        if has_prev_close and g["symbol"].nunique()
+                        else 0.0
+                    ),
                 }
             ),
             include_groups=False,
@@ -891,6 +896,10 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
         grouped["turnover_1d_cr"] = grouped["turnover_cr"]
         grouped["turnover_5d_cr"] = grouped.groupby("group_name")["turnover_cr"].transform(lambda s: s.rolling(5, min_periods=1).sum())
         grouped["turnover_20d_cr"] = grouped.groupby("group_name")["turnover_cr"].transform(lambda s: s.rolling(20, min_periods=1).sum())
+        date_to = grouped.groupby("trade_date")["turnover_1d_cr"].transform("sum")
+        grouped["turnover_share_pct"] = np.where(date_to > 0, grouped["turnover_1d_cr"] / date_to * 100.0, 0.0)
+        grouped["turnover_share_delta_1d"] = grouped.groupby("group_name")["turnover_share_pct"].diff(1)
+        grouped["turnover_share_delta_5d"] = grouped.groupby("group_name")["turnover_share_pct"].diff(5)
         grouped["rotation_state"] = np.select(
             [
                 (grouped["rotation_rank"] <= 5) & (grouped["score_change_5d"] >= 0),
@@ -902,6 +911,30 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
             ["Leading", "Emerging", "Improving", "Weakening", "Lagging"],
             default="Neutral",
         )
+        grouped["leader_symbols"] = ""
+        if "market_cap_cr" in d.columns:
+            cap = pd.to_numeric(d["market_cap_cr"], errors="coerce").fillna(0.0)
+            eligible = d.loc[cap >= 1000.0, ["trade_date", col, "symbol", "rs_percentile"]].copy()
+            if not eligible.empty:
+                eligible["rs_percentile"] = pd.to_numeric(eligible["rs_percentile"], errors="coerce")
+                eligible["symbol"] = eligible["symbol"].astype(str)
+                eligible = eligible.sort_values(
+                    ["trade_date", col, "rs_percentile", "symbol"],
+                    ascending=[True, True, False, True],
+                    na_position="last",
+                )
+                top3 = eligible.groupby(["trade_date", col], sort=False).head(3)
+                leader_map = top3.groupby(["trade_date", col], sort=False)["symbol"].agg(
+                    lambda s: ",".join(s.tolist())
+                )
+                leader_map.name = "leader_symbols"
+                grouped = grouped.drop(columns=["leader_symbols"]).merge(
+                    leader_map,
+                    left_on=["trade_date", "group_name"],
+                    right_index=True,
+                    how="left",
+                )
+                grouped["leader_symbols"] = grouped["leader_symbols"].fillna("")
         frames.append(grouped)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 

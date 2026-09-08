@@ -10,6 +10,7 @@ Combines:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 import duckdb
@@ -21,8 +22,13 @@ try:
     from App.market_summary import group_tape, group_trend, movers
     from App.sector_read_model import (
         format_vs_nifty_cell,
+        query_child_groups,
+        query_group_members,
         query_index_session_count,
+        query_rotation_board,
         query_sector_rotation_overview,
+        query_taxonomy_hierarchy,
+        session_lag_date,
         vs_nifty_is_displayable,
     )
     from App.thematic_engine import build_thematic_leaderboard, get_index_constituents
@@ -34,14 +40,46 @@ except ModuleNotFoundError:
     from market_summary import group_tape, group_trend, movers  # type: ignore
     from sector_read_model import (  # type: ignore
         format_vs_nifty_cell,
+        query_child_groups,
+        query_group_members,
         query_index_session_count,
+        query_rotation_board,
         query_sector_rotation_overview,
+        query_taxonomy_hierarchy,
+        session_lag_date,
         vs_nifty_is_displayable,
     )
     from thematic_engine import build_thematic_leaderboard, get_index_constituents  # type: ignore
     from ui.columns import get_quasar_column_def  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
     from ui.widgets import chart_panel, grouped_line_chart, return_heatmap  # type: ignore
+
+try:
+    from Scripts.telegram_deals import to_tv_list
+except ModuleNotFoundError:
+    from telegram_deals import to_tv_list  # type: ignore
+
+GRAIN_OPTIONS = {
+    "Broad Industry": "Broad Industry (59)",
+    "Sector": "Sector (22)",
+    "Industry": "Industry (187)",
+}
+TIMEFRAME_OPTIONS = {
+    "Daily": "Daily",
+    "Weekly": "5D % sort (daily rows)",
+}
+TREE_STATUS_ICONS = {
+    "Leading": "▲",
+    "Emerging": "↗",
+    "Improving": "↑",
+    "Weakening": "↘",
+    "Lagging": "▼",
+    "Neutral": "•",
+}
+
+
+def sector_v2_enabled() -> bool:
+    return os.environ.get("MP_SECTOR_V2", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -66,6 +104,20 @@ def _fmt_pct(v: Any, signed: bool = True) -> str:
 
 def _fmt_vs_nifty(v: Any, *, index_sessions: int | None = None) -> str:
     return format_vs_nifty_cell(v, index_sessions=index_sessions)
+
+
+def _fmt_optional_num(v: Any, *, signed: bool = False, digits: int = 1) -> str:
+    """Format a number, or em-dash when the value is missing. Never paint NULL as 0.0."""
+    if v is None or pd.isna(v):
+        return "—"
+    try:
+        val = float(v)
+        if pd.isna(val):
+            return "—"
+        sign = "+" if signed and val > 0 else ""
+        return f"{sign}{val:.{digits}f}"
+    except (ValueError, TypeError):
+        return "—"
 
 
 def _fmt_money(v: Any) -> str:
@@ -147,30 +199,417 @@ def query_turnover_heatmaps_data(db_path: Path, level: str = "Sector", days: int
 
 
 def query_rs_leadership_data(db_path: Path, level: str = "Sector") -> pd.DataFrame:
-    """Fetch average RS rank at T0 vs T-5 for the RS Leadership chart."""
+    """Fetch average RS rank at T0 vs T-5 for the RS Leadership chart.
+
+    T-5 is the 5th prior session, not dates[-1] of a short window.
+    """
     with duckdb.connect(str(db_path), read_only=True) as db:
         try:
-            dates = [str(r[0])[:10] for r in db.execute(
+            dates = [r[0] for r in db.execute(
                 "SELECT DISTINCT trade_date FROM sector_rotation WHERE level = ? ORDER BY trade_date DESC LIMIT 6",
                 [level],
             ).fetchall()]
             if len(dates) < 2:
                 return pd.DataFrame()
-            t0, t5 = dates[0], dates[-1]
-            sql = f"""
+            t0 = dates[0]
+            t5 = session_lag_date(dates, 5)
+            if t5 is None:
+                sql = """
+                SELECT
+                    r0.group_name,
+                    round(r0.rs_percentile, 1) AS rs_t0,
+                    CAST(NULL AS DOUBLE) AS rs_t5,
+                    CAST(NULL AS DOUBLE) AS rs_change
+                FROM sector_rotation r0
+                WHERE r0.level = ? AND r0.trade_date = ?
+                ORDER BY r0.rs_percentile DESC
+                """
+                return db.execute(sql, [level, t0]).fetchdf()
+            sql = """
             SELECT
                 r0.group_name,
                 round(r0.rs_percentile, 1) AS rs_t0,
-                round(coalesce(r5.rs_percentile, r0.rs_percentile), 1) AS rs_t5,
-                round(r0.rs_percentile - coalesce(r5.rs_percentile, r0.rs_percentile), 1) AS rs_change
+                round(r5.rs_percentile, 1) AS rs_t5,
+                round(r0.rs_percentile - r5.rs_percentile, 1) AS rs_change
             FROM sector_rotation r0
-            LEFT JOIN sector_rotation r5 ON r0.group_name = r5.group_name AND r0.level = r5.level AND r5.trade_date = '{t5}'
-            WHERE r0.level = ? AND r0.trade_date = '{t0}'
+            LEFT JOIN sector_rotation r5
+              ON r0.group_name = r5.group_name AND r0.level = r5.level AND r5.trade_date = ?
+            WHERE r0.level = ? AND r0.trade_date = ?
             ORDER BY r0.rs_percentile DESC
             """
-            return db.execute(sql, [level]).fetchdf()
+            return db.execute(sql, [t5, level, t0]).fetchdf()
         except Exception:
             return pd.DataFrame()
+
+
+def _copy_tree_node_shallow(node: dict[str, Any], children: list[dict[str, Any]]) -> dict[str, Any]:
+    copy = {key: value for key, value in node.items() if key != "children"}
+    copy["children"] = children
+    return copy
+
+
+def _nodes_at_level(node: dict[str, Any], level: str) -> list[dict[str, Any]]:
+    if node.get("level") == level:
+        return [node]
+    found: list[dict[str, Any]] = []
+    for child in node.get("children", []):
+        found.extend(_nodes_at_level(child, level))
+    return found
+
+
+def _prune_taxonomy_for_grain(nodes: list[dict[str, Any]], grain: str) -> list[dict[str, Any]]:
+    """Navigator tree: Broad Sector roots; children depend on selected grain."""
+    result: list[dict[str, Any]] = []
+    for root in nodes:
+        if root.get("level") != "Broad Sector":
+            continue
+        if grain == "Sector":
+            children = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(root, "Sector")]
+        elif grain == "Industry":
+            bi_nodes = []
+            for broad in _nodes_at_level(root, "Broad Industry"):
+                industries = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(broad, "Industry")]
+                bi_nodes.append(_copy_tree_node_shallow(broad, industries))
+            children = bi_nodes
+        else:
+            children = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(root, "Broad Industry")]
+        result.append(_copy_tree_node_shallow(root, children))
+    return result
+
+
+def _walk_taxonomy(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for node in nodes:
+        flattened.append(node)
+        flattened.extend(_walk_taxonomy(node.get("children", [])))
+    return flattened
+
+
+def _taxonomy_path(nodes: list[dict[str, Any]], node_id: str) -> list[dict[str, Any]]:
+    for node in nodes:
+        if node.get("id") == node_id:
+            return [node]
+        child_path = _taxonomy_path(node.get("children", []), node_id)
+        if child_path:
+            return [node, *child_path]
+    return []
+
+
+def _decorate_taxonomy_tree(nodes: list[dict[str, Any]]) -> None:
+    for node in nodes:
+        if node.get("level") == "Stock":
+            market_cap = float(node.get("market_cap_cr") or 0.0)
+            node["display_label"] = f"{node['name']} · ₹{market_cap:,.0f} Cr"
+        else:
+            rotation_state = str(node.get("rotation_state") or "Neutral")
+            icon = TREE_STATUS_ICONS.get(rotation_state, "•")
+            total_stocks = int(node.get("stock_count") or 0)
+            node["display_label"] = f"{icon} {node['name']} · {rotation_state} · {total_stocks}"
+        _decorate_taxonomy_tree(node.get("children", []))
+
+
+def _descendant_group_names(node: dict[str, Any], grain: str) -> list[str]:
+    if node.get("level") == grain:
+        return [str(node.get("name") or "")]
+    names: list[str] = []
+    for child in node.get("children", []):
+        names.extend(_descendant_group_names(child, grain))
+    return [name for name in names if name]
+
+
+def _build_sector_v2_page(
+    db_path: Path,
+    *,
+    copy_text: Callable[[str, str], None] | None = None,
+) -> None:
+    """Exploded Broad Industry workspace: taxonomy tree + named-sort board."""
+    state = {
+        "level": "Broad Industry",
+        "timeframe": "Daily",
+        "selected_group": "",
+        "parent_filter": "",
+        "selected_node_id": "",
+        "child_group": "",
+    }
+
+    st = load_market_status(db_path, db_path.parent / "status.json")
+    with ui.column().classes("w-full mp-sector-page gap-3"):
+        with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap border-b border-[var(--mp-border)] pb-2"):
+            with ui.column().classes("gap-0"):
+                ui.label("Sector Rotation").classes("text-xl font-bold text-[var(--mp-text)]")
+                ui.label("Broad Industry board sorted by Δ SHARE 5D. Drill Broad Sector → Broad Industry → Industry → stock.").classes("text-xs text-[var(--mp-muted)]")
+            with ui.row().classes("items-center gap-3"):
+                if not st.actionable:
+                    ui.label(non_actionable_message(st)).classes("mp-badge mp-bad text-xs")
+                else:
+                    ui.label(f"EOD · {st.database_date or 'Live'}").classes("text-xs text-[var(--mp-muted)]")
+
+        with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mp-toolbar"):
+            with ui.row().classes("items-center gap-2"):
+                ui.label("Grain:").classes("text-xs font-semibold text-[var(--mp-text-muted)]")
+                level_toggle = ui.toggle(GRAIN_OPTIONS, value=state["level"]).props("dense unelevated").classes("mp-toggle text-xs")
+                timeframe_toggle = ui.toggle(TIMEFRAME_OPTIONS, value=state["timeframe"]).props("dense unelevated").classes("mp-toggle text-xs ml-2")
+
+        content_host = ui.column().classes("w-full gap-3")
+        drilldown_host = ui.column().classes("w-full mt-2 border-t border-[var(--mp-border)] pt-4")
+
+        def render_drilldown() -> None:
+            drilldown_host.clear()
+            grp = str(state.get("selected_group") or "")
+            child = str(state.get("child_group") or "")
+            if not grp and not child:
+                return
+            grain = state["level"]
+            is_weekly = state["timeframe"] == "Weekly"
+            with drilldown_host:
+                if grain == "Broad Industry" and grp and not child:
+                    children = query_child_groups(
+                        db_path,
+                        parent_level="Broad Industry",
+                        parent_name=grp,
+                        child_level="Industry",
+                    )
+                    ui.label(f"Industries in {grp}").classes("text-base font-bold text-[var(--mp-text)]")
+                    if children.empty:
+                        ui.label("No child industries mapped.").classes("text-xs text-[var(--mp-muted)]")
+                    else:
+                        rows = []
+                        for _, row in children.iterrows():
+                            rows.append({
+                                "group_name": str(row.get("group_name") or ""),
+                                "stocks": int(row.get("stocks") or 0),
+                                "turnover_1d_cr": _fmt_money(row.get("turnover_1d_cr")),
+                                "return_5d_pct": _fmt_pct(row.get("return_5d_pct")),
+                                "leader_symbols": str(row.get("leader_symbols") or ""),
+                            })
+                        cols = [
+                            get_quasar_column_def("group_name", width_override=220),
+                            get_quasar_column_def("stocks"),
+                            get_quasar_column_def("turnover_1d_cr", label_override="TURNOVER"),
+                            get_quasar_column_def("return_5d_pct"),
+                            get_quasar_column_def("leader_symbols", width_override=240, sortable=False),
+                        ]
+                        with ui.element("div").classes("w-full mp-table-scroll"):
+                            with ui.table(columns=cols, rows=rows, pagination=15).classes("w-full mp-table") as child_tbl:
+                                child_tbl.add_slot(
+                                    "body-cell-group_name",
+                                    """
+                                    <q-td :props="props" class="mp-sticky-col">
+                                        <q-btn flat dense no-caps size="sm" color="white" :label="props.value" @click="$parent.$emit('select_child', props.value)" />
+                                    </q-td>
+                                    """,
+                                )
+                                child_tbl.on("select_child", lambda e: select_child(str(e.args)))
+
+                member_level = "Industry" if child else grain
+                member_name = child or grp
+                ui.label(f"Constituent Stocks · {member_name}").classes("text-base font-bold text-[var(--mp-text)] mt-3")
+                members = query_group_members(db_path, level=member_level, group_name=member_name)
+                if members.empty:
+                    ui.label("No active constituents in the latest session.").classes("text-xs text-[var(--mp-muted)]")
+                    return
+                sort_key = "return_5d_pct" if is_weekly else "turnover_cr"
+                if sort_key in members.columns:
+                    members = members.sort_values(sort_key, ascending=False)
+                if copy_text:
+                    ui.button(
+                        f"Copy {len(members)} symbols (TV)",
+                        icon="content_copy",
+                        on_click=lambda names=members["symbol"].tolist(), g=member_name: copy_text(
+                            f"{g} Members", to_tv_list(names)
+                        ),
+                    ).props("dense unelevated no-caps").classes("mp-primary text-xs mb-2")
+                display_cols = [c for c in ["symbol", "close_price", "return_1d_pct", "return_5d_pct", "rs_percentile", "rvol", "away_52w_high_pct", "turnover_cr", "market_cap_cr"] if c in members.columns]
+                table_data = members[display_cols].copy()
+                if "close_price" in table_data.columns:
+                    table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
+                if "return_1d_pct" in table_data.columns:
+                    table_data["return_1d_pct"] = table_data["return_1d_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
+                if "return_5d_pct" in table_data.columns:
+                    table_data["return_5d_pct"] = table_data["return_5d_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
+                if "turnover_cr" in table_data.columns:
+                    table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
+                if "away_52w_high_pct" in table_data.columns:
+                    table_data["away_52w_high_pct"] = table_data["away_52w_high_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
+                if "rvol" in table_data.columns:
+                    table_data["rvol"] = table_data["rvol"].map(lambda x: f"{x:.2f}x" if pd.notna(x) else "—")
+                if "rs_percentile" in table_data.columns:
+                    table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
+                if "market_cap_cr" in table_data.columns:
+                    table_data["market_cap_cr"] = table_data["market_cap_cr"].map(lambda x: f"₹{x:,.0f} Cr" if pd.notna(x) else "—")
+                cols_def = [get_quasar_column_def(c) for c in display_cols]
+                with ui.element("div").classes("w-full mp-table-scroll"):
+                    with ui.table(columns=cols_def, rows=table_data.to_dict("records"), pagination=15).classes("w-full mp-table") as t:
+                        t.add_slot(
+                            "body-cell-symbol",
+                            """
+                            <q-td :props="props" class="symbol-col mp-sticky-col">
+                                <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('open_stock', props.value)" />
+                            </q-td>
+                            """,
+                        )
+                        t.on("open_stock", lambda e: open_stock_360_modal(db_path, str(e.args)))
+
+        def select_group(group_name: str, *, from_parent: bool = False) -> None:
+            if from_parent:
+                state["parent_filter"] = group_name
+                state["selected_group"] = ""
+                state["child_group"] = ""
+            else:
+                state["selected_group"] = group_name
+                state["child_group"] = ""
+            render_workspace()
+            render_drilldown()
+
+        def select_child(name: str) -> None:
+            state["child_group"] = name
+            render_drilldown()
+
+        def render_workspace() -> None:
+            content_host.clear()
+            grain = state["level"]
+            is_weekly = state["timeframe"] == "Weekly"
+            taxonomy = query_taxonomy_hierarchy(db_path, min_mcap=1_000)
+            pruned = _prune_taxonomy_for_grain(taxonomy, grain)
+            _decorate_taxonomy_tree(pruned)
+            node_map = {str(node["id"]): node for node in _walk_taxonomy(pruned)}
+            df = query_rotation_board(db_path, level=grain)
+            if not df.empty:
+                if is_weekly and "return_5d_pct" in df.columns:
+                    df = df.sort_values(by="return_5d_pct", ascending=False).reset_index(drop=True)
+                selected_id = str(state.get("selected_node_id") or "")
+                selected_node = node_map.get(selected_id)
+                if selected_node is not None and selected_node.get("level") != grain:
+                    names = _descendant_group_names(selected_node, grain)
+                    state["filter_names"] = names
+                    if names:
+                        df = df[df["group_name"].astype(str).isin(names)].reset_index(drop=True)
+                else:
+                    state["filter_names"] = []
+                selected = state.get("selected_group") or ""
+                if selected and "group_name" in df.columns:
+                    match = df["group_name"].astype(str) == selected
+                    df = pd.concat([df.loc[match], df.loc[~match]], ignore_index=True)
+
+            with content_host:
+                if is_weekly:
+                    with ui.row().classes("w-full items-center gap-2 bg-[var(--mp-primary-bg)] border border-[var(--mp-primary)]/40 px-3 py-1.5 rounded-md"):
+                        ui.label("5D % sort (daily rows) — not a weekly group aggregator.").classes("text-xs font-semibold text-[var(--mp-primary)]")
+                with ui.element("div").classes("w-full mp-sector-workspace"):
+                    with ui.card().classes("mp-card mp-taxonomy-panel"):
+                        ui.label("NSE Classification Tree").classes("mp-section-title")
+                        ui.label("Broad Sector → Broad Industry → Industry").classes("mp-page-subtitle")
+                        tree_host = ui.column().classes("w-full mp-taxonomy-tree-host")
+                        with tree_host:
+                            if not pruned:
+                                ui.label("No taxonomy branch matches these filters.").classes("mp-empty-state")
+                            else:
+                                def on_select(event) -> None:
+                                    node_id = str(event.value or "")
+                                    node = node_map.get(node_id)
+                                    if not node:
+                                        return
+                                    state["selected_node_id"] = node_id
+                                    if node.get("level") == grain:
+                                        select_group(str(node.get("name") or ""))
+                                    else:
+                                        select_group(str(node.get("name") or ""), from_parent=True)
+
+                                tree = (
+                                    ui.tree(
+                                        pruned,
+                                        node_key="id",
+                                        label_key="display_label",
+                                        on_select=on_select,
+                                    )
+                                    .classes("w-full mp-taxonomy-tree")
+                                    .props("dense no-connectors")
+                                )
+                                current_id = str(state.get("selected_node_id") or "")
+                                current_path = _taxonomy_path(pruned, current_id)
+                                if current_path:
+                                    tree.expand([str(item["id"]) for item in current_path[:-1]])
+                                    tree.select(current_id)
+                    with ui.column().classes("w-full mp-sector-detail-host gap-2"):
+                        ui.label("Δ SHARE 5D").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                        if df.empty:
+                            ui.label("No groups pass Min names 8 / Min T/O ₹200 Cr.").classes("text-sm text-[var(--mp-muted)]")
+                        else:
+                            top = df.head(4)
+                            with ui.row().classes("w-full gap-2 flex-wrap"):
+                                for _, item in top.iterrows():
+                                    grp_name = str(item.get("group_name") or "")
+                                    delta = _safe_float(item.get("turnover_share_delta_5d"))
+                                    with ui.card().classes("p-3 rounded-lg bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] flex-1 min-w-[180px] cursor-pointer").on(
+                                        "click", lambda _, g=grp_name: select_group(g)
+                                    ):
+                                        ui.label(grp_name).classes("font-bold text-sm truncate")
+                                        ui.label(f"Δ SHARE 5D {delta:+.2f} pp").classes("text-xs font-mono " + ("text-emerald-400" if delta > 0 else "text-rose-400" if delta < 0 else "text-slate-400"))
+                                        ui.label(_fmt_money(item.get("turnover_1d_cr"))).classes("text-xs text-[var(--mp-muted)]")
+                                        ui.label(str(item.get("leader_symbols") or "")).classes("text-[10px] font-mono truncate")
+                            records = []
+                            for _, r in df.iterrows():
+                                records.append({
+                                    "turnover_share_delta_5d": f"{_safe_float(r.get('turnover_share_delta_5d')):+.2f} pp",
+                                    "group_name": str(r.get("group_name") or ""),
+                                    "rotation_state": str(r.get("rotation_state") or "Neutral"),
+                                    "turnover_1d_cr": _fmt_money(r.get("turnover_1d_cr")),
+                                    "turnover_share_pct": f"{_safe_float(r.get('turnover_share_pct')):.1f}%",
+                                    "adv_pct": f"{_safe_float(r.get('adv_pct')):.0f}%",
+                                    "return_5d_pct": _fmt_pct(r.get("return_5d_pct")),
+                                    "rs_percentile": f"{_safe_float(r.get('rs_percentile')):.0f}",
+                                    "rotation_rank": int(r.get("rotation_rank") or 99),
+                                    "leader_symbols": str(r.get("leader_symbols") or ""),
+                                })
+                            cols = [
+                                get_quasar_column_def("turnover_share_delta_5d", label_override="★ Δ SHARE 5D"),
+                                get_quasar_column_def("group_name", width_override=200),
+                                get_quasar_column_def("rotation_state"),
+                                get_quasar_column_def("turnover_1d_cr"),
+                                get_quasar_column_def("turnover_share_pct"),
+                                get_quasar_column_def("adv_pct"),
+                                get_quasar_column_def("return_5d_pct"),
+                                get_quasar_column_def("rs_percentile"),
+                                get_quasar_column_def("rotation_rank", label_override="ROT RANK"),
+                                get_quasar_column_def("leader_symbols", width_override=240, sortable=False),
+                            ]
+                            with ui.element("div").classes("w-full mp-table-scroll"):
+                                with ui.table(columns=cols, rows=records, pagination=25).classes("w-full mp-table") as matrix_tbl:
+                                    matrix_tbl.add_slot(
+                                        "body-cell-group_name",
+                                        """
+                                        <q-td :props="props" class="mp-sticky-col">
+                                            <q-btn flat dense no-caps size="sm" color="white" :label="props.value" @click="$parent.$emit('select_group', props.value)" />
+                                        </q-td>
+                                        """,
+                                    )
+                                    matrix_tbl.add_slot(
+                                        "body-cell-rotation_state",
+                                        """
+                                        <q-td :props="props">
+                                            <q-badge :color="props.value === 'Leading' ? 'positive' : props.value === 'Improving' ? 'info' : props.value === 'Weakening' ? 'warning' : 'grey'" :label="props.value" />
+                                        </q-td>
+                                        """,
+                                    )
+                                    matrix_tbl.on("select_group", lambda e: select_group(str(e.args)))
+
+        def _on_level_change(e):
+            state["level"] = str(e.value)
+            state["selected_group"] = ""
+            state["selected_node_id"] = ""
+            state["child_group"] = ""
+            state["filter_names"] = []
+            render_workspace()
+            drilldown_host.clear()
+
+        def _on_timeframe_change(e):
+            state["timeframe"] = str(e.value)
+            render_workspace()
+            render_drilldown()
+
+        level_toggle.on_value_change(_on_level_change)
+        timeframe_toggle.on_value_change(_on_timeframe_change)
+        render_workspace()
 
 
 def build_sector_board_page(
@@ -181,8 +620,12 @@ def build_sector_board_page(
 ) -> None:
     db_path = Path(db_path)
 
+    if sector_v2_enabled():
+        _build_sector_v2_page(db_path, copy_text=copy_text)
+        return
+
     state = {
-        "level": "Sector",
+        "level": "Broad Industry",
         "timeframe": "Daily",
         "active_section": "matrix",
         "selected_group": "",
@@ -209,12 +652,12 @@ def build_sector_board_page(
             with ui.row().classes("items-center gap-2"):
                 ui.label("Scope:").classes("text-xs font-semibold text-[var(--mp-text-muted)]")
                 level_toggle = ui.toggle(
-                    {"Sector": "Sector (22)", "Industry": "Industry (58)"},
+                    GRAIN_OPTIONS,
                     value=state["level"]
                 ).props("dense unelevated").classes("mp-toggle text-xs")
 
                 timeframe_toggle = ui.toggle(
-                    ["Daily", "Weekly"],
+                    TIMEFRAME_OPTIONS,
                     value=state["timeframe"]
                 ).props("dense unelevated").classes("mp-toggle text-xs ml-2")
 
@@ -314,49 +757,55 @@ def build_sector_board_page(
                 with ui.row().classes("w-full items-center justify-between gap-2 mb-2"):
                     with ui.row().classes("items-center gap-2"):
                         ui.label(f"Constituent Stocks · {grp}").classes("text-base font-bold text-[var(--mp-text)]")
-                        mode_lbl = "Sorted by Weekly Momentum (5D %)" if is_weekly else "Sorted by Turnover"
+                        mode_lbl = "Sorted by 5D % (daily rows)" if is_weekly else "Sorted by Turnover"
                         ui.label(f"({mode_lbl}) · Click star to toggle WL1 · Click symbol for Stock 360").classes("text-xs text-[var(--mp-muted)]")
                     ui.button("Close Drilldown", on_click=lambda: select_group("")).props("flat dense").classes("text-xs text-[var(--mp-muted)]")
 
-                mv = movers(db_path)
-                col = "sector" if state["level"] == "Sector" else "industry"
-                if not mv.empty and col in mv.columns:
-                    sort_key = "week_pct" if is_weekly else ("t_o_today" if "t_o_today" in mv.columns else "turnover_cr")
-                    sub = mv[mv[col].astype(str).str.casefold() == grp.casefold()].sort_values(sort_key, ascending=False)
-                    if sub.empty:
-                        ui.label(f"No active constituents found for {grp} in latest session.").classes("text-xs text-[var(--mp-muted)]")
-                    else:
-                        if "t_o_today" in sub.columns and "turnover_cr" not in sub.columns:
-                            sub["turnover_cr"] = sub["t_o_today"]
-                        display_cols = [c for c in ["symbol", "close_price", "day_pct", "week_pct", "month_pct", "turnover_cr", "away_52w_high_pct", "rvol", "rs_percentile", "market_cap_cr"] if c in sub.columns]
-                        table_data = sub[display_cols].copy()
-                        table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
-                        table_data["day_pct"] = table_data["day_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
-                        table_data["week_pct"] = table_data["week_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                        table_data["month_pct"] = table_data["month_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                        table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
-                        table_data["away_52w_high_pct"] = table_data["away_52w_high_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                        table_data["rvol"] = table_data["rvol"].map(lambda x: f"{x:.2f}x" if pd.notna(x) else "—")
-                        table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
-                        table_data["market_cap_cr"] = table_data["market_cap_cr"].map(lambda x: f"₹{x:,.0f} Cr" if pd.notna(x) else "—")
+                sub = query_group_members(db_path, level=state["level"], group_name=grp)
+                if sub.empty:
+                    ui.label(f"No active constituents found for {grp} in latest session.").classes("text-xs text-[var(--mp-muted)]")
+                else:
+                    sort_key = "return_5d_pct" if is_weekly else "turnover_cr"
+                    if sort_key in sub.columns:
+                        sub = sub.sort_values(sort_key, ascending=False)
+                    if "return_1d_pct" in sub.columns and "day_pct" not in sub.columns:
+                        sub["day_pct"] = sub["return_1d_pct"]
+                    if "return_5d_pct" in sub.columns and "week_pct" not in sub.columns:
+                        sub["week_pct"] = sub["return_5d_pct"]
+                    display_cols = [c for c in ["symbol", "close_price", "day_pct", "week_pct", "turnover_cr", "away_52w_high_pct", "rvol", "rs_percentile", "market_cap_cr"] if c in sub.columns]
+                    table_data = sub[display_cols].copy()
+                    table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
+                    table_data["day_pct"] = table_data["day_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
+                    table_data["week_pct"] = table_data["week_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
+                    table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
+                    table_data["away_52w_high_pct"] = table_data["away_52w_high_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
+                    table_data["rvol"] = table_data["rvol"].map(lambda x: f"{x:.2f}x" if pd.notna(x) else "—")
+                    table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
+                    table_data["market_cap_cr"] = table_data["market_cap_cr"].map(lambda x: f"₹{x:,.0f} Cr" if pd.notna(x) else "—")
+                    if copy_text:
+                        ui.button(
+                            f"Copy {len(sub)} symbols (TV)",
+                            icon="content_copy",
+                            on_click=lambda names=sub["symbol"].tolist(), g=grp: copy_text(f"{g} Members", to_tv_list(names)),
+                        ).props("dense unelevated no-caps").classes("mp-primary text-xs mb-2")
 
-                        cols_def = [get_quasar_column_def(c) for c in display_cols]
-                        with ui.element("div").classes("w-full mp-table-scroll"):
-                            with ui.table(columns=cols_def, rows=table_data.to_dict("records"), pagination=15).classes("w-full mp-table") as t:
-                                t.add_slot(
-                                    "body-cell-symbol",
-                                    """
-                                    <q-td :props="props" class="symbol-col mp-sticky-col">
-                                        <div class="mp-symbol-cell">
-                                            <button type="button" class="mp-symbol-star" @click.stop="$parent.$emit('quick_wl', props.value)" title="Quick add/remove from Watchlist (WL1)">★</button>
-                                            <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('open_stock', props.value)" />
-                                            <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('open_stock', props.value)" title="Open stock box">↗</q-btn>
-                                        </div>
-                                    </q-td>
-                                    """
-                                )
-                                t.on("open_stock", lambda e: open_stock_360_modal(db_path, str(e.args)))
-                                t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(str(e.args)))
+                    cols_def = [get_quasar_column_def(c) for c in display_cols]
+                    with ui.element("div").classes("w-full mp-table-scroll"):
+                        with ui.table(columns=cols_def, rows=table_data.to_dict("records"), pagination=15).classes("w-full mp-table") as t:
+                            t.add_slot(
+                                "body-cell-symbol",
+                                """
+                                <q-td :props="props" class="symbol-col mp-sticky-col">
+                                    <div class="mp-symbol-cell">
+                                        <button type="button" class="mp-symbol-star" @click.stop="$parent.$emit('quick_wl', props.value)" title="Quick add/remove from Watchlist (WL1)">★</button>
+                                        <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('open_stock', props.value)" />
+                                        <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('open_stock', props.value)" title="Open stock box">↗</q-btn>
+                                    </div>
+                                </q-td>
+                                """
+                            )
+                            t.on("open_stock", lambda e: open_stock_360_modal(db_path, str(e.args)))
+                            t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(str(e.args)))
 
         def render_section() -> None:
             content_host.clear()
@@ -368,7 +817,7 @@ def build_sector_board_page(
                 if is_weekly:
                     with ui.row().classes("w-full items-center gap-2 bg-[var(--mp-primary-bg)] border border-[var(--mp-primary)]/40 px-3 py-1.5 rounded-md mb-1"):
                         ui.icon("calendar_view_week", color="warning").classes("text-sm")
-                        ui.label("Weekly Mode Active: Ranking, return trends, and constituent performance reflect 5-day rolling weekly momentum.").classes("text-xs font-semibold text-[var(--mp-primary)]")
+                        ui.label("5D % sort (daily rows) — not a weekly group aggregator.").classes("text-xs font-semibold text-[var(--mp-primary)]")
 
                 index_sessions = query_index_session_count(db_path)
                 if not vs_nifty_is_displayable(index_sessions):
@@ -377,10 +826,7 @@ def build_sector_board_page(
 
                 if sec == "matrix":
                     # ==================== 1. MONEY FLOW & ROTATION MATRIX ====================
-                    res = query_sector_rotation_overview(db_path, level=lvl)
-                    df = res.get("leaderboard", pd.DataFrame())
-                    index_sessions = int(res.get("index_sessions") or index_sessions)
-
+                    df = query_rotation_board(db_path, level=lvl)
                     if df.empty:
                         ui.label("No sector rotation records found.").classes("text-sm text-[var(--mp-muted)]")
                         return
@@ -389,13 +835,15 @@ def build_sector_board_page(
                         df["rs_rank"] = df["rotation_rank"]
 
                     if is_weekly and "return_5d_pct" in df.columns:
-                        # Re-sort table by weekly return in weekly mode
                         df = df.sort_values(by="return_5d_pct", ascending=False).reset_index(drop=True)
-                        df["rotation_rank"] = range(1, len(df) + 1)
-                        df["rs_rank"] = df["rotation_rank"]
+                    else:
+                        df = df.sort_values(
+                            by=["turnover_share_delta_5d", "turnover_1d_cr"],
+                            ascending=[False, False],
+                            na_position="last",
+                        ).reset_index(drop=True)
 
-                    # Top Focus Cards Row
-                    top_focus = res.get("top_focus", [])
+                    top_focus = df.head(4).to_dict("records")
                     if top_focus:
                         with ui.row().classes("w-full gap-3 flex-wrap mb-2"):
                             for item in top_focus[:4]:
@@ -409,23 +857,20 @@ def build_sector_board_page(
                                         ui.label(grp_name).classes("font-bold text-sm text-[var(--mp-text)] truncate")
                                         ui.label(state_str.upper()).classes(f"mp-badge mp-{tone} text-[10px]")
                                     with ui.row().classes("w-full items-center justify-between mt-2 text-xs"):
-                                        rank_lbl = f"Wk Rank #{int(item.get('rotation_rank') or 0)}" if is_weekly else f"Rank #{int(item.get('rotation_rank') or 0)}"
-                                        ui.label(rank_lbl).classes("font-semibold")
-                                        chg = _safe_float(item.get("rank_change_5d"))
-                                        ui.label(f"{chg:+.0f} 5D").classes("text-emerald-400" if chg > 0 else "text-rose-400" if chg < 0 else "text-slate-400")
+                                        ui.label("Δ SHARE 5D").classes("font-semibold text-[var(--mp-muted)]")
+                                        delta = _safe_float(item.get("turnover_share_delta_5d"))
+                                        ui.label(f"{delta:+.2f} pp").classes("text-emerald-400" if delta > 0 else "text-rose-400" if delta < 0 else "text-slate-400")
                                     with ui.row().classes("w-full items-center justify-between text-xs text-[var(--mp-muted)] mt-1"):
                                         ui.label(f"Share {_safe_float(item.get('turnover_share_pct')):.1f}%")
-                                        n_52 = int(item.get("near_52w_highs") or 0)
-                                        ui.label(f"52W: {n_52}").classes("font-bold text-emerald-400 font-mono")
-                                        ret_5d = _fmt_pct(item.get('return_5d_pct'))
-                                        ui.label(f"5D {ret_5d}").classes("font-bold text-amber-400" if is_weekly else "")
+                                        ui.label(_fmt_money(item.get("turnover_1d_cr")))
+                                        ui.label(str(item.get("leader_symbols") or item.get("top_leaders") or "")[:42]).classes("font-mono truncate")
 
                     # Visual Panels: Return Trend and Heatmap
-                    trend = group_trend(db_path, str(lvl.lower()), top_n=6, days=21)
+                    trend = group_trend(db_path, lvl, top_n=6, days=21)
                     if not trend.empty:
                         with ui.element("div").classes("mp-sector-visuals w-full grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3"):
-                            chart_title = "5-Day Rolling Trend" if is_weekly else "Return Trend"
-                            chart_sub = "Top groups by weekly return · 21 sessions" if is_weekly else "Top groups by turnover · 21 sessions"
+                            chart_title = "5D % sort (daily rows)" if is_weekly else "Return Trend"
+                            chart_sub = "Top groups by 5D % (daily rows) · 21 sessions" if is_weekly else "Top groups by turnover · 21 sessions"
                             val_col = "week_pct" if (is_weekly and "week_pct" in trend.columns) else "day_pct"
                             with chart_panel(chart_title, chart_sub, tone="info"):
                                 grouped_line_chart(trend, date_col="trade_date", group_col="grp", value_col=val_col)
@@ -434,22 +879,24 @@ def build_sector_board_page(
 
                     # Main Ranking Table
                     cols = [
-                        get_quasar_column_def("rotation_rank", label_override="WK RANK" if is_weekly else "RANK"),
+                        get_quasar_column_def("turnover_share_delta_5d", label_override="★ Δ SHARE 5D"),
                         get_quasar_column_def("group_name", width_override=200),
                         get_quasar_column_def("rotation_state"),
                         get_quasar_column_def("turnover_1d_cr", label_override="TURNOVER"),
                         get_quasar_column_def("turnover_share_pct", label_override="T/O SHARE"),
+                        get_quasar_column_def("adv_pct", label_override="ADV %"),
                         get_quasar_column_def("turnover_expansion", label_override="VS 20D"),
                         get_quasar_column_def("near_52w_highs", label_override="NEAR 52W"),
                         get_quasar_column_def("vcp_candidates", label_override="VCP SETUPS"),
                         get_quasar_column_def("above_50ema_pct", label_override=">50 EMA"),
                         get_quasar_column_def("above_200ema_pct", label_override=">200 EMA"),
-                        get_quasar_column_def("return_5d_pct", label_override="★ 5D % (WK)" if is_weekly else "5D %"),
+                        get_quasar_column_def("return_5d_pct", label_override="★ 5D %" if is_weekly else "5D %"),
                         get_quasar_column_def("return_1m_pct", label_override="1M %"),
                         get_quasar_column_def("rs_vs_nifty_21d", label_override="21D VS NIFTY", width_override=180),
                         get_quasar_column_def("rs_vs_nifty_63d", label_override="63D VS NIFTY", width_override=180),
                         get_quasar_column_def("rs_percentile", label_override="RS"),
-                        get_quasar_column_def("top_leaders", width_override=260, sortable=False),
+                        get_quasar_column_def("rotation_rank", label_override="ROT RANK"),
+                        get_quasar_column_def("leader_symbols", width_override=260, sortable=False),
                     ]
 
                     # Prepare display records
@@ -467,6 +914,8 @@ def build_sector_board_page(
                             "rotation_state": str(r.get("rotation_state") or "Neutral"),
                             "turnover_1d_cr": f"₹{_safe_float(r.get('turnover_1d_cr')) / 1000:,.1f}k Cr" if _safe_float(r.get('turnover_1d_cr')) >= 1000 else f"₹{_safe_float(r.get('turnover_1d_cr')):,.0f} Cr",
                             "turnover_share_pct": f"{_safe_float(r.get('turnover_share_pct')):.1f}%",
+                            "turnover_share_delta_5d": f"{_safe_float(r.get('turnover_share_delta_5d')):+.2f} pp",
+                            "adv_pct": f"{_safe_float(r.get('adv_pct')):.0f}%",
                             "turnover_expansion": f"{_safe_float(r.get('turnover_expansion')):,.2f}x",
                             "near_52w_highs": f"{n_52w}{pct_52w}" if n_52w > 0 else "0",
                             "vcp_candidates": str(n_vcp) if n_vcp > 0 else "0",
@@ -487,7 +936,8 @@ def build_sector_board_page(
                                 index_sessions=index_sessions,
                             ),
                             "rs_percentile": f"{_safe_float(r.get('rs_percentile')):.0f}",
-                            "top_leaders": str(r.get("top_leaders") or ""),
+                            "top_leaders": str(r.get("top_leaders") or r.get("leader_symbols") or ""),
+                            "leader_symbols": str(r.get("leader_symbols") or r.get("top_leaders") or ""),
                         }
                         records.append(rec)
 
@@ -709,12 +1159,11 @@ def build_sector_board_page(
                         ]
                         records_rs = []
                         for _, r in rs_df.iterrows():
-                            chg = _safe_float(r.get("rs_change"))
                             records_rs.append({
                                 "group_name": str(r.get("group_name")),
-                                "rs_t0": f"{_safe_float(r.get('rs_t0')):.1f}",
-                                "rs_t5": f"{_safe_float(r.get('rs_t5')):.1f}",
-                                "rs_change": f"{chg:+.1f}",
+                                "rs_t0": _fmt_optional_num(r.get("rs_t0")),
+                                "rs_t5": _fmt_optional_num(r.get("rs_t5")),
+                                "rs_change": _fmt_optional_num(r.get("rs_change"), signed=True),
                             })
 
                         with ui.element("div").classes("w-full mp-table-scroll"):

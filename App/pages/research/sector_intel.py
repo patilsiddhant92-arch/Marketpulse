@@ -1,4 +1,7 @@
-"""Sector & Industry Leadership Desk — computed NSE taxonomy metrics."""
+"""DEPRECATED: taxonomy tree harvested into sector_board (PR 3). PR 10 deletes leftover.
+
+Sector & Industry Leadership Desk — computed NSE taxonomy metrics.
+"""
 
 from __future__ import annotations
 
@@ -571,7 +574,7 @@ def _render_taxonomy_tree_workspace(
     state: dict[str, Any],
     copy_text: Callable[[str, str], None] | None = None,
 ) -> None:
-    """Render the strict NSE tree and the selected group's swing-trading detail."""
+    """Harvested into sector_board v2 workspace. Kept until PR 10 deletes this module."""
     container.clear()
     taxonomy_tree = query_taxonomy_hierarchy(db_path, min_mcap=float(state["min_mcap"]))
     _decorate_taxonomy_tree(taxonomy_tree, float(state["min_mcap"]))
