@@ -303,6 +303,7 @@ def test_tightening_column():
     assert row["qualifies"]
     assert abs(row["squeeze_pct"] - 3.1) < 0.05
     assert abs(row["squeeze_pct_5d_ago"] - 4.8) < 0.05
+    assert pd.isna(row["squeeze_pct_5w_ago"])
     assert bool(row["tightening"]) is True
     assert int(row["squeeze_age"]) >= 2
 
@@ -311,6 +312,7 @@ def test_squeeze_frame_columns_and_unclipped_spread():
     frame = squeeze_frame(_coil_after_box(10), timeframe="D")
     for col in (
         "symbol", "darvas_top", "darvas_bottom", "squeeze_pct", "squeeze_pct_5d_ago",
+        "squeeze_pct_5w_ago",
         "tightening", "squeeze_age", "failed_low", "ema_floor", "candle_range_pct",
         "box_age_sessions", "qualifies",
     ):
@@ -470,9 +472,12 @@ def test_squeeze_frame_weekly_evaluates_last_completed_week():
     assert date(2026, 9, 2) not in ends
     assert date(2026, 9, 4) not in ends
     sq = squeeze_frame(frame, timeframe="W", as_of=as_of)
-    assert list(sq.columns) == list(squeeze_frame(frame, timeframe="D", as_of=as_of).columns)
+    daily_sq = squeeze_frame(frame, timeframe="D", as_of=as_of)
+    assert list(sq.columns) == list(daily_sq.columns)
     assert not sq.empty
     assert sq.iloc[0]["symbol"] == "WKLY"
+    assert pd.isna(sq.iloc[0]["squeeze_pct_5d_ago"])
+    assert "squeeze_pct_5w_ago" in sq.columns
 
 
 def test_wema_200_min_periods_unchanged_and_wema_20_owned():
@@ -483,7 +488,9 @@ def test_wema_200_min_periods_unchanged_and_wema_20_owned():
     assert darvas_weekly_enabled() is False
     mig = Path("Scripts/migrations.py").read_text(encoding="utf-8")
     assert "wema_20" in mig
-    assert "CURRENT_SCHEMA_VERSION = 8" in mig
+    assert "CURRENT_SCHEMA_VERSION = 7" in mig
+    assert "INSERT INTO schema_migrations(version) VALUES (8)" not in mig
+    assert "_MIGRATION_8" not in mig
 
 
 def test_no_ca_box_reset_in_weekly_path():

@@ -44,6 +44,7 @@ SQUEEZE_COLUMNS = [
     "darvas_bottom",
     "squeeze_pct",
     "squeeze_pct_5d_ago",
+    "squeeze_pct_5w_ago",
     "tightening",
     "squeeze_age",
     "failed_low",
@@ -618,8 +619,11 @@ def squeeze_frame(
             cfg=params,
         )
         sq_now = last_state["squeeze_pct"]
-        sq_5d = _squeeze_pct_at(top_box[-6], ema10[-6]) if len(g) >= 6 else np.nan
-        tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_5d) and sq_now < sq_5d)
+        sq_prior = _squeeze_pct_at(top_box[-6], ema10[-6]) if len(g) >= 6 else np.nan
+        # Daily: 5 sessions. Weekly: 5 completed weeks — do not store that analog in *_5d_ago.
+        sq_5d = np.nan if weekly else sq_prior
+        sq_5w = sq_prior if weekly else np.nan
+        tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_now < sq_prior)
 
         squeeze_age = 0
         for i in range(len(g) - 1, -1, -1):
@@ -646,6 +650,7 @@ def squeeze_frame(
                 "darvas_bottom": float(bottom_box[-1]) if np.isfinite(bottom_box[-1]) else np.nan,
                 "squeeze_pct": sq_now,
                 "squeeze_pct_5d_ago": sq_5d,
+                "squeeze_pct_5w_ago": sq_5w,
                 "tightening": tightening,
                 "squeeze_age": int(squeeze_age),
                 "failed_low": bool(last_state["failed_low"]),

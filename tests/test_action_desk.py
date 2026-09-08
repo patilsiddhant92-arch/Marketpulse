@@ -276,6 +276,10 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "1. VCP / Coiling Breakouts" not in page_source
     assert "darvas_weekly_enabled" in page_source
     assert '["Daily", "Weekly"]' in page_source
+    assert "darvas_hist_daily" in page_source
+    assert "daily_lookback" in page_source
+    assert "weekly=True" in page_source
+    assert "ema_floor" in page_source
     assert "MP_DARVAS_WEEKLY" in Path("Scripts/darvas_squeeze.py").read_text(encoding="utf-8")
 
 

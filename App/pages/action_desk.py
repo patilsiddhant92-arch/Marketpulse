@@ -317,12 +317,12 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         else:
             setup_pool["deal_flow"] = pd.Series(dtype=str)
 
-        # Trailing bars for Darvas Box calculation across setup pool
+        # Trailing bars for Darvas Box calculation across setup pool.
+        # Weekly flag may fetch 400 sessions for resampling; daily queue still uses 252 / 45.
         darvas_hist = pd.DataFrame()
-        darvas_lookback = (
-            int(WEEKLY_LOOKBACK_SESSIONS)
-            if use_weekly
-            else (int(DARVAS["box_lookback_sessions"]) if use_v2 else 45)
+        daily_lookback = int(DARVAS["box_lookback_sessions"]) if use_v2 else 45
+        fetch_lookback = (
+            max(daily_lookback, int(WEEKLY_LOOKBACK_SESSIONS)) if use_weekly else daily_lookback
         )
         if not setup_pool.empty:
             pool_symbols = setup_pool["symbol"].tolist()
@@ -333,7 +333,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     SELECT DISTINCT trade_date 
                     FROM indicators_daily 
                     ORDER BY trade_date DESC 
-                    LIMIT {int(darvas_lookback)}
+                    LIMIT {int(fetch_lookback)}
                 )
                 SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20
                 FROM indicators_daily i
@@ -428,14 +428,31 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     # Squeeze into top box and 10 EMA / 20 EMA. No stop-loss filter.
     # Weekly path is behind MP_DARVAS_WEEKLY (completed weeks only).
     # -------------------------------------------------------------
-    def _assemble_darvas_queue(cand_df: pd.DataFrame, *, v2: bool) -> tuple[pd.DataFrame, int]:
+    def _hist_last_sessions(hist: pd.DataFrame, n: int) -> pd.DataFrame:
+        if hist is None or hist.empty:
+            return hist
+        sessions = pd.to_datetime(hist["trade_date"]).drop_duplicates().sort_values()
+        keep = set(sessions.tail(int(n)))
+        return hist.loc[pd.to_datetime(hist["trade_date"]).isin(keep)].copy()
+
+    darvas_hist_daily = (
+        _hist_last_sessions(darvas_hist, daily_lookback) if use_weekly else darvas_hist
+    )
+
+    def _assemble_darvas_queue(
+        cand_df: pd.DataFrame, *, v2: bool, weekly: bool = False
+    ) -> tuple[pd.DataFrame, int]:
         if cand_df is None or cand_df.empty or setup_pool.empty:
             return pd.DataFrame(), 0
         out = setup_pool.merge(cand_df, on="symbol", how="inner")
         if out.empty:
             return pd.DataFrame(), 0
         out["trigger_price"] = out["darvas_top"]
-        out["stop_loss"] = (out["ema_10"] * 0.985).round(2)
+        if weekly and "ema_floor" in out.columns:
+            stop_base = pd.to_numeric(out["ema_floor"], errors="coerce")
+        else:
+            stop_base = out["ema_10"]
+        out["stop_loss"] = (stop_base * 0.985).round(2)
         out["risk_pct"] = ((out["trigger_price"] / out["stop_loss"] - 1.0) * 100.0).round(2)
         out["setup_type"] = "Darvas Squeeze"
         if v2:
@@ -452,14 +469,14 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         return out, int(len(out))
 
     darvas_cand_df = pd.DataFrame()
-    if not darvas_hist.empty:
+    if not darvas_hist_daily.empty:
         if use_v2:
-            sq_frame = squeeze_frame(darvas_hist, timeframe="D")
+            sq_frame = squeeze_frame(darvas_hist_daily, timeframe="D")
             if not sq_frame.empty:
                 darvas_cand_df = sq_frame.loc[sq_frame["qualifies"]].copy()
         else:
             rows = []
-            for sym, group in darvas_hist.groupby("symbol"):
+            for sym, group in darvas_hist_daily.groupby("symbol"):
                 if len(group) < 10:
                     continue
                 top_box, bottom_box = calculate_darvas_box(
@@ -509,7 +526,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     if use_weekly and not darvas_hist.empty:
         sq_weekly = squeeze_frame(darvas_hist, timeframe="W", as_of=trade_date)
         cand_w = sq_weekly.loc[sq_weekly["qualifies"]].copy() if not sq_weekly.empty else pd.DataFrame()
-        darvas_weekly_df, darvas_count_weekly = _assemble_darvas_queue(cand_w, v2=True)
+        darvas_weekly_df, darvas_count_weekly = _assemble_darvas_queue(cand_w, v2=True, weekly=True)
 
     def _is_num(v: Any) -> bool:
         if v is None or v is np.ma.masked:

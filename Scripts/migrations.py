@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 7
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 _MIGRATION_2 = (
@@ -91,9 +91,8 @@ _MIGRATION_7 = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_percentile_primary DOUBLE",
 )
 
-_MIGRATION_8 = (
-    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS wema_20 DOUBLE",
-)
+# PR 6 owns wema_20 but not schema version 8 (PR 9: idx_indicators_date_symbol).
+_WEMA_20_DDL = "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS wema_20 DOUBLE"
 
 _SECTOR_METRICS_TABLE = """
 CREATE TABLE IF NOT EXISTS sector_metrics_daily (
@@ -175,70 +174,65 @@ def run_migrations(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as db:
         _ensure_migration_table(db)
         current = int(db.execute("SELECT coalesce(max(version), 0) FROM schema_migrations").fetchone()[0] or 0)
-        if current >= CURRENT_SCHEMA_VERSION:
-            return
-        db.begin()
-        try:
-            if current < 1:
-                for statement in (part.strip() for part in schema_sql.split(";")):
-                    if statement:
+        if current < CURRENT_SCHEMA_VERSION:
+            db.begin()
+            try:
+                if current < 1:
+                    for statement in (part.strip() for part in schema_sql.split(";")):
+                        if statement:
+                            db.execute(statement)
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (1)")
+                    current = 1
+                if current < 2:
+                    for statement in _MIGRATION_2:
                         db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (1)")
-                current = 1
-            if current < 2:
-                for statement in _MIGRATION_2:
-                    db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (2)")
-                current = 2
-            if current < 3:
-                for statement in _MIGRATION_3:
-                    db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (3)")
-                current = 3
-            if current < 4:
-                for table_name, statements in _MIGRATION_4.items():
-                    if not _table_exists(db, table_name):
-                        continue
-                    for statement in statements:
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (2)")
+                    current = 2
+                if current < 3:
+                    for statement in _MIGRATION_3:
                         db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (4)")
-                current = 4
-            if current < 5:
-                for table_name, (index_name, columns) in _MIGRATION_5.items():
-                    if (
-                        not _table_exists(db, table_name)
-                        or _has_primary_key(db, table_name)
-                        or _has_index(db, index_name)
-                    ):
-                        continue
-                    joined = ", ".join(f'"{column}"' for column in columns)
-                    db.execute(f'CREATE UNIQUE INDEX "{index_name}" ON "{table_name}" ({joined})')
-                db.execute("INSERT INTO schema_migrations(version) VALUES (5)")
-                current = 5
-            if current < 6:
-                db.execute(_SECTOR_METRICS_TABLE)
-                for table_name, statements in _MIGRATION_6.items():
-                    if not _table_exists(db, table_name):
-                        continue
-                    for statement in statements:
-                        db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (6)")
-                current = 6
-            if current < 7:
-                if _table_exists(db, "indicators_daily"):
-                    for statement in _MIGRATION_7:
-                        db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (7)")
-                current = 7
-            if current < 8:
-                if _table_exists(db, "indicators_daily"):
-                    for statement in _MIGRATION_8:
-                        db.execute(statement)
-                db.execute("INSERT INTO schema_migrations(version) VALUES (8)")
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (3)")
+                    current = 3
+                if current < 4:
+                    for table_name, statements in _MIGRATION_4.items():
+                        if not _table_exists(db, table_name):
+                            continue
+                        for statement in statements:
+                            db.execute(statement)
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (4)")
+                    current = 4
+                if current < 5:
+                    for table_name, (index_name, columns) in _MIGRATION_5.items():
+                        if (
+                            not _table_exists(db, table_name)
+                            or _has_primary_key(db, table_name)
+                            or _has_index(db, index_name)
+                        ):
+                            continue
+                        joined = ", ".join(f'"{column}"' for column in columns)
+                        db.execute(f'CREATE UNIQUE INDEX "{index_name}" ON "{table_name}" ({joined})')
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (5)")
+                    current = 5
+                if current < 6:
+                    db.execute(_SECTOR_METRICS_TABLE)
+                    for table_name, statements in _MIGRATION_6.items():
+                        if not _table_exists(db, table_name):
+                            continue
+                        for statement in statements:
+                            db.execute(statement)
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (6)")
+                    current = 6
+                if current < 7:
+                    if _table_exists(db, "indicators_daily"):
+                        for statement in _MIGRATION_7:
+                            db.execute(statement)
+                    db.execute("INSERT INTO schema_migrations(version) VALUES (7)")
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        if _table_exists(db, "indicators_daily"):
+            db.execute(_WEMA_20_DDL)
 
 
 if __name__ == "__main__":
