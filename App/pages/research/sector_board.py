@@ -19,7 +19,12 @@ from nicegui import ui
 try:
     from App.market_status import load_market_status, non_actionable_message
     from App.market_summary import group_tape, group_trend, movers
-    from App.sector_read_model import query_sector_rotation_overview
+    from App.sector_read_model import (
+        format_vs_nifty_cell,
+        query_index_session_count,
+        query_sector_rotation_overview,
+        vs_nifty_is_displayable,
+    )
     from App.thematic_engine import build_thematic_leaderboard, get_index_constituents
     from App.ui.columns import get_quasar_column_def
     from App.ui.stock_drawer import open_stock_360_modal
@@ -27,7 +32,12 @@ try:
 except ModuleNotFoundError:
     from market_status import load_market_status, non_actionable_message  # type: ignore
     from market_summary import group_tape, group_trend, movers  # type: ignore
-    from sector_read_model import query_sector_rotation_overview  # type: ignore
+    from sector_read_model import (  # type: ignore
+        format_vs_nifty_cell,
+        query_index_session_count,
+        query_sector_rotation_overview,
+        vs_nifty_is_displayable,
+    )
     from thematic_engine import build_thematic_leaderboard, get_index_constituents  # type: ignore
     from ui.columns import get_quasar_column_def  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
@@ -52,6 +62,10 @@ def _fmt_pct(v: Any, signed: bool = True) -> str:
         return f"{sign}{val:.1f}%"
     except (ValueError, TypeError):
         return "—"
+
+
+def _fmt_vs_nifty(v: Any, *, index_sessions: int | None = None) -> str:
+    return format_vs_nifty_cell(v, index_sessions=index_sessions)
 
 
 def _fmt_money(v: Any) -> str:
@@ -356,10 +370,16 @@ def build_sector_board_page(
                         ui.icon("calendar_view_week", color="warning").classes("text-sm")
                         ui.label("Weekly Mode Active: Ranking, return trends, and constituent performance reflect 5-day rolling weekly momentum.").classes("text-xs font-semibold text-[var(--mp-primary)]")
 
+                index_sessions = query_index_session_count(db_path)
+                if not vs_nifty_is_displayable(index_sessions):
+                    with ui.row().classes("w-full items-center gap-2 bg-amber-950/40 border border-amber-500/30 px-3 py-1.5 rounded-md mb-1"):
+                        ui.label("vs-Nifty: insufficient index history").classes("text-xs font-semibold text-amber-300")
+
                 if sec == "matrix":
                     # ==================== 1. MONEY FLOW & ROTATION MATRIX ====================
                     res = query_sector_rotation_overview(db_path, level=lvl)
                     df = res.get("leaderboard", pd.DataFrame())
+                    index_sessions = int(res.get("index_sessions") or index_sessions)
 
                     if df.empty:
                         ui.label("No sector rotation records found.").classes("text-sm text-[var(--mp-muted)]")
@@ -426,11 +446,14 @@ def build_sector_board_page(
                         get_quasar_column_def("above_200ema_pct", label_override=">200 EMA"),
                         get_quasar_column_def("return_5d_pct", label_override="★ 5D % (WK)" if is_weekly else "5D %"),
                         get_quasar_column_def("return_1m_pct", label_override="1M %"),
+                        get_quasar_column_def("rs_vs_nifty_21d", label_override="21D VS NIFTY", width_override=180),
+                        get_quasar_column_def("rs_vs_nifty_63d", label_override="63D VS NIFTY", width_override=180),
                         get_quasar_column_def("rs_percentile", label_override="RS"),
                         get_quasar_column_def("top_leaders", width_override=260, sortable=False),
                     ]
 
                     # Prepare display records
+                    vs_nifty_aliased = "rs_vs_nifty_21d" in df.columns
                     records = []
                     for _, r in df.iterrows():
                         n_stocks = int(r.get("stocks") or 0)
@@ -450,7 +473,19 @@ def build_sector_board_page(
                             "above_50ema_pct": f"{_safe_float(r.get('above_50ema_pct')):.0f}%",
                             "above_200ema_pct": f"{_safe_float(r.get('above_200ema_pct')):.0f}%",
                             "return_5d_pct": _fmt_pct(r.get("return_5d_pct")),
-                            "return_1m_pct": _fmt_pct(r.get("return_1m_pct")),
+                            "return_1m_pct": (
+                                _fmt_vs_nifty(r.get("rs_vs_nifty_21d"), index_sessions=index_sessions)
+                                if vs_nifty_aliased
+                                else _fmt_pct(r.get("return_1m_pct"))
+                            ),
+                            "rs_vs_nifty_21d": _fmt_vs_nifty(
+                                r.get("rs_vs_nifty_21d") if "rs_vs_nifty_21d" in df.columns else None,
+                                index_sessions=index_sessions,
+                            ),
+                            "rs_vs_nifty_63d": _fmt_vs_nifty(
+                                r.get("rs_vs_nifty_63d") if "rs_vs_nifty_63d" in df.columns else None,
+                                index_sessions=index_sessions,
+                            ),
                             "rs_percentile": f"{_safe_float(r.get('rs_percentile')):.0f}",
                             "top_leaders": str(r.get("top_leaders") or ""),
                         }

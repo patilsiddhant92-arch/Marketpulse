@@ -9,7 +9,7 @@ import duckdb
 import pytest
 
 from App.cache_manager import get_cached, set_cached, invalidate_cache, cache_key
-from App.pages.action_desk import fetch_action_desk_data
+from App.pages.action_desk import compute_exposure_gate, fetch_action_desk_data, resolve_india_vix
 from Scripts.config import DB_PATH
 
 
@@ -43,7 +43,10 @@ def test_action_desk_data_returns_valid_decision_structure() -> None:
     assert "state" in exp
     assert "guidance" in exp
     assert exp["adv_pct"] >= 0.0
-    assert exp["vix"] > 0.0
+    if exp["vix"] is None:
+        assert exp["vix_label"] == "VIX n/a"
+    else:
+        assert exp["vix"] > 0.0
 
 
 def test_action_desk_enforces_strict_swing_quality_rules() -> None:
@@ -163,4 +166,52 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "mp-inspector-col" in page_source
     assert "render_stock_inspector_panel" in page_source
     assert "queue_meta" in page_source
+
+
+def test_action_desk_missing_vix_is_na_not_silent_11_3(tmp_path) -> None:
+    """Fails on current main: missing India VIX silently defaulted to 11.3 and still took vix < 15 branches."""
+    source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
+    assert "vix_val = 11.3" not in source
+    assert "VIX n/a" in source
+
+    db_path = tmp_path / "vix.duckdb"
+    with duckdb.connect(str(db_path)) as con:
+        con.execute(
+            "CREATE TABLE index_daily (trade_date DATE, index_name TEXT, close_price DOUBLE, prev_close DOUBLE)"
+        )
+        con.execute("INSERT INTO index_daily VALUES ('2026-09-07', 'Nifty 50', 25000, 24900)")
+        vix, chg = resolve_india_vix(con, "2026-09-07")
+    assert vix is None
+    assert vix != 11.3
+    assert chg == 0.0
+
+    exp = compute_exposure_gate(
+        adv_pct=70.0,
+        ab20_pct=60.0,
+        ab200_pct=55.0,
+        vix=vix,
+        vix_1d_pct=chg,
+        net_lows_expanding=False,
+        count_52w_highs=80,
+        count_52w_lows=20,
+    )
+    assert exp["vix"] is None
+    assert exp["vix_available"] is False
+    assert exp["vix_label"] == "VIX n/a"
+    assert exp["state"] == "Risk-Off / Defensive"
+    assert exp["pct"] == "0% - 15%"
+    assert "11.3" not in exp["guidance"]
+
+    present = compute_exposure_gate(
+        adv_pct=70.0,
+        ab20_pct=60.0,
+        ab200_pct=55.0,
+        vix=11.3,
+        vix_1d_pct=0.0,
+        net_lows_expanding=False,
+        count_52w_highs=80,
+        count_52w_lows=20,
+    )
+    assert present["state"] == "Aggressive / Full Trend"
+    assert present["vix_label"] != "VIX n/a"
 

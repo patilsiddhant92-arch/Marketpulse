@@ -25,6 +25,11 @@ TAXONOMY_LEVELS: tuple[tuple[str, str], ...] = (
 )
 
 
+INSUFFICIENT_INDEX_HISTORY = "insufficient index history"
+# 63d vs-Nifty needs 63 index sessions; local MA files currently cover ~48.
+MIN_VS_NIFTY_INDEX_SESSIONS = 63
+
+
 def _safe_number(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or pd.isna(value):
@@ -32,6 +37,60 @@ def _safe_number(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _index_session_count(db: duckdb.DuckDBPyConnection) -> int:
+    try:
+        exists = db.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_name = 'index_daily'"
+        ).fetchone()
+        if not exists or not exists[0]:
+            return 0
+        row = db.execute("SELECT count(DISTINCT trade_date) FROM index_daily").fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        return 0
+
+
+def query_index_session_count(db_path: Path | str) -> int:
+    """Distinct sessions in index_daily. Missing table/file → 0."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return 0
+    try:
+        with duckdb.connect(str(db_path), read_only=True) as db:
+            return _index_session_count(db)
+    except Exception:
+        return 0
+
+
+def vs_nifty_is_displayable(index_sessions: int) -> bool:
+    return int(index_sessions) >= MIN_VS_NIFTY_INDEX_SESSIONS
+
+
+def format_vs_nifty_cell(value: Any, *, index_sessions: int | None = None) -> str:
+    """Format a vs-Nifty cell. Null or short index history is never rendered as 0.0."""
+    if index_sessions is not None and not vs_nifty_is_displayable(index_sessions):
+        return INSUFFICIENT_INDEX_HISTORY
+    try:
+        if value is None or pd.isna(value):
+            return INSUFFICIENT_INDEX_HISTORY
+        val = float(value)
+        if np.isnan(val) or np.isinf(val):
+            return INSUFFICIENT_INDEX_HISTORY
+    except (TypeError, ValueError):
+        return INSUFFICIENT_INDEX_HISTORY
+    sign = "+" if val > 0 else ""
+    return f"{sign}{val:.1f}%"
+
+
+def _with_vs_nifty_status(payload: dict[str, Any], index_sessions: int) -> dict[str, Any]:
+    sessions = int(index_sessions)
+    available = vs_nifty_is_displayable(sessions)
+    payload["index_sessions"] = sessions
+    payload["vs_nifty_available"] = available
+    payload["vs_nifty_status"] = None if available else INSUFFICIENT_INDEX_HISTORY
+    return payload
 
 
 def _copy_tree_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -214,8 +273,14 @@ def query_sector_data_contract(db_path: Path) -> dict[str, Any]:
                 result["rotation_date"] = db.execute("SELECT max(trade_date) FROM sector_rotation").fetchone()[0]
             result["metrics_available"] = bool(result["metrics_table_exists"] and result["metrics_date"] is not None)
             result["degraded"] = not result["metrics_available"]
+            result["index_sessions"] = _index_session_count(db)
+            result["vs_nifty_available"] = vs_nifty_is_displayable(result["index_sessions"])
+            result["vs_nifty_status"] = None if result["vs_nifty_available"] else INSUFFICIENT_INDEX_HISTORY
     except duckdb.Error:
         result["degraded"] = True
+    result.setdefault("index_sessions", 0)
+    result.setdefault("vs_nifty_available", False)
+    result.setdefault("vs_nifty_status", INSUFFICIENT_INDEX_HISTORY)
     return result
 
 
@@ -343,6 +408,9 @@ def _computed_sector_overview(
     if frame.empty:
         return None
 
+    index_sessions = _index_session_count(db)
+    vs_nifty_ok = vs_nifty_is_displayable(index_sessions)
+    # Null vs-Nifty is insufficient history, not a 0.0 beat/lag vs Nifty.
     frame["rs_percentile"] = frame["rs_vs_nifty_63d"].rank(pct=True) * 100
     frame["return_5d_pct"] = 0.0
     frame["return_1m_pct"] = frame["rs_vs_nifty_21d"]
@@ -419,13 +487,25 @@ def _computed_sector_overview(
     frame["score_change_5d"] = 0.0
 
     # RRG (Relative Rotation Graph) 4-Quadrant calculations
-    if "rs_vs_nifty_63d" in frame.columns and frame["rs_vs_nifty_63d"].notna().any() and (frame["rs_vs_nifty_63d"].abs().sum() > 0):
-        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"].fillna(0.0) / 1.5).clip(-30.0, 30.0)
+    if (
+        vs_nifty_ok
+        and "rs_vs_nifty_63d" in frame.columns
+        and frame["rs_vs_nifty_63d"].notna().any()
+        and (frame["rs_vs_nifty_63d"].abs().sum() > 0)
+    ):
+        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"] / 1.5).clip(-30.0, 30.0)
     else:
         frame["rs_ratio"] = 100.0 + (frame["rs_percentile"].fillna(50.0) - 50.0)
 
-    if "rs_vs_nifty_21d" in frame.columns and frame["rs_vs_nifty_21d"].notna().any() and (frame["rs_vs_nifty_21d"].abs().sum() > 0):
-        frame["rs_momentum"] = 100.0 + ((frame["rs_vs_nifty_21d"].fillna(0.0) - (frame["rs_vs_nifty_63d"].fillna(0.0) / 3.0)) * 2.0).clip(-30.0, 30.0)
+    if (
+        vs_nifty_ok
+        and "rs_vs_nifty_21d" in frame.columns
+        and frame["rs_vs_nifty_21d"].notna().any()
+        and (frame["rs_vs_nifty_21d"].abs().sum() > 0)
+    ):
+        frame["rs_momentum"] = 100.0 + (
+            (frame["rs_vs_nifty_21d"] - (frame["rs_vs_nifty_63d"] / 3.0)) * 2.0
+        ).clip(-30.0, 30.0)
     else:
         frame["rs_momentum"] = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
 
@@ -484,14 +564,17 @@ def _computed_sector_overview(
         if len(top_focus) < 4:
             top_focus.append(item)
 
-    return {
-        "as_of": str(pd.to_datetime(frame["trade_date"].iloc[0]).date()),
-        "top_focus": top_focus,
-        "leaderboard": frame,
-        "heatmap": frame,
-        "quadrants": quadrants,
-        "total": len(frame),
-    }
+    return _with_vs_nifty_status(
+        {
+            "as_of": str(pd.to_datetime(frame["trade_date"].iloc[0]).date()),
+            "top_focus": top_focus,
+            "leaderboard": frame,
+            "heatmap": frame,
+            "quadrants": quadrants,
+            "total": len(frame),
+        },
+        index_sessions,
+    )
 
 
 def query_sector_rotation_overview(
@@ -502,18 +585,23 @@ def query_sector_rotation_overview(
     """Fetch high-performance sector rotation overview, actionable focus cards, and full leaderboard."""
     db_path = Path(db_path)
     if not db_path.exists():
-        return {
-            "as_of": None,
-            "top_focus": [],
-            "leaderboard": pd.DataFrame(),
-            "heatmap": pd.DataFrame(),
-            "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
-            "total": 0,
-        }
+        return _with_vs_nifty_status(
+            {
+                "as_of": None,
+                "top_focus": [],
+                "leaderboard": pd.DataFrame(),
+                "heatmap": pd.DataFrame(),
+                "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
+                "total": 0,
+            },
+            0,
+        )
 
     col = LEVEL_COLUMNS.get(level, "sector")
+    index_sessions = 0
 
     with duckdb.connect(str(db_path), read_only=True) as db:
+        index_sessions = _index_session_count(db)
         # 1. First check if sector_rotation table exists and has data for this level
         has_rot = False
         try:
@@ -538,15 +626,18 @@ def query_sector_rotation_overview(
         if not has_rot:
             computed = _computed_sector_overview(db, level, as_of)
             if computed is not None:
-                return computed
-            return {
-                "as_of": None,
-                "top_focus": [],
-                "leaderboard": pd.DataFrame(),
-                "heatmap": pd.DataFrame(),
-                "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
-                "total": 0,
-            }
+                return _with_vs_nifty_status(computed, index_sessions)
+            return _with_vs_nifty_status(
+                {
+                    "as_of": None,
+                    "top_focus": [],
+                    "leaderboard": pd.DataFrame(),
+                    "heatmap": pd.DataFrame(),
+                    "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
+                    "total": 0,
+                },
+                index_sessions,
+            )
 
         # 1. Latest trade date
         if as_of:
@@ -558,14 +649,17 @@ def query_sector_rotation_overview(
 
         latest_d = db.execute(target_date_sql, params).fetchone()[0]
         if latest_d is None:
-            return {
-                "as_of": None,
-                "top_focus": [],
-                "leaderboard": pd.DataFrame(),
-                "heatmap": pd.DataFrame(),
-                "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
-                "total": 0,
-            }
+            return _with_vs_nifty_status(
+                {
+                    "as_of": None,
+                    "top_focus": [],
+                    "leaderboard": pd.DataFrame(),
+                    "heatmap": pd.DataFrame(),
+                    "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
+                    "total": 0,
+                },
+                index_sessions,
+            )
 
 
         as_of_str = str(pd.to_datetime(latest_d).date())
@@ -581,13 +675,16 @@ def query_sector_rotation_overview(
         rot_df = db.execute(rot_sql, [level, latest_d]).fetchdf()
 
         if rot_df.empty:
-            return {
-                "as_of": as_of_str,
-                "top_focus": [],
-                "leaderboard": pd.DataFrame(),
-                "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
-                "total": 0,
-            }
+            return _with_vs_nifty_status(
+                {
+                    "as_of": as_of_str,
+                    "top_focus": [],
+                    "leaderboard": pd.DataFrame(),
+                    "quadrants": {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []},
+                    "total": 0,
+                },
+                index_sessions,
+            )
 
         # 3. Top 3 leader stocks per group
         leaders_sql = f"""
@@ -733,14 +830,17 @@ def query_sector_rotation_overview(
             if len(top_focus_list) >= 4:
                 break
 
-    return {
-        "as_of": as_of_str,
-        "top_focus": top_focus_list,
-        "leaderboard": rot_df,
-        "heatmap": rot_df,
-        "quadrants": quadrants,
-        "total": len(rot_df),
-    }
+    return _with_vs_nifty_status(
+        {
+            "as_of": as_of_str,
+            "top_focus": top_focus_list,
+            "leaderboard": rot_df,
+            "heatmap": rot_df,
+            "quadrants": quadrants,
+            "total": len(rot_df),
+        },
+        index_sessions,
+    )
 
 
 
