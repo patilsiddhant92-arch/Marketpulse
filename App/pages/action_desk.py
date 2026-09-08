@@ -47,17 +47,27 @@ except ModuleNotFoundError:
     from desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
 try:
-    from App.ui.market_health import (
-        exposure_inputs_from_breadth_row,
-        query_latest_breadth_daily,
-        render_market_health_strip,
-    )
+    from App.ui.market_health import load_exposure_inputs, render_market_health_strip
 except ModuleNotFoundError:
-    from ui.market_health import (  # type: ignore
-        exposure_inputs_from_breadth_row,
-        query_latest_breadth_daily,
-        render_market_health_strip,
-    )
+    from ui.market_health import load_exposure_inputs, render_market_health_strip  # type: ignore
+
+
+def _fmt_exp_pct(val: Any) -> str:
+    if val is None:
+        return "n/a"
+    try:
+        return f"{float(val):.1f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _exp_pct_tone(val: Any, threshold: float) -> str:
+    if val is None:
+        return "text-amber-400"
+    try:
+        return "text-emerald-400" if float(val) >= threshold else "text-rose-400"
+    except (TypeError, ValueError):
+        return "text-amber-400"
 
 
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
@@ -65,7 +75,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v9")
+    key = cache_key(db_path, None, "action_desk_v10")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -79,35 +89,14 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         trade_date_str = str(pd.to_datetime(trade_date).date())
 
         # 2. Market Breadth & Exposure Gate — same breadth_daily row as the health strip.
-        b_df = query_latest_breadth_daily(con, limit=1)
-        if not b_df.empty:
-            exp_inputs = exposure_inputs_from_breadth_row(b_df.iloc[0])
-            total_stocks = exp_inputs["total_stocks"] or 2400
-            adv_pct = exp_inputs["adv_pct"]
-            ab20_pct = exp_inputs["ab20_pct"]
-            ab50_pct = exp_inputs["ab50_pct"]
-            ab200_pct = exp_inputs["ab200_pct"]
-            breadth_source = "breadth_daily"
-        else:
-            breadth_row = con.execute(
-                """
-                SELECT 
-                    count(*) AS total_stocks,
-                    avg(CASE WHEN close_price > prev_close THEN 1.0 ELSE 0.0 END) * 100 AS advance_pct,
-                    avg(CASE WHEN close_price > ema_20 THEN 1.0 ELSE 0.0 END) * 100 AS above_20ema_pct,
-                    avg(CASE WHEN close_price > ema_50 THEN 1.0 ELSE 0.0 END) * 100 AS above_50ema_pct,
-                    avg(CASE WHEN close_price > ema_200 THEN 1.0 ELSE 0.0 END) * 100 AS above_200ema_pct
-                FROM indicators_daily
-                WHERE trade_date = ?
-                """,
-                [trade_date],
-            ).fetchone()
-            total_stocks = breadth_row[0] or 2400
-            adv_pct = round(breadth_row[1] or 50.0, 1)
-            ab20_pct = round(breadth_row[2] or 50.0, 1)
-            ab50_pct = round(breadth_row[3] or 50.0, 1)
-            ab200_pct = round(breadth_row[4] or 50.0, 1)
-            breadth_source = "indicators_daily"
+        exp_inputs = load_exposure_inputs(con, trade_date=trade_date)
+        total_stocks = exp_inputs["total_stocks"]
+        adv_pct = exp_inputs["adv_pct"]
+        ab20_pct = exp_inputs["ab20_pct"]
+        ab50_pct = exp_inputs["ab50_pct"]
+        ab200_pct = exp_inputs["ab200_pct"]
+        breadth_source = exp_inputs["source"]
+        breadth_as_of = exp_inputs["as_of"]
 
         # India VIX and 1-Day change. Missing row → None (do not invent 11.3).
         vix_val = None
@@ -606,6 +595,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "ab50_pct": ab50_pct,
             "ab200_pct": ab200_pct,
             "breadth_source": breadth_source,
+            "as_of": breadth_as_of,
             "vix": vix_val,
             "vix_1d_pct": vix_1d_pct,
             "vix_na": gate["vix_na"],
@@ -975,20 +965,24 @@ def build_action_desk_page(
                 ui.label(exp["state"]).classes("text-xs font-semibold text-[var(--mp-text)] mt-1")
                 ui.label(exp["guidance"]).classes("text-[11px] text-[var(--mp-muted)] mt-1 leading-snug font-mono")
 
-                # Market Breadth Strip
+                # Market Breadth Strip — one labeled universe (strip row or indicators fallback)
                 with ui.column().classes("w-full gap-1 mt-2 pt-2 border-t border-[var(--mp-border)] text-xs"):
+                    src = exp.get("breadth_source") or ""
+                    src_label = "indicators_daily fallback" if src == "indicators_daily" else (src or "breadth")
+                    as_of = exp.get("as_of") or data["trade_date"]
+                    ui.label(f"{as_of} · {src_label}").classes("text-[10px] text-[var(--mp-muted)] font-mono")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("Net Advance:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(f"{exp['adv_pct']}%").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['adv_pct'] >= 50 else "text-rose-400"))
+                        ui.label(_fmt_exp_pct(exp.get("adv_pct"))).classes("font-mono font-bold text-[11px] " + _exp_pct_tone(exp.get("adv_pct"), 50))
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("> 20 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(f"{exp['ab20_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
+                        ui.label(_fmt_exp_pct(exp.get("ab20_pct"))).classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("> 50 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(f"{exp['ab50_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
+                        ui.label(_fmt_exp_pct(exp.get("ab50_pct"))).classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("> 200 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(f"{exp['ab200_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
+                        ui.label(_fmt_exp_pct(exp.get("ab200_pct"))).classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("India VIX:").classes("text-[var(--mp-muted)] text-[11px]")
                         if exp.get("vix") is None or exp.get("vix_na"):

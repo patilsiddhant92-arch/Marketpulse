@@ -58,22 +58,56 @@ def _scalar(row: Any, key: str, default: Any = None) -> Any:
     return val
 
 
+def _round_pct(val: Any) -> float | None:
+    """Keep 0.0 as 0.0. SQL NULL / NaN stay None — never invent 50%."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return round(float(val), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_of_str(val: Any) -> str:
+    if val is None:
+        return ""
+    try:
+        if pd.isna(val):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    try:
+        return str(pd.to_datetime(val).date())
+    except (TypeError, ValueError):
+        return str(val)
+
+
+def _count_or_none(val: Any) -> int | None:
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(val))
+    except (TypeError, ValueError):
+        return None
+
+
 def exposure_inputs_from_breadth_row(row: Any) -> dict[str, Any]:
     """Map one breadth_daily row onto Action Desk exposure keys."""
-    as_of_raw = _scalar(row, "trade_date")
-    as_of = str(pd.to_datetime(as_of_raw).date()) if as_of_raw is not None else ""
-    stocks_raw = _scalar(row, "stocks", 0)
-    try:
-        total_stocks = int(float(stocks_raw or 0))
-    except (TypeError, ValueError):
-        total_stocks = 0
+    as_of = _as_of_str(_scalar(row, "trade_date"))
+    total_stocks = _count_or_none(_scalar(row, "stocks"))
 
-    def pct(col: str) -> float:
-        val = _scalar(row, col, 0.0)
-        try:
-            return round(float(val or 0.0), 1)
-        except (TypeError, ValueError):
-            return 0.0
+    def pct(col: str) -> float | None:
+        return _round_pct(_scalar(row, col))
 
     return {
         "adv_pct": pct(BREADTH_EXPOSURE_MAP["adv_pct"]),
@@ -84,6 +118,54 @@ def exposure_inputs_from_breadth_row(row: Any) -> dict[str, Any]:
         "as_of": as_of,
         "source": "breadth_daily",
     }
+
+
+_INDICATORS_FALLBACK_SQL = """
+SELECT
+    count(*) AS total_stocks,
+    avg(CASE WHEN close_price > prev_close THEN 1.0 ELSE 0.0 END) * 100 AS advance_pct,
+    avg(CASE WHEN close_price > ema_20 THEN 1.0 ELSE 0.0 END) * 100 AS above_20ema_pct,
+    avg(CASE WHEN close_price > ema_50 THEN 1.0 ELSE 0.0 END) * 100 AS above_50ema_pct,
+    avg(CASE WHEN close_price > ema_200 THEN 1.0 ELSE 0.0 END) * 100 AS above_200ema_pct
+FROM indicators_daily
+WHERE trade_date = ?
+"""
+
+
+def recompute_exposure_from_indicators(con: Any, trade_date: Any) -> dict[str, Any]:
+    """indicators_daily fallback. NULL averages stay None; 0.0 stays 0.0."""
+    as_of = _as_of_str(trade_date)
+    try:
+        row = con.execute(_INDICATORS_FALLBACK_SQL, [trade_date]).fetchone()
+    except Exception:
+        row = None
+    if row is None:
+        return {
+            "adv_pct": None,
+            "ab20_pct": None,
+            "ab50_pct": None,
+            "ab200_pct": None,
+            "total_stocks": None,
+            "as_of": as_of,
+            "source": "indicators_daily",
+        }
+    return {
+        "adv_pct": _round_pct(row[1]),
+        "ab20_pct": _round_pct(row[2]),
+        "ab50_pct": _round_pct(row[3]),
+        "ab200_pct": _round_pct(row[4]),
+        "total_stocks": _count_or_none(row[0]),
+        "as_of": as_of,
+        "source": "indicators_daily",
+    }
+
+
+def load_exposure_inputs(con: Any, *, trade_date: Any = None) -> dict[str, Any]:
+    """Same latest breadth_daily row as the health strip; indicators recompute only if missing."""
+    b_df = query_latest_breadth_daily(con, limit=1)
+    if not b_df.empty:
+        return exposure_inputs_from_breadth_row(b_df.iloc[0])
+    return recompute_exposure_from_indicators(con, trade_date)
 
 
 def query_market_health_summary(db_path: Path) -> dict[str, Any]:
@@ -216,7 +298,7 @@ def query_market_health_summary(db_path: Path) -> dict[str, Any]:
                     "value": f"{vcp_pct:.1f}%",
                     "change": f"{vcp_chg:+.0f} names",
                     "tone": "good" if vcp_pct >= 15 else "neutral",
-                    "context": f"{int(today.get('vcp_candidates') or 0)} VCP setups",
+                    "context": f"{int(today.get('vcp_candidates') or 0)} heuristic names",
                     "column_series": "vcp_candidates",
                 },
             ],
