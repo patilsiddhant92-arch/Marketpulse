@@ -2361,6 +2361,15 @@ def special_watchlist_page() -> None:
             min_52w_low.value = 25
             update_chips()
 
+        def _preset_uc_thrust():
+            cmp_gt_10.value = True
+            cmp_gt_200.value = True
+            check_delivery.value = True
+            check_avg_vol.value = True
+            max_52w.value = 15
+            min_52w_low.value = 25
+            update_chips()
+
         ui.button("EMAs Aligned", on_click=_preset_emas_aligned).props("dense outline").classes("mp-button text-xs")
         ui.button("EMAs Converge", on_click=_preset_converge).props("dense outline").classes("mp-button text-xs")
         ui.button("Breakout Stocks", on_click=_preset_breakouts).props("dense outline").classes("mp-button text-xs")
@@ -2368,6 +2377,7 @@ def special_watchlist_page() -> None:
         ui.button("Delivery Thrust", on_click=_preset_delivery).props("dense outline").classes("mp-button text-xs")
         ui.button("Coiling (NR7)", on_click=_preset_coiling).props("dense outline").classes("mp-button text-xs")
         ui.button("Darvas Squeeze", on_click=_preset_darvas).props("dense outline").classes("mp-button text-xs font-bold text-emerald-400")
+        ui.button("⚡ UC Thrust Radar", on_click=_preset_uc_thrust).props("dense outline").classes("mp-button text-xs font-bold text-amber-400")
         ui.button("Weekly RSI > 60", on_click=_preset_mtf).props("dense outline").classes("mp-button text-xs")
         ui.button("Clear all", on_click=_clear_all_filters).props("dense flat").classes("text-xs text-rose-400")
 
@@ -2845,6 +2855,12 @@ def special_watchlist_page() -> None:
                 vss_df = pd.DataFrame()
                 sp_df = pd.DataFrame()
 
+            try:
+                from App.indicators.uc_thrust import calculate_uc_thrust_candidates
+                uc_df = calculate_uc_thrust_candidates(DB_PATH)
+            except Exception:
+                uc_df = pd.DataFrame()
+
             with ui.card().classes("w-full mp-card p-4 mt-4 border border-[var(--mp-border)] bg-[var(--mp-surface-raised)]"):
                 with ui.row().classes("w-full justify-between items-center flex-wrap gap-2 mb-2"):
                     with ui.column().classes("gap-0.5"):
@@ -2879,9 +2895,9 @@ def special_watchlist_page() -> None:
                     with ui.column().classes("gap-0.5"):
                         with ui.row().classes("items-center gap-2"):
                             ui.label("🔥 Pre-Move Detection Radar (Evidence-Based Footprints)").classes("text-sm font-bold tracking-wider text-amber-400 uppercase")
-                            total_pre_move = len(sc_df) + len(vss_df) + len(sp_df)
+                            total_pre_move = len(sc_df) + len(vss_df) + len(sp_df) + len(uc_df)
                             ui.label(f"{total_pre_move} Setups").classes("mp-badge mp-good text-xs font-bold")
-                        ui.label("Empirically backtested pre-move signatures preceding 10%+ daily and 20% Upper Circuit breakouts: Silent Coil (82% hit rate), Volume Stair-Step (71%), and Spike-Pause (56%).").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label("Empirically backtested pre-move signatures preceding 10%+ daily and 20% Upper Circuit breakouts: UC Thrust Radar, Silent Coil, Volume Stair-Step, and Spike-Pause.").classes("text-xs text-[var(--mp-muted)]")
 
                 pre_move_cols = [
                     "symbol", "cmp", "rvol", "rvol_trail", "delivery_pct", "away_10ema_pct", "away_20ema_pct",
@@ -2889,11 +2905,25 @@ def special_watchlist_page() -> None:
                 ]
 
                 with ui.tabs().classes("w-full text-xs font-semibold") as pm_tabs:
+                    pm_t4 = ui.tab(f"⚡ UC Thrust Radar ({len(uc_df)})")
                     pm_t1 = ui.tab(f"🤫 Silent Coil ({len(sc_df)})")
                     pm_t2 = ui.tab(f"📈 Volume Stair-Step ({len(vss_df)})")
                     pm_t3 = ui.tab(f"⚡ Spike-Pause ({len(sp_df)})")
 
-                with ui.tab_panels(pm_tabs, value=pm_t1).classes("w-full bg-transparent p-0 mt-2"):
+                with ui.tab_panels(pm_tabs, value=pm_t4).classes("w-full bg-transparent p-0 mt-2"):
+                    with ui.tab_panel(pm_t4).classes("p-0"):
+                        if not uc_df.empty:
+                            uc_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in uc_df["symbol"].dropna().unique())
+                            with ui.row().classes("w-full justify-between items-center mb-2"):
+                                ui.label("Statistical precursors of 10% and 20% Upper Circuit locks: Delivery Spike + Leading Sector + 10 EMA support (ranked by UC Score).").classes("text-xs text-[var(--mp-muted)]")
+                                ui.button(f"Copy UC Thrust ({len(uc_df)} TV)", icon="content_copy", on_click=lambda *_, t=uc_tv: copy_text_to_clipboard("UC Thrust Radar", t)).classes("mp-button text-xs font-bold")
+                            uc_cols = [
+                                "symbol", "uc_score", "cmp", "rvol", "delivery_pct", "away_10ema_pct",
+                                "day_pct", "away_52w_high_pct", "rs_percentile", "sector", "industry", "deal_flow", "why_now"
+                            ]
+                            table_from_df(uc_df[[c for c in uc_cols if c in uc_df.columns]], "UC Thrust Radar Candidates", copy_symbols=True)
+                        else:
+                            ui.label("No stocks currently in high-probability Upper Circuit precursor consolidation.").classes("text-xs text-[var(--mp-muted)] py-3")
                     with ui.tab_panel(pm_t1).classes("p-0"):
                         if not sc_df.empty:
                             sc_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in sc_df["symbol"].dropna().unique())
