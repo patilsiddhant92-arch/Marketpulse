@@ -133,6 +133,39 @@ def test_null_vs_nifty_does_not_synthesize_rrg_or_render_zero(tmp_path):
     assert res["top_focus"] == []
 
 
+def test_mixed_vs_nifty_does_not_fillna_null_rows_into_leading(tmp_path):
+    db_path = tmp_path / "mixed_vs_nifty.duckdb"
+    with duckdb.connect(str(db_path)) as db:
+        _create_empty_metrics_table(db)
+        db.execute(
+            """
+            INSERT INTO sector_metrics_daily VALUES
+              (?, 'Sector', 'Healthcare', 10, 1.5, 4.0, 50, 50, 100, 50, 100, 1, 0, 0, 0, ''),
+              (?, 'Sector', 'IPO Group', 2, NULL, NULL, 50, 50, 100, 50, 100, 0, 0, 0, 0, '')
+            """,
+            [AS_OF, AS_OF],
+        )
+
+    res = query_sector_rotation_overview(db_path, level="Sector")
+    df = res["leaderboard"]
+    assert res["insufficient_index_history"] is False
+
+    health = df.loc[df["group_name"] == "Healthcare"].iloc[0]
+    assert float(health["rs_vs_nifty_63d"]) == pytest.approx(4.0)
+    assert str(health["rotation_state"]) in {"Leading", "Improving", "Weakening", "Lagging"}
+
+    ipo = df.loc[df["group_name"] == "IPO Group"].iloc[0]
+    assert pd.isna(ipo["rs_vs_nifty_63d"])
+    assert pd.isna(ipo["return_3m_pct"])
+    assert str(ipo.get("rotation_state") or "").strip() == ""
+    if "rs_ratio" in df.columns:
+        assert pd.isna(ipo["rs_ratio"])
+
+    names_in_quads = {item["group_name"] for items in res["quadrants"].values() for item in items}
+    assert "Healthcare" in names_in_quads
+    assert "IPO Group" not in names_in_quads
+
+
 def test_taxonomy_prefers_sector_rotation_over_empty_metrics(tmp_path):
     db_path = tmp_path / "split_brain.duckdb"
     with duckdb.connect(str(db_path)) as db:

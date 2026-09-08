@@ -409,24 +409,29 @@ def _computed_sector_overview(
     # Null vs-Nifty is missing history, not a 0.0 return or a synthetic Leading map.
     has_vs_nifty = "rs_vs_nifty_63d" in frame.columns and bool(frame["rs_vs_nifty_63d"].notna().any())
     if has_vs_nifty:
-        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"].fillna(0.0) / 1.5).clip(-30.0, 30.0)
+        vs_ok = frame["rs_vs_nifty_63d"].notna()
+        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"] / 1.5).clip(-30.0, 30.0)
+        mom_from_5d = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
         if "rs_vs_nifty_21d" in frame.columns and bool(frame["rs_vs_nifty_21d"].notna().any()):
             frame["rs_momentum"] = 100.0 + (
-                (frame["rs_vs_nifty_21d"].fillna(0.0) - (frame["rs_vs_nifty_63d"].fillna(0.0) / 3.0)) * 2.0
+                (frame["rs_vs_nifty_21d"] - (frame["rs_vs_nifty_63d"] / 3.0)) * 2.0
             ).clip(-30.0, 30.0)
+            frame.loc[vs_ok & frame["rs_momentum"].isna(), "rs_momentum"] = mom_from_5d
         else:
-            frame["rs_momentum"] = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
+            frame["rs_momentum"] = mom_from_5d
+        frame.loc[~vs_ok, ["rs_ratio", "rs_momentum"]] = np.nan
         rrg_conditions = [
-            (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
-            (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
-            (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
+            vs_ok & (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
+            vs_ok & (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
+            vs_ok & (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
+            vs_ok,
         ]
         frame["rotation_state"] = np.select(
             rrg_conditions,
-            ["Leading", "Weakening", "Improving"],
-            default="Lagging",
+            ["Leading", "Weakening", "Improving", "Lagging"],
+            default="",
         )
-    elif "rotation_state" not in frame.columns:
+    else:
         frame["rotation_state"] = ""
 
     frame["near_52w_highs"] = frame["near_52w_highs"].fillna(0).astype(int)
@@ -464,14 +469,15 @@ def _computed_sector_overview(
     top_focus: list[dict[str, Any]] = []
     if has_vs_nifty:
         for _, row in frame.sort_values("rotation_rank").iterrows():
-            state = str(row["rotation_state"])
+            state = str(row["rotation_state"] or "").strip()
+            if state not in quadrants:
+                continue
             item = row.to_dict()
             item.update({
                 "status_badge": state.upper(),
                 "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"
             })
-            quad_key = state if state in quadrants else "Lagging"
-            quadrants[quad_key].append(item)
+            quadrants[state].append(item)
             if len(top_focus) < 4:
                 top_focus.append(item)
 
