@@ -13,6 +13,7 @@ from App.cache_manager import get_cached, set_cached, invalidate_cache, cache_ke
 from App.pages.action_desk import fetch_action_desk_data
 from Scripts.config import DB_PATH
 from Scripts.desk_contract import (
+    ACTION_DESK_SUBTITLE,
     EXPOSURE_RULES,
     QUEUE_DISPLAY_CAPS,
     QUEUE_META,
@@ -230,7 +231,9 @@ def test_action_desk_header_and_docstring_say_8_setup_queues() -> None:
     app = Path("App/app.py").read_text(encoding="utf-8")
     assert "8 setup queues" in desk
     assert "5 Actionable Setup Queues" not in desk
-    assert "8 setup queues" in app
+    assert "ACTION_DESK_SUBTITLE" in app
+    assert ACTION_DESK_SUBTITLE not in app
+    assert "8 setup queues" in ACTION_DESK_SUBTITLE
     assert "4 actionable setup queues" not in app
 
 
@@ -279,6 +282,8 @@ def test_playbook_modal_copy_is_locked_to_desk_contract() -> None:
     info_src = Path("App/pages/info_page.py").read_text(encoding="utf-8")
     assert "EXPOSURE_RULES" in info_src
     assert "desk_contract" in info_src
+    for text in contract:
+        assert "fetch_action_desk_data" not in text
     for rule in EXPOSURE_RULES:
         assert rule["pct"] in contract
         assert rule["state"] in contract

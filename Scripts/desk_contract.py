@@ -204,7 +204,7 @@ EXPOSURE_RULES = [
         badge="mp-badge-bad",
         dot="🔴",
         when=_when_risk_off,
-        when_label="Any remaining tape, including missing VIX (VIX n/a skips vix-threshold branches)",
+        when_label="Any remaining tape, including missing VIX (shown as VIX n/a)",
         guidance=(
             "Net distribution, breadth breakdown, or high volatility. Protect capital in cash. "
             "Do not force new breakout buys until breadth recovers above 20 EMA."
@@ -269,7 +269,7 @@ PLAYBOOK = {
     "step1_title": "STEP 1: THE EXPOSURE GATE (Market Breadth)",
     "step1_intro": (
         "Look at the top-left card before reviewing any stocks. "
-        "These four bands are the live fetch_action_desk_data branches (first match wins):"
+        "These four bands are the live Exposure Gate (first match wins):"
     ),
     "step2_title": "STEP 2: LEADING SECTOR THEMES (Industry Momentum)",
     "step2_intro": (

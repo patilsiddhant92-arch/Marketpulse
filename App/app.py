@@ -2164,12 +2164,17 @@ try:
 except ModuleNotFoundError:
     from pages.action_desk import build_action_desk_page, fetch_action_desk_data, render_inline_candlestick_chart  # type: ignore
 
+try:
+    from Scripts.desk_contract import ACTION_DESK_SUBTITLE
+except ModuleNotFoundError:
+    from desk_contract import ACTION_DESK_SUBTITLE  # type: ignore
+
 
 def action_desk_page() -> None:
     with ui.column().classes("w-full mp-page-action-desk"):
         section_header(
             "Action Desk",
-            "Executive swing trading command center: Exposure gate, leading themes, and 8 setup queues.",
+            ACTION_DESK_SUBTITLE,
         )
         build_action_desk_page(DB_PATH, section_header, table_from_df, copy_text=copy_text_to_clipboard)
 
