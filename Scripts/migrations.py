@@ -91,6 +91,16 @@ _MIGRATION_7 = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_percentile_primary DOUBLE",
 )
 
+# Additive sector-rotation share/leader columns. Applied even when schema
+# version is already current so the append path grows live DBs without a rebuild.
+_SECTOR_ROTATION_SHARE_COLUMNS = (
+    "ALTER TABLE sector_rotation ADD COLUMN IF NOT EXISTS turnover_share_pct DOUBLE",
+    "ALTER TABLE sector_rotation ADD COLUMN IF NOT EXISTS turnover_share_delta_1d DOUBLE",
+    "ALTER TABLE sector_rotation ADD COLUMN IF NOT EXISTS turnover_share_delta_5d DOUBLE",
+    "ALTER TABLE sector_rotation ADD COLUMN IF NOT EXISTS adv_pct DOUBLE",
+    "ALTER TABLE sector_rotation ADD COLUMN IF NOT EXISTS leader_symbols VARCHAR",
+)
+
 _SECTOR_METRICS_TABLE = """
 CREATE TABLE IF NOT EXISTS sector_metrics_daily (
     trade_date DATE,
@@ -112,6 +122,13 @@ CREATE TABLE IF NOT EXISTS sector_metrics_daily (
     PRIMARY KEY (trade_date, level, group_name)
 )
 """
+
+
+def _ensure_sector_rotation_share_columns(db: duckdb.DuckDBPyConnection) -> None:
+    if not _table_exists(db, "sector_rotation"):
+        return
+    for statement in _SECTOR_ROTATION_SHARE_COLUMNS:
+        db.execute(statement)
 
 
 def _ensure_migration_table(db: duckdb.DuckDBPyConnection) -> None:
@@ -170,6 +187,7 @@ def run_migrations(db_path: Path) -> None:
     schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
     with duckdb.connect(str(db_path)) as db:
         _ensure_migration_table(db)
+        _ensure_sector_rotation_share_columns(db)
         current = int(db.execute("SELECT coalesce(max(version), 0) FROM schema_migrations").fetchone()[0] or 0)
         if current >= CURRENT_SCHEMA_VERSION:
             return

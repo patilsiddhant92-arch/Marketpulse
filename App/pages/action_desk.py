@@ -16,6 +16,10 @@ import pandas as pd
 from nicegui import ui
 
 from App.cache_manager import get_cached, set_cached, cache_key
+try:
+    from App.sector_read_model import query_rotation_board
+except ModuleNotFoundError:
+    from sector_read_model import query_rotation_board  # type: ignore
 from App.indicators.darvas import calculate_darvas_box, is_darvas_10ema_squeeze
 try:
     from App.thematic_engine import get_macro_pulse, get_stock_thematic_tags
@@ -47,7 +51,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v8")
+    key = cache_key(db_path, None, "action_desk_v9")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -144,39 +148,16 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             exposure_badge = "mp-badge-bad"
             exposure_guidance = "Net distribution, breadth breakdown, or high volatility. Protect capital in cash. Do not force new breakout buys until breadth recovers above 20 EMA."
 
-        # 3. Top Leading Themes (Sector Money Flow)
-        top_sectors = con.execute(
-            """
-            WITH sec_stats AS (
-                SELECT 
-                    m.sector,
-                    count(DISTINCT i.symbol) AS stock_count,
-                    avg(i.rs_percentile) AS avg_rs,
-                    avg(i.return_5d_pct) AS avg_5d_pct,
-                    sum(i.turnover_cr) AS total_to_cr,
-                    avg(CASE WHEN i.close_price > i.ema_50 THEN 1.0 ELSE 0.0 END) * 100 AS above_50_pct
-                FROM indicators_daily i
-                JOIN stocks_master m ON m.symbol = i.symbol
-                WHERE i.trade_date = ? AND m.sector IS NOT NULL AND m.sector != ''
-                GROUP BY m.sector
-            ),
-            leaders AS (
-                SELECT 
-                    m.sector,
-                    string_agg(i.symbol, ', ' ORDER BY i.rs_percentile DESC) AS leader_symbols
-                FROM indicators_daily i
-                JOIN stocks_master m ON m.symbol = i.symbol
-                WHERE i.trade_date = ? AND i.rs_percentile >= 80
-                GROUP BY m.sector
-            )
-            SELECT s.*, coalesce(l.leader_symbols, '') AS leaders
-            FROM sec_stats s
-            LEFT JOIN leaders l ON l.sector = s.sector
-            ORDER BY s.avg_rs DESC, s.avg_5d_pct DESC
-            LIMIT 4
-            """,
-            [trade_date, trade_date],
-        ).fetchdf()
+        # 3. Top Leading Themes — same named sort as the Broad Industry board
+        board = query_rotation_board(Path(db_path), level="Broad Industry")
+        top_sectors = board.head(4).copy() if not board.empty else pd.DataFrame()
+        if not top_sectors.empty:
+            top_sectors["sector"] = top_sectors["group_name"]
+            top_sectors["leaders"] = top_sectors["leader_symbols"] if "leader_symbols" in top_sectors.columns else ""
+            top_sectors["total_to_cr"] = top_sectors["turnover_1d_cr"] if "turnover_1d_cr" in top_sectors.columns else 0.0
+            top_sectors["avg_5d_pct"] = top_sectors["return_5d_pct"] if "return_5d_pct" in top_sectors.columns else 0.0
+            top_sectors["avg_rs"] = top_sectors["rs_percentile"] if "rs_percentile" in top_sectors.columns else 0.0
+            top_sectors["above_50_pct"] = top_sectors["above_50ema_pct"] if "above_50ema_pct" in top_sectors.columns else 0.0
 
         # 4. Strict Quality Filtered Pool for Setups (Without RS gate, so Darvas & Pre-Move queues can find unextended gems)
         setup_pool = con.execute(
@@ -1025,21 +1006,24 @@ def build_action_desk_page(
             # Card 2: Leading Sector Themes
             with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
                 ui.label("STEP 2: LEADING SECTORS").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
+                ui.label("Δ SHARE 5D").classes("text-[10px] text-[var(--mp-muted)] uppercase tracking-wider mb-1")
                 with ui.column().classes("w-full gap-2"):
                     for idx, (_, sec) in enumerate(themes.iterrows(), 1):
+                        grp_name = str(sec.get("group_name") or sec.get("sector") or "—")
+                        delta = float(sec.get("turnover_share_delta_5d") or 0.0)
+                        to_cr = float(sec.get("turnover_1d_cr") or sec.get("total_to_cr") or 0.0)
+                        leaders_raw = str(sec.get("leader_symbols") or sec.get("leaders") or "")
                         with ui.column().classes("w-full p-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] gap-0.5"):
                             with ui.row().classes("w-full items-center justify-between"):
-                                ui.label(f"#{idx} {sec['sector']}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
-                                sign = "+" if sec["avg_5d_pct"] >= 0 else ""
-                                ui.label(f"{sign}{sec['avg_5d_pct']:.1f}%").classes(
-                                    "text-[11px] font-mono font-bold " + ("text-emerald-400" if sec["avg_5d_pct"] >= 0 else "text-rose-400")
+                                ui.label(f"#{idx} {grp_name}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
+                                ui.label(f"{delta:+.2f} pp").classes(
+                                    "text-[11px] font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400")
                                 )
                             with ui.row().classes("w-full items-center justify-between text-[10px] text-[var(--mp-muted)] font-mono"):
-                                ui.label(f"RS: {sec['avg_rs']:.0f}")
-                                ui.label(f">50: {sec['above_50_pct']:.0f}%")
-                                ui.label(f"₹{sec['total_to_cr']:,.0f}Cr")
-                            if sec.get("leaders"):
-                                top_syms = [s.strip() for s in sec["leaders"].split(",")][:3]
+                                ui.label("Δ SHARE 5D")
+                                ui.label(f"₹{to_cr:,.0f}Cr")
+                            if leaders_raw:
+                                top_syms = [s.strip() for s in leaders_raw.split(",") if s.strip()][:3]
                                 with ui.row().classes("w-full items-center gap-1 mt-1"):
                                     for sym in top_syms:
                                         ui.button(

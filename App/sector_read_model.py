@@ -24,6 +24,11 @@ TAXONOMY_LEVELS: tuple[tuple[str, str], ...] = (
     ("Industry", "industry"),
 )
 
+BOARD_MIN_NAMES = 8
+BOARD_MIN_TURNOVER_CR = 200.0
+LEADER_MIN_MCAP_CR = 1000.0
+LEADER_COUNT = 3
+
 
 def _safe_number(value: Any, default: float = 0.0) -> float:
     try:
@@ -32,6 +37,29 @@ def _safe_number(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def session_lag_date(dates: list[Any], lag: int = 5) -> Any | None:
+    """T-k is the k-th prior session (newest-first). Not dates[-1]."""
+    if lag < 0 or len(dates) <= lag:
+        return None
+    return dates[lag]
+
+
+def _table_columns(db: duckdb.DuckDBPyConnection, table_name: str) -> set[str]:
+    rows = db.execute(
+        "SELECT lower(column_name) FROM information_schema.columns WHERE lower(table_name) = lower(?)",
+        [table_name],
+    ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _table_has_rows(db: duckdb.DuckDBPyConnection, table_name: str) -> bool:
+    exists = db.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE lower(table_name) = lower(?)",
+        [table_name],
+    ).fetchone()
+    return bool(exists and exists[0])
 
 
 def _copy_tree_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -1069,3 +1097,298 @@ def query_sector_breadth_divergence(
 
         df["divergence_status"] = df.apply(classify_divergence, axis=1)
         return df
+
+
+def _coalesce_live_column(frame: pd.DataFrame, dest: str, live: str) -> None:
+    live_series = pd.to_numeric(frame[live], errors="coerce") if live in frame.columns else pd.Series(np.nan, index=frame.index)
+    if dest in frame.columns:
+        frame[dest] = pd.to_numeric(frame[dest], errors="coerce").fillna(live_series)
+    else:
+        frame[dest] = live_series
+
+
+def query_rotation_board(
+    db_path: Path,
+    *,
+    level: str,
+    as_of: date | None = None,
+    timeframe: str = "D",
+    min_names: int = BOARD_MIN_NAMES,
+    min_turnover_cr: float = BOARD_MIN_TURNOVER_CR,
+) -> pd.DataFrame:
+    """Leaderboard at a taxonomy grain, default-sorted by turnover_share_delta_5d DESC.
+
+    ``timeframe='W'`` is ignored in slice 1 (weekly ranking is PR 11).
+    ``min_names`` / ``min_turnover_cr`` are SQL filters on stock_count and daily T/O.
+    """
+    _ = timeframe
+    db_path = Path(db_path)
+    col = LEVEL_COLUMNS.get(level)
+    if not db_path.exists() or col is None:
+        return pd.DataFrame()
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        if not _table_has_rows(db, "sector_rotation"):
+            return pd.DataFrame()
+        columns = _table_columns(db, "sector_rotation")
+        if "level" not in columns:
+            return pd.DataFrame()
+
+        if as_of is not None:
+            target_row = db.execute(
+                "SELECT max(trade_date) FROM sector_rotation WHERE level = ? AND trade_date <= ?",
+                [level, as_of],
+            ).fetchone()
+        else:
+            target_row = db.execute(
+                "SELECT max(trade_date) FROM sector_rotation WHERE level = ?",
+                [level],
+            ).fetchone()
+        target = target_row[0] if target_row else None
+        if target is None:
+            return pd.DataFrame()
+
+        board_sql = """
+        WITH hist AS (
+            SELECT
+                r.*,
+                r.turnover_1d_cr * 100.0
+                    / nullif(sum(r.turnover_1d_cr) OVER (PARTITION BY r.trade_date), 0) AS _live_share
+            FROM sector_rotation r
+            WHERE r.level = ? AND r.trade_date <= ?
+        ),
+        lagged AS (
+            SELECT
+                h.*,
+                _live_share - lag(_live_share, 1) OVER (PARTITION BY group_name ORDER BY trade_date) AS _live_delta_1d,
+                _live_share - lag(_live_share, 5) OVER (PARTITION BY group_name ORDER BY trade_date) AS _live_delta_5d
+            FROM hist h
+        )
+        SELECT *
+        FROM lagged
+        WHERE trade_date = ?
+          AND coalesce(stocks, 0) >= ?
+          AND coalesce(turnover_1d_cr, 0) >= ?
+        ORDER BY _live_delta_5d DESC NULLS LAST, turnover_1d_cr DESC NULLS LAST
+        """
+        try:
+            frame = db.execute(
+                board_sql,
+                [level, target, target, int(min_names), float(min_turnover_cr)],
+            ).fetchdf()
+        except duckdb.Error:
+            return pd.DataFrame()
+        if frame.empty:
+            return frame
+
+        _coalesce_live_column(frame, "turnover_share_pct", "_live_share")
+        _coalesce_live_column(frame, "turnover_share_delta_1d", "_live_delta_1d")
+        _coalesce_live_column(frame, "turnover_share_delta_5d", "_live_delta_5d")
+        if "turnover_expansion" not in frame.columns:
+            if "turnover_5d_cr" in frame.columns and "turnover_20d_cr" in frame.columns:
+                to5 = pd.to_numeric(frame["turnover_5d_cr"], errors="coerce")
+                to20 = pd.to_numeric(frame["turnover_20d_cr"], errors="coerce")
+                frame["turnover_expansion"] = (to5 / (to20 / 4.0).replace(0, np.nan)).fillna(1.0)
+            else:
+                frame["turnover_expansion"] = 1.0
+
+        need_adv = "adv_pct" not in frame.columns or bool(pd.to_numeric(frame["adv_pct"], errors="coerce").isna().any())
+        leaders_blank = (
+            "leader_symbols" not in frame.columns
+            or frame["leader_symbols"].fillna("").astype(str).str.strip().eq("").any()
+        )
+        has_indicators = _table_has_rows(db, "indicators_daily") and _table_has_rows(db, "stocks_master")
+        if has_indicators and (need_adv or leaders_blank):
+            if need_adv:
+                try:
+                    adv_df = db.execute(
+                        f"""
+                        SELECT trim(m.{col}) AS group_name,
+                               count(CASE WHEN i.close_price > i.prev_close THEN 1 END)
+                                   * 100.0 / nullif(count(*), 0) AS live_adv_pct
+                        FROM indicators_daily i
+                        JOIN stocks_master m ON m.symbol = i.symbol
+                        WHERE i.trade_date = ?
+                          AND nullif(trim(m.{col}), '') IS NOT NULL
+                        GROUP BY 1
+                        """,
+                        [target],
+                    ).fetchdf()
+                except duckdb.Error:
+                    adv_df = pd.DataFrame()
+                if not adv_df.empty:
+                    frame = frame.merge(adv_df, on="group_name", how="left")
+                    _coalesce_live_column(frame, "adv_pct", "live_adv_pct")
+                    frame = frame.drop(columns=["live_adv_pct"], errors="ignore")
+            if leaders_blank:
+                try:
+                    leaders_df = db.execute(
+                        f"""
+                        WITH ranked AS (
+                            SELECT trim(m.{col}) AS group_name, i.symbol,
+                                   ROW_NUMBER() OVER (
+                                       PARTITION BY trim(m.{col})
+                                       ORDER BY i.rs_percentile DESC NULLS LAST, i.symbol ASC
+                                   ) AS rn
+                            FROM indicators_daily i
+                            JOIN stocks_master m ON m.symbol = i.symbol
+                            WHERE i.trade_date = ?
+                              AND coalesce(m.market_cap_cr, 0) >= ?
+                              AND nullif(trim(m.{col}), '') IS NOT NULL
+                        )
+                        SELECT group_name,
+                               string_agg(symbol, ',' ORDER BY rn) AS live_leader_symbols
+                        FROM ranked
+                        WHERE rn <= ?
+                        GROUP BY group_name
+                        """,
+                        [target, float(LEADER_MIN_MCAP_CR), int(LEADER_COUNT)],
+                    ).fetchdf()
+                except duckdb.Error:
+                    leaders_df = pd.DataFrame()
+                if not leaders_df.empty:
+                    frame = frame.merge(leaders_df, on="group_name", how="left")
+                    if "leader_symbols" in frame.columns:
+                        blank = frame["leader_symbols"].fillna("").astype(str).str.strip().eq("")
+                        frame.loc[blank, "leader_symbols"] = frame.loc[blank, "live_leader_symbols"]
+                    else:
+                        frame["leader_symbols"] = frame["live_leader_symbols"]
+                    frame = frame.drop(columns=["live_leader_symbols"], errors="ignore")
+
+        if "leader_symbols" not in frame.columns:
+            frame["leader_symbols"] = ""
+        frame["leader_symbols"] = frame["leader_symbols"].fillna("").astype(str)
+        frame["top_leaders"] = frame["leader_symbols"].str.replace(",", ", ", regex=False)
+        frame = frame.drop(columns=["_live_share", "_live_delta_1d", "_live_delta_5d"], errors="ignore")
+        return frame.sort_values(
+            by=["turnover_share_delta_5d", "turnover_1d_cr"],
+            ascending=[False, False],
+            na_position="last",
+        ).reset_index(drop=True)
+
+
+def query_group_members(
+    db_path: Path,
+    *,
+    level: str,
+    group_name: str,
+    as_of: date | None = None,
+) -> pd.DataFrame:
+    """Stocks in a taxonomy group on as_of. Accepts Broad Industry / Broad Sector."""
+    db_path = Path(db_path)
+    col = LEVEL_COLUMNS.get(level)
+    clean_group = str(group_name or "").strip()
+    if not db_path.exists() or col is None or not clean_group:
+        return pd.DataFrame()
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        if as_of is not None:
+            date_sql = "?"
+            params: list[Any] = [as_of, clean_group]
+        else:
+            date_sql = "(SELECT max(trade_date) FROM indicators_daily)"
+            params = [clean_group]
+        sql = f"""
+        SELECT
+            i.symbol,
+            i.close_price,
+            (i.close_price / nullif(i.prev_close, 0) - 1.0) * 100 AS return_1d_pct,
+            i.return_5d_pct,
+            i.rs_percentile,
+            coalesce(i.rvol, 1.0) AS rvol,
+            i.away_52w_high_pct,
+            i.turnover_cr,
+            coalesce(m.market_cap_cr, 0) AS market_cap_cr
+        FROM indicators_daily i
+        JOIN stocks_master m ON m.symbol = i.symbol
+        WHERE i.trade_date = {date_sql}
+          AND trim(m.{col}) = ?
+        ORDER BY i.turnover_cr DESC NULLS LAST, i.symbol ASC
+        """
+        try:
+            return db.execute(sql, params).fetchdf()
+        except duckdb.Error:
+            return pd.DataFrame()
+
+
+def query_child_groups(
+    db_path: Path,
+    *,
+    parent_level: str,
+    parent_name: str,
+    child_level: str,
+) -> pd.DataFrame:
+    """Child taxonomy rows inside a parent group (Industry inside Broad Industry, etc.)."""
+    db_path = Path(db_path)
+    parent_col = LEVEL_COLUMNS.get(parent_level)
+    child_col = LEVEL_COLUMNS.get(child_level)
+    clean_parent = str(parent_name or "").strip()
+    if not db_path.exists() or parent_col is None or child_col is None or not clean_parent:
+        return pd.DataFrame()
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        sql = f"""
+        WITH latest AS (
+            SELECT max(trade_date) AS d FROM sector_rotation WHERE level = ?
+        ),
+        children AS (
+            SELECT trim(m.{child_col}) AS group_name,
+                   count(DISTINCT m.symbol) AS stocks
+            FROM stocks_master m
+            WHERE trim(m.{parent_col}) = ?
+              AND nullif(trim(m.{child_col}), '') IS NOT NULL
+            GROUP BY 1
+        )
+        SELECT
+            c.group_name,
+            c.stocks,
+            r.turnover_1d_cr,
+            r.rs_percentile,
+            r.rotation_state,
+            r.return_5d_pct,
+            r.rotation_rank,
+            r.turnover_share_pct,
+            r.turnover_share_delta_5d,
+            r.leader_symbols
+        FROM children c
+        LEFT JOIN sector_rotation r
+          ON r.group_name = c.group_name
+         AND r.level = ?
+         AND r.trade_date = (SELECT d FROM latest)
+        ORDER BY r.turnover_share_delta_5d DESC NULLS LAST, r.turnover_1d_cr DESC NULLS LAST, c.group_name
+        """
+        try:
+            return db.execute(sql, [child_level, clean_parent, child_level]).fetchdf()
+        except duckdb.Error:
+            # Persisted share columns may be missing until migrations run.
+            fallback_sql = f"""
+            WITH latest AS (
+                SELECT max(trade_date) AS d FROM sector_rotation WHERE level = ?
+            ),
+            children AS (
+                SELECT trim(m.{child_col}) AS group_name,
+                       count(DISTINCT m.symbol) AS stocks
+                FROM stocks_master m
+                WHERE trim(m.{parent_col}) = ?
+                  AND nullif(trim(m.{child_col}), '') IS NOT NULL
+                GROUP BY 1
+            )
+            SELECT
+                c.group_name,
+                c.stocks,
+                r.turnover_1d_cr,
+                r.rs_percentile,
+                r.rotation_state,
+                r.return_5d_pct,
+                r.rotation_rank
+            FROM children c
+            LEFT JOIN sector_rotation r
+              ON r.group_name = c.group_name
+             AND r.level = ?
+             AND r.trade_date = (SELECT d FROM latest)
+            ORDER BY r.turnover_1d_cr DESC NULLS LAST, c.group_name
+            """
+            try:
+                return db.execute(fallback_sql, [child_level, clean_parent, child_level]).fetchdf()
+            except duckdb.Error:
+                return pd.DataFrame()
