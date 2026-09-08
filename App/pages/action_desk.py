@@ -1120,7 +1120,7 @@ def build_action_desk_page(
                     if copy_text and tv_text:
                         ui.button(
                             f"📋 Copy {q_info['short_title']} (TV)",
-                            on_click=lambda t=tv_text, lbl=f"{q_info['short_title']} (TV)": copy_text(lbl, t),
+                            on_click=lambda *_, t=tv_text, lbl=f"{q_info['short_title']} (TV)": copy_text(lbl, t),
                         ).classes("mp-button text-xs").props("dense outline")
 
                 # Quality Filter Strip

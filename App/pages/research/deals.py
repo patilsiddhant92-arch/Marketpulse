@@ -214,23 +214,23 @@ def build_deals_page(
                     ui.label("⚡ Quick Export:").classes("text-xs font-semibold text-[var(--mp-text)]")
                     total_master_count = len(conviction_df) + len(fresh_radar_df)
                     if active_master_tv:
-                        ui.button(f"📋 Copy Master TV ({total_master_count} Stocks)", on_click=lambda t=active_master_tv: copy_text("Master Deals TV", t)).classes("mp-primary text-xs font-bold").props("dense")
+                        ui.button(f"📋 Copy Master TV ({total_master_count} Stocks)", on_click=lambda *_, t=active_master_tv: copy_text("Master Deals TV", t)).classes("mp-primary text-xs font-bold").props("dense")
                     conv_syms = conviction_df["symbol"].tolist() if not conviction_df.empty else []
                     c_str = to_tv_list(conv_syms, header="💎 Conviction Accumulation") if conv_syms else ""
                     if c_str or conviction_tv:
-                        ui.button(f"📋 Copy Conviction Only ({len(conv_syms)})", on_click=lambda t=(c_str or conviction_tv): copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
+                        ui.button(f"📋 Copy Conviction Only ({len(conv_syms)})", on_click=lambda *_, t=(c_str or conviction_tv): copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
                     fresh_syms = fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else []
                     f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else ""
                     if f_str or fresh_radar_tv:
-                        ui.button(f"📋 Copy Fresh Radar ({len(fresh_syms)})", on_click=lambda t=(f_str or fresh_radar_tv): copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
+                        ui.button(f"📋 Copy Fresh Radar ({len(fresh_syms)})", on_click=lambda *_, t=(f_str or fresh_radar_tv): copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
                     if tv_map.get("above_200_tv"):
-                        ui.button("📋 Stage 2 (>200 EMA)", on_click=lambda t=tv_map["above_200_tv"]: copy_text("Stage 2 Deals TV", t)).classes("mp-button text-xs text-teal-400").props("dense outline")
+                        ui.button("📋 Stage 2 (>200 EMA)", on_click=lambda *_, t=tv_map["above_200_tv"]: copy_text("Stage 2 Deals TV", t)).classes("mp-button text-xs text-teal-400").props("dense outline")
                     if tv_map.get("turnaround_tv"):
-                        ui.button("📋 Turnaround (<200 EMA)", on_click=lambda t=tv_map["turnaround_tv"]: copy_text("Turnaround Deals TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
+                        ui.button("📋 Turnaround (<200 EMA)", on_click=lambda *_, t=tv_map["turnaround_tv"]: copy_text("Turnaround Deals TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
                     if prop_tv:
-                        ui.button("📋 Copy Prop HFT Only", on_click=lambda t=prop_tv: copy_text("Prop HFT Deals TV", t)).classes("mp-button text-xs text-amber-400/80").props("dense outline")
+                        ui.button("📋 Copy Prop HFT Only", on_click=lambda *_, t=prop_tv: copy_text("Prop HFT Deals TV", t)).classes("mp-button text-xs text-amber-400/80").props("dense outline")
                     if quarantined_tv:
-                        ui.button("📋 Copy Quarantined (5% Band)", on_click=lambda t=quarantined_tv: copy_text("Quarantined Deals TV", t)).classes("mp-button text-xs text-rose-400").props("dense outline")
+                        ui.button("📋 Copy Quarantined (5% Band)", on_click=lambda *_, t=quarantined_tv: copy_text("Quarantined Deals TV", t)).classes("mp-button text-xs text-rose-400").props("dense outline")
 
                 # Tabs for Clean Inspection
                 with ui.tabs().classes("w-full bg-[var(--mp-surface)] rounded-t-lg border border-[var(--mp-border)]") as hub_tabs:

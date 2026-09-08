@@ -296,14 +296,13 @@ def tradingview_url(symbol: str) -> str:
 def symbols_text(
     df: pd.DataFrame,
     *,
-    min_mcap_cr: float | None = 900.0,
-    require_above_ema200: bool = True,
+    min_mcap_cr: float | None = None,
+    require_above_ema200: bool = False,
 ) -> str:
     """Build a TradingView list with explicit caller-owned universe gates.
 
-    Research tables retain the historical ₹1,000 Cr / CMP > 200 EMA default,
-    while portfolio exports can opt out so a user's holdings are never
-    silently omitted merely because a market field is missing.
+    Defaults to copying 100% of visible symbols without silent truncation (per GEMINI.md).
+    Callers can pass explicit min_mcap_cr or require_above_ema200 if filtering is needed.
     """
     if df.empty or "symbol" not in df.columns:
         return ""
@@ -346,16 +345,43 @@ def copy_button(label: str, text_func) -> None:
     ui.button(label, on_click=copy).props("outline dense").classes("mp-button")
 
 
-def copy_text_to_clipboard(label: str, text: str | None = None) -> None:
-    if text is None:
-        text = label
+def copy_text_to_clipboard(label: Any, text: Any = None) -> None:
+    """Safely copy text to clipboard with dual-signature support and event argument protection."""
+    # 1. Guard against NiceGUI ClickEventArguments injection into default lambda parameters
+    if hasattr(text, "sender") or hasattr(text, "client") or "EventArguments" in type(text).__name__:
+        text = None
+    if hasattr(label, "sender") or hasattr(label, "client") or "EventArguments" in type(label).__name__:
         label = "TradingView list"
-    text = text or ""
-    ui.clipboard.write(text)
+        text = ""
+
+    # 2. Support both single-argument (text) and dual-argument (label, text) signatures
+    if text is None:
+        if isinstance(label, str) and ("," in label or "NSE:" in label or "\n" in label or label.startswith("###")):
+            text = label
+            label = "TradingView list"
+        else:
+            text = str(label or "")
+            label = "TradingView list"
+
+    # 3. Ensure text and label are clean strings
+    text = str(text or "").strip()
+    label = str(label or "TradingView list")
+
+    # 4. Write to clipboard and notify
+    try:
+        ui.clipboard.write(text)
+    except Exception:
+        pass
+
+    try:
+        json_payload = json.dumps(text)
+    except Exception:
+        json_payload = '""'
+
     _run_client_javascript(
         f"""
         (async () => {{
-          const text = {json.dumps(text)};
+          const text = {json_payload};
           try {{
             await navigator.clipboard.writeText(text);
           }} catch (err) {{
@@ -2360,7 +2386,7 @@ def special_watchlist_page() -> None:
             tradable = tradable[~tradable["is_avoid"].fillna(False)]
         if "status" in tradable.columns:
             tradable = tradable[tradable["status"] != "Removed"]
-        if {"close_price", "ema_200"}.issubset(tradable.columns):
+        if cmp_gt_200.value and {"close_price", "ema_200"}.issubset(tradable.columns):
             close = pd.to_numeric(tradable["close_price"], errors="coerce")
             ema_200 = pd.to_numeric(tradable["ema_200"], errors="coerce")
             tradable = tradable[ema_200.isna() | (close > ema_200)]
@@ -2743,10 +2769,10 @@ def special_watchlist_page() -> None:
                             ui.label(f"{scount} names · RS {srs:.0f}").classes("mp-leader-meta")
                             ui.button(
                                 "Copy TV",
-                                on_click=lambda n=sname: copy_text_to_clipboard(
+                                on_click=lambda *_, n=sname: copy_text_to_clipboard(
                                     f"Sector {n}",
                                     grouped_copy_text(data, ["sector"], {n}),
-                                ),
+                                 ),
                             ).classes("mp-button text-xs").props("dense flat")
                     for _, irow in industry_summary.head(3).iterrows():
                         iname = str(irow.get("industry") or "—")
@@ -2758,7 +2784,7 @@ def special_watchlist_page() -> None:
                             ui.label(f"{icount} names · RS {irs:.0f}").classes("mp-leader-meta")
                             ui.button(
                                 "Copy TV",
-                                on_click=lambda n=iname: copy_text_to_clipboard(
+                                on_click=lambda *_, n=iname: copy_text_to_clipboard(
                                     f"Industry {n}",
                                     grouped_copy_text(data, ["industry"], {n}),
                                 ),
@@ -2770,11 +2796,11 @@ def special_watchlist_page() -> None:
                 table_data = table_data[~table_data["is_avoid"].fillna(False)]
             ui.label("Liquidity Mode controls whether Day Volume, 20D Avg Volume, either, or both must pass. Optional OHLC filters are strict: if enabled, all OHLC prices must be above the selected EMA and the EMA must exist. Scanner also requires price within the selected distance from 52W high and at least the selected % above 52W low. 5% band stocks stay out of the scanner and copy text.").classes("mp-rule")
             with ui.row().classes("gap-2 flex-wrap"):
-                ui.button("Copy Buckets", on_click=lambda c=bucket_copy: copy_text_to_clipboard("Buckets", c)).classes("mp-button")
-                ui.button("Copy All Sectors", on_click=lambda c=sector_copy: copy_text_to_clipboard("Sectors", c)).classes("mp-button")
-                ui.button("Copy All Industries", on_click=lambda c=industry_copy: copy_text_to_clipboard("Industries", c)).classes("mp-button")
-                ui.button("Copy Top Sector Stocks", on_click=lambda: copy_text_to_clipboard("Top Sector Stocks", grouped_copy_text(data, ["sector"], top_sectors))).classes("mp-button")
-                ui.button("Copy Top Industry Stocks", on_click=lambda: copy_text_to_clipboard("Top Industry Stocks", grouped_copy_text(data, ["industry"], top_industries))).classes("mp-button")
+                ui.button("Copy Buckets", on_click=lambda *_, c=bucket_copy: copy_text_to_clipboard("Buckets", c)).classes("mp-button")
+                ui.button("Copy All Sectors", on_click=lambda *_, c=sector_copy: copy_text_to_clipboard("Sectors", c)).classes("mp-button")
+                ui.button("Copy All Industries", on_click=lambda *_, c=industry_copy: copy_text_to_clipboard("Industries", c)).classes("mp-button")
+                ui.button("Copy Top Sector Stocks", on_click=lambda *_: copy_text_to_clipboard("Top Sector Stocks", grouped_copy_text(data, ["sector"], top_sectors))).classes("mp-button")
+                ui.button("Copy Top Industry Stocks", on_click=lambda *_: copy_text_to_clipboard("Top Industry Stocks", grouped_copy_text(data, ["industry"], top_industries))).classes("mp-button")
             table_from_df(table_data, "Momentum Scanner Changes", hidden_cols={"ema_200", "is_avoid", "is_top_sector", "is_top_industry"})
 
             m_syms = table_data["symbol"].dropna().astype(str).unique().tolist() if not table_data.empty and "symbol" in table_data.columns else []
@@ -2823,11 +2849,11 @@ def special_watchlist_page() -> None:
                         ui.label("Stocks consolidating strictly inside a 45-day Darvas Box within ≤5.0% of Green Line pivot with rising 10/20 EMA support (Nicolas Darvas Box Theory). Unfiltered by RS or Stop Loss.").classes("text-xs text-[var(--mp-muted)]")
 
                     if not darvas_df.empty:
-                        darvas_tv = ",".join(f"NSE:{s}" for s in darvas_df["symbol"])
+                        darvas_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in darvas_df["symbol"].dropna().unique())
                         ui.button(
                             f"Copy Darvas Squeeze ({len(darvas_df)} TV)",
                             icon="content_copy",
-                            on_click=lambda t=darvas_tv: copy_text_to_clipboard("Darvas Squeeze", t),
+                            on_click=lambda *_, t=darvas_tv: copy_text_to_clipboard("Darvas Squeeze", t),
                         ).classes("mp-button text-xs font-bold")
 
                 if darvas_df.empty:
@@ -2865,30 +2891,30 @@ def special_watchlist_page() -> None:
                 with ui.tab_panels(pm_tabs, value=pm_t1).classes("w-full bg-transparent p-0 mt-2"):
                     with ui.tab_panel(pm_t1).classes("p-0"):
                         if not sc_df.empty:
-                            sc_tv = ",".join(f"NSE:{s}" for s in sc_df["symbol"])
+                            sc_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in sc_df["symbol"].dropna().unique())
                             with ui.row().classes("w-full justify-between items-center mb-2"):
                                 ui.label("Volume drying up (RVOL ≤ 0.70x) + price coiling tightly at 10/20 EMA with delivery accumulation.").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy Silent Coil ({len(sc_df)} TV)", icon="content_copy", on_click=lambda t=sc_tv: copy_text_to_clipboard("Silent Coil", t)).classes("mp-button text-xs")
+                                ui.button(f"Copy Silent Coil ({len(sc_df)} TV)", icon="content_copy", on_click=lambda *_, t=sc_tv: copy_text_to_clipboard("Silent Coil", t)).classes("mp-button text-xs")
                             table_from_df(sc_df[[c for c in pre_move_cols if c in sc_df.columns]], "Silent Coil Candidates", copy_symbols=True)
                         else:
                             ui.label("No stocks currently in Silent Coil consolidation.").classes("text-xs text-[var(--mp-muted)] py-3")
 
                     with ui.tab_panel(pm_t2).classes("p-0"):
                         if not vss_df.empty:
-                            vss_tv = ",".join(f"NSE:{s}" for s in vss_df["symbol"])
+                            vss_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in vss_df["symbol"].dropna().unique())
                             with ui.row().classes("w-full justify-between items-center mb-2"):
                                 ui.label("RVOL quietly expanding 3 consecutive days at 10/20 EMA support before explosion.").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy Stair-Step ({len(vss_df)} TV)", icon="content_copy", on_click=lambda t=vss_tv: copy_text_to_clipboard("Stair-Step", t)).classes("mp-button text-xs")
+                                ui.button(f"Copy Stair-Step ({len(vss_df)} TV)", icon="content_copy", on_click=lambda *_, t=vss_tv: copy_text_to_clipboard("Stair-Step", t)).classes("mp-button text-xs")
                             table_from_df(vss_df[[c for c in pre_move_cols if c in vss_df.columns]], "Volume Stair-Step Candidates", copy_symbols=True)
                         else:
                             ui.label("No stocks currently exhibiting Volume Stair-Step accumulation.").classes("text-xs text-[var(--mp-muted)] py-3")
 
                     with ui.tab_panel(pm_t3).classes("p-0"):
                         if not sp_df.empty:
-                            sp_tv = ",".join(f"NSE:{s}" for s in sp_df["symbol"])
+                            sp_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in sp_df["symbol"].dropna().unique())
                             with ui.row().classes("w-full justify-between items-center mb-2"):
                                 ui.label("Prior 2x+ RVOL surge followed by low-volume pause resting on 10/20 EMA (MVGJL/XTRANET pre-move pattern).").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy Spike-Pause ({len(sp_df)} TV)", icon="content_copy", on_click=lambda t=sp_tv: copy_text_to_clipboard("Spike-Pause", t)).classes("mp-button text-xs")
+                                ui.button(f"Copy Spike-Pause ({len(sp_df)} TV)", icon="content_copy", on_click=lambda *_, t=sp_tv: copy_text_to_clipboard("Spike-Pause", t)).classes("mp-button text-xs")
                             table_from_df(sp_df[[c for c in pre_move_cols if c in sp_df.columns]], "Spike-Pause Candidates", copy_symbols=True)
                         else:
                             ui.label("No stocks currently in Spike-Pause consolidation.").classes("text-xs text-[var(--mp-muted)] py-3")
@@ -2899,11 +2925,11 @@ def special_watchlist_page() -> None:
                 with ui.column().classes("flex-1 min-w-0"):
                     sec_show = sector_summary[[c for c in ["sector", "stock_count", "symbol_count", "avg_10ema_pct", "avg_rs_pct", "avg_20d_vol", "turnover_1d_cr", "turnover_1w_cr", "turnover_1m_cr", "deal_count", "symbols"] if c in sector_summary.columns]] if not sector_summary.empty else sector_summary
                     table_from_df(sec_show, "Sector Output", copy_symbols=False)
-                    ui.button("Copy All Sectors (TV format)", on_click=lambda: copy_text_to_clipboard("Sectors", sector_copy)).classes("mp-button text-xs mt-1")
+                    ui.button("Copy All Sectors (TV format)", on_click=lambda *_: copy_text_to_clipboard("Sectors", sector_copy)).classes("mp-button text-xs mt-1")
                 with ui.column().classes("flex-1 min-w-0"):
                     ind_show = industry_summary[[c for c in ["sector", "industry", "stock_count", "symbol_count", "avg_10ema_pct", "avg_rs_pct", "avg_20d_vol", "turnover_1d_cr", "turnover_1w_cr", "turnover_1m_cr", "deal_count", "symbols"] if c in industry_summary.columns]] if not industry_summary.empty else industry_summary
                     table_from_df(ind_show, "Industry Output", copy_symbols=False)
-                    ui.button("Copy All Industries (TV format)", on_click=lambda: copy_text_to_clipboard("Industries", industry_copy)).classes("mp-button text-xs mt-1")
+                    ui.button("Copy All Industries (TV format)", on_click=lambda *_: copy_text_to_clipboard("Industries", industry_copy)).classes("mp-button text-xs mt-1")
 
     run_button.on_click(render)
     # Filters now update ONLY on explicit Run (no auto re-render on every checkbox tick/number change).
