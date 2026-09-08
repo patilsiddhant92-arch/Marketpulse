@@ -258,6 +258,9 @@ def test_weekly_toggle_is_costume_label_not_weekly_aggregator():
     assert 'TIMEFRAME_OPTIONS' in source
     assert '"Weekly": "5D % sort (daily rows)"' in source
     assert "not a weekly group aggregator" in source
+    assert "Top groups by weekly return" not in source
+    assert "5-Day Rolling Trend" not in source
+    assert "Top groups by 5D % (daily rows)" in source
     action = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
     assert "query_rotation_board" in action
     assert "ORDER BY s.avg_rs DESC" not in action
@@ -390,7 +393,7 @@ def test_query_group_members_and_child_groups_accept_broad_industry(tmp_path):
 
 
 def test_query_rs_leadership_t5_is_fifth_prior_session(tmp_path):
-    from App.pages.research.sector_board import query_rs_leadership_data
+    from App.pages.research.sector_board import _fmt_optional_num, query_rs_leadership_data
 
     db_path = tmp_path / "rs.duckdb"
     dates = [AS_OF - timedelta(days=offset) for offset in range(5, -1, -1)]
@@ -413,6 +416,81 @@ def test_query_rs_leadership_t5_is_fifth_prior_session(tmp_path):
     row = frame.iloc[0]
     assert float(row["rs_t0"]) == pytest.approx(55.0)
     assert float(row["rs_t5"]) == pytest.approx(50.0)
+
+    short_path = tmp_path / "rs_short.duckdb"
+    short_dates = [AS_OF - timedelta(days=offset) for offset in range(2, -1, -1)]
+    with duckdb.connect(str(short_path)) as db:
+        db.execute(
+            """
+            CREATE TABLE sector_rotation (
+                trade_date DATE, level TEXT, group_name TEXT, rs_percentile DOUBLE
+            )
+            """
+        )
+        for idx, session in enumerate(short_dates):
+            db.execute(
+                "INSERT INTO sector_rotation VALUES (?, 'Sector', 'Healthcare', ?)",
+                [session, 10.0 + idx],
+            )
+
+    short = query_rs_leadership_data(short_path, level="Sector")
+    assert not short.empty
+    short_row = short.iloc[0]
+    assert float(short_row["rs_t0"]) == pytest.approx(12.0)
+    # dates[-1] of a 3-session window is T-2 (RS 10.0), not T-5 — must stay null, not 10.0 or 0.0.
+    assert pd.isna(short_row["rs_t5"])
+    assert pd.isna(short_row["rs_change"])
+    assert _fmt_optional_num(short_row["rs_t5"]) == "—"
+    assert _fmt_optional_num(short_row["rs_change"], signed=True) == "—"
+    assert _fmt_optional_num(short_row["rs_t5"]) != "0.0"
+    assert _fmt_optional_num(short_row["rs_change"], signed=True) != "+0.0"
+
+
+def test_group_trend_broad_industry_does_not_query_industry_column(tmp_path):
+    from App.market_summary import _taxonomy_column, group_trend
+
+    assert _taxonomy_column("Broad Industry") == "broad_industry"
+    assert _taxonomy_column("broad industry") == "broad_industry"
+    assert _taxonomy_column("sector") == "sector"
+
+    db_path = tmp_path / "trend.duckdb"
+    with duckdb.connect(str(db_path)) as db:
+        db.execute(
+            """
+            CREATE TABLE indicators_daily (
+                symbol TEXT, trade_date DATE, close_price DOUBLE, prev_close DOUBLE,
+                return_5d_pct DOUBLE, turnover_cr DOUBLE
+            )
+            """
+        )
+        db.execute(
+            """
+            CREATE TABLE stocks_master (
+                symbol TEXT, sector TEXT, broad_industry TEXT, industry TEXT
+            )
+            """
+        )
+        db.execute(
+            """
+            INSERT INTO stocks_master VALUES
+              ('AAA', 'Healthcare', 'Pharma', 'Generic Pharma'),
+              ('BBB', 'Healthcare', 'Hospitals', 'Hospitals')
+            """
+        )
+        db.execute(
+            """
+            INSERT INTO indicators_daily VALUES
+              ('AAA', ?, 110, 100, 5.0, 400),
+              ('BBB', ?, 110, 100, 1.0, 50)
+            """,
+            [AS_OF, AS_OF],
+        )
+
+    frame = group_trend(db_path, "Broad Industry", top_n=6, days=10)
+    names = set(frame["grp"].astype(str))
+    assert "Pharma" in names
+    assert "Hospitals" in names
+    assert "Generic Pharma" not in names
 
 
 def test_migrations_grow_sector_rotation_share_columns(tmp_path):

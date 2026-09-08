@@ -96,6 +96,20 @@ def _fmt_pct(v: Any, signed: bool = True) -> str:
         return "—"
 
 
+def _fmt_optional_num(v: Any, *, signed: bool = False, digits: int = 1) -> str:
+    """Format a number, or em-dash when the value is missing. Never paint NULL as 0.0."""
+    if v is None or pd.isna(v):
+        return "—"
+    try:
+        val = float(v)
+        if pd.isna(val):
+            return "—"
+        sign = "+" if signed and val > 0 else ""
+        return f"{sign}{val:.{digits}f}"
+    except (ValueError, TypeError):
+        return "—"
+
+
 def _fmt_money(v: Any) -> str:
     val = _safe_float(v)
     if val >= 1000:
@@ -837,11 +851,11 @@ def build_sector_board_page(
                                         ui.label(str(item.get("leader_symbols") or item.get("top_leaders") or "")[:42]).classes("font-mono truncate")
 
                     # Visual Panels: Return Trend and Heatmap
-                    trend = group_trend(db_path, str(lvl.lower()), top_n=6, days=21)
+                    trend = group_trend(db_path, lvl, top_n=6, days=21)
                     if not trend.empty:
                         with ui.element("div").classes("mp-sector-visuals w-full grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3"):
-                            chart_title = "5-Day Rolling Trend" if is_weekly else "Return Trend"
-                            chart_sub = "Top groups by weekly return · 21 sessions" if is_weekly else "Top groups by turnover · 21 sessions"
+                            chart_title = "5D % sort (daily rows)" if is_weekly else "Return Trend"
+                            chart_sub = "Top groups by 5D % (daily rows) · 21 sessions" if is_weekly else "Top groups by turnover · 21 sessions"
                             val_col = "week_pct" if (is_weekly and "week_pct" in trend.columns) else "day_pct"
                             with chart_panel(chart_title, chart_sub, tone="info"):
                                 grouped_line_chart(trend, date_col="trade_date", group_col="grp", value_col=val_col)
@@ -1115,12 +1129,11 @@ def build_sector_board_page(
                         ]
                         records_rs = []
                         for _, r in rs_df.iterrows():
-                            chg = _safe_float(r.get("rs_change"))
                             records_rs.append({
                                 "group_name": str(r.get("group_name")),
-                                "rs_t0": f"{_safe_float(r.get('rs_t0')):.1f}",
-                                "rs_t5": f"{_safe_float(r.get('rs_t5')):.1f}",
-                                "rs_change": f"{chg:+.1f}",
+                                "rs_t0": _fmt_optional_num(r.get("rs_t0")),
+                                "rs_t5": _fmt_optional_num(r.get("rs_t5")),
+                                "rs_change": _fmt_optional_num(r.get("rs_change"), signed=True),
                             })
 
                         with ui.element("div").classes("w-full mp-table-scroll"):

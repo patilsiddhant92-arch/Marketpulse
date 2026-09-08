@@ -170,8 +170,21 @@ def group_tape(db_path: Path, level: str = "sector") -> pd.DataFrame:
     return frame
 
 
+_TAXONOMY_COLUMNS = {
+    "sector": "sector",
+    "broad sector": "broad_sector",
+    "broad industry": "broad_industry",
+    "industry": "industry",
+}
+
+
+def _taxonomy_column(level: str) -> str:
+    key = str(level or "").strip().lower().replace("-", " ").replace("_", " ")
+    return _TAXONOMY_COLUMNS.get(key, "industry")
+
+
 def group_trend(db_path: Path, level: str = "sector", top_n: int = 6, days: int = 21) -> pd.DataFrame:
-    col = "sector" if level == "sector" else "industry"
+    col = _taxonomy_column(level)
     top_n = max(1, min(10, int(top_n)))
     days = max(5, min(60, int(days)))
     return _q(
