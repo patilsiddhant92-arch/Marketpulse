@@ -188,6 +188,7 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "render_stock_inspector_panel" in page_source
     assert "queue_meta" in page_source
     assert "QUEUE_META" in page_source
+    assert "render_market_health_strip" in page_source
     assert "8 setup queues" in page_source
     assert "5 Actionable Setup Queues" not in page_source
     assert "1. VCP / Coiling Breakouts" not in page_source

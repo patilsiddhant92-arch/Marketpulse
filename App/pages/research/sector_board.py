@@ -22,6 +22,7 @@ try:
     from App.sector_read_model import query_sector_rotation_overview
     from App.thematic_engine import build_thematic_leaderboard, get_index_constituents
     from App.ui.columns import get_quasar_column_def
+    from App.ui.market_health import render_market_health_strip
     from App.ui.stock_drawer import open_stock_360_modal
     from App.ui.widgets import chart_panel, grouped_line_chart, return_heatmap
 except ModuleNotFoundError:
@@ -30,6 +31,7 @@ except ModuleNotFoundError:
     from sector_read_model import query_sector_rotation_overview  # type: ignore
     from thematic_engine import build_thematic_leaderboard, get_index_constituents  # type: ignore
     from ui.columns import get_quasar_column_def  # type: ignore
+    from ui.market_health import render_market_health_strip  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
     from ui.widgets import chart_panel, grouped_line_chart, return_heatmap  # type: ignore
 
@@ -189,6 +191,8 @@ def build_sector_board_page(
                     ui.label(non_actionable_message(st)).classes("mp-badge mp-bad text-xs")
                 else:
                     ui.label(f"EOD · {st.database_date or 'Live'}").classes("text-xs text-[var(--mp-muted)]")
+
+        render_market_health_strip(db_path)
 
         # Controls & Section Nav Toolbar
         with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mp-toolbar"):

@@ -46,13 +46,26 @@ try:
 except ModuleNotFoundError:
     from desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
+try:
+    from App.ui.market_health import (
+        exposure_inputs_from_breadth_row,
+        query_latest_breadth_daily,
+        render_market_health_strip,
+    )
+except ModuleNotFoundError:
+    from ui.market_health import (  # type: ignore
+        exposure_inputs_from_breadth_row,
+        query_latest_breadth_daily,
+        render_market_health_strip,
+    )
+
 
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     """
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v8")
+    key = cache_key(db_path, None, "action_desk_v9")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -65,26 +78,36 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         trade_date = max_d_res[0]
         trade_date_str = str(pd.to_datetime(trade_date).date())
 
-        # 2. Market Breadth & Exposure Gate
-        breadth_row = con.execute(
-            """
-            SELECT 
-                count(*) AS total_stocks,
-                avg(CASE WHEN close_price > prev_close THEN 1.0 ELSE 0.0 END) * 100 AS advance_pct,
-                avg(CASE WHEN close_price > ema_20 THEN 1.0 ELSE 0.0 END) * 100 AS above_20ema_pct,
-                avg(CASE WHEN close_price > ema_50 THEN 1.0 ELSE 0.0 END) * 100 AS above_50ema_pct,
-                avg(CASE WHEN close_price > ema_200 THEN 1.0 ELSE 0.0 END) * 100 AS above_200ema_pct
-            FROM indicators_daily
-            WHERE trade_date = ?
-            """,
-            [trade_date],
-        ).fetchone()
-
-        total_stocks = breadth_row[0] or 2400
-        adv_pct = round(breadth_row[1] or 50.0, 1)
-        ab20_pct = round(breadth_row[2] or 50.0, 1)
-        ab50_pct = round(breadth_row[3] or 50.0, 1)
-        ab200_pct = round(breadth_row[4] or 50.0, 1)
+        # 2. Market Breadth & Exposure Gate — same breadth_daily row as the health strip.
+        b_df = query_latest_breadth_daily(con, limit=1)
+        if not b_df.empty:
+            exp_inputs = exposure_inputs_from_breadth_row(b_df.iloc[0])
+            total_stocks = exp_inputs["total_stocks"] or 2400
+            adv_pct = exp_inputs["adv_pct"]
+            ab20_pct = exp_inputs["ab20_pct"]
+            ab50_pct = exp_inputs["ab50_pct"]
+            ab200_pct = exp_inputs["ab200_pct"]
+            breadth_source = "breadth_daily"
+        else:
+            breadth_row = con.execute(
+                """
+                SELECT 
+                    count(*) AS total_stocks,
+                    avg(CASE WHEN close_price > prev_close THEN 1.0 ELSE 0.0 END) * 100 AS advance_pct,
+                    avg(CASE WHEN close_price > ema_20 THEN 1.0 ELSE 0.0 END) * 100 AS above_20ema_pct,
+                    avg(CASE WHEN close_price > ema_50 THEN 1.0 ELSE 0.0 END) * 100 AS above_50ema_pct,
+                    avg(CASE WHEN close_price > ema_200 THEN 1.0 ELSE 0.0 END) * 100 AS above_200ema_pct
+                FROM indicators_daily
+                WHERE trade_date = ?
+                """,
+                [trade_date],
+            ).fetchone()
+            total_stocks = breadth_row[0] or 2400
+            adv_pct = round(breadth_row[1] or 50.0, 1)
+            ab20_pct = round(breadth_row[2] or 50.0, 1)
+            ab50_pct = round(breadth_row[3] or 50.0, 1)
+            ab200_pct = round(breadth_row[4] or 50.0, 1)
+            breadth_source = "indicators_daily"
 
         # India VIX and 1-Day change. Missing row → None (do not invent 11.3).
         vix_val = None
@@ -582,6 +605,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "ab20_pct": ab20_pct,
             "ab50_pct": ab50_pct,
             "ab200_pct": ab200_pct,
+            "breadth_source": breadth_source,
             "vix": vix_val,
             "vix_1d_pct": vix_1d_pct,
             "vix_na": gate["vix_na"],
@@ -875,6 +899,7 @@ def build_action_desk_page(
     copy_text: Callable | None = None,
 ) -> None:
     """Build the Action Desk view inside NiceGUI (3-Column Master-Detail Cockpit)."""
+    render_market_health_strip(Path(db_path))
     data = fetch_action_desk_data(db_path)
     if not data.get("ready"):
         ui.label(data.get("reason", "Action Desk initializing...")).classes("text-sm text-[var(--mp-muted)] p-4")
