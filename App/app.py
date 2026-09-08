@@ -346,7 +346,10 @@ def copy_button(label: str, text_func) -> None:
     ui.button(label, on_click=copy).props("outline dense").classes("mp-button")
 
 
-def copy_text_to_clipboard(label: str, text: str) -> None:
+def copy_text_to_clipboard(label: str, text: str | None = None) -> None:
+    if text is None:
+        text = label
+        label = "TradingView list"
     text = text or ""
     ui.clipboard.write(text)
     _run_client_javascript(
@@ -493,7 +496,7 @@ def table_from_df(
         with ui.row().classes("items-center gap-3 mt-4"):
             ui.label(title).classes("mp-section-title")
             if copy_symbols and "symbol" in df.columns and not df.empty:
-                copy_button("Copy Symbols", lambda: symbols_text(df))
+                copy_button("Copy Symbols", lambda: symbols_text(df, min_mcap_cr=None, require_above_ema200=False))
             if pref_key:
                 # Column chooser — now auto-loads saved prefs and applies on render (reload not required after save)
                 all_cols = list(df.columns)

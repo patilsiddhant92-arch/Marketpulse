@@ -104,65 +104,70 @@ def is_darvas_10ema_squeeze(
     low: float | None = None,
     open_price: float | None = None,
     max_squeeze_pct: float = 5.0,
-    max_candle_range_pct: float = 3.5,
+    max_candle_range_pct: float = 4.0,
     require_ohlc_inside: bool = True,
     ema20: float | None = None,
 ) -> bool:
     """
-    Check if a candle meets the Darvas Green Line + 10 EMA / 20 EMA Squeeze criteria:
-    1. TopBox and 10 EMA (or 20 EMA) are active and valid.
-    2. Squeeze spread between TopBox and EMA is tight (0 to max_squeeze_pct, e.g. 5.0%).
-    3. Price is coiled below or testing Green Line (within -0.2% to 4.0% of Green Line).
-    4. Price is holding above / near 10 EMA or 20 EMA (within -2.0% to +3.5% of EMA).
+    Check if a candle meets the Darvas Green Line + 10 EMA Squeeze criteria:
+    1. TopBox, 10 EMA, and Close are active, valid, and positive.
+    2. EMA Alignment: If 20 EMA is available, 10 EMA >= 20 EMA * 0.995
+       (Strict uptrend / constructive posture; eliminates downtrend breakdowns like NTPC and RHIM).
+    3. Squeeze Spread: Spread between TopBox ceiling and 10 EMA support is coiled tightly
+       (0.0% to max_squeeze_pct, default <= 5.0%).
+    4. Proximity to Green Line: Close is coiled near or testing Green Line
+       (within -0.2% to max_squeeze_pct of Green Line).
     5. When require_ohlc_inside is True:
-       - Entire OHLC (Open, High, Low, Close) is strictly contained inside the box:
-         * High <= top_box * 1.002 (does not pierce above ceiling; hasn't broken out yet)
-         * Low >= bottom_box * 0.998 (does not break below floor)
-         * Low >= support_ema * 0.98 (holds dynamic EMA support)
-         * Open and Close are inside [support_ema * 0.98, top_box * 1.002]
-       - In Near Range: candle range (High - Low) / Close <= max_candle_range_pct (e.g. 3.5%).
+       - Entire OHLC (Open, High, Low, Close) is strictly coiled between Darvas Top Box and 10 EMA:
+         * High <= top_box * 1.002 (ceiling: has not broken out above ceiling yet)
+         * Open <= top_box * 1.002
+         * Close <= top_box * 1.002
+         * Low >= ema10 * 0.995 (floor: holds 10 EMA support with 0.5% wick tolerance)
+         * Open >= ema10 * 0.995 (opens above 10 EMA support)
+         * Close >= ema10 * 0.998 (closes holding 10 EMA support)
+         * Low >= bottom_box * 0.998 (does not break below Darvas floor if bottom_box is valid)
+       - Candle Range Contraction: (High - Low) / Close <= max_candle_range_pct (default <= 4.0%).
     """
-    if np.isnan(top_box) or top_box <= 0:
+    if np.isnan(top_box) or top_box <= 0 or np.isnan(ema10) or ema10 <= 0 or np.isnan(close) or close <= 0:
         return False
 
-    # Support either 10 EMA or 20 EMA
-    emas_to_check = [e for e in [ema10, ema20] if e is not None and not np.isnan(e) and e > 0]
-    if not emas_to_check:
+    # Uptrend posture: 10 EMA must be >= 20 EMA (constructive posture, not downtrend breakdown)
+    if ema20 is not None and not np.isnan(ema20) and ema20 > 0:
+        if ema10 < ema20 * 0.995:
+            return False
+
+    # Squeeze spread between Darvas Top Box ceiling and 10 EMA support
+    squeeze_pct = ((top_box - ema10) / top_box) * 100.0
+    if not (0.0 <= squeeze_pct <= max_squeeze_pct):
         return False
 
-    qualified = False
-    for cur_ema in emas_to_check:
-        squeeze_pct = ((top_box - cur_ema) / top_box) * 100.0
-        dist_to_green = ((top_box - close) / top_box) * 100.0
-        dist_to_ema = ((close - cur_ema) / cur_ema) * 100.0
+    # Close must be coiled near the top box
+    dist_to_green = ((top_box - close) / top_box) * 100.0
+    if not (-0.2 <= dist_to_green <= max_squeeze_pct):
+        return False
 
-        if not (0.0 <= squeeze_pct <= max_squeeze_pct):
-            continue
+    if require_ohlc_inside:
+        h = high if high is not None else close
+        l = low if low is not None else close
+        o = open_price if open_price is not None else close
 
-        if not (-2.0 <= dist_to_ema <= 3.5 and -0.2 <= dist_to_green <= 4.0):
-            continue
+        # Ceiling: OHLC strictly at or below Darvas Top Box ceiling (0.2% tolerance)
+        if h > top_box * 1.002 or o > top_box * 1.002 or close > top_box * 1.002:
+            return False
 
-        if require_ohlc_inside:
-            h = high if high is not None else close
-            l = low if low is not None else close
-            o = open_price if open_price is not None else close
+        # Floor: OHLC strictly at or above 10 EMA support (0.5% wick dip tolerance)
+        if l < ema10 * 0.995 or o < ema10 * 0.995 or close < ema10 * 0.998:
+            return False
 
-            if h > top_box * 1.002:
-                continue
+        # Floor: Low must also stay within Darvas bottom box if defined
+        if not np.isnan(bottom_box) and bottom_box > 0:
             if l < bottom_box * 0.998:
-                continue
-            if l < cur_ema * 0.98:
-                continue
-            if o > top_box * 1.002 or o < cur_ema * 0.98:
-                continue
-            if close > top_box * 1.002 or close < cur_ema * 0.98:
-                continue
-            if close > 0:
-                candle_range_pct = ((h - l) / close) * 100.0
-                if candle_range_pct > max_candle_range_pct:
-                    continue
+                return False
 
-        qualified = True
-        break
+        # Tight candle range (near range / contraction)
+        if close > 0:
+            candle_range_pct = ((h - l) / close) * 100.0
+            if candle_range_pct > max_candle_range_pct:
+                return False
 
-    return qualified
+    return True

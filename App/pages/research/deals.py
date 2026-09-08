@@ -215,14 +215,14 @@ def build_deals_page(
                     total_master_count = len(conviction_df) + len(fresh_radar_df)
                     if active_master_tv:
                         ui.button(f"📋 Copy Master TV ({total_master_count} Stocks)", on_click=lambda t=active_master_tv: copy_text("Master Deals TV", t)).classes("mp-primary text-xs font-bold").props("dense")
-                    if conviction_tv:
-                        conv_syms = conviction_df["symbol"].tolist() if not conviction_df.empty else []
-                        c_str = to_tv_list(conv_syms, header="💎 Conviction Accumulation") if conv_syms else conviction_tv
-                        ui.button(f"📋 Copy Conviction Only ({len(conv_syms)})", on_click=lambda t=c_str: copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
-                    if fresh_radar_tv:
-                        fresh_syms = fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else []
-                        f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else fresh_radar_tv
-                        ui.button(f"📋 Copy Fresh Radar ({len(fresh_syms)})", on_click=lambda t=f_str: copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
+                    conv_syms = conviction_df["symbol"].tolist() if not conviction_df.empty else []
+                    c_str = to_tv_list(conv_syms, header="💎 Conviction Accumulation") if conv_syms else ""
+                    if c_str or conviction_tv:
+                        ui.button(f"📋 Copy Conviction Only ({len(conv_syms)})", on_click=lambda t=(c_str or conviction_tv): copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
+                    fresh_syms = fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else []
+                    f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else ""
+                    if f_str or fresh_radar_tv:
+                        ui.button(f"📋 Copy Fresh Radar ({len(fresh_syms)})", on_click=lambda t=(f_str or fresh_radar_tv): copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
                     if tv_map.get("above_200_tv"):
                         ui.button("📋 Stage 2 (>200 EMA)", on_click=lambda t=tv_map["above_200_tv"]: copy_text("Stage 2 Deals TV", t)).classes("mp-button text-xs text-teal-400").props("dense outline")
                     if tv_map.get("turnaround_tv"):
@@ -245,9 +245,7 @@ def build_deals_page(
                     with ui.tab_panel(t1).classes("p-2 gap-2"):
                         with ui.row().classes("w-full items-center justify-between mb-2"):
                             ui.label("🔥 Primary Swing Watchlist: Multi-day persistence (2+ days) or Whale Inflows (≥₹25Cr) with genuine institutional sponsorship (FII/DII/HNI). Includes both Stage 2 momentum and high-conviction Stage 1 turnarounds.").classes("text-xs text-[var(--mp-muted)]")
-                            if conviction_tv:
-                                conv_syms = conviction_df["symbol"].tolist() if not conviction_df.empty else []
-                                c_str = to_tv_list(conv_syms, header="💎 Conviction Accumulation") if conv_syms else conviction_tv
+                            if c_str:
                                 ui.button("📋 Copy TV List", on_click=lambda t=c_str: copy_text("Conviction TV", t)).classes("text-xs").props("dense outline")
                         if conviction_df.empty:
                             ui.label("No stocks meet Tier 1 conviction accumulation criteria in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
@@ -258,9 +256,7 @@ def build_deals_page(
                     with ui.tab_panel(t2).classes("p-2 gap-2"):
                         with ui.row().classes("w-full items-center justify-between mb-2"):
                             ui.label("⚡ Early Radar: Day-1 institutional entry with genuine institutional sponsorship. Watch for follow-through.").classes("text-xs text-[var(--mp-muted)]")
-                            if fresh_radar_tv:
-                                fresh_syms = fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else []
-                                f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else fresh_radar_tv
+                            if f_str:
                                 ui.button("📋 Copy TV List", on_click=lambda t=f_str: copy_text("Fresh Radar TV", t)).classes("text-xs").props("dense outline")
                         if fresh_radar_df.empty:
                             ui.label("No fresh institutional entries in this window.").classes("text-xs text-[var(--mp-muted)] py-4")

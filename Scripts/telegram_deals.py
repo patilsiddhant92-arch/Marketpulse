@@ -513,12 +513,16 @@ def build_deals_telegram_report(
     else:
         for _, r in conviction_df.head(8).iterrows():
             tags = "/".join(sorted(list(r["categories"])))
-            sign = "+" if r["net_cr"] >= 0 else "-"
+            sign = "+" if r["net_cr"] >= -0.05 else "-"
+            net_val = abs(r["net_cr"])
+            if net_val < 0.05:
+                net_val = 0.0
+                sign = "+"
             close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
             away_str = f"{r['away_52w_high_pct']:+.1f}% 52W" if pd.notna(r["away_52w_high_pct"]) else ""
             metrics = " · ".join([s for s in [close_str, away_str] if s])
             m_bracket = f" | {metrics}" if metrics else ""
-            msg1_lines.append(f"• `{r['symbol']}`: {r['deal_days']}d | Net ₹{abs(r['net_cr']):,.1f}Cr ({sign}) [{tags}]{m_bracket}")
+            msg1_lines.append(f"• `{r['symbol']}`: {r['deal_days']}d | Net ₹{net_val:,.1f}Cr ({sign}) [{tags}]{m_bracket}")
 
     msg1_lines.extend([
         "",
@@ -532,11 +536,16 @@ def build_deals_telegram_report(
     else:
         for _, r in fresh_radar_df.head(6).iterrows():
             tags = "/".join(sorted(list(r["categories"])))
+            sign = "+" if r["net_cr"] >= -0.05 else "-"
+            net_val = abs(r["net_cr"])
+            if net_val < 0.05:
+                net_val = 0.0
+                sign = "+"
             close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
             away_str = f"{r['away_52w_high_pct']:+.1f}% 52W" if pd.notna(r["away_52w_high_pct"]) else ""
             metrics = " · ".join([s for s in [close_str, away_str] if s])
             m_bracket = f" | {metrics}" if metrics else ""
-            msg1_lines.append(f"• `{r['symbol']}`: 1d | Net ₹{r['net_cr']:,.1f}Cr (+) [{tags}]{m_bracket}")
+            msg1_lines.append(f"• `{r['symbol']}`: 1d | Net ₹{net_val:,.1f}Cr ({sign}) [{tags}]{m_bracket}")
 
     if master_tv:
         msg1_lines.extend([

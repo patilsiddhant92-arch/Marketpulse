@@ -98,6 +98,76 @@ def rs_quarterly_mix(
     return quarters.fillna(0).mul(weights, axis=1).sum(axis=1)
 
 
+def rs_adaptive_mix(
+    close: pd.Series,
+    min_periods: int = 20,
+) -> pd.Series:
+    """Return an adaptive quarterly relative strength mix for stocks with varying history lengths.
+
+    For mature stocks (>=252 bars), it matches the standard Minervini weights (40/20/20/20).
+    For IPOs and recent listings (<252 bars), it dynamically normalizes weights across available
+    quarters or returns, avoiding dropping strong recent IPOs with NaN RS scores.
+    """
+    latest_q = close / close.shift(63) - 1
+    prior_q2 = close.shift(63) / close.shift(126) - 1
+    prior_q3 = close.shift(126) / close.shift(189) - 1
+    prior_q4 = close.shift(189) / close.shift(252) - 1
+    quarters = pd.concat([latest_q, prior_q2, prior_q3, prior_q4], axis=1)
+    weights = np.array([0.40, 0.20, 0.20, 0.20])
+
+    # 1. Full 4-quarter calculation
+    mature = quarters.mul(weights, axis=1).sum(axis=1, min_count=4)
+
+    # 2. Adaptive fallback when fewer quarters available
+    valid_mask = quarters.notna()
+    weighted = quarters.fillna(0).mul(weights, axis=1).sum(axis=1)
+    weight_sums = valid_mask.mul(weights, axis=1).sum(axis=1)
+    adaptive_quarters = weighted / weight_sums.replace(0, np.nan)
+
+    # 3. For bars < 63 but >= min_periods, use cumulative return scaled to quarterly basis
+    first_valid = close.first_valid_index()
+    if first_valid is not None:
+        idx_pos = close.index.get_loc(first_valid)
+        bar_count = pd.Series(np.arange(-idx_pos, len(close) - idx_pos), index=close.index)
+        first_price = close.iloc[idx_pos]
+        early_ret = (close / first_price - 1.0)
+        scale = np.where(bar_count >= min_periods, 63.0 / np.maximum(bar_count, 1), np.nan)
+        early_score = early_ret * scale
+    else:
+        early_score = pd.Series(np.nan, index=close.index)
+
+    return mature.combine_first(adaptive_quarters).combine_first(pd.Series(early_score, index=close.index))
+
+
+def adr_pct(
+    high: pd.Series,
+    low: pd.Series,
+    window: int = 20,
+) -> pd.Series:
+    """Return Average Daily Range (ADR) as a percentage over rolling window.
+
+    Standard metric used by swing and momentum traders to assess expected daily
+    volatility and breakout range expansion:
+        ADR% = rolling_mean((High / Low - 1.0) * 100)
+    """
+    safe_low = low.replace(0, np.nan)
+    daily_range_pct = ((high / safe_low - 1.0) * 100).clip(lower=0)
+    return daily_range_pct.rolling(window, min_periods=5).mean()
+
+
+def nr7(
+    high: pd.Series,
+    low: pd.Series,
+    window: int = 7,
+) -> pd.Series:
+    """Return boolean series where current bar has the narrowest range of the past `window` bars.
+
+    NR7 indicates maximum volatility compression preceding explosive expansion.
+    """
+    day_range = high - low
+    return day_range == day_range.rolling(window, min_periods=window).min()
+
+
 def distance_below_high(close: pd.Series, high: pd.Series) -> pd.Series:
     """Return non-negative percentage distance below a reference high."""
     safe_high = high.replace(0, np.nan)
@@ -123,12 +193,15 @@ def setup_class(frame: pd.DataFrame) -> pd.Series:
 
 
 __all__ = [
+    "adr_pct",
     "atr_sma",
     "atr_wilder",
     "distance_below_high",
     "ema",
+    "nr7",
     "rsi_wilder",
     "rvol",
+    "rs_adaptive_mix",
     "rs_quarterly_mix",
     "setup_class",
     "sma",

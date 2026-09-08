@@ -63,3 +63,43 @@ def test_darvas_10ema_squeeze_criteria():
         max_squeeze_pct=3.5
     )
 
+
+def test_darvas_squeeze_real_examples_and_rejections():
+    """Verify exact real market examples: ROSSTECH, NPST, EXPLEOSOL, CHALET must PASS; NTPC, RHIM must FAIL."""
+    # 1. ROSSTECH (PASS): Squeezed 4.41%, 10EMA > 20EMA, OHLC inside [1120.37, 1172.0]
+    assert is_darvas_10ema_squeeze(
+        close=1148.2, top_box=1172.0, bottom_box=1057.95, ema10=1120.37,
+        high=1172.0, low=1139.6, open_price=1156.3, ema20=1098.06
+    )
+
+    # 2. NPST (PASS): Squeezed 4.65%, 10EMA > 20EMA, OHLC inside [1682.82, 1764.8]
+    assert is_darvas_10ema_squeeze(
+        close=1740.4, top_box=1764.8, bottom_box=1561.8, ema10=1682.82,
+        high=1746.8, low=1691.2, open_price=1713.8, ema20=1646.14
+    )
+
+    # 3. EXPLEOSOL (PASS): Squeezed 4.61%, 10EMA > 20EMA, OHLC inside [884.21, 926.9]
+    assert is_darvas_10ema_squeeze(
+        close=899.55, top_box=926.9, bottom_box=849.0, ema10=884.21,
+        high=922.0, low=895.0, open_price=910.45, ema20=872.78
+    )
+
+    # 4. CHALET (PASS): Squeezed 4.93%, 10EMA > 20EMA, Low holds 10EMA (893.1 vs 893.65)
+    assert is_darvas_10ema_squeeze(
+        close=908.75, top_box=939.95, bottom_box=884.5, ema10=893.65,
+        high=913.45, low=893.1, open_price=900.0, ema20=879.00
+    )
+
+    # 5. NTPC (FAIL): 10EMA < 20EMA (downtrend: 332.27 < 335.14), Low & Close < 10EMA
+    assert not is_darvas_10ema_squeeze(
+        close=332.0, top_box=344.45, bottom_box=323.5, ema10=332.27,
+        high=333.8, low=330.35, open_price=332.5, ema20=335.14
+    )
+
+    # 6. RHIM (FAIL): 10EMA < 20EMA (downtrend: 372.55 < 377.45), Open & Low < 10EMA
+    assert not is_darvas_10ema_squeeze(
+        close=373.8, top_box=377.8, bottom_box=361.35, ema10=372.55,
+        high=375.15, low=369.0, open_price=371.8, ema20=377.45
+    )
+
+

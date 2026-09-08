@@ -75,3 +75,40 @@ def test_risk_off_prepare_policy_cannot_be_disabled():
     source = Path("Scripts/candidate_engine.py").read_text(encoding="utf-8")
 
     assert 'if candidate_state == "Prepare" and market_regime == "Risk-Off":' in source
+
+
+def test_adr_pct_calculation():
+    """ADR% measures average daily range percentage."""
+    from Scripts.indicators import adr_pct
+    import numpy as np
+    import pandas as pd
+
+    highs = pd.Series([105.0] * 20)
+    lows = pd.Series([100.0] * 20)
+    result = adr_pct(highs, lows, window=20)
+    assert np.isclose(result.iloc[-1], 5.0)
+
+
+def test_nr7_detection():
+    """NR7 identifies narrowest range candle in last 7 sessions."""
+    from Scripts.indicators import nr7
+    import pandas as pd
+
+    highs = pd.Series([105.0, 105.0, 105.0, 105.0, 105.0, 105.0, 101.0])
+    lows = pd.Series([100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
+    result = nr7(highs, lows, window=7)
+    assert result.iloc[-1] == True
+    assert result.iloc[5] == False
+
+
+def test_rs_adaptive_mix_for_ipos():
+    """IPOs and newer listings (<252 bars) receive a valid adaptive RS score instead of NaN."""
+    from Scripts.indicators import rs_adaptive_mix
+    import numpy as np
+    import pandas as pd
+
+    prices = pd.Series(np.linspace(100.0, 150.0, 100))
+    result = rs_adaptive_mix(prices, min_periods=20)
+    assert not np.isnan(result.iloc[-1])
+    assert result.iloc[-1] > 0
+

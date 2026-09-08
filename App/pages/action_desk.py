@@ -47,7 +47,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v6")
+    key = cache_key(db_path, None, "action_desk_v8")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -206,7 +206,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     m.market_cap_cr,
                     COALESCE(m.band, 20.0) AS band,
                     i.close_price AS cmp,
-                    (i.close_price / i.prev_close - 1.0) * 100 AS day_pct,
+                    (i.close_price / nullif(i.prev_close, 0) - 1.0) * 100 AS day_pct,
                     i.return_5d_pct,
                     i.return_1m_pct,
                     i.away_52w_high_pct,
@@ -260,11 +260,15 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             setup_pool["away_10ema"] = setup_pool["away_10ema_pct"].apply(
                 lambda a: f"{float(a):+.1f}%" if a is not None and not pd.isna(a) else "—"
             )
+            setup_pool["away_20ema"] = setup_pool["away_20ema_pct"].apply(
+                lambda a: f"{float(a):+.1f}%" if a is not None and not pd.isna(a) else "—"
+            )
         else:
             setup_pool["rvol_trail"] = pd.Series(dtype=str)
             setup_pool["ticket_flow"] = pd.Series(dtype=str)
             setup_pool["band_fmt"] = pd.Series(dtype=str)
             setup_pool["away_10ema"] = pd.Series(dtype=str)
+            setup_pool["away_20ema"] = pd.Series(dtype=str)
 
         # Attach macro theme tags to setup pool
         user_db_path = Path(db_path).parent / "marketpulse_user.duckdb"
@@ -280,8 +284,8 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             SELECT 
                 symbol,
                 count(*) as deals_cnt,
-                round(sum(CASE WHEN side = 'BUY' THEN quantity * price / 10000000.0 ELSE 0 END), 1) as buy_cr,
-                round(sum(CASE WHEN side = 'SELL' THEN quantity * price / 10000000.0 ELSE 0 END), 1) as sell_cr
+                round(sum(CASE WHEN side = 'BUY' THEN COALESCE(deal_value_cr, quantity * price / 10000000.0) ELSE 0 END), 1) as buy_cr,
+                round(sum(CASE WHEN side = 'SELL' THEN COALESCE(deal_value_cr, quantity * price / 10000000.0) ELSE 0 END), 1) as sell_cr
             FROM deals
             WHERE trade_date >= (SELECT max(trade_date) - INTERVAL 25 DAY FROM deals)
             GROUP BY symbol
@@ -428,13 +432,11 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 low=last_l,
                 open_price=last_o,
                 max_squeeze_pct=5.0,
-                max_candle_range_pct=3.5,
+                max_candle_range_pct=4.0,
                 require_ohlc_inside=True,
                 ema20=last_ema20,
             ):
-                qual_emas = [e for e in [last_ema10, last_ema20] if e is not None and 0.0 <= ((last_top - e) / last_top) * 100.0 <= 5.0]
-                effective_ema = max(qual_emas) if qual_emas else last_ema10
-                sq_pct = round(((last_top - effective_ema) / last_top) * 100.0, 2)
+                sq_pct = round(((last_top - last_ema10) / last_top) * 100.0, 2)
                 sq_pct = max(0.0, min(sq_pct, 5.0))
                 cr_pct = round(((last_h - last_l) / last_c) * 100.0, 2) if last_c > 0 else 0.0
                 darvas_candidates.append({
@@ -1017,7 +1019,7 @@ def build_action_desk_page(
                 if copy_text and tv.get("all_focus"):
                     ui.button(
                         "📋 Copy All Focus (TV)",
-                        on_click=lambda: copy_text(tv["all_focus"]),
+                        on_click=lambda: copy_text("All Focus (TV)", tv["all_focus"]),
                     ).classes("mp-button w-full text-[11px] mt-2").props("dense outline")
 
             # Card 2: Leading Sector Themes
@@ -1118,7 +1120,7 @@ def build_action_desk_page(
                     if copy_text and tv_text:
                         ui.button(
                             f"📋 Copy {q_info['short_title']} (TV)",
-                            on_click=lambda t=tv_text: copy_text(t),
+                            on_click=lambda t=tv_text, lbl=f"{q_info['short_title']} (TV)": copy_text(lbl, t),
                         ).classes("mp-button text-xs").props("dense outline")
 
                 # Quality Filter Strip
@@ -1170,7 +1172,7 @@ def build_action_desk_page(
             # Candidates Table
             if q_df.empty:
                 with ui.card().classes("w-full mp-card p-8 text-center border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
-                    ui.label(f"No {q_info['short_title']} setups currently meeting strict <=6% risk criteria today.").classes("text-sm text-[var(--mp-muted)]")
+                    ui.label(f"No {q_info['short_title']} setups currently active in this session.").classes("text-sm text-[var(--mp-muted)]")
             else:
                 table_cols = [c for c in display_cols if c in q_df.columns]
                 tbl = table_from_df(q_df[table_cols], "", pagination=10)

@@ -83,3 +83,31 @@ def test_candidate_total_is_reproducible_and_vcp_is_not_double_counted():
     assert row["total_score"] == round(0.30 * row["leadership_score"] + 0.25 * row["setup_score"] + 0.20 * row["participation_score"] + 0.15 * row["context_score"] + 0.10 * row["risk_score"], 6)
     assert row["setup_score"] < 100
     assert row["trigger_price"] > row["invalidation_price"]
+
+
+def test_blue_sky_breakout_projects_resistance_and_is_valid():
+    """Verify that all-time high / 52W high breakout setups without historical overhead resistance are valid using ATR projection."""
+    from Scripts.candidate_engine import calculate_risk_geometry
+
+    # At 52W high: high_20d = 105.0 (pivot), no high_50d/100d/252d above 105.0
+    geometry = calculate_risk_geometry(
+        {
+            "close_price": 100.0,
+            "high_20d": 105.0,
+            "low_10d": 95.0,
+            "ema_20": 98.0,
+            "atr_14": 4.0,
+            "high_50d": 104.0,
+            "high_100d": 102.0,
+            "high_252d": 103.0,
+        }
+    )
+
+    assert geometry["geometry_valid"] is True
+    assert geometry["trigger_price"] == 105.0
+    assert geometry["invalidation_price"] == 98.0
+    # Resistance projected at 105.0 + 2.5 * 4.0 = 115.0
+    assert geometry["first_resistance"] == 115.0
+    assert geometry["geometry_warning"] == "blue_sky_projection"
+    assert geometry["reward_to_risk"] > 0
+

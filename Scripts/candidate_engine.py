@@ -64,9 +64,21 @@ def calculate_risk_geometry(row: Mapping[str, Any]) -> dict:
         invalidation = min(close * 0.98, pivot * 0.98)
     resistance_candidates = [_num(row, name, np.nan) for name in ("first_resistance", "high_50d", "high_100d", "high_252d")]
     resistance_candidates = [value for value in resistance_candidates if np.isfinite(value) and value > pivot]
+    is_blue_sky = False
     if not resistance_candidates:
-        return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False, "geometry_warning": "resistance_missing"}
-    resistance = min(resistance_candidates)
+        atr = _num(row, "atr_14", np.nan)
+        if not np.isfinite(atr) or atr <= 0:
+            atr = _num(row, "atr_14_wilder", np.nan)
+        if np.isfinite(atr) and atr > 0:
+            resistance = pivot + 2.5 * atr
+            is_blue_sky = True
+        elif pivot > invalidation:
+            resistance = pivot + 2.0 * max(pivot - invalidation, pivot * 0.05)
+            is_blue_sky = True
+        else:
+            return {key: np.nan for key in ("trigger_price", "invalidation_price", "first_resistance", "distance_to_trigger_pct", "initial_risk_pct", "reward_to_risk")} | {"geometry_valid": False, "geometry_warning": "resistance_missing"}
+    else:
+        resistance = min(resistance_candidates)
     distance = (pivot / close - 1.0) * 100
     initial_risk = (pivot / invalidation - 1.0) * 100 if invalidation > 0 else np.nan
     reward_to_risk = (resistance - pivot) / (pivot - invalidation) if pivot > invalidation else np.nan
@@ -84,7 +96,7 @@ def calculate_risk_geometry(row: Mapping[str, Any]) -> dict:
             and pivot > invalidation
             and not reward_to_risk_outlier
         ),
-        "geometry_warning": "reward_to_risk_outlier" if reward_to_risk_outlier else "",
+        "geometry_warning": "reward_to_risk_outlier" if reward_to_risk_outlier else ("blue_sky_projection" if is_blue_sky else ""),
     }
 
 
