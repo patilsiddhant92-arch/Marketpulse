@@ -3,7 +3,7 @@ Action Desk: Executive Swing Trading Command Center.
 Provides a 3-step actionable workflow:
 1. Market Exposure Gate (Recommended Exposure % and Stop Discipline)
 2. Leading Sector Themes (Institutional Money Flow)
-3. The 5 Actionable Setup Queues (VCP Breakout, EMA Pullback, Episodic Pivot, 52W Breakout, Darvas 10 EMA Squeeze)
+3. The 8 setup queues (Near 20D Pivot, EMA Pullback, Episodic Pivot, 52W Breakout, Darvas Squeeze, Silent Coil, Stair-Step, Spike-Pause)
 """
 from __future__ import annotations
 
@@ -41,6 +41,11 @@ try:
 except ModuleNotFoundError:
     from ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner  # type: ignore
 
+try:
+    from Scripts.desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure
+except ModuleNotFoundError:
+    from desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
+
 
 def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[float | None, float]:
     """Load India VIX for the session. Missing row is (None, 0.0) — never a silent 11.3."""
@@ -75,61 +80,28 @@ def compute_exposure_gate(
     count_52w_highs: int,
     count_52w_lows: int,
 ) -> dict[str, Any]:
-    """Four live exposure branches. VIX n/a skips every vix-threshold branch."""
-    vix_available = vix is not None
-    vix_spike = bool(vix_available and vix_1d_pct >= 10.0)
-
-    if (
-        adv_pct >= 58.0
-        and ab20_pct >= 48.0
-        and ab200_pct >= 45.0
-        and vix_available
-        and vix < 15.0
-        and not vix_spike
-        and not net_lows_expanding
-    ):
-        exposure_pct = "75% - 100%"
-        exposure_state = "Aggressive / Full Trend"
-        exposure_badge = "mp-badge-good"
-        exposure_guidance = "Broad market participation is strong and volatility is low (<15 VIX). Deploy normal swing size (10-15% per position), use 3-5% stops, and let winning leaders compound."
-    elif (
-        adv_pct >= 45.0
-        and ab20_pct >= 38.0
-        and vix_available
-        and vix < 18.0
-        and not (vix_spike and net_lows_expanding)
-    ):
-        exposure_pct = "50% - 75%"
-        exposure_state = "Constructive / Selective"
-        exposure_badge = "mp-badge-good"
-        exposure_guidance = "Market is constructive but selective. Focus strictly on top relative strength leaders in leading sectors. Maintain normal 3-5% stops."
-    elif adv_pct >= 35.0 and vix_available and vix < 22.0:
-        exposure_pct = "25% - 50%"
-        exposure_state = "Selective / Caution"
-        exposure_badge = "mp-badge-warn"
-        if net_lows_expanding:
-            exposure_guidance = f"Net 52W Lows expanding ({count_52w_lows} lows vs {count_52w_highs} highs). Cut position sizes in half, take quick 2R profits, and trail stops tightly."
-        elif vix_spike:
-            exposure_guidance = f"VIX surge of +{vix_1d_pct:.1f}% indicates sudden volatility expansion. Avoid chasing breakouts; wait for calm base resets."
-        else:
-            exposure_guidance = "Diverging market breadth. Cut position size in half, take quick partial profits at 2R to 3R, and trail stops tightly."
-    else:
-        exposure_pct = "0% - 15%"
-        exposure_state = "Risk-Off / Defensive"
-        exposure_badge = "mp-badge-bad"
-        exposure_guidance = "Net distribution, breadth breakdown, or high volatility. Protect capital in cash. Do not force new breakout buys until breadth recovers above 20 EMA."
-
-    return {
-        "pct": exposure_pct,
-        "state": exposure_state,
-        "badge": exposure_badge,
-        "guidance": exposure_guidance,
-        "vix": vix,
-        "vix_1d_pct": vix_1d_pct,
-        "vix_available": vix_available,
-        "vix_label": "VIX n/a" if not vix_available else f"{vix}",
-        "vix_spike": vix_spike,
-    }
+    """Canonical exposure gate via desk_contract. VIX n/a skips every vix-threshold branch."""
+    vix_spike = bool(vix is not None and vix_1d_pct >= 10.0)
+    gate = match_exposure(
+        {
+            "adv_pct": adv_pct,
+            "ab20_pct": ab20_pct,
+            "ab200_pct": ab200_pct,
+            "vix": vix,
+            "vix_spike": vix_spike,
+            "net_lows_expanding": net_lows_expanding,
+            "count_52w_lows": count_52w_lows,
+            "count_52w_highs": count_52w_highs,
+            "vix_1d_pct": vix_1d_pct,
+        }
+    )
+    vix_available = not gate["vix_na"]
+    gate["vix"] = vix
+    gate["vix_1d_pct"] = vix_1d_pct
+    gate["vix_available"] = vix_available
+    gate["vix_label"] = "VIX n/a" if not vix_available else f"{vix}"
+    gate["vix_spike"] = vix_spike
+    return gate
 
 
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
@@ -294,16 +266,16 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 JOIN stocks_master m ON m.symbol = i.symbol
                 JOIN hist h ON h.symbol = i.symbol
                 WHERE i.trade_date = ?
-                  AND m.market_cap_cr >= 1000.0
-                  AND COALESCE(m.band, 20.0) > 5.0
+                  AND m.market_cap_cr >= ?
+                  AND COALESCE(m.band, 20.0) > ?
                   AND i.symbol NOT LIKE '%-RE' AND i.symbol NOT LIKE '%_RE'
-                  AND COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) >= 3.0
+                  AND COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) >= ?
                   AND COALESCE(m.band_remarks, '') NOT LIKE '%GSM%'
                   AND COALESCE(m.band_remarks, '') NOT LIKE '%STAGE 2%'
             )
             SELECT * FROM pool
             """,
-            [trade_date],
+            [trade_date, POOL["min_mcap"], POOL["min_band"], POOL["min_adv_cr"]],
         ).fetchdf()
 
         # Build readable RVOL Trail and institutional flow strings
@@ -387,7 +359,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
     # Classify the Setup Queues (No stop loss filter in screeners)
     # -------------------------------------------------------------
-    # Queue 1: VCP / Coiling Base Breakout
+    # Queue 1: Near 20D Pivot (not a successive-contraction VCP engine)
     # -------------------------------------------------------------
     vcp_df = setup_pool[
         (setup_pool["rs_percentile"] >= 70.0)
@@ -402,8 +374,10 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         vcp_df["risk_pct"] = ((vcp_df["trigger_price"] / vcp_df["stop_loss"] - 1.0) * 100).round(2)
         vcp_df = vcp_df[
             vcp_df["dist_to_trigger_pct"].between(0.0, 3.5)
-        ].sort_values(["rs_percentile", "dist_to_trigger_pct"], ascending=[False, True]).head(15)
-        vcp_df["setup_type"] = "VCP Breakout"
+        ].sort_values(["rs_percentile", "dist_to_trigger_pct"], ascending=[False, True]).head(
+            QUEUE_DISPLAY_CAPS["near_pivot"]
+        )
+        vcp_df["setup_type"] = "Near 20D Pivot"
         vcp_df["is_vdu"] = vcp_df["rvol"] <= 0.70
         vcp_df["why_now"] = np.where(
             vcp_df["is_vdu"],
@@ -426,7 +400,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         pb_df = pb_df[
             ((pb_df["away_10ema_pct"].abs() <= 2.2) | (pb_df["away_20ema_pct"].abs() <= 2.2))
             & (pb_df["away_52w_high_pct"].between(-18.0, -2.5))
-        ].sort_values("rs_percentile", ascending=False).head(15)
+        ].sort_values("rs_percentile", ascending=False).head(QUEUE_DISPLAY_CAPS["pullback"])
         pb_df["setup_type"] = "EMA Pullback"
         pb_df["why_now"] = "Orderly rest on 10/20 EMA support in confirmed uptrend"
 
@@ -441,7 +415,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         ep_df = ep_df[
             (ep_df["rvol"] >= 2.0)
             & (ep_df["day_pct"] >= 2.5)
-        ].sort_values(["rvol", "day_pct"], ascending=[False, False]).head(15)
+        ].sort_values(["rvol", "day_pct"], ascending=[False, False]).head(QUEUE_DISPLAY_CAPS["episodic"])
         ep_df["setup_type"] = "Episodic Pivot"
         ep_df["why_now"] = "Explosive 2x+ RVOL surge out of base"
 
@@ -459,7 +433,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         h52_df = h52_df[
             (h52_df["away_52w_high_pct"] >= -2.0)
             & (h52_df["rvol"] >= 1.2)
-        ].sort_values(["rs_percentile", "rvol"], ascending=[False, False]).head(15)
+        ].sort_values(["rs_percentile", "rvol"], ascending=[False, False]).head(QUEUE_DISPLAY_CAPS["high52"])
         h52_df["setup_type"] = "52W High Breakout"
         h52_df["why_now"] = "Printing fresh 52-week high with volume thrust and leadership RS"
 
@@ -491,8 +465,8 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 high=last_h,
                 low=last_l,
                 open_price=last_o,
-                max_squeeze_pct=5.0,
-                max_candle_range_pct=4.0,
+                max_squeeze_pct=DARVAS["max_squeeze_pct"],
+                max_candle_range_pct=DARVAS["max_range_pct"],
                 require_ohlc_inside=True,
                 ema20=last_ema20,
             ):
@@ -532,7 +506,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             return False
 
     # -------------------------------------------------------------
-    # Queue 6: Silent Coil (VDU at 10/20 EMA) — 82% Pre-Move Footprint
+    # Queue 6: Silent Coil (VDU at 10/20 EMA)
     # -------------------------------------------------------------
     sc_candidates = []
     if not setup_pool.empty:
@@ -560,10 +534,12 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         sc_df["setup_type"] = "Silent Coil"
         sc_df["why_now"] = "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with delivery accumulation"
         sort_col = "ticket_ratio" if "ticket_ratio" in sc_df.columns else "delivery_pct"
-        sc_df = sc_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(25)
+        sc_df = sc_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(
+            QUEUE_DISPLAY_CAPS["silent_coil"]
+        )
 
     # -------------------------------------------------------------
-    # Queue 7: Volume Stair-Step (RVOL Escalation) — 71% Pre-Move Footprint
+    # Queue 7: Volume Stair-Step (RVOL Escalation)
     # -------------------------------------------------------------
     vss_candidates = []
     if not setup_pool.empty:
@@ -588,10 +564,12 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         vss_df["setup_type"] = "Volume Stair-Step"
         vss_df["why_now"] = "RVOL expanding day-over-day at 10/20 EMA support before the breakout"
         sort_col = "ticket_ratio" if "ticket_ratio" in vss_df.columns else "rvol"
-        vss_df = vss_df.sort_values([sort_col, "rvol"], ascending=[False, False]).head(25)
+        vss_df = vss_df.sort_values([sort_col, "rvol"], ascending=[False, False]).head(
+            QUEUE_DISPLAY_CAPS["stair_step"]
+        )
 
     # -------------------------------------------------------------
-    # Queue 8: Spike-Pause (Pre-Blast Consolidation) — 56% Pre-Move Footprint
+    # Queue 8: Spike-Pause (Pre-Blast Consolidation)
     # -------------------------------------------------------------
     sp_candidates = []
     if not setup_pool.empty:
@@ -618,7 +596,9 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         sp_df["setup_type"] = "Spike-Pause"
         sp_df["why_now"] = "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA"
         sort_col = "ticket_ratio" if "ticket_ratio" in sp_df.columns else "delivery_pct"
-        sp_df = sp_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(25)
+        sp_df = sp_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(
+            QUEUE_DISPLAY_CAPS["spike_pause"]
+        )
 
 
 
@@ -641,6 +621,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "vix": vix_val,
             "vix_1d_pct": vix_1d_pct,
             "vix_available": gate["vix_available"],
+            "vix_na": gate["vix_na"],
             "vix_label": gate["vix_label"],
             "count_52w_highs": count_52w_highs,
             "count_52w_lows": count_52w_lows,
@@ -960,56 +941,7 @@ def build_action_desk_page(
         with ui.row().classes("items-center gap-2 ml-auto"):
             ui.button("📖 Trading Playbook & Field Guide", on_click=open_playbook_modal).classes("mp-button text-xs bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400").props("dense unelevated")
 
-    queue_meta = {
-        "vcp": {
-            "title": "1. VCP / Coiling Breakouts",
-            "short_title": "1. VCP Breakouts",
-            "desc": "Low-volatility contractions coiled <3.5% below 20D pivot with volume dry-up and tight <6% invalidation.",
-            "tv_key": "vcp",
-        },
-        "pullback": {
-            "title": "2. 10/20 EMA Pullbacks",
-            "short_title": "2. EMA Pullbacks",
-            "desc": "High-RS trend leaders resting orderly on 10/20 EMA support with dry pullback volume.",
-            "tv_key": "pullback",
-        },
-        "episodic": {
-            "title": "3. Episodic Pivots (High RVOL)",
-            "short_title": "3. Episodic Pivots",
-            "desc": "Explosive 2x+ RVOL surges out of base with tight day-low stop invalidation.",
-            "tv_key": "episodic",
-        },
-        "high52": {
-            "title": "4. 52W High Breakouts",
-            "short_title": "4. 52W Breakouts",
-            "desc": "Market leaders printing or testing fresh 52-week highs with volume thrust.",
-            "tv_key": "high52",
-        },
-        "darvas": {
-            "title": "5. Darvas 10/20 EMA Squeeze",
-            "short_title": "5. Darvas Squeeze",
-            "desc": "OHLC strictly inside the box in near range, squeezed into Green Line (TopBox) and rising 10/20 EMA.",
-            "tv_key": "darvas",
-        },
-        "silent_coil": {
-            "title": "6. Silent Coil (VDU at 10/20 EMA)",
-            "short_title": "6. Silent Coil",
-            "desc": "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with high delivery accumulation (82% pre-move signature).",
-            "tv_key": "silent_coil",
-        },
-        "stair_step": {
-            "title": "7. Volume Stair-Step (RVOL Escalation)",
-            "short_title": "7. Stair-Step",
-            "desc": "RVOL expanding day-over-day at 10/20 EMA support before the breakout (71% pre-move signature).",
-            "tv_key": "stair_step",
-        },
-        "spike_pause": {
-            "title": "8. Spike-Pause (Pre-Blast Consolidation)",
-            "short_title": "8. Spike-Pause",
-            "desc": "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA (Qullamaggie High-Tight Flag).",
-            "tv_key": "spike_pause",
-        },
-    }
+    queue_meta = QUEUE_META
 
     # Initial selection
     initial_queue = "vcp"
@@ -1071,8 +1003,8 @@ def build_action_desk_page(
                         ui.label(f"{exp['ab200_pct']}%").classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("India VIX:").classes("text-[var(--mp-muted)] text-[11px]")
-                        if exp.get("vix") is None:
-                            ui.label("VIX n/a").classes("font-mono font-bold text-[11px] text-[var(--mp-muted)]")
+                        if exp.get("vix") is None or exp.get("vix_na"):
+                            ui.label(exp.get("vix_label") or "VIX n/a").classes("font-mono font-bold text-[11px] text-amber-400")
                         else:
                             vix_sign = "+" if exp.get("vix_1d_pct", 0) > 0 else ""
                             ui.label(f"{exp['vix']} ({vix_sign}{exp.get('vix_1d_pct', 0):.1f}%)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
