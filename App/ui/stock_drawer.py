@@ -16,7 +16,13 @@ except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "Scripts"))
     from institutional_engine import classify_client  # type: ignore
 
-from App.indicators.darvas import calculate_darvas_box, is_darvas_10ema_squeeze
+from App.indicators.darvas import (
+    DARVAS,
+    calculate_darvas_box,
+    darvas_v2_enabled,
+    is_darvas_10ema_squeeze,
+    is_darvas_10ema_squeeze_legacy,
+)
 
 try:
     from App.cache_manager import get_cached, set_cached, cache_key
@@ -102,10 +108,17 @@ def is_in_watchlist(user_db: Path, wl_num: int, symbol: str) -> bool:
         return False
 
 
-def query_stock_candlestick_data(db_path: Path, symbol: str, limit: int = 90) -> dict[str, Any]:
+def query_stock_candlestick_data(
+    db_path: Path, symbol: str, limit: int = 90, *, predicate: dict | None = None
+) -> dict[str, Any]:
     """Query trailing OHLCV, EMAs, and Nicolas Darvas Box for technical candlestick charting."""
     sym = str(symbol).strip().upper()
-    ckey = cache_key(db_path, "latest", "stock_candlestick_data", sym, limit)
+    use_v2 = predicate is not None or darvas_v2_enabled()
+    if predicate:
+        pred_tag = "pred_" + "_".join(f"{k}={predicate[k]}" for k in sorted(predicate))
+    else:
+        pred_tag = "v2" if use_v2 else "v1"
+    ckey = cache_key(db_path, "latest", "stock_candlestick_data", sym, limit, pred_tag)
     cached = get_cached(ckey)
     if cached is not None:
         return cached
@@ -160,20 +173,42 @@ def query_stock_candlestick_data(db_path: Path, symbol: str, limit: int = 90) ->
     last_top = float(top_box[-1]) if len(top_box) > 0 and pd.notna(top_box[-1]) else 0.0
     last_bottom = float(bottom_box[-1]) if len(bottom_box) > 0 and pd.notna(bottom_box[-1]) else 0.0
     last_ema10 = float(sub["ema_10"].iloc[-1]) if not sub.empty and pd.notna(sub["ema_10"].iloc[-1]) else 0.0
-    is_squeeze = is_darvas_10ema_squeeze(
-        last_close,
-        last_top,
-        last_bottom,
-        last_ema10,
-        high=last_high,
-        low=last_low,
-        open_price=last_open,
-        max_squeeze_pct=3.5,
-        max_candle_range_pct=3.5,
-        require_ohlc_inside=True,
+    last_ema20 = float(sub["ema_20"].iloc[-1]) if not sub.empty and pd.notna(sub["ema_20"].iloc[-1]) else None
+    if use_v2:
+        cfg = {**DARVAS, **(predicate or {})}
+        is_squeeze = is_darvas_10ema_squeeze(
+            last_close,
+            last_top,
+            last_bottom,
+            last_ema10,
+            high=last_high,
+            low=last_low,
+            open_price=last_open,
+            max_squeeze_pct=float(cfg["max_squeeze_pct"]),
+            max_candle_range_pct=float(cfg["max_range_pct"]),
+            require_ohlc_inside=True,
+            ema20=last_ema20,
+            cfg=cfg,
+        )
+    else:
+        is_squeeze = is_darvas_10ema_squeeze_legacy(
+            last_close,
+            last_top,
+            last_bottom,
+            last_ema10,
+            high=last_high,
+            low=last_low,
+            open_price=last_open,
+            max_squeeze_pct=3.5,
+            max_candle_range_pct=3.5,
+            require_ohlc_inside=True,
+        )
+    squeeze_pct = (
+        round(((last_top - last_ema10) / last_top) * 100.0, 2) if is_squeeze and last_top > 0 else None
     )
-    squeeze_pct = round(((last_top - last_ema10) / last_top) * 100.0, 2) if is_squeeze else None
-    candle_range_pct = round(((last_high - last_low) / last_close) * 100.0, 2) if is_squeeze and last_close > 0 else None
+    candle_range_pct = (
+        round(((last_high - last_low) / last_close) * 100.0, 2) if is_squeeze and last_close > 0 else None
+    )
 
     res = {
         "dates": dates,

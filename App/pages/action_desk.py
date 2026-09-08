@@ -16,7 +16,14 @@ import pandas as pd
 from nicegui import ui
 
 from App.cache_manager import get_cached, set_cached, cache_key
-from App.indicators.darvas import calculate_darvas_box, is_darvas_10ema_squeeze
+from App.indicators.darvas import (
+    DARVAS,
+    calculate_darvas_box,
+    darvas_v2_enabled,
+    is_darvas_10ema_squeeze_legacy,
+    sort_qualifying_squeezes,
+    squeeze_frame,
+)
 try:
     from App.thematic_engine import get_macro_pulse, get_stock_thematic_tags
 except ModuleNotFoundError:
@@ -47,7 +54,8 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v8")
+    use_v2 = darvas_v2_enabled()
+    key = cache_key(db_path, None, "action_desk_v8", "darvas_v2" if use_v2 else "darvas_v1")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -306,16 +314,17 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
         # Trailing bars for Darvas Box calculation across setup pool
         darvas_hist = pd.DataFrame()
+        darvas_lookback = int(DARVAS["box_lookback_sessions"]) if use_v2 else 45
         if not setup_pool.empty:
             pool_symbols = setup_pool["symbol"].tolist()
             con.register("pool_syms_tbl", pd.DataFrame({"symbol": pool_symbols}))
             darvas_hist = con.execute(
-                """
+                f"""
                 WITH dates AS (
                     SELECT DISTINCT trade_date 
                     FROM indicators_daily 
                     ORDER BY trade_date DESC 
-                    LIMIT 45
+                    LIMIT {int(darvas_lookback)}
                 )
                 SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20
                 FROM indicators_daily i
@@ -405,50 +414,61 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
     # -------------------------------------------------------------
     # Queue 5: Darvas Box & 10/20 EMA Squeeze (Decoupled from RS)
-    # Squeeze into top box and 10 EMA / 20 EMA
+    # Squeeze into top box and 10 EMA / 20 EMA. No stop-loss filter.
     # -------------------------------------------------------------
-    darvas_candidates = []
+    darvas_cand_df = pd.DataFrame()
     if not darvas_hist.empty:
-        for sym, group in darvas_hist.groupby("symbol"):
-            if len(group) < 10:
-                continue
-            top_box, bottom_box = calculate_darvas_box(
-                group["high_price"].values, group["low_price"].values, boxp=5
-            )
-            last_o = float(group["open_price"].iloc[-1])
-            last_h = float(group["high_price"].iloc[-1])
-            last_l = float(group["low_price"].iloc[-1])
-            last_c = float(group["close_price"].iloc[-1])
-            last_top = float(top_box[-1])
-            last_btm = float(bottom_box[-1])
-            last_ema10 = float(group["ema_10"].iloc[-1])
-            last_ema20 = float(group["ema_20"].iloc[-1]) if "ema_20" in group.columns and pd.notna(group["ema_20"].iloc[-1]) else None
-            if is_darvas_10ema_squeeze(
-                last_c,
-                last_top,
-                last_btm,
-                last_ema10,
-                high=last_h,
-                low=last_l,
-                open_price=last_o,
-                max_squeeze_pct=5.0,
-                max_candle_range_pct=4.0,
-                require_ohlc_inside=True,
-                ema20=last_ema20,
-            ):
-                sq_pct = round(((last_top - last_ema10) / last_top) * 100.0, 2)
-                sq_pct = max(0.0, min(sq_pct, 5.0))
-                cr_pct = round(((last_h - last_l) / last_c) * 100.0, 2) if last_c > 0 else 0.0
-                darvas_candidates.append({
-                    "symbol": sym,
-                    "darvas_top": round(last_top, 2),
-                    "darvas_bottom": round(last_btm, 2),
-                    "squeeze_pct": sq_pct,
-                    "candle_range_pct": cr_pct,
-                })
+        if use_v2:
+            sq_frame = squeeze_frame(darvas_hist, timeframe="D")
+            if not sq_frame.empty:
+                darvas_cand_df = sq_frame.loc[sq_frame["qualifies"]].copy()
+        else:
+            rows = []
+            for sym, group in darvas_hist.groupby("symbol"):
+                if len(group) < 10:
+                    continue
+                top_box, bottom_box = calculate_darvas_box(
+                    group["high_price"].values, group["low_price"].values, boxp=5
+                )
+                last_o = float(group["open_price"].iloc[-1])
+                last_h = float(group["high_price"].iloc[-1])
+                last_l = float(group["low_price"].iloc[-1])
+                last_c = float(group["close_price"].iloc[-1])
+                last_top = float(top_box[-1])
+                last_btm = float(bottom_box[-1])
+                last_ema10 = float(group["ema_10"].iloc[-1])
+                last_ema20 = (
+                    float(group["ema_20"].iloc[-1])
+                    if "ema_20" in group.columns and pd.notna(group["ema_20"].iloc[-1])
+                    else None
+                )
+                if is_darvas_10ema_squeeze_legacy(
+                    last_c,
+                    last_top,
+                    last_btm,
+                    last_ema10,
+                    high=last_h,
+                    low=last_l,
+                    open_price=last_o,
+                    max_squeeze_pct=5.0,
+                    max_candle_range_pct=4.0,
+                    require_ohlc_inside=True,
+                    ema20=last_ema20,
+                ):
+                    sq_pct = round(((last_top - last_ema10) / last_top) * 100.0, 2)
+                    sq_pct = max(0.0, min(sq_pct, 5.0))
+                    cr_pct = round(((last_h - last_l) / last_c) * 100.0, 2) if last_c > 0 else 0.0
+                    rows.append({
+                        "symbol": sym,
+                        "darvas_top": round(last_top, 2),
+                        "darvas_bottom": round(last_btm, 2),
+                        "squeeze_pct": sq_pct,
+                        "candle_range_pct": cr_pct,
+                    })
+            darvas_cand_df = pd.DataFrame(rows)
 
-    if darvas_candidates and not setup_pool.empty:
-        darvas_cand_df = pd.DataFrame(darvas_candidates)
+    darvas_count = 0
+    if not darvas_cand_df.empty and not setup_pool.empty:
         darvas_df = setup_pool.merge(darvas_cand_df, on="symbol", how="inner")
         darvas_df["trigger_price"] = darvas_df["darvas_top"]
         darvas_df["stop_loss"] = (darvas_df["ema_10"] * 0.985).round(2)
@@ -458,7 +478,15 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
             for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
         ]
-        darvas_df = darvas_df.sort_values(["squeeze_pct", "candle_range_pct"], ascending=[True, True]).head(150)
+        if use_v2:
+            darvas_df = sort_qualifying_squeezes(darvas_df)
+            darvas_count = int(len(darvas_df))
+            darvas_df = darvas_df.head(int(DARVAS["display_window"]))
+        else:
+            darvas_df = darvas_df.sort_values(
+                ["squeeze_pct", "candle_range_pct"], ascending=[True, True]
+            ).head(150)
+            darvas_count = int(len(darvas_df))
     else:
         darvas_df = pd.DataFrame()
 
@@ -592,6 +620,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "episodic": ep_df,
             "high52": h52_df,
             "darvas": darvas_df,
+            "darvas_count": darvas_count,
             "silent_coil": sc_df,
             "stair_step": vss_df,
             "spike_pause": sp_df,
@@ -1085,7 +1114,10 @@ def build_action_desk_page(
             with ui.column().classes("w-full gap-1.5"):
                 for q_key, q_info in queue_meta.items():
                     q_df = queues.get(q_key, pd.DataFrame())
-                    count = len(q_df) if not q_df.empty else 0
+                    if q_key == "darvas" and "darvas_count" in queues:
+                        count = int(queues["darvas_count"] or 0)
+                    else:
+                        count = len(q_df) if isinstance(q_df, pd.DataFrame) and not q_df.empty else 0
                     is_active = (q_key == state["active_queue"])
                     
                     with ui.button(
