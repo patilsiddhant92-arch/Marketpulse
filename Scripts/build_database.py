@@ -992,6 +992,7 @@ def write_database(
         con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
     con.execute("CREATE INDEX idx_prices_symbol_date ON prices_daily(symbol, trade_date)")
     con.execute("CREATE INDEX idx_indicators_symbol_date ON indicators_daily(symbol, trade_date)")
+    con.execute("CREATE INDEX idx_indicators_date_symbol ON indicators_daily(trade_date, symbol)")
     con.execute("CREATE INDEX idx_deals_symbol_date ON deals(symbol, trade_date)")
     con.execute("CREATE INDEX idx_breadth_date ON breadth_daily(trade_date)")
     con.execute("CREATE INDEX idx_sector_rotation ON sector_rotation(level, group_name, trade_date)")

@@ -117,7 +117,8 @@ def query_stock_candlestick_data(db_path: Path, symbol: str, limit: int = 90) ->
                    ema_10, ema_20, ema_50, ema_200, rsi_14
             FROM indicators_daily
             WHERE symbol = ?
-            ORDER BY trade_date ASC
+            ORDER BY trade_date DESC
+            LIMIT 400
             """,
             [sym],
         ).fetchdf()
@@ -125,7 +126,9 @@ def query_stock_candlestick_data(db_path: Path, symbol: str, limit: int = 90) ->
     if df.empty:
         return {}
 
-    # Calculate Nicolas Darvas Box indicator across full historical series
+    df = df.iloc[::-1].reset_index(drop=True)
+
+    # Darvas box on the trailing 400 sessions, then tail to the display window
     top_box, bottom_box = calculate_darvas_box(
         df["high_price"].values, df["low_price"].values, boxp=5
     )
