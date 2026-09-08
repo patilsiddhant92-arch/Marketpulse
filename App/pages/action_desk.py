@@ -48,7 +48,10 @@ def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[
         vix_res = con.execute(
             """
             SELECT close_price,
-                   (close_price / nullif(prev_close, 0) - 1.0) * 100 AS vix_1d_pct
+                   coalesce(
+                       return_1d_pct,
+                       (close_price / nullif(previous_close, 0) - 1.0) * 100
+                   ) AS vix_1d_pct
             FROM index_daily
             WHERE trade_date = ? AND index_name = 'India VIX'
             """,

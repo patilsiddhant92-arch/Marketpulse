@@ -486,19 +486,19 @@ def _computed_sector_overview(
     frame["rank_change_5d"] = 0
     frame["score_change_5d"] = 0.0
 
-    # RRG (Relative Rotation Graph) 4-Quadrant calculations
-    if (
+    # RRG from vs-Nifty only. Null/short history must not become Leading via fillna(50).
+    vs_nifty_usable = bool(
         vs_nifty_ok
         and "rs_vs_nifty_63d" in frame.columns
         and frame["rs_vs_nifty_63d"].notna().any()
-        and (frame["rs_vs_nifty_63d"].abs().sum() > 0)
-    ):
+    )
+    if vs_nifty_usable and (frame["rs_vs_nifty_63d"].abs().sum() > 0):
         frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"] / 1.5).clip(-30.0, 30.0)
     else:
-        frame["rs_ratio"] = 100.0 + (frame["rs_percentile"].fillna(50.0) - 50.0)
+        frame["rs_ratio"] = np.nan
 
     if (
-        vs_nifty_ok
+        vs_nifty_usable
         and "rs_vs_nifty_21d" in frame.columns
         and frame["rs_vs_nifty_21d"].notna().any()
         and (frame["rs_vs_nifty_21d"].abs().sum() > 0)
@@ -507,18 +507,21 @@ def _computed_sector_overview(
             (frame["rs_vs_nifty_21d"] - (frame["rs_vs_nifty_63d"] / 3.0)) * 2.0
         ).clip(-30.0, 30.0)
     else:
-        frame["rs_momentum"] = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
+        frame["rs_momentum"] = np.nan
 
-    rrg_conditions = [
-        (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
-        (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
-        (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
-    ]
-    frame["rotation_state"] = np.select(
-        rrg_conditions,
-        ["Leading", "Weakening", "Improving"],
-        default="Lagging",
-    )
+    if vs_nifty_usable:
+        rrg_conditions = [
+            (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
+            (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
+            (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
+        ]
+        frame["rotation_state"] = np.select(
+            rrg_conditions,
+            ["Leading", "Weakening", "Improving"],
+            default="Lagging",
+        )
+    else:
+        frame["rotation_state"] = INSUFFICIENT_INDEX_HISTORY
     frame["near_52w_highs"] = frame["near_52w_highs"].fillna(0).astype(int)
     frame["why_focus"] = frame.apply(_build_why_focus, axis=1)
 
@@ -559,8 +562,8 @@ def _computed_sector_overview(
             "status_badge": state.upper(),
             "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"
         })
-        quad_key = state if state in quadrants else "Lagging"
-        quadrants[quad_key].append(item)
+        if vs_nifty_usable and state in quadrants:
+            quadrants[state].append(item)
         if len(top_focus) < 4:
             top_focus.append(item)
 

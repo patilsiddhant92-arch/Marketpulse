@@ -105,3 +105,6 @@ def test_null_vs_nifty_from_computed_metrics_is_not_zero(tmp_path) -> None:
     assert format_vs_nifty_cell(row["rs_vs_nifty_63d"], index_sessions=overview["index_sessions"]) == (
         INSUFFICIENT_INDEX_HISTORY
     )
+    assert str(row["rotation_state"]) == INSUFFICIENT_INDEX_HISTORY
+    assert row["rotation_state"] not in ("Leading", "Improving", "Weakening", "Lagging")
+    assert all(len(items) == 0 for items in overview["quadrants"].values())

@@ -173,24 +173,41 @@ def test_action_desk_missing_vix_is_na_not_silent_11_3(tmp_path) -> None:
     source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
     assert "vix_val = 11.3" not in source
     assert "VIX n/a" in source
+    assert "nullif(previous_close, 0)" in source
+    assert "nullif(prev_close, 0)" not in source
 
     db_path = tmp_path / "vix.duckdb"
     with duckdb.connect(str(db_path)) as con:
         con.execute(
-            "CREATE TABLE index_daily (trade_date DATE, index_name TEXT, close_price DOUBLE, prev_close DOUBLE)"
+            """
+            CREATE TABLE index_daily (
+                trade_date DATE,
+                index_name TEXT,
+                close_price DOUBLE,
+                previous_close DOUBLE,
+                return_1d_pct DOUBLE
+            )
+            """
         )
-        con.execute("INSERT INTO index_daily VALUES ('2026-09-07', 'Nifty 50', 25000, 24900)")
-        vix, chg = resolve_india_vix(con, "2026-09-07")
-    assert vix is None
-    assert vix != 11.3
-    assert chg == 0.0
+        con.execute(
+            "INSERT INTO index_daily VALUES ('2026-09-07', 'Nifty 50', 25000, 24900, 0.4)"
+        )
+        missing_vix, missing_chg = resolve_india_vix(con, "2026-09-07")
+        con.execute(
+            "INSERT INTO index_daily VALUES ('2026-09-07', 'India VIX', 11.16, 10.68, 4.49)"
+        )
+        present_vix, present_chg = resolve_india_vix(con, "2026-09-07")
+
+    assert missing_vix is None
+    assert missing_vix != 11.3
+    assert missing_chg == 0.0
 
     exp = compute_exposure_gate(
         adv_pct=70.0,
         ab20_pct=60.0,
         ab200_pct=55.0,
-        vix=vix,
-        vix_1d_pct=chg,
+        vix=missing_vix,
+        vix_1d_pct=missing_chg,
         net_lows_expanding=False,
         count_52w_highs=80,
         count_52w_lows=20,
@@ -202,16 +219,21 @@ def test_action_desk_missing_vix_is_na_not_silent_11_3(tmp_path) -> None:
     assert exp["pct"] == "0% - 15%"
     assert "11.3" not in exp["guidance"]
 
+    assert present_vix == 11.16
+    assert present_chg == 4.5
     present = compute_exposure_gate(
         adv_pct=70.0,
         ab20_pct=60.0,
         ab200_pct=55.0,
-        vix=11.3,
-        vix_1d_pct=0.0,
+        vix=present_vix,
+        vix_1d_pct=present_chg,
         net_lows_expanding=False,
         count_52w_highs=80,
         count_52w_lows=20,
     )
-    assert present["state"] == "Aggressive / Full Trend"
+    assert present["vix"] == 11.16
+    assert present["vix_available"] is True
     assert present["vix_label"] != "VIX n/a"
+    assert present["state"] == "Aggressive / Full Trend"
+    assert present["pct"] == "75% - 100%"
 
