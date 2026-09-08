@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import duckdb
@@ -19,12 +20,12 @@ def test_stock_candlestick_query_limits_400_then_reverses(tmp_path):
     src = Path("App/ui/stock_drawer.py").read_text(encoding="utf-8")
     fn = src.split("def query_stock_candlestick_data", 1)[1].split("def query_stock_360_data", 1)[0]
     assert "ORDER BY trade_date DESC" in fn
-    assert "LIMIT 400" in fn
+    assert re.search(r"LIMIT\s+400\b", fn)
     assert "iloc[::-1]" in fn
     assert "ORDER BY trade_date ASC" not in fn
 
     db_path = tmp_path / "chart.duckdb"
-    dates = pd.bdate_range("2024-01-02", periods=12)
+    dates = pd.bdate_range("2024-01-02", periods=450)
     frame = pd.DataFrame({
         "trade_date": dates,
         "open_price": 100.0,
@@ -42,6 +43,11 @@ def test_stock_candlestick_query_limits_400_then_reverses(tmp_path):
     with duckdb.connect(str(db_path)) as db:
         db.register("frame", frame)
         db.execute("CREATE TABLE indicators_daily AS SELECT * FROM frame")
+
+    # limit > 400 on a 450-bar series: fetch cap is 400, not the full history.
+    capped = query_stock_candlestick_data(db_path, "AAA", limit=500)
+    assert len(capped["dates"]) == 400
+    assert capped["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-400:]]
 
     data = query_stock_candlestick_data(db_path, "AAA", limit=5)
     assert data["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-5:]]

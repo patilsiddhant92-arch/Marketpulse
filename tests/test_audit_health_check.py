@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 import numpy as np
 import pandas as pd
 import pytest
@@ -95,7 +96,7 @@ def test_cache_key_latest_includes_max_trade_date(tmp_path) -> None:
 
 
 def test_cache_bound_evicts_oldest() -> None:
-    """_CACHE must evict the oldest entry once it exceeds 256."""
+    """_CACHE must evict the least-recently-used entry once it exceeds 256."""
     invalidate_cache()
     try:
         assert CACHE_MAX_ENTRIES == 256
@@ -106,6 +107,17 @@ def test_cache_bound_evicts_oldest() -> None:
         assert get_cached("bound-4") is None
         assert get_cached("bound-5") == 5
         assert get_cached(f"bound-{CACHE_MAX_ENTRIES + 4}") == CACHE_MAX_ENTRIES + 4
+
+        invalidate_cache()
+        for i in range(CACHE_MAX_ENTRIES):
+            set_cached(f"lru-{i}", i)
+        time.sleep(0.02)
+        assert get_cached("lru-0") == 0
+        set_cached("lru-new", "kept")
+        assert len(_CACHE) == CACHE_MAX_ENTRIES
+        assert get_cached("lru-0") == 0
+        assert get_cached("lru-new") == "kept"
+        assert get_cached("lru-1") is None
     finally:
         invalidate_cache()
 

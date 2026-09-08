@@ -63,7 +63,7 @@ def cache_key(db_path: Path | str, session_date: str | None, tag: str, *args: An
 
 
 def get_cached(key: str) -> Any | None:
-    """Retrieve data from cache if present and not expired."""
+    """Retrieve data from cache if present and not expired. Hits refresh LRU timestamp."""
     entry = _CACHE.get(key)
     if entry is None:
         return None
@@ -71,11 +71,12 @@ def get_cached(key: str) -> Any | None:
     if (time.time() - ts) > CACHE_TTL_SECONDS:
         del _CACHE[key]
         return None
+    _CACHE[key] = (time.time(), val)
     return val
 
 
 def set_cached(key: str, val: Any) -> Any:
-    """Store data in cache. Evict oldest entries when over CACHE_MAX_ENTRIES."""
+    """Store data in cache. Evict least-recently-used entries when over CACHE_MAX_ENTRIES."""
     _CACHE[key] = (time.time(), val)
     while len(_CACHE) > CACHE_MAX_ENTRIES:
         oldest_key = min(_CACHE, key=lambda k: _CACHE[k][0])
