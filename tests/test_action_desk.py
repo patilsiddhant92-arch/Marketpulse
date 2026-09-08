@@ -4,6 +4,7 @@ Verifies strict quality filters, setup queue classifications, and in-memory cach
 """
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import duckdb
 import pandas as pd
@@ -13,6 +14,25 @@ from App.cache_manager import get_cached, set_cached, invalidate_cache, cache_ke
 from App.indicators.darvas import DARVAS, apply_display_window, darvas_v2_enabled
 from App.pages.action_desk import fetch_action_desk_data
 from Scripts.config import DB_PATH
+from Scripts.desk_contract import (
+    ACTION_DESK_SUBTITLE,
+    EXPOSURE_RULES,
+    QUEUE_DISPLAY_CAPS,
+    QUEUE_META,
+    ROUTINE_HEADLINE,
+    ROUTINE_WINDOWS,
+    flag_on,
+    iter_playbook_copy,
+    match_exposure,
+)
+
+UNVERIFIED_HIT_RATES = ("82%", "71%", "56%", "21.6%", "9.6%", "78%")
+PLAYBOOK_COPY_FILES = (
+    Path("App/ui/playbook_guide.py"),
+    Path("App/pages/info_page.py"),
+    Path("App/pages/action_desk.py"),
+    Path("Scripts/desk_contract.py"),
+)
 
 
 def _force_v1(monkeypatch) -> None:
@@ -58,7 +78,11 @@ def test_action_desk_data_returns_valid_decision_structure(monkeypatch) -> None:
     assert "state" in exp
     assert "guidance" in exp
     assert exp["adv_pct"] >= 0.0
-    assert exp["vix"] > 0.0
+    vix = exp["vix"]
+    assert vix is None or float(vix) > 0.0
+    if vix is None:
+        assert exp.get("vix_na") is True
+        assert exp.get("vix_label") == "VIX n/a"
 
 
 def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
@@ -246,4 +270,159 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "queue_meta" in page_source
     assert '"squeeze_pct", "candle_range_pct", "darvas_top"' in page_source
     assert "wick ≤1.5% under stacked 10/20 floor" in page_source
+    assert "QUEUE_META" in page_source
+    assert "8 setup queues" in page_source
+    assert "5 Actionable Setup Queues" not in page_source
+    assert "1. VCP / Coiling Breakouts" not in page_source
+
+
+def _exposure_args(**overrides):
+    args = dict(
+        adv_pct=58.0,
+        ab20_pct=48.0,
+        ab200_pct=45.0,
+        vix=14.0,
+        vix_spike=False,
+        net_lows_expanding=False,
+        vix_1d_pct=0.0,
+        count_52w_highs=10,
+        count_52w_lows=4,
+    )
+    args.update(overrides)
+    return args
+
+
+def test_flag_on_defaults_off(monkeypatch) -> None:
+    monkeypatch.delenv("MP_DARVAS_V2", raising=False)
+    monkeypatch.delenv("MP_SECTOR_V2", raising=False)
+    assert flag_on("MP_DARVAS_V2") is False
+    assert flag_on("MP_SECTOR_V2") is False
+    monkeypatch.setenv("MP_DARVAS_V2", "true")
+    assert flag_on("MP_DARVAS_V2") is True
+
+
+def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
+    assert "near_pivot" in QUEUE_DISPLAY_CAPS
+    assert "vcp" not in QUEUE_DISPLAY_CAPS
+    assert QUEUE_DISPLAY_CAPS["near_pivot"] == 15
+    assert QUEUE_META["vcp"]["title"] == "1. Near 20D Pivot"
+    assert QUEUE_META["vcp"]["cap_key"] == "near_pivot"
+
+
+def test_action_desk_header_and_docstring_say_8_setup_queues() -> None:
+    desk = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
+    app = Path("App/app.py").read_text(encoding="utf-8")
+    assert "8 setup queues" in desk
+    assert "5 Actionable Setup Queues" not in desk
+    assert "ACTION_DESK_SUBTITLE" in app
+    assert ACTION_DESK_SUBTITLE not in app
+    assert "8 setup queues" in ACTION_DESK_SUBTITLE
+    assert "4 actionable setup queues" not in app
+
+
+def test_playbook_copy_has_no_unverified_hit_rates() -> None:
+    """Fails on current main: playbook 21.6% and Action Desk 82% mythology."""
+    for path in PLAYBOOK_COPY_FILES:
+        text = path.read_text(encoding="utf-8")
+        for token in UNVERIFIED_HIT_RATES:
+            assert token not in text, f"{path} still contains unverified {token}"
+
+
+def _ui_label_text_fragments(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    fragments: list[str] = []
+
+    def _from_expr(expr: ast.AST) -> None:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            fragments.append(expr.value)
+        elif isinstance(expr, ast.JoinedStr):
+            for part in expr.values:
+                if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                    fragments.append(part.value)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "label"):
+            continue
+        if node.args:
+            _from_expr(node.args[0])
+    return fragments
+
+
+def test_playbook_modal_copy_is_locked_to_desk_contract() -> None:
+    """A string change in the modal without a contract change must fail."""
+    contract = set(iter_playbook_copy())
+    guide_path = Path("App/ui/playbook_guide.py")
+    src = guide_path.read_text(encoding="utf-8")
+    assert "desk_contract" in src
+    assert "EXPOSURE_RULES" in src
+    for frag in _ui_label_text_fragments(guide_path):
+        if len(frag) < 24:
+            continue
+        assert frag in contract, f"Modal label not in desk_contract: {frag!r}"
+    info_src = Path("App/pages/info_page.py").read_text(encoding="utf-8")
+    assert "EXPOSURE_RULES" in info_src
+    assert "desk_contract" in info_src
+    for text in contract:
+        assert "fetch_action_desk_data" not in text
+    for rule in EXPOSURE_RULES:
+        assert rule["pct"] in contract
+        assert rule["state"] in contract
+
+
+def test_playbook_routine_windows_are_1545_and_0830() -> None:
+    assert ROUTINE_WINDOWS == ("15:45", "08:30")
+    assert "15:45" in ROUTINE_HEADLINE
+    assert "08:30" in ROUTINE_HEADLINE
+    guide = Path("App/ui/playbook_guide.py").read_text(encoding="utf-8")
+    assert "ROUTINE_HEADLINE" in guide
+    assert "4:00 PM" not in guide
+    info = Path("App/pages/info_page.py").read_text(encoding="utf-8")
+    assert "4:00 PM - 9:00 AM" not in info
+
+
+def test_exposure_rules_copy_live_thresholds_first_match_wins() -> None:
+    aggressive = match_exposure(_exposure_args())
+    assert aggressive["id"] == "aggressive"
+    assert aggressive["pct"] == "75% - 100%"
+    assert aggressive["vix_na"] is False
+
+    # vix < 15 is required; 15.0 falls through to constructive.
+    constructive = match_exposure(_exposure_args(vix=15.0))
+    assert constructive["id"] == "constructive"
+    assert constructive["pct"] == "50% - 75%"
+
+    selective = match_exposure(_exposure_args(adv_pct=35.0, ab20_pct=10.0, vix=21.9))
+    assert selective["id"] == "selective"
+    assert selective["pct"] == "25% - 50%"
+
+    risk_off = match_exposure(_exposure_args(adv_pct=34.9, ab20_pct=10.0, vix=21.9))
+    assert risk_off["id"] == "risk_off"
+    assert risk_off["pct"] == "0% - 15%"
+
+
+def test_exposure_vix_none_skips_vix_threshold_branches() -> None:
+    """Missing VIX must not match vix < X branches; fall through; surface VIX n/a."""
+    result = match_exposure(_exposure_args(vix=None, adv_pct=80.0, ab20_pct=80.0, ab200_pct=80.0))
+    assert result["id"] == "risk_off"
+    assert result["vix_na"] is True
+    assert result["vix_label"] == "VIX n/a"
+
+    still_selective = match_exposure(_exposure_args(adv_pct=40.0, ab20_pct=10.0, vix=20.0))
+    assert still_selective["id"] == "selective"
+
+    missing_vix_same_tape = match_exposure(_exposure_args(adv_pct=40.0, ab20_pct=10.0, vix=None))
+    assert missing_vix_same_tape["id"] == "risk_off"
+    assert missing_vix_same_tape["vix_label"] == "VIX n/a"
+
+
+def test_exposure_rules_are_four_named_branches() -> None:
+    assert [rule["id"] for rule in EXPOSURE_RULES] == [
+        "aggressive",
+        "constructive",
+        "selective",
+        "risk_off",
+    ]
 
