@@ -150,7 +150,7 @@ def test_calc_indicators_persists_adr_and_rs_side_columns() -> None:
         "rs_rank_t30",
     ):
         assert column in result.columns
-    assert "wema_20" not in result.columns
+    assert "wema_20" in result.columns
     assert "rs_rank_t0" not in result.columns
 
     expected_adr = adr_pct(aaa["high_price"], aaa["low_price"], window=20)

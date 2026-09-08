@@ -228,12 +228,12 @@ def test_table_from_df_copy_symbols_does_not_truncate_turnarounds(monkeypatch) -
         "market_cap_cr": [500.0, None, 1500.0],
     })
 
-    # Legacy default symbols_text would drop AAA and BBB
-    legacy_copy = symbols_text(sample_df)
-    assert legacy_copy == "NSE:CCC", "Legacy symbols_text must drop turnarounds"
+    # Explicit legacy filter drops AAA and BBB
+    legacy_copy = symbols_text(sample_df, min_mcap_cr=900.0, require_above_ema200=True)
+    assert legacy_copy == "NSE:CCC", "Explicit strict filter drops turnarounds"
 
-    # Untruncated symbols_text for table_from_df must keep ALL 3 symbols
-    untruncated_copy = symbols_text(sample_df, min_mcap_cr=None, require_above_ema200=False)
+    # Default untruncated symbols_text for table_from_df must keep ALL 3 symbols
+    untruncated_copy = symbols_text(sample_df)
     assert untruncated_copy == "NSE:AAA,NSE:BBB,NSE:CCC"
 
     # Render table_from_df with copy_symbols=True

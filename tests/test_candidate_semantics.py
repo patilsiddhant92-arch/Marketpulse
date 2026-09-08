@@ -83,8 +83,6 @@ def test_adaptive_mixer_is_side_column_and_never_assigned_to_rs_percentile():
     assert 'indicators["rs_rank_t30"]' in source
     assert 'indicators["rs_percentile"] = indicators["rs_score_adaptive"]' not in source
     assert 'indicators["rs_percentile"] = indicators["rs_percentile_ipo"]' not in source
-    assert 'g["wema_20"]' not in source
-    assert 'indicators["wema_20"]' not in source
 
 
 def test_risk_off_prepare_policy_cannot_be_disabled():
