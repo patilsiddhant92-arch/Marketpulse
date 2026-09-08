@@ -1,4 +1,9 @@
+import re
 from pathlib import Path
+
+import duckdb
+import pandas as pd
+
 from App.ui.stock_drawer import (
     query_stock_candlestick_data,
     load_stock_note,
@@ -9,6 +14,43 @@ from App.ui.stock_drawer import (
 
 DB_PATH = Path("Database/marketpulse.duckdb")
 USER_DB = Path("Database/marketpulse_user.duckdb")
+
+
+def test_stock_candlestick_query_limits_400_then_reverses(tmp_path):
+    src = Path("App/ui/stock_drawer.py").read_text(encoding="utf-8")
+    fn = src.split("def query_stock_candlestick_data", 1)[1].split("def query_stock_360_data", 1)[0]
+    assert "ORDER BY trade_date DESC" in fn
+    assert re.search(r"LIMIT\s+400\b", fn)
+    assert "iloc[::-1]" in fn
+    assert "ORDER BY trade_date ASC" not in fn
+
+    db_path = tmp_path / "chart.duckdb"
+    dates = pd.bdate_range("2024-01-02", periods=450)
+    frame = pd.DataFrame({
+        "trade_date": dates,
+        "open_price": 100.0,
+        "close_price": 101.0,
+        "low_price": 99.0,
+        "high_price": 102.0,
+        "volume": 1000,
+        "ema_10": 100.0,
+        "ema_20": 100.0,
+        "ema_50": 100.0,
+        "ema_200": 100.0,
+        "rsi_14": 50.0,
+        "symbol": "AAA",
+    })
+    with duckdb.connect(str(db_path)) as db:
+        db.register("frame", frame)
+        db.execute("CREATE TABLE indicators_daily AS SELECT * FROM frame")
+
+    # limit > 400 on a 450-bar series: fetch cap is 400, not the full history.
+    capped = query_stock_candlestick_data(db_path, "AAA", limit=500)
+    assert len(capped["dates"]) == 400
+    assert capped["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-400:]]
+
+    data = query_stock_candlestick_data(db_path, "AAA", limit=5)
+    assert data["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-5:]]
 
 
 def test_stock_candlestick_query_returns_expected_structure():

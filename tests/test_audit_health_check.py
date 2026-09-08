@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 import numpy as np
 import pandas as pd
 import pytest
 
 from App.app import copy_text_to_clipboard
-from App.cache_manager import cache_key, clear_cache, get_cached, set_cached, invalidate_cache
+from App.cache_manager import (
+    CACHE_MAX_ENTRIES,
+    _CACHE,
+    cache_key,
+    clear_cache,
+    get_cached,
+    set_cached,
+    invalidate_cache,
+)
 from App.pages.action_desk import fetch_action_desk_data
 from App.ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner
 from Scripts.config import DB_PATH
@@ -56,6 +65,61 @@ def test_cache_manager_mtime_lifecycle(tmp_path) -> None:
     assert get_cached(key_explicit) == {"data": 123}
     clear_cache("test_tag")
     assert get_cached(key_explicit) is None
+
+
+def test_cache_key_latest_includes_max_trade_date(tmp_path) -> None:
+    """'latest'/None keys must embed mtime_ns and max(trade_date), not mtime alone."""
+    import duckdb
+
+    db_file = tmp_path / "session.duckdb"
+    with duckdb.connect(str(db_file)) as db:
+        db.execute("CREATE TABLE indicators_daily (symbol TEXT, trade_date DATE)")
+        db.execute("INSERT INTO indicators_daily VALUES ('AAA', DATE '2026-09-07'), ('BBB', DATE '2026-09-07')")
+
+    key_none = cache_key(db_file, None, "test_tag")
+    key_latest = cache_key(db_file, "latest", "test_tag")
+    key_explicit = cache_key(db_file, "2026-09-07", "test_tag")
+
+    assert "mtime_" in key_none
+    assert "max_2026-09-07" in key_none
+    assert "_n_2" in key_none
+    assert key_none == key_latest
+    assert "mtime_" not in key_explicit
+    assert "max_2026-09-07" not in key_explicit
+
+    with duckdb.connect(str(db_file)) as db:
+        db.execute("INSERT INTO indicators_daily VALUES ('AAA', DATE '2026-09-08')")
+
+    key_after = cache_key(db_file, None, "test_tag")
+    assert "max_2026-09-08" in key_after
+    assert key_after != key_none
+
+
+def test_cache_bound_evicts_oldest() -> None:
+    """_CACHE must evict the least-recently-used entry once it exceeds 256."""
+    invalidate_cache()
+    try:
+        assert CACHE_MAX_ENTRIES == 256
+        for i in range(CACHE_MAX_ENTRIES + 5):
+            set_cached(f"bound-{i}", i)
+        assert len(_CACHE) == CACHE_MAX_ENTRIES
+        assert get_cached("bound-0") is None
+        assert get_cached("bound-4") is None
+        assert get_cached("bound-5") == 5
+        assert get_cached(f"bound-{CACHE_MAX_ENTRIES + 4}") == CACHE_MAX_ENTRIES + 4
+
+        invalidate_cache()
+        for i in range(CACHE_MAX_ENTRIES):
+            set_cached(f"lru-{i}", i)
+        time.sleep(0.02)
+        assert get_cached("lru-0") == 0
+        set_cached("lru-new", "kept")
+        assert len(_CACHE) == CACHE_MAX_ENTRIES
+        assert get_cached("lru-0") == 0
+        assert get_cached("lru-new") == "kept"
+        assert get_cached("lru-1") is None
+    finally:
+        invalidate_cache()
 
 
 def test_deals_desk_prop_purity_and_stage1_turnarounds() -> None:

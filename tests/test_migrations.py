@@ -99,3 +99,35 @@ def test_migration_repairs_legacy_pr_tables_for_conflict_upserts(tmp_path):
     assert by_table["corporate_actions"][0] == "ux_corporate_actions_natural_key"
     assert by_table["security_risk_daily"][0] == "ux_security_risk_daily_natural_key"
     assert by_table["top_value_daily"][0] == "ux_top_value_daily_natural_key"
+
+
+def test_migration_8_adds_idx_indicators_date_symbol_without_rebuild(tmp_path):
+    """Live DBs at schema 7 must gain idx_indicators_date_symbol from _MIGRATION_8."""
+    from Scripts.migrations import CURRENT_SCHEMA_VERSION, run_migrations, schema_version
+
+    path = tmp_path / "live.duckdb"
+    with duckdb.connect(str(path)) as db:
+        db.execute("CREATE TABLE indicators_daily (symbol TEXT, trade_date DATE)")
+        db.execute("INSERT INTO indicators_daily VALUES ('AAA', DATE '2026-09-07')")
+        db.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT current_timestamp
+            )
+            """
+        )
+        db.execute("INSERT INTO schema_migrations(version) VALUES (7)")
+
+    run_migrations(path)
+
+    assert CURRENT_SCHEMA_VERSION == 8
+    assert schema_version(path) == 8
+    with duckdb.connect(str(path), read_only=True) as db:
+        names = {
+            row[0]
+            for row in db.execute(
+                "SELECT index_name FROM duckdb_indexes() WHERE table_name = 'indicators_daily'"
+            ).fetchall()
+        }
+        assert "idx_indicators_date_symbol" in names

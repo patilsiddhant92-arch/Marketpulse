@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 _MIGRATION_2 = (
@@ -91,9 +91,12 @@ _MIGRATION_7 = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_percentile_primary DOUBLE",
 )
 
+_MIGRATION_8 = (
+    "CREATE INDEX IF NOT EXISTS idx_indicators_date_symbol ON indicators_daily(trade_date, symbol)",
+)
+
 # Additive side columns for ADR / IPO RS / RS rank history. Always applied when
-# indicators_daily exists so version-7 databases pick them up without bumping
-# CURRENT_SCHEMA_VERSION (version 8 is reserved for idx_indicators_date_symbol).
+# indicators_daily exists so version-7 and version-8 databases pick them up.
 _INDICATORS_DAILY_SIDE_COLUMNS = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS adr_20_pct DOUBLE",
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_score_adaptive DOUBLE",
@@ -245,6 +248,13 @@ def run_migrations(db_path: Path) -> None:
                     for statement in _MIGRATION_7:
                         db.execute(statement)
                 db.execute("INSERT INTO schema_migrations(version) VALUES (7)")
+                current = 7
+            if current < 8:
+                if _table_exists(db, "indicators_daily"):
+                    for statement in _MIGRATION_8:
+                        db.execute(statement)
+                db.execute("INSERT INTO schema_migrations(version) VALUES (8)")
+                current = 8
             _ensure_indicators_daily_side_columns(db)
             db.commit()
         except Exception:
