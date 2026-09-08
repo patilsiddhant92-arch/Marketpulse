@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 _MIGRATION_2 = (
@@ -89,6 +89,10 @@ _MIGRATION_6 = {
 
 _MIGRATION_7 = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_percentile_primary DOUBLE",
+)
+
+_MIGRATION_8 = (
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS wema_20 DOUBLE",
 )
 
 _SECTOR_METRICS_TABLE = """
@@ -225,6 +229,12 @@ def run_migrations(db_path: Path) -> None:
                     for statement in _MIGRATION_7:
                         db.execute(statement)
                 db.execute("INSERT INTO schema_migrations(version) VALUES (7)")
+                current = 7
+            if current < 8:
+                if _table_exists(db, "indicators_daily"):
+                    for statement in _MIGRATION_8:
+                        db.execute(statement)
+                db.execute("INSERT INTO schema_migrations(version) VALUES (8)")
             db.commit()
         except Exception:
             db.rollback()

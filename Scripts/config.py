@@ -212,6 +212,7 @@ FRIENDLY_COLUMNS = {
     "fast_ma": "Fast MA",
     "slow_ma": "Slow MA",
     "wema_10": "10 WEMA",
+    "wema_20": "20 WEMA",
     "wema_200": "200 WEMA",
     "mema_10": "10 MEMA",
     "mema_200": "200 MEMA",

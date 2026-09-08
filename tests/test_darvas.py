@@ -5,14 +5,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from datetime import date
+from pathlib import Path
+
 from App.indicators.darvas import (
     DARVAS,
     calculate_darvas_box,
+    calendar_friday,
     compute_darvas_metrics,
+    darvas_weekly_enabled,
     evaluate_squeeze_bar,
     is_darvas_10ema_squeeze,
     is_darvas_10ema_squeeze_legacy,
+    last_completed_week,
     squeeze_frame,
+    week_complete,
+    week_end_session,
+    weekly_ohlc,
 )
 
 
@@ -312,11 +321,6 @@ def test_squeeze_frame_columns_and_unclipped_spread():
     assert row["squeeze_pct"] != 5.0 or raw == 5.0
 
 
-def test_squeeze_frame_rejects_weekly_in_this_pr():
-    with pytest.raises(NotImplementedError):
-        squeeze_frame(_coil_after_box(10), timeframe="W")
-
-
 def test_darvas_reexport_is_canonical_module():
     import App.indicators.darvas as app_d
     import Scripts.darvas_squeeze as scripts_d
@@ -324,6 +328,8 @@ def test_darvas_reexport_is_canonical_module():
     assert app_d.calculate_darvas_box is scripts_d.calculate_darvas_box
     assert app_d.is_darvas_10ema_squeeze is scripts_d.is_darvas_10ema_squeeze
     assert app_d.squeeze_frame is scripts_d.squeeze_frame
+    assert app_d.weekly_ohlc is scripts_d.weekly_ohlc
+    assert app_d.last_completed_week is scripts_d.last_completed_week
     assert app_d.DARVAS is scripts_d.DARVAS
 
 
@@ -334,3 +340,153 @@ def test_compute_darvas_metrics_series_length():
     metrics = compute_darvas_metrics(closes, highs, lows)
     assert len(metrics["top_box"]) == 10
     assert len(metrics["squeeze_pct"]) == 10
+
+
+def _ohlc_frame(dates, *, symbol="WKLY", high=None, low=None, open_=None, close=None) -> pd.DataFrame:
+    dates = pd.to_datetime(list(dates))
+    n = len(dates)
+    close_arr = np.asarray(close if close is not None else np.linspace(100.0, 100.0 + n - 1, n), dtype=float)
+    high_arr = np.asarray(high if high is not None else close_arr + 1.0, dtype=float)
+    low_arr = np.asarray(low if low is not None else close_arr - 1.0, dtype=float)
+    open_arr = np.asarray(open_ if open_ is not None else close_arr, dtype=float)
+    return pd.DataFrame(
+        {
+            "symbol": symbol,
+            "trade_date": dates,
+            "open_price": open_arr,
+            "high_price": high_arr,
+            "low_price": low_arr,
+            "close_price": close_arr,
+            "volume": np.full(n, 1000.0),
+        }
+    )
+
+
+def test_weekly_fixture_research_wednesday():
+    """§8.4 fixture A: Friday still in the frame; as_of Wednesday → no current-week bar."""
+    dates = pd.bdate_range("2026-08-31", "2026-09-04")
+    assert pd.Timestamp("2026-09-04") in dates
+    as_of = date(2026, 9, 2)
+    frame = _ohlc_frame(dates)
+    weekly = weekly_ohlc(frame, as_of=as_of)
+    sessions = [d.date() for d in dates]
+    assert calendar_friday(as_of) == date(2026, 9, 4)
+    assert week_complete(as_of, as_of) is False
+    assert last_completed_week(sessions, as_of) is None
+    assert weekly.empty
+    assert not (pd.to_datetime(weekly["trade_date"]).dt.date == date(2026, 9, 4)).any() if not weekly.empty else True
+    assert not (pd.to_datetime(weekly["trade_date"]).dt.date == date(2026, 9, 2)).any() if not weekly.empty else True
+
+
+def test_weekly_fixture_desk_wednesday_truncated():
+    """§8.4 fixture B (production path): no Friday 2026-09-04; as_of=Wed.
+
+    Sessions 2026-08-24..08-28 PLUS 08-31..09-02. Assert no current-week bar and
+    last_completed_week == 2026-08-28. as_of == current week_end_session must NOT complete.
+    """
+    prior = pd.bdate_range("2026-08-24", "2026-08-28")
+    current = pd.bdate_range("2026-08-31", "2026-09-02")
+    dates = prior.append(current)
+    assert pd.Timestamp("2026-09-04") not in dates
+    as_of = date(2026, 9, 2)
+    frame = _ohlc_frame(dates)
+    weekly = weekly_ohlc(frame, as_of=as_of)
+    sessions = [d.date() for d in dates]
+    current_period = pd.Period(as_of, freq="W-FRI")
+    wes_current = week_end_session(current_period, sessions)
+    assert wes_current == as_of
+    assert week_complete(current_period, as_of) is False
+    assert last_completed_week(sessions, as_of) == date(2026, 8, 28)
+    ends = set(pd.to_datetime(weekly["trade_date"]).dt.date)
+    assert date(2026, 8, 28) in ends
+    assert date(2026, 9, 2) not in ends
+    assert date(2026, 9, 4) not in ends
+    assert len(weekly) == 1
+
+
+def test_weekly_fixture_friday_full_week():
+    """§8.4 fixture C: trading Friday completes; high = max(Mon..Fri); close = Friday."""
+    dates = pd.bdate_range("2026-08-31", "2026-09-04")
+    as_of = date(2026, 9, 4)
+    highs = [101.0, 102.0, 115.0, 104.0, 105.0]
+    closes = [100.0, 101.0, 103.0, 104.0, 108.0]
+    frame = _ohlc_frame(dates, high=highs, close=closes)
+    weekly = weekly_ohlc(frame, as_of=as_of)
+    sessions = [d.date() for d in dates]
+    assert as_of.weekday() == 4
+    assert last_completed_week(sessions, as_of) == date(2026, 9, 4)
+    assert len(weekly) == 1
+    row = weekly.iloc[0]
+    assert pd.Timestamp(row["trade_date"]).date() == date(2026, 9, 4)
+    assert float(row["high_price"]) == 115.0
+    assert float(row["close_price"]) == 108.0
+    assert float(row["open_price"]) == float(closes[0])
+
+
+def test_weekly_holiday_friday_completes_monday():
+    """§8.4 fixture D: holiday Friday completes Monday; week_end_session = Thursday."""
+    thu_dates = pd.to_datetime(["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"])
+    mon_dates = pd.to_datetime(["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-12"])
+    closes_thu = [10.0, 11.0, 12.0, 77.0]
+    closes_mon = [10.0, 11.0, 12.0, 77.0, 99.0]
+    as_of_thu = date(2026, 10, 8)
+    as_of_mon = date(2026, 10, 12)
+    cal_fri = date(2026, 10, 9)
+    assert calendar_friday(as_of_thu) == cal_fri
+    assert calendar_friday(as_of_mon) == date(2026, 10, 16)
+
+    weekly_thu = weekly_ohlc(_ohlc_frame(thu_dates, close=closes_thu), as_of=as_of_thu)
+    assert week_complete(as_of_thu, as_of_thu) is False
+    assert last_completed_week([d.date() for d in thu_dates], as_of_thu) is None
+    assert weekly_thu.empty
+
+    weekly_mon = weekly_ohlc(_ohlc_frame(mon_dates, close=closes_mon), as_of=as_of_mon)
+    sessions_mon = [d.date() for d in mon_dates]
+    holiday_period = pd.Period(date(2026, 10, 8), freq="W-FRI")
+    assert week_complete(holiday_period, as_of_mon) is True
+    assert week_end_session(holiday_period, sessions_mon) == date(2026, 10, 8)
+    assert last_completed_week(sessions_mon, as_of_mon) == date(2026, 10, 8)
+    assert len(weekly_mon) == 1
+    row = weekly_mon.iloc[0]
+    assert pd.Timestamp(row["trade_date"]).date() == date(2026, 10, 8)
+    assert float(row["close_price"]) == 77.0
+    assert float(row["close_price"]) != 99.0
+
+
+def test_squeeze_frame_weekly_evaluates_last_completed_week():
+    """Weekly squeeze uses completed weeks only; Wednesday as_of does not emit a current-week bar."""
+    weeks = []
+    # 8 full weeks Mon–Fri ending 2026-08-28, then Mon–Wed of next week.
+    start = pd.Timestamp("2026-07-06")  # Monday
+    for i in range(8):
+        weeks.extend(pd.bdate_range(start + pd.Timedelta(days=7 * i), periods=5))
+    weeks.extend(pd.bdate_range("2026-08-31", "2026-09-02"))
+    dates = pd.DatetimeIndex(weeks)
+    as_of = date(2026, 9, 2)
+    frame = _ohlc_frame(dates)
+    weekly = weekly_ohlc(frame, as_of=as_of)
+    ends = list(pd.to_datetime(weekly["trade_date"]).dt.date)
+    assert date(2026, 8, 28) == ends[-1]
+    assert date(2026, 9, 2) not in ends
+    assert date(2026, 9, 4) not in ends
+    sq = squeeze_frame(frame, timeframe="W", as_of=as_of)
+    assert list(sq.columns) == list(squeeze_frame(frame, timeframe="D", as_of=as_of).columns)
+    assert not sq.empty
+    assert sq.iloc[0]["symbol"] == "WKLY"
+
+
+def test_wema_200_min_periods_unchanged_and_wema_20_owned():
+    src = Path("Scripts/build_database.py").read_text(encoding="utf-8")
+    assert "ewm(span=200, adjust=False, min_periods=10)" in src
+    assert "ewm(span=20, adjust=False, min_periods=20)" in src
+    assert "g[\"wema_20\"]" in src or "g['wema_20']" in src
+    assert darvas_weekly_enabled() is False
+    mig = Path("Scripts/migrations.py").read_text(encoding="utf-8")
+    assert "wema_20" in mig
+    assert "CURRENT_SCHEMA_VERSION = 8" in mig
+
+
+def test_no_ca_box_reset_in_weekly_path():
+    src = Path("Scripts/darvas_squeeze.py").read_text(encoding="utf-8")
+    assert "price_adjustment_factors" not in src
+    assert "corporate_actions" not in src

@@ -18,9 +18,11 @@ from nicegui import ui
 from App.cache_manager import get_cached, set_cached, cache_key
 from App.indicators.darvas import (
     DARVAS,
+    WEEKLY_LOOKBACK_SESSIONS,
     apply_display_window,
     calculate_darvas_box,
     darvas_v2_enabled,
+    darvas_weekly_enabled,
     is_darvas_10ema_squeeze_legacy,
     squeeze_frame,
 )
@@ -60,7 +62,14 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
     use_v2 = darvas_v2_enabled()
-    key = cache_key(db_path, None, "action_desk_v8", "darvas_v2" if use_v2 else "darvas_v1")
+    use_weekly = darvas_weekly_enabled()
+    key = cache_key(
+        db_path,
+        None,
+        "action_desk_v8",
+        "darvas_v2" if use_v2 else "darvas_v1",
+        "weekly" if use_weekly else "daily",
+    )
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -310,7 +319,11 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
         # Trailing bars for Darvas Box calculation across setup pool
         darvas_hist = pd.DataFrame()
-        darvas_lookback = int(DARVAS["box_lookback_sessions"]) if use_v2 else 45
+        darvas_lookback = (
+            int(WEEKLY_LOOKBACK_SESSIONS)
+            if use_weekly
+            else (int(DARVAS["box_lookback_sessions"]) if use_v2 else 45)
+        )
         if not setup_pool.empty:
             pool_symbols = setup_pool["symbol"].tolist()
             con.register("pool_syms_tbl", pd.DataFrame({"symbol": pool_symbols}))
@@ -413,7 +426,31 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     # -------------------------------------------------------------
     # Queue 5: Darvas Box & 10/20 EMA Squeeze (Decoupled from RS)
     # Squeeze into top box and 10 EMA / 20 EMA. No stop-loss filter.
+    # Weekly path is behind MP_DARVAS_WEEKLY (completed weeks only).
     # -------------------------------------------------------------
+    def _assemble_darvas_queue(cand_df: pd.DataFrame, *, v2: bool) -> tuple[pd.DataFrame, int]:
+        if cand_df is None or cand_df.empty or setup_pool.empty:
+            return pd.DataFrame(), 0
+        out = setup_pool.merge(cand_df, on="symbol", how="inner")
+        if out.empty:
+            return pd.DataFrame(), 0
+        out["trigger_price"] = out["darvas_top"]
+        out["stop_loss"] = (out["ema_10"] * 0.985).round(2)
+        out["risk_pct"] = ((out["trigger_price"] / out["stop_loss"] - 1.0) * 100.0).round(2)
+        out["setup_type"] = "Darvas Squeeze"
+        if v2:
+            out["why_now"] = [
+                f"Close inside, wick ≤1.5% under stacked 10/20 floor · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
+                for sq, cr, top in zip(out["squeeze_pct"], out["candle_range_pct"], out["darvas_top"])
+            ]
+            return apply_display_window(out)
+        out["why_now"] = [
+            f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
+            for sq, cr, top in zip(out["squeeze_pct"], out["candle_range_pct"], out["darvas_top"])
+        ]
+        out = out.sort_values(["squeeze_pct", "candle_range_pct"], ascending=[True, True]).head(150)
+        return out, int(len(out))
+
     darvas_cand_df = pd.DataFrame()
     if not darvas_hist.empty:
         if use_v2:
@@ -465,30 +502,14 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     })
             darvas_cand_df = pd.DataFrame(rows)
 
-    darvas_count = 0
-    if not darvas_cand_df.empty and not setup_pool.empty:
-        darvas_df = setup_pool.merge(darvas_cand_df, on="symbol", how="inner")
-        darvas_df["trigger_price"] = darvas_df["darvas_top"]
-        darvas_df["stop_loss"] = (darvas_df["ema_10"] * 0.985).round(2)
-        darvas_df["risk_pct"] = ((darvas_df["trigger_price"] / darvas_df["stop_loss"] - 1.0) * 100.0).round(2)
-        darvas_df["setup_type"] = "Darvas Squeeze"
-        if use_v2:
-            darvas_df["why_now"] = [
-                f"Close inside, wick ≤1.5% under stacked 10/20 floor · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
-                for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
-            ]
-            darvas_df, darvas_count = apply_display_window(darvas_df)
-        else:
-            darvas_df["why_now"] = [
-                f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
-                for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
-            ]
-            darvas_df = darvas_df.sort_values(
-                ["squeeze_pct", "candle_range_pct"], ascending=[True, True]
-            ).head(150)
-            darvas_count = int(len(darvas_df))
-    else:
-        darvas_df = pd.DataFrame()
+    darvas_df, darvas_count = _assemble_darvas_queue(darvas_cand_df, v2=use_v2)
+
+    darvas_weekly_df = pd.DataFrame()
+    darvas_count_weekly = 0
+    if use_weekly and not darvas_hist.empty:
+        sq_weekly = squeeze_frame(darvas_hist, timeframe="W", as_of=trade_date)
+        cand_w = sq_weekly.loc[sq_weekly["qualifies"]].copy() if not sq_weekly.empty else pd.DataFrame()
+        darvas_weekly_df, darvas_count_weekly = _assemble_darvas_queue(cand_w, v2=True)
 
     def _is_num(v: Any) -> bool:
         if v is None or v is np.ma.masked:
@@ -623,12 +644,15 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         },
         "themes": top_sectors,
         "darvas_count": darvas_count,
+        "darvas_count_weekly": darvas_count_weekly,
+        "darvas_weekly_enabled": use_weekly,
         "queues": {
             "vcp": vcp_df,
             "pullback": pb_df,
             "episodic": ep_df,
             "high52": h52_df,
             "darvas": darvas_df,
+            "darvas_weekly": darvas_weekly_df,
             "silent_coil": sc_df,
             "stair_step": vss_df,
             "spike_pause": sp_df,
@@ -639,6 +663,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "episodic": to_tv_list(ep_df["symbol"].tolist()) if not ep_df.empty else "",
             "high52": to_tv_list(h52_df["symbol"].tolist()) if not h52_df.empty else "",
             "darvas": to_tv_list(darvas_df["symbol"].tolist()) if not darvas_df.empty else "",
+            "darvas_weekly": to_tv_list(darvas_weekly_df["symbol"].tolist()) if not darvas_weekly_df.empty else "",
             "silent_coil": to_tv_list(sc_df["symbol"].tolist()) if not sc_df.empty else "",
             "stair_step": to_tv_list(vss_df["symbol"].tolist()) if not vss_df.empty else "",
             "spike_pause": to_tv_list(sp_df["symbol"].tolist()) if not sp_df.empty else "",
@@ -958,6 +983,7 @@ def build_action_desk_page(
         "active_queue": initial_queue,
         "selected_symbol": initial_sym,
         "real_inst_flow_only": False,
+        "darvas_tf": "Daily",
     }
 
     # Display columns for the matrix
@@ -1066,9 +1092,17 @@ def build_action_desk_page(
         render_inspector()
         render_matrix()
 
+    def _darvas_is_weekly() -> bool:
+        return bool(data.get("darvas_weekly_enabled")) and state.get("darvas_tf") == "Weekly"
+
+    def _queue_frame(q_key: str) -> pd.DataFrame:
+        if q_key == "darvas" and _darvas_is_weekly():
+            return queues.get("darvas_weekly", pd.DataFrame())
+        return queues.get(q_key, pd.DataFrame())
+
     def set_queue(q_key: str) -> None:
         state["active_queue"] = q_key
-        q_df = queues.get(q_key, pd.DataFrame())
+        q_df = _queue_frame(q_key)
         if not q_df.empty and "symbol" in q_df.columns:
             state["selected_symbol"] = str(q_df["symbol"].iloc[0])
         render_queue_nav()
@@ -1081,9 +1115,12 @@ def build_action_desk_page(
             ui.label("STEP 3: SETUP QUEUES").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
             with ui.column().classes("w-full gap-1.5"):
                 for q_key, q_info in queue_meta.items():
-                    q_df = queues.get(q_key, pd.DataFrame())
+                    q_df = _queue_frame(q_key)
                     if q_key == "darvas":
-                        count = int(data.get("darvas_count") or 0)
+                        if _darvas_is_weekly():
+                            count = int(data.get("darvas_count_weekly") or 0)
+                        else:
+                            count = int(data.get("darvas_count") or 0)
                     else:
                         count = len(q_df) if not q_df.empty else 0
                     is_active = (q_key == state["active_queue"])
@@ -1106,10 +1143,13 @@ def build_action_desk_page(
 
             q_key = state["active_queue"]
             q_info = queue_meta.get(q_key, queue_meta["vcp"])
-            q_df = queues.get(q_key, pd.DataFrame())
+            q_df = _queue_frame(q_key)
             if state.get("real_inst_flow_only") and not q_df.empty and "deal_flow" in q_df.columns:
                 q_df = q_df[q_df["deal_flow"].astype(str).str.strip().ne("—")]
-            tv_text = to_tv_list(q_df["symbol"].tolist()) if (not q_df.empty and "symbol" in q_df.columns) else tv.get(q_info["tv_key"], "")
+            if q_key == "darvas" and _darvas_is_weekly():
+                tv_text = tv.get("darvas_weekly", "")
+            else:
+                tv_text = to_tv_list(q_df["symbol"].tolist()) if (not q_df.empty and "symbol" in q_df.columns) else tv.get(q_info["tv_key"], "")
 
             # Header Banner
             with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
@@ -1117,11 +1157,26 @@ def build_action_desk_page(
                     with ui.column().classes("gap-0.5"):
                         ui.label(q_info["title"]).classes("text-sm font-bold text-[var(--mp-text)]")
                         ui.label(q_info["desc"]).classes("text-xs text-[var(--mp-muted)]")
-                    if copy_text and tv_text:
-                        ui.button(
-                            f"📋 Copy {q_info['short_title']} (TV)",
-                            on_click=lambda t=tv_text, lbl=f"{q_info['short_title']} (TV)": copy_text(lbl, t),
-                        ).classes("mp-button text-xs").props("dense outline")
+                    with ui.row().classes("items-center gap-2"):
+                        if q_key == "darvas" and data.get("darvas_weekly_enabled"):
+                            def _on_darvas_tf(e):
+                                state["darvas_tf"] = e.value
+                                q_new = _queue_frame("darvas")
+                                if not q_new.empty and "symbol" in q_new.columns:
+                                    state["selected_symbol"] = str(q_new["symbol"].iloc[0])
+                                render_queue_nav()
+                                render_matrix()
+                                render_inspector()
+                            tf_toggle = ui.toggle(
+                                ["Daily", "Weekly"],
+                                value=state.get("darvas_tf", "Daily"),
+                            ).props("dense unelevated").classes("mp-toggle text-xs")
+                            tf_toggle.on_value_change(_on_darvas_tf)
+                        if copy_text and tv_text:
+                            ui.button(
+                                f"📋 Copy {q_info['short_title']} (TV)",
+                                on_click=lambda t=tv_text, lbl=f"{q_info['short_title']} (TV)": copy_text(lbl, t),
+                            ).classes("mp-button text-xs").props("dense outline")
 
                 # Quality Filter Strip
                 is_classic_rs = q_key in ("vcp", "pullback", "high52")
@@ -1175,7 +1230,7 @@ def build_action_desk_page(
                     ui.label(f"No {q_info['short_title']} setups currently active in this session.").classes("text-sm text-[var(--mp-muted)]")
             else:
                 matrix_cols = display_cols
-                if q_key == "darvas" and darvas_v2_enabled():
+                if q_key == "darvas" and (darvas_v2_enabled() or _darvas_is_weekly()):
                     squeeze_cols = [
                         "squeeze_pct", "candle_range_pct", "darvas_top",
                         "tightening", "squeeze_age", "failed_low",

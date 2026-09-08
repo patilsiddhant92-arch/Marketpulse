@@ -274,6 +274,9 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "8 setup queues" in page_source
     assert "5 Actionable Setup Queues" not in page_source
     assert "1. VCP / Coiling Breakouts" not in page_source
+    assert "darvas_weekly_enabled" in page_source
+    assert '["Daily", "Weekly"]' in page_source
+    assert "MP_DARVAS_WEEKLY" in Path("Scripts/darvas_squeeze.py").read_text(encoding="utf-8")
 
 
 def _exposure_args(**overrides):
@@ -295,8 +298,10 @@ def _exposure_args(**overrides):
 def test_flag_on_defaults_off(monkeypatch) -> None:
     monkeypatch.delenv("MP_DARVAS_V2", raising=False)
     monkeypatch.delenv("MP_SECTOR_V2", raising=False)
+    monkeypatch.delenv("MP_DARVAS_WEEKLY", raising=False)
     assert flag_on("MP_DARVAS_V2") is False
     assert flag_on("MP_SECTOR_V2") is False
+    assert flag_on("MP_DARVAS_WEEKLY") is False
     monkeypatch.setenv("MP_DARVAS_V2", "true")
     assert flag_on("MP_DARVAS_V2") is True
 

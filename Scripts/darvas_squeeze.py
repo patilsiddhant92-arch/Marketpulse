@@ -1,8 +1,8 @@
-"""Nicolas Darvas Box and 10/20 EMA Squeeze — canonical daily implementation.
+"""Nicolas Darvas Box and 10/20 EMA Squeeze — canonical daily + completed-week implementation.
 
 Box construction matches the TradingView Pine `ta.valuewhen` definition.
 Squeeze membership follows the §8.3 truth table (open-floor dropped, failed-low cap).
-Weekly bars are PR 6; `squeeze_frame(..., timeframe="W")` is not implemented here.
+Weekly bars use as_of >= calendar Friday of the W-FRI period — never as_of >= week_end_session.
 
 Pine:
     boxp = 5
@@ -18,6 +18,7 @@ Pine:
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
 from typing import Any, Literal
 
 import numpy as np
@@ -55,6 +56,174 @@ SQUEEZE_COLUMNS = [
 
 def darvas_v2_enabled() -> bool:
     return os.environ.get("MP_DARVAS_V2", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def darvas_weekly_enabled() -> bool:
+    return os.environ.get("MP_DARVAS_WEEKLY", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+WEEKLY_LOOKBACK_SESSIONS = 400
+
+
+def _to_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        ts = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.date()
+
+
+def calendar_friday(d: Any) -> date:
+    """pandas W-FRI period end is that week's Friday calendar date, holiday or not."""
+    day = _to_date(d)
+    if day is None:
+        raise ValueError("calendar_friday requires a date")
+    return pd.Period(day, freq="W-FRI").end_time.date()
+
+
+def week_complete(period: Any, as_of: Any) -> bool:
+    """True iff as_of >= calendar Friday of the W-FRI period.
+
+    Do not use as_of >= week_end_session — that false-completes Mon–Thu when the
+    frame is truncated at as_of (desk path).
+    """
+    as_of_d = _to_date(as_of)
+    if as_of_d is None:
+        return False
+    if isinstance(period, pd.Period):
+        fri = period.asfreq("W-FRI").end_time.date()
+    else:
+        fri = calendar_friday(period)
+    return as_of_d >= fri
+
+
+def week_end_session(period: Any, sessions: Any) -> date | None:
+    """Last session in `sessions` belonging to the W-FRI period (Thu on holiday Friday)."""
+    if isinstance(period, pd.Period):
+        p = period.asfreq("W-FRI")
+    else:
+        day = _to_date(period)
+        if day is None:
+            return None
+        p = pd.Period(day, freq="W-FRI")
+    in_period: list[date] = []
+    for s in sessions:
+        sd = _to_date(s)
+        if sd is None:
+            continue
+        if pd.Period(sd, freq="W-FRI") == p:
+            in_period.append(sd)
+    return max(in_period) if in_period else None
+
+
+def completed_weeks(sessions: Any, as_of: Any) -> list[date]:
+    """Unique week_end_session for each W-FRI period in sessions that is week_complete."""
+    as_of_d = _to_date(as_of)
+    if as_of_d is None:
+        return []
+    sess: list[date] = []
+    seen: set[date] = set()
+    for s in sessions:
+        sd = _to_date(s)
+        if sd is None or sd in seen or sd > as_of_d:
+            continue
+        seen.add(sd)
+        sess.append(sd)
+    if not sess:
+        return []
+    seen_p: set[pd.Period] = set()
+    ends: list[date] = []
+    for s in sess:
+        p = pd.Period(s, freq="W-FRI")
+        if p in seen_p:
+            continue
+        seen_p.add(p)
+        if week_complete(p, as_of_d):
+            end = week_end_session(p, sess)
+            if end is not None:
+                ends.append(end)
+    return ends
+
+
+def last_completed_week(sessions: Any, as_of: Any) -> date | None:
+    weeks = completed_weeks(sessions, as_of)
+    return max(weeks) if weeks else None
+
+
+def weekly_ohlc(daily: pd.DataFrame, *, as_of: Any = None) -> pd.DataFrame:
+    """Completed-week OHLC only. Index date is week_end_session, not calendar Friday.
+
+    Completeness is as_of >= calendar_friday(period). Never as_of >= week_end_session.
+    """
+    empty_cols = [
+        "symbol",
+        "trade_date",
+        "open_price",
+        "high_price",
+        "low_price",
+        "close_price",
+        "volume",
+    ]
+    empty = pd.DataFrame(columns=empty_cols)
+    if daily is None or daily.empty:
+        return empty
+
+    frame = daily.copy()
+    sym_col = _pick_col(frame, "symbol")
+    date_col = _pick_col(frame, "trade_date", "date")
+    open_col = _pick_col(frame, "open_price", "open")
+    high_col = _pick_col(frame, "high_price", "high")
+    low_col = _pick_col(frame, "low_price", "low")
+    close_col = _pick_col(frame, "close_price", "close")
+    vol_col = _pick_col(frame, "volume")
+    if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
+        return empty
+
+    if as_of is None:
+        as_of = frame[date_col].max()
+    as_of_d = _to_date(as_of)
+    if as_of_d is None:
+        return empty
+    frame = frame[pd.to_datetime(frame[date_col]).dt.normalize() <= pd.Timestamp(as_of_d)]
+    if frame.empty:
+        return empty
+
+    rows: list[dict[str, Any]] = []
+    for sym, group in frame.groupby(sym_col, sort=False):
+        g = group.sort_values(date_col)
+        sessions = pd.to_datetime(g[date_col]).dt.date.tolist()
+        week_ends = completed_weeks(sessions, as_of_d)
+        if not week_ends:
+            continue
+        periods = pd.to_datetime(g[date_col]).dt.to_period("W-FRI")
+        for week_end in week_ends:
+            p = pd.Period(week_end, freq="W-FRI")
+            bars = g.loc[periods == p]
+            if bars.empty:
+                continue
+            row: dict[str, Any] = {
+                "symbol": sym,
+                "trade_date": pd.Timestamp(week_end),
+                "open_price": bars[open_col].iloc[0],
+                "high_price": bars[high_col].max(),
+                "low_price": bars[low_col].min(),
+                "close_price": bars[close_col].iloc[-1],
+                "volume": bars[vol_col].sum() if vol_col is not None else np.nan,
+            }
+            rows.append(row)
+
+    if not rows:
+        return empty
+    out = pd.DataFrame(rows, columns=empty_cols)
+    return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
 
 
 def calculate_darvas_box(
@@ -367,9 +536,11 @@ def squeeze_frame(
 
     `daily` needs symbol, trade_date, OHLC (open_price/high_price/low_price/close_price
     or open/high/low/close), and optionally ema_10 / ema_20.
+    timeframe="W" resamples completed weeks only and evaluates the last completed week
+    with weekly 10 EMA (stacked 20 if present). Daily ema_* columns are not reused.
     """
-    if timeframe != "D":
-        raise NotImplementedError("Weekly Darvas Squeeze is PR 6")
+    if timeframe not in ("D", "W"):
+        raise ValueError(f"timeframe must be 'D' or 'W', got {timeframe!r}")
 
     params = dict(DARVAS)
     if cfg:
@@ -380,22 +551,34 @@ def squeeze_frame(
         return empty
 
     frame = daily.copy()
-    sym_col = _pick_col(frame, "symbol")
-    date_col = _pick_col(frame, "trade_date", "date")
-    open_col = _pick_col(frame, "open_price", "open")
-    high_col = _pick_col(frame, "high_price", "high")
-    low_col = _pick_col(frame, "low_price", "low")
-    close_col = _pick_col(frame, "close_price", "close")
-    if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
-        return empty
-
-    if as_of is not None:
-        frame = frame[pd.to_datetime(frame[date_col]) <= pd.Timestamp(as_of)]
+    weekly = timeframe == "W"
+    if weekly:
+        frame = weekly_ohlc(frame, as_of=as_of)
         if frame.empty:
             return empty
-
-    ema10_col = _pick_col(frame, "ema_10", "ema10")
-    ema20_col = _pick_col(frame, "ema_20", "ema20")
+        sym_col = "symbol"
+        date_col = "trade_date"
+        open_col = "open_price"
+        high_col = "high_price"
+        low_col = "low_price"
+        close_col = "close_price"
+        ema10_col = None
+        ema20_col = None
+    else:
+        sym_col = _pick_col(frame, "symbol")
+        date_col = _pick_col(frame, "trade_date", "date")
+        open_col = _pick_col(frame, "open_price", "open")
+        high_col = _pick_col(frame, "high_price", "high")
+        low_col = _pick_col(frame, "low_price", "low")
+        close_col = _pick_col(frame, "close_price", "close")
+        if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
+            return empty
+        if as_of is not None:
+            frame = frame[pd.to_datetime(frame[date_col]) <= pd.Timestamp(as_of)]
+            if frame.empty:
+                return empty
+        ema10_col = _pick_col(frame, "ema_10", "ema10")
+        ema20_col = _pick_col(frame, "ema_20", "ema20")
 
     rows: list[dict[str, Any]] = []
     for sym, group in frame.groupby(sym_col, sort=False):
@@ -407,14 +590,21 @@ def squeeze_frame(
         closes = g[close_col].to_numpy(dtype=float)
         opens = g[open_col].to_numpy(dtype=float)
         top_box, bottom_box = calculate_darvas_box(highs, lows, boxp=5)
-        if ema10_col is not None:
+        if weekly:
+            ema10 = pd.Series(closes).ewm(span=10, adjust=False, min_periods=10).mean().to_numpy()
+            ema20 = pd.Series(closes).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+        elif ema10_col is not None:
             ema10 = g[ema10_col].to_numpy(dtype=float)
+            if ema20_col is not None:
+                ema20 = g[ema20_col].to_numpy(dtype=float)
+            else:
+                ema20 = pd.Series(closes).ewm(span=20, adjust=False).mean().to_numpy()
         else:
             ema10 = pd.Series(closes).ewm(span=10, adjust=False).mean().to_numpy()
-        if ema20_col is not None:
-            ema20 = g[ema20_col].to_numpy(dtype=float)
-        else:
-            ema20 = pd.Series(closes).ewm(span=20, adjust=False).mean().to_numpy()
+            if ema20_col is not None:
+                ema20 = g[ema20_col].to_numpy(dtype=float)
+            else:
+                ema20 = pd.Series(closes).ewm(span=20, adjust=False).mean().to_numpy()
 
         last_state = evaluate_squeeze_bar(
             closes[-1],

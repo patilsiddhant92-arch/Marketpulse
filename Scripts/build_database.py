@@ -32,6 +32,10 @@ try:
 except (ModuleNotFoundError, ImportError):
     from indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma  # type: ignore
 try:
+    from darvas_squeeze import weekly_ohlc
+except (ModuleNotFoundError, ImportError):
+    from Scripts.darvas_squeeze import weekly_ohlc  # type: ignore
+try:
     from institutional_engine import enrich_deals_with_tiers
 except ModuleNotFoundError:
     from Scripts.institutional_engine import enrich_deals_with_tiers  # type: ignore
@@ -532,6 +536,15 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
             g["wema_10"] = weekly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
             g["wema_200"] = weekly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
             g["wema_10_cross_200"] = weekly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+            weekly_completed = weekly_ohlc(g, as_of=g["trade_date"].max())
+            if not weekly_completed.empty:
+                w20_close = weekly_completed.set_index(pd.to_datetime(weekly_completed["trade_date"]))["close_price"]
+                weekly_ema_20 = w20_close.ewm(span=20, adjust=False, min_periods=20).mean()
+                g["wema_20"] = weekly_ema_20.reindex(
+                    pd.DatetimeIndex(pd.to_datetime(g["trade_date"])), method="ffill"
+                ).to_numpy()
+            else:
+                g["wema_20"] = np.nan
             g["wma_30"] = weekly_ma30.reindex(g["trade_date"], method="ffill").to_numpy()
             g["rsi_14_w"] = weekly_features["rsi_14"].reindex(g["trade_date"], method="ffill").to_numpy()
             g["confirmed_morning_star_w"] = weekly_features["confirmed_morning_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
@@ -541,6 +554,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         else:
             g["wema_10"] = np.nan
             g["wema_200"] = np.nan
+            g["wema_20"] = np.nan
             g["wema_10_cross_200"] = False
             g["wma_30"] = np.nan
             g["rsi_14_w"] = np.nan
