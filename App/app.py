@@ -2169,7 +2169,7 @@ def action_desk_page() -> None:
     with ui.column().classes("w-full mp-page-action-desk"):
         section_header(
             "Action Desk",
-            "Executive swing trading command center: Exposure gate, leading themes, and the 4 actionable setup queues.",
+            "Executive swing trading command center: Exposure gate, leading themes, and 8 setup queues.",
         )
         build_action_desk_page(DB_PATH, section_header, table_from_df, copy_text=copy_text_to_clipboard)
 
