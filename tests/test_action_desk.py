@@ -277,6 +277,8 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "render_stock_inspector_panel" in page_source
     assert "queue_meta" in page_source
     assert "QUEUE_META" in page_source
+    assert "render_market_health_strip" in page_source
+    assert "indicators_daily fallback" in page_source
     assert "8 setup queues" in page_source
     assert "5 Actionable Setup Queues" not in page_source
     assert "1. VCP / Coiling Breakouts" not in page_source
@@ -415,6 +417,14 @@ def test_exposure_vix_none_skips_vix_threshold_branches() -> None:
     assert result["id"] == "risk_off"
     assert result["vix_na"] is True
     assert result["vix_label"] == "VIX n/a"
+
+
+def test_exposure_missing_breadth_pct_skips_bands() -> None:
+    """NULL fallback averages must not be treated as 50% and must skip threshold bands."""
+    result = match_exposure(_exposure_args(adv_pct=None, ab20_pct=80.0, ab200_pct=80.0, vix=10.0))
+    assert result["id"] == "risk_off"
+    zero = match_exposure(_exposure_args(adv_pct=0.0, ab20_pct=0.0, ab200_pct=0.0, vix=10.0))
+    assert zero["id"] == "risk_off"
 
     still_selective = match_exposure(_exposure_args(adv_pct=40.0, ab20_pct=10.0, vix=20.0))
     assert still_selective["id"] == "selective"

@@ -17,6 +17,156 @@ try:
 except ModuleNotFoundError:
     from ui.widgets import chart_panel, line_chart  # type: ignore
 
+# Action Desk exposure keys share this breadth_daily row (PR 4 / Key Decision 15).
+BREADTH_EXPOSURE_MAP = {
+    "adv_pct": "advance_pct",
+    "ab20_pct": "above_20ema_pct",
+    "ab50_pct": "above_50ema_pct",
+    "ab200_pct": "above_200ema_pct",
+}
+
+_BREADTH_LATEST_SQL = """
+SELECT trade_date, stocks, advancers, decliners, unchanged,
+       advance_pct, above_20ema_pct, above_50ema_pct, above_200ema_pct,
+       near_52w_highs, vcp_candidates, breadth_state
+FROM breadth_daily
+ORDER BY trade_date DESC
+LIMIT ?
+"""
+
+
+def query_latest_breadth_daily(con: Any, *, limit: int = 2) -> pd.DataFrame:
+    """Latest breadth_daily rows — same query the health strip and exposure gate use."""
+    try:
+        return con.execute(_BREADTH_LATEST_SQL, [limit]).fetchdf()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _scalar(row: Any, key: str, default: Any = None) -> Any:
+    try:
+        val = row[key]
+    except Exception:
+        return default
+    if val is None:
+        return default
+    try:
+        if pd.isna(val):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return val
+
+
+def _round_pct(val: Any) -> float | None:
+    """Keep 0.0 as 0.0. SQL NULL / NaN stay None — never invent 50%."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return round(float(val), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_of_str(val: Any) -> str:
+    if val is None:
+        return ""
+    try:
+        if pd.isna(val):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    try:
+        return str(pd.to_datetime(val).date())
+    except (TypeError, ValueError):
+        return str(val)
+
+
+def _count_or_none(val: Any) -> int | None:
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(val))
+    except (TypeError, ValueError):
+        return None
+
+
+def exposure_inputs_from_breadth_row(row: Any) -> dict[str, Any]:
+    """Map one breadth_daily row onto Action Desk exposure keys."""
+    as_of = _as_of_str(_scalar(row, "trade_date"))
+    total_stocks = _count_or_none(_scalar(row, "stocks"))
+
+    def pct(col: str) -> float | None:
+        return _round_pct(_scalar(row, col))
+
+    return {
+        "adv_pct": pct(BREADTH_EXPOSURE_MAP["adv_pct"]),
+        "ab20_pct": pct(BREADTH_EXPOSURE_MAP["ab20_pct"]),
+        "ab50_pct": pct(BREADTH_EXPOSURE_MAP["ab50_pct"]),
+        "ab200_pct": pct(BREADTH_EXPOSURE_MAP["ab200_pct"]),
+        "total_stocks": total_stocks,
+        "as_of": as_of,
+        "source": "breadth_daily",
+    }
+
+
+_INDICATORS_FALLBACK_SQL = """
+SELECT
+    count(*) AS total_stocks,
+    avg(CASE WHEN close_price > prev_close THEN 1.0 ELSE 0.0 END) * 100 AS advance_pct,
+    avg(CASE WHEN close_price > ema_20 THEN 1.0 ELSE 0.0 END) * 100 AS above_20ema_pct,
+    avg(CASE WHEN close_price > ema_50 THEN 1.0 ELSE 0.0 END) * 100 AS above_50ema_pct,
+    avg(CASE WHEN close_price > ema_200 THEN 1.0 ELSE 0.0 END) * 100 AS above_200ema_pct
+FROM indicators_daily
+WHERE trade_date = ?
+"""
+
+
+def recompute_exposure_from_indicators(con: Any, trade_date: Any) -> dict[str, Any]:
+    """indicators_daily fallback. NULL averages stay None; 0.0 stays 0.0."""
+    as_of = _as_of_str(trade_date)
+    try:
+        row = con.execute(_INDICATORS_FALLBACK_SQL, [trade_date]).fetchone()
+    except Exception:
+        row = None
+    if row is None:
+        return {
+            "adv_pct": None,
+            "ab20_pct": None,
+            "ab50_pct": None,
+            "ab200_pct": None,
+            "total_stocks": None,
+            "as_of": as_of,
+            "source": "indicators_daily",
+        }
+    return {
+        "adv_pct": _round_pct(row[1]),
+        "ab20_pct": _round_pct(row[2]),
+        "ab50_pct": _round_pct(row[3]),
+        "ab200_pct": _round_pct(row[4]),
+        "total_stocks": _count_or_none(row[0]),
+        "as_of": as_of,
+        "source": "indicators_daily",
+    }
+
+
+def load_exposure_inputs(con: Any, *, trade_date: Any = None) -> dict[str, Any]:
+    """Same latest breadth_daily row as the health strip; indicators recompute only if missing."""
+    b_df = query_latest_breadth_daily(con, limit=1)
+    if not b_df.empty:
+        return exposure_inputs_from_breadth_row(b_df.iloc[0])
+    return recompute_exposure_from_indicators(con, trade_date)
+
 
 def query_market_health_summary(db_path: Path) -> dict[str, Any]:
     """Fetch current 7-card market health metrics and 1-session changes."""
@@ -26,19 +176,7 @@ def query_market_health_summary(db_path: Path) -> dict[str, Any]:
 
     with duckdb.connect(str(db_path), read_only=True) as db:
         # 1. Fetch latest 2 rows from breadth_daily for day-over-day delta
-        try:
-            b_df = db.execute(
-                """
-                SELECT trade_date, stocks, advancers, decliners, unchanged,
-                       advance_pct, above_20ema_pct, above_50ema_pct, above_200ema_pct,
-                       near_52w_highs, vcp_candidates, breadth_state
-                FROM breadth_daily
-                ORDER BY trade_date DESC
-                LIMIT 2
-                """
-            ).fetchdf()
-        except Exception:
-            b_df = pd.DataFrame()
+        b_df = query_latest_breadth_daily(db, limit=2)
 
         if b_df.empty:
             return {}
@@ -89,11 +227,16 @@ def query_market_health_summary(db_path: Path) -> dict[str, Any]:
 
         near_52_pct = (float(today.get("near_52w_highs") or 0) / tot_stocks * 100.0) if tot_stocks > 0 else 0.0
         vcp_pct = (float(today.get("vcp_candidates") or 0) / tot_stocks * 100.0) if tot_stocks > 0 else 0.0
+        exp_inputs = exposure_inputs_from_breadth_row(today)
 
         return {
             "as_of": str(pd.to_datetime(today["trade_date"]).date()),
             "total_stocks": int(tot_stocks),
             "breadth_state": str(today.get("breadth_state") or "Unclassified"),
+            "adv_pct": exp_inputs["adv_pct"],
+            "ab20_pct": exp_inputs["ab20_pct"],
+            "ab50_pct": exp_inputs["ab50_pct"],
+            "ab200_pct": exp_inputs["ab200_pct"],
             "cards": [
                 {
                     "key": "ad_net",
@@ -151,11 +294,11 @@ def query_market_health_summary(db_path: Path) -> dict[str, Any]:
                 },
                 {
                     "key": "breakout",
-                    "title": "Recent breakout",
+                    "title": "VCP heuristic",
                     "value": f"{vcp_pct:.1f}%",
                     "change": f"{vcp_chg:+.0f} names",
                     "tone": "good" if vcp_pct >= 15 else "neutral",
-                    "context": f"{int(today.get('vcp_candidates') or 0)} VCP setups",
+                    "context": f"{int(today.get('vcp_candidates') or 0)} heuristic names",
                     "column_series": "vcp_candidates",
                 },
             ],

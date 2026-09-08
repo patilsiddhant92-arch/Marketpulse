@@ -114,6 +114,9 @@ QUEUE_META = {
 
 def _when_aggressive(a: Mapping[str, Any]) -> bool:
     # Live action_desk.py branches: adv>=58, ab20>=48, ab200>=45, vix<15, no spike, no net lows.
+    # Missing breadth % (None) skips the band — same honesty as missing VIX.
+    if a.get("adv_pct") is None or a.get("ab20_pct") is None or a.get("ab200_pct") is None:
+        return False
     return (
         a["adv_pct"] >= 58.0
         and a["ab20_pct"] >= 48.0
@@ -126,6 +129,8 @@ def _when_aggressive(a: Mapping[str, Any]) -> bool:
 
 
 def _when_constructive(a: Mapping[str, Any]) -> bool:
+    if a.get("adv_pct") is None or a.get("ab20_pct") is None:
+        return False
     return (
         a["adv_pct"] >= 45.0
         and a["ab20_pct"] >= 38.0
@@ -136,6 +141,8 @@ def _when_constructive(a: Mapping[str, Any]) -> bool:
 
 
 def _when_selective(a: Mapping[str, Any]) -> bool:
+    if a.get("adv_pct") is None:
+        return False
     return a["adv_pct"] >= 35.0 and a["vix"] is not None and a["vix"] < 22.0
 
 
