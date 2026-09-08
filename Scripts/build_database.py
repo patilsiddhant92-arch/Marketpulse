@@ -28,9 +28,35 @@ from config import (
 from index_history import build_index_features, load_all_market_activity_history
 from reference_history import asof_reference, load_reference_history
 try:
-    from Scripts.indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma
+    from Scripts.indicators import (
+        adr_pct,
+        atr_sma,
+        atr_wilder,
+        distance_below_high,
+        ema,
+        rsi_wilder,
+        rvol,
+        rs_adaptive_mix,
+        session_lag,
+        setup_class,
+        sma,
+        true_range,
+    )
 except (ModuleNotFoundError, ImportError):
-    from indicators import atr_sma, atr_wilder, ema, rsi_wilder, rvol, true_range, distance_below_high, setup_class, sma  # type: ignore
+    from indicators import (  # type: ignore
+        adr_pct,
+        atr_sma,
+        atr_wilder,
+        distance_below_high,
+        ema,
+        rsi_wilder,
+        rvol,
+        rs_adaptive_mix,
+        session_lag,
+        setup_class,
+        sma,
+        true_range,
+    )
 try:
     from institutional_engine import enrich_deals_with_tiers
 except ModuleNotFoundError:
@@ -467,6 +493,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         g["true_range"] = true_range(high, low, close)
         g["atr_14"] = atr_sma(high, low, close, period=14)
         g["atr_pct"] = g["atr_14"] / close * 100
+        g["adr_20_pct"] = adr_pct(high, low, window=20)
         g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
         g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
         # Primary risk volatility uses the standard Wilder smoothing. Keep
@@ -630,8 +657,16 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     rs_components = pd.concat([rs_latest_q, rs_prior_q2, rs_prior_q3, rs_prior_q4], axis=1)
     rs_score_no_fill = rs_components.mul([0.40, 0.20, 0.20, 0.20], axis=1).sum(axis=1, min_count=4)
     indicators["rs_percentile_primary"] = rs_score_no_fill.groupby(indicators["trade_date"]).rank(pct=True) * 100
+    # Production ladder is min_count=4 only. Adaptive IPO scores stay on side columns.
     indicators["rs_percentile"] = indicators["rs_percentile_primary"]
     indicators["rs_percentile_no_fill"] = indicators["rs_percentile_primary"]
+    indicators["rs_score_adaptive"] = close_by_symbol.transform(rs_adaptive_mix)
+    indicators["rs_percentile_ipo"] = (
+        indicators["rs_score_adaptive"].groupby(indicators["trade_date"]).rank(pct=True) * 100
+    )
+    indicators["rs_rank_t5"] = session_lag(indicators["rs_percentile"], indicators["symbol"], 5)
+    indicators["rs_rank_t15"] = session_lag(indicators["rs_percentile"], indicators["symbol"], 15)
+    indicators["rs_rank_t30"] = session_lag(indicators["rs_percentile"], indicators["symbol"], 30)
 
     # Alternative RS views. The primary percentile requires complete quarterly history.
     # These help validate / compare. The current method is a weighted multi-quarter momentum rank vs peers on the day.
@@ -850,8 +885,8 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
         )
         grouped["rotation_rank"] = grouped.groupby("trade_date")["rotation_score"].rank(ascending=False, method="min")
         grouped = grouped.sort_values(["group_name", "trade_date"])
-        grouped["rank_change_5d"] = grouped.groupby("group_name")["rotation_rank"].shift(5) - grouped["rotation_rank"]
-        grouped["rank_change_20d"] = grouped.groupby("group_name")["rotation_rank"].shift(20) - grouped["rotation_rank"]
+        grouped["rank_change_5d"] = session_lag(grouped["rotation_rank"], grouped["group_name"], 5) - grouped["rotation_rank"]
+        grouped["rank_change_20d"] = session_lag(grouped["rotation_rank"], grouped["group_name"], 20) - grouped["rotation_rank"]
         grouped["score_change_5d"] = grouped.groupby("group_name")["rotation_score"].diff(5)
         grouped["turnover_1d_cr"] = grouped["turnover_cr"]
         grouped["turnover_5d_cr"] = grouped.groupby("group_name")["turnover_cr"].transform(lambda s: s.rolling(5, min_periods=1).sum())

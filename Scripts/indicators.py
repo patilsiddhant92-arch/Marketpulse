@@ -139,6 +139,17 @@ def rs_adaptive_mix(
     return mature.combine_first(adaptive_quarters).combine_first(pd.Series(early_score, index=close.index))
 
 
+def session_lag(values: pd.Series, group: pd.Series, periods: int) -> pd.Series:
+    """Return `values` from `periods` sessions ago within each `group`.
+
+    Session count, not calendar days — the same lag used for sector T-5 rank change.
+    Caller must present rows in session order within each group.
+    """
+    if periods < 1:
+        raise ValueError("periods must be >= 1")
+    return values.groupby(group, sort=False).shift(periods)
+
+
 def adr_pct(
     high: pd.Series,
     low: pd.Series,
@@ -203,6 +214,7 @@ __all__ = [
     "rvol",
     "rs_adaptive_mix",
     "rs_quarterly_mix",
+    "session_lag",
     "setup_class",
     "sma",
     "true_range",
