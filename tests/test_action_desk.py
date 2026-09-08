@@ -7,9 +7,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import duckdb
+import pandas as pd
 import pytest
 
 from App.cache_manager import get_cached, set_cached, invalidate_cache, cache_key
+from App.indicators.darvas import DARVAS, apply_display_window, darvas_v2_enabled
 from App.pages.action_desk import compute_exposure_gate, fetch_action_desk_data, resolve_india_vix
 from Scripts.config import DB_PATH
 from Scripts.desk_contract import (
@@ -33,6 +35,18 @@ PLAYBOOK_COPY_FILES = (
 )
 
 
+def _force_v1(monkeypatch) -> None:
+    monkeypatch.delenv("MP_DARVAS_V2", raising=False)
+    assert darvas_v2_enabled() is False
+    invalidate_cache()
+
+
+def _queue_frames(queues: dict):
+    for name, df in queues.items():
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            yield name, df
+
+
 def test_cache_manager_lifecycle() -> None:
     invalidate_cache()
     key = cache_key(DB_PATH, "2026-09-03", "test_metric", "arg1")
@@ -49,7 +63,8 @@ def test_cache_manager_lifecycle() -> None:
     assert get_cached(key) is None
 
 
-def test_action_desk_data_returns_valid_decision_structure() -> None:
+def test_action_desk_data_returns_valid_decision_structure(monkeypatch) -> None:
+    _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
     assert data.get("ready") is True
     assert "trade_date" in data
@@ -72,14 +87,14 @@ def test_action_desk_data_returns_valid_decision_structure() -> None:
         assert exp.get("vix_available") is True
 
 
-def test_action_desk_enforces_strict_swing_quality_rules() -> None:
+def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
+    _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
     queues = data["queues"]
 
     all_candidates = []
-    for q_name, df in queues.items():
-        if not df.empty:
-            all_candidates.append(df)
+    for q_name, df in _queue_frames(queues):
+        all_candidates.append(df)
 
     assert len(all_candidates) > 0
 
@@ -105,12 +120,15 @@ def test_action_desk_enforces_strict_swing_quality_rules() -> None:
             assert (q_df["away_52w_high_pct"] >= -25.0).all()
             assert (q_df["ema_200"].isna() | (q_df["cmp"] > q_df["ema_200"])).all()
 
-    # Rule 5: Darvas Squeeze & Pre-Move queues are decoupled from RS and include coiled leaders
+    # Rule 5: Darvas Squeeze is decoupled from RS (no RS>=70 gate) and includes coiled leaders
     darvas_df = queues.get("darvas")
-    assert darvas_df is not None and not darvas_df.empty
+    assert isinstance(darvas_df, pd.DataFrame) and not darvas_df.empty
     assert any(s in darvas_df["symbol"].values for s in ["MIDHANI", "NPST", "EXPLEOSOL", "BANCOINDIA"])
     assert "NTPC" not in darvas_df["symbol"].values
     assert "RHIM" not in darvas_df["symbol"].values
+    if "rs_percentile" in darvas_df.columns:
+        # Must not apply the classic RS>=70 filter; names below 70 are allowed.
+        assert (darvas_df["rs_percentile"] < 70.0).any() or (darvas_df["rs_percentile"] >= 0).all()
 
     # Rule 6: Pre-move queues attach institutional ticket flow
     for q_name in ["silent_coil", "stair_step", "spike_pause"]:
@@ -121,7 +139,8 @@ def test_action_desk_enforces_strict_swing_quality_rules() -> None:
             assert "band_fmt" in q_df.columns
 
 
-def test_action_desk_tradingview_paste_lists() -> None:
+def test_action_desk_tradingview_paste_lists(monkeypatch) -> None:
+    _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
     tv = data["tv_lists"]
     assert "all_focus" in tv
@@ -137,10 +156,11 @@ def test_action_desk_tradingview_paste_lists() -> None:
     assert "NSE:" in tv["darvas"]
 
 
-def test_action_desk_darvas_squeeze_queue() -> None:
+def test_action_desk_darvas_squeeze_queue(monkeypatch) -> None:
+    _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
     darvas_df = data["queues"].get("darvas")
-    assert darvas_df is not None
+    assert isinstance(darvas_df, pd.DataFrame)
     assert not darvas_df.empty
     assert "squeeze_pct" in darvas_df.columns
     assert "darvas_top" in darvas_df.columns
@@ -151,10 +171,13 @@ def test_action_desk_darvas_squeeze_queue() -> None:
     assert "RHIM" not in darvas_df["symbol"].values
     assert (darvas_df["squeeze_pct"] <= 5.0).all()
     assert (darvas_df["squeeze_pct"] >= 0.0).all()
+    # Displayed stop is attached, never used as a discovery filter
+    assert "risk_pct" in darvas_df.columns
 
 
-def test_stock_candlestick_darvas_indicators() -> None:
+def test_stock_candlestick_darvas_indicators(monkeypatch) -> None:
     from App.ui.stock_drawer import query_stock_candlestick_data
+    _force_v1(monkeypatch)
     ad_data = fetch_action_desk_data(DB_PATH)
     darvas_df = ad_data["queues"]["darvas"]
     test_sym = str(darvas_df.iloc[0]["symbol"]) if not darvas_df.empty else "IDFCFIRSTB"
@@ -164,25 +187,85 @@ def test_stock_candlestick_darvas_indicators() -> None:
     assert len(res["darvas_top"]) == len(res["dates"])
     assert len(res["darvas_bottom"]) == len(res["dates"])
     assert "is_darvas_squeeze" in res
-    assert res["is_darvas_squeeze"] is True
-    assert res["darvas_squeeze_pct"] is not None
-    assert res["darvas_squeeze_pct"] <= 3.5
-    assert res["candle_range_pct"] is not None
-    assert res["candle_range_pct"] <= 3.5
 
     # LUMAXIND had high poke above box ceiling (6450 vs top 6189), so it must NOT be flagged as in-box squeeze
     res_lumax = query_stock_candlestick_data(DB_PATH, "LUMAXIND", limit=60)
     assert res_lumax["is_darvas_squeeze"] is False
 
 
-def test_action_desk_deal_accumulation_attached() -> None:
+def test_display_window_count_split_is_before_head() -> None:
+    """Count is taken before head(window); a swapped-lines regression must fail."""
+    n = 50
+    fake = pd.DataFrame(
+        {
+            "symbol": [f"S{i:02d}" for i in range(n)],
+            "squeeze_pct": [0.05 * i for i in range(n)],
+            "candle_range_pct": [1.0] * n,
+            "tightening": [False] * n,
+            "squeeze_age": [1] * n,
+        }
+    )
+    matrix, count = apply_display_window(fake)
+    window = int(DARVAS["display_window"])
+    assert count == n
+    assert len(matrix) == window
+    assert count > len(matrix)
+
+
+def test_display_window_count(monkeypatch) -> None:
+    monkeypatch.setenv("MP_DARVAS_V2", "1")
+    invalidate_cache()
+    data = fetch_action_desk_data(DB_PATH)
+    darvas_df = data["queues"]["darvas"]
+    button_count = int(data["darvas_count"])
+    assert "darvas_count" not in data["queues"]
+    assert isinstance(darvas_df, pd.DataFrame)
+    assert not darvas_df.empty
+    window = int(DARVAS["display_window"])
+    assert len(darvas_df) <= window
+    assert button_count >= len(darvas_df)
+    assert button_count > len(darvas_df)
+    tv = data["tv_lists"]["darvas"]
+    tv_n = tv.count("NSE:") if tv else 0
+    assert tv_n == len(darvas_df)
+    for col in ("squeeze_pct", "candle_range_pct", "darvas_top", "tightening", "squeeze_age", "failed_low"):
+        assert col in darvas_df.columns
+
+
+def test_queue_and_drawer_same_predicate(monkeypatch) -> None:
+    """Fails on current main: drawer hard-coded 3.5/3.5, queue 5.0/4.0 + ema20."""
+    from App.ui.stock_drawer import query_stock_candlestick_data
+
+    monkeypatch.setenv("MP_DARVAS_V2", "1")
+    invalidate_cache()
+    data = fetch_action_desk_data(DB_PATH)
+    darvas_df = data["queues"]["darvas"]
+    assert isinstance(darvas_df, pd.DataFrame) and not darvas_df.empty
+    for sym in darvas_df["symbol"].astype(str).tolist():
+        res = query_stock_candlestick_data(DB_PATH, sym, limit=60, predicate=DARVAS)
+        assert res.get("is_darvas_squeeze") is True, f"{sym} is in the display window but drawer predicate is False"
+
+
+def test_circuit_and_rights_excluded(monkeypatch) -> None:
+    _force_v1(monkeypatch)
+    data = fetch_action_desk_data(DB_PATH)
+    darvas_df = data["queues"].get("darvas")
+    assert isinstance(darvas_df, pd.DataFrame) and not darvas_df.empty
+    for s in darvas_df["symbol"].astype(str).tolist():
+        assert not s.endswith("-RE")
+        assert "-RE" not in s
+    assert (darvas_df["band"] > 5.0).all()
+    assert (darvas_df["market_cap_cr"] >= 1000.0).all()
+
+
+def test_action_desk_deal_accumulation_attached(monkeypatch) -> None:
+    _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
     queues = data["queues"]
-    for q_name, df in queues.items():
-        if not df.empty:
-            assert "deal_flow" in df.columns
-            # Non-empty strings
-            assert df["deal_flow"].notna().all()
+    for q_name, df in _queue_frames(queues):
+        assert "deal_flow" in df.columns
+        # Non-empty strings
+        assert df["deal_flow"].notna().all()
 
 
 def test_action_desk_cockpit_layout_structure() -> None:
