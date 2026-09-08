@@ -243,23 +243,11 @@ def query_taxonomy_hierarchy(db_path: Path, min_mcap: float = 1_000.0) -> list[d
             """
         ).fetchdf()
 
-        computed_table_exists = db.execute(
-            "SELECT count(*) FROM information_schema.tables WHERE table_name = 'sector_metrics_daily'"
-        ).fetchone()[0]
-        computed_exists = bool(
-            computed_table_exists
-            and db.execute("SELECT max(trade_date) FROM sector_metrics_daily").fetchone()[0] is not None
-        )
         rotation_exists = db.execute(
             "SELECT count(*) FROM information_schema.tables WHERE table_name = 'sector_rotation'"
         ).fetchone()[0]
         metric_frames: list[pd.DataFrame] = []
-        if computed_exists:
-            for level, _ in TAXONOMY_LEVELS:
-                overview = _computed_sector_overview(db, level)
-                if overview is not None and not overview["leaderboard"].empty:
-                    metric_frames.append(overview["leaderboard"])
-        elif rotation_exists:
+        if rotation_exists:
             latest = db.execute("SELECT max(trade_date) FROM sector_rotation").fetchone()[0]
             if latest is not None:
                 metric_frames.append(
@@ -418,27 +406,34 @@ def _computed_sector_overview(
     frame["rank_change_5d"] = 0
     frame["score_change_5d"] = 0.0
 
-    # RRG (Relative Rotation Graph) 4-Quadrant calculations
-    if "rs_vs_nifty_63d" in frame.columns and frame["rs_vs_nifty_63d"].notna().any() and (frame["rs_vs_nifty_63d"].abs().sum() > 0):
-        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"].fillna(0.0) / 1.5).clip(-30.0, 30.0)
+    # Null vs-Nifty is missing history, not a 0.0 return or a synthetic Leading map.
+    has_vs_nifty = "rs_vs_nifty_63d" in frame.columns and bool(frame["rs_vs_nifty_63d"].notna().any())
+    if has_vs_nifty:
+        vs_ok = frame["rs_vs_nifty_63d"].notna()
+        frame["rs_ratio"] = 100.0 + (frame["rs_vs_nifty_63d"] / 1.5).clip(-30.0, 30.0)
+        mom_from_5d = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
+        if "rs_vs_nifty_21d" in frame.columns and bool(frame["rs_vs_nifty_21d"].notna().any()):
+            frame["rs_momentum"] = 100.0 + (
+                (frame["rs_vs_nifty_21d"] - (frame["rs_vs_nifty_63d"] / 3.0)) * 2.0
+            ).clip(-30.0, 30.0)
+            frame.loc[vs_ok & frame["rs_momentum"].isna(), "rs_momentum"] = mom_from_5d
+        else:
+            frame["rs_momentum"] = mom_from_5d
+        frame.loc[~vs_ok, ["rs_ratio", "rs_momentum"]] = np.nan
+        rrg_conditions = [
+            vs_ok & (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
+            vs_ok & (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
+            vs_ok & (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
+            vs_ok,
+        ]
+        frame["rotation_state"] = np.select(
+            rrg_conditions,
+            ["Leading", "Weakening", "Improving", "Lagging"],
+            default="",
+        )
     else:
-        frame["rs_ratio"] = 100.0 + (frame["rs_percentile"].fillna(50.0) - 50.0)
+        frame["rotation_state"] = ""
 
-    if "rs_vs_nifty_21d" in frame.columns and frame["rs_vs_nifty_21d"].notna().any() and (frame["rs_vs_nifty_21d"].abs().sum() > 0):
-        frame["rs_momentum"] = 100.0 + ((frame["rs_vs_nifty_21d"].fillna(0.0) - (frame["rs_vs_nifty_63d"].fillna(0.0) / 3.0)) * 2.0).clip(-30.0, 30.0)
-    else:
-        frame["rs_momentum"] = 100.0 + (frame["return_5d_pct"].fillna(0.0) * 3.0).clip(-30.0, 30.0)
-
-    rrg_conditions = [
-        (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] >= 100.0),
-        (frame["rs_ratio"] >= 100.0) & (frame["rs_momentum"] < 100.0),
-        (frame["rs_ratio"] < 100.0) & (frame["rs_momentum"] >= 100.0),
-    ]
-    frame["rotation_state"] = np.select(
-        rrg_conditions,
-        ["Leading", "Weakening", "Improving"],
-        default="Lagging",
-    )
     frame["near_52w_highs"] = frame["near_52w_highs"].fillna(0).astype(int)
     frame["why_focus"] = frame.apply(_build_why_focus, axis=1)
 
@@ -472,17 +467,19 @@ def _computed_sector_overview(
 
     quadrants: dict[str, list[dict[str, Any]]] = {"Leading": [], "Improving": [], "Weakening": [], "Lagging": []}
     top_focus: list[dict[str, Any]] = []
-    for _, row in frame.sort_values("rotation_rank").iterrows():
-        state = str(row["rotation_state"])
-        item = row.to_dict()
-        item.update({
-            "status_badge": state.upper(),
-            "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"
-        })
-        quad_key = state if state in quadrants else "Lagging"
-        quadrants[quad_key].append(item)
-        if len(top_focus) < 4:
-            top_focus.append(item)
+    if has_vs_nifty:
+        for _, row in frame.sort_values("rotation_rank").iterrows():
+            state = str(row["rotation_state"] or "").strip()
+            if state not in quadrants:
+                continue
+            item = row.to_dict()
+            item.update({
+                "status_badge": state.upper(),
+                "status_color": "emerald" if state == "Leading" else "blue" if state == "Improving" else "amber" if state == "Weakening" else "slate"
+            })
+            quadrants[state].append(item)
+            if len(top_focus) < 4:
+                top_focus.append(item)
 
     return {
         "as_of": str(pd.to_datetime(frame["trade_date"].iloc[0]).date()),
@@ -491,6 +488,7 @@ def _computed_sector_overview(
         "heatmap": frame,
         "quadrants": quadrants,
         "total": len(frame),
+        "insufficient_index_history": not has_vs_nifty,
     }
 
 
