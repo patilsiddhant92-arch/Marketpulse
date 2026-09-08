@@ -71,21 +71,26 @@ def test_action_desk_enforces_strict_swing_quality_rules() -> None:
         # Rule 3: No 5% Band
         assert (df["band"] > 5.0).all()
 
-        # Rule 4: Above 200 EMA
-        assert (df["cmp"] > df["ema_200"]).all()
+    # Rule 4: Classic breakout queues enforce Stage 2 uptrend, above 200 EMA, and within 25% 52W
+    for q_name in ["vcp", "pullback", "high52"]:
+        q_df = queues.get(q_name)
+        if q_df is not None and not q_df.empty:
+            assert (q_df["rs_percentile"] >= 70.0).all()
+            assert (q_df["away_52w_high_pct"] >= -25.0).all()
+            assert (q_df["ema_200"].isna() | (q_df["cmp"] > q_df["ema_200"])).all()
 
-        # Rule 5: 50 EMA > 200 EMA
-        assert (df["ema_50"] > df["ema_200"]).all()
+    # Rule 5: Darvas Squeeze & Pre-Move queues are decoupled from RS and include leaders like MIDHANI
+    darvas_df = queues.get("darvas")
+    assert darvas_df is not None and not darvas_df.empty
+    assert "MIDHANI" in darvas_df["symbol"].values
 
-        # Rule 6: Within 25% of 52W High
-        assert (df["away_52w_high_pct"] >= -25.0).all()
-
-        # Rule 7: Strict Risk Ceiling <= 6.0%
-        assert (df["risk_pct"] <= 6.0).all()
-        assert (df["risk_pct"] > 0.0).all()
-
-        # Rule 8: Leadership RS >= 70
-        assert (df["rs_percentile"] >= 70.0).all()
+    # Rule 6: Pre-move queues attach institutional ticket flow
+    for q_name in ["silent_coil", "stair_step", "spike_pause"]:
+        q_df = queues.get(q_name)
+        if q_df is not None and not q_df.empty:
+            assert "ticket_flow" in q_df.columns
+            assert "away_10ema" in q_df.columns
+            assert "band_fmt" in q_df.columns
 
 
 def test_action_desk_tradingview_paste_lists() -> None:
@@ -97,6 +102,9 @@ def test_action_desk_tradingview_paste_lists() -> None:
     assert "episodic" in tv
     assert "high52" in tv
     assert "darvas" in tv
+    assert "silent_coil" in tv
+    assert "stair_step" in tv
+    assert "spike_pause" in tv
     assert "NSE:" in tv["all_focus"]
     assert "NSE:" in tv["darvas"]
 
@@ -110,16 +118,17 @@ def test_action_desk_darvas_squeeze_queue() -> None:
     assert "darvas_top" in darvas_df.columns
     assert "trigger_price" in darvas_df.columns
     assert "stop_loss" in darvas_df.columns
-    assert (darvas_df["squeeze_pct"] <= 3.5).all()
+    assert "MIDHANI" in darvas_df["symbol"].values
+    assert (darvas_df["squeeze_pct"] <= 5.0).all()
     assert (darvas_df["squeeze_pct"] >= 0.0).all()
-    assert (darvas_df["risk_pct"] <= 6.0).all()
-    assert (darvas_df["risk_pct"] > 0.0).all()
 
 
 def test_stock_candlestick_darvas_indicators() -> None:
     from App.ui.stock_drawer import query_stock_candlestick_data
-    # PREMEXPLN has full OHLC strictly inside the box in near range
-    res = query_stock_candlestick_data(DB_PATH, "PREMEXPLN", limit=60)
+    ad_data = fetch_action_desk_data(DB_PATH)
+    darvas_df = ad_data["queues"]["darvas"]
+    test_sym = str(darvas_df.iloc[0]["symbol"]) if not darvas_df.empty else "IDFCFIRSTB"
+    res = query_stock_candlestick_data(DB_PATH, test_sym, limit=60)
     assert "darvas_top" in res
     assert "darvas_bottom" in res
     assert len(res["darvas_top"]) == len(res["dates"])

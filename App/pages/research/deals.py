@@ -84,8 +84,16 @@ def _prepare_tier_table_df(df_in: pd.DataFrame) -> pd.DataFrame:
         out["clientele"] = out["categories"].map(
             lambda c: "/".join(sorted(list(c))) if isinstance(c, (set, list)) else str(c)
         )
+    if "trend_stage" in out.columns:
+        out["trend"] = out["trend_stage"]
+    elif "close_price" in out.columns and "ema_200" in out.columns:
+        out["trend"] = out.apply(
+            lambda r: "🟢 >200 EMA" if pd.notna(r.get("close_price")) and pd.notna(r.get("ema_200")) and float(r["close_price"]) >= float(r["ema_200"]) else "🟡 Base / Turnaround",
+            axis=1,
+        )
     cols = [
         "symbol",
+        "trend",
         "deal_days",
         "clientele",
         "net_cr",
@@ -121,7 +129,7 @@ def build_deals_page(
 
     hft_state = {"exclude_hft": False}
     confluence_state = {"active": False}
-    hub_state = {"lookback_days": 20}
+    hub_state = {"lookback_days": 20, "setup_filter": "ALL"}
 
     hub_container = ui.column().classes("w-full mb-3")
 
@@ -146,41 +154,83 @@ def build_deals_page(
             prop_tv = tv_map.get("prop_tv", "")
             quarantined_tv = tv_map.get("quarantined_tv", "")
 
+            # Apply dynamic setup filter if active
+            active_filter = hub_state.get("setup_filter", "ALL")
+            if active_filter == "ABOVE_200":
+                if not conviction_df.empty and "is_above_200" in conviction_df.columns:
+                    conviction_df = conviction_df[conviction_df["is_above_200"]].copy()
+                if not fresh_radar_df.empty and "is_above_200" in fresh_radar_df.columns:
+                    fresh_radar_df = fresh_radar_df[fresh_radar_df["is_above_200"]].copy()
+                active_master_tv = tv_map.get("above_200_tv") or to_tv_list(conviction_df["symbol"].tolist() + fresh_radar_df["symbol"].tolist())
+            elif active_filter == "TURNAROUND":
+                if not conviction_df.empty and "is_above_200" in conviction_df.columns:
+                    conviction_df = conviction_df[~conviction_df["is_above_200"]].copy()
+                if not fresh_radar_df.empty and "is_above_200" in fresh_radar_df.columns:
+                    fresh_radar_df = fresh_radar_df[~fresh_radar_df["is_above_200"]].copy()
+                active_master_tv = tv_map.get("turnaround_tv") or to_tv_list(conviction_df["symbol"].tolist() + fresh_radar_df["symbol"].tolist())
+            else:
+                active_master_tv = master_tv
+
             with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)]"):
-                # Header row: Title + Lookback selector
+                # Header row: Title + Lookback & Setup selectors
                 with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mb-2"):
                     with ui.column().classes("gap-0.5"):
                         with ui.row().classes("items-center gap-2"):
                             ui.label("📡 Institutional Deals Desk · Action Radar (3-Tier)").classes("mp-section-title m-0 text-base font-bold")
                             ui.label(f"As of {as_of}").classes("mp-badge mp-pill text-xs")
-                        ui.label(f"Streamlined 3-Tier institutional deal flow across last {days} sessions. Zero duplicate tickers.").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"Complete institutional deal flow across last {days} sessions. Zero duplicate tickers.").classes("text-xs text-[var(--mp-muted)]")
 
-                    # Lookback selector pills
-                    with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
-                        ui.label("Lookback:").classes("text-xs text-[var(--mp-muted)] px-2 font-medium")
-                        for d_val, d_label in [(10, "10 Days"), (20, "20 Days (Default)"), (30, "30 Days")]:
-                            is_active = (days == d_val)
-                            btn_classes = "mp-primary text-xs" if is_active else "text-xs text-[var(--mp-muted)]"
-                            def _make_setter(v: int):
-                                def _setter() -> None:
-                                    hub_state["lookback_days"] = v
-                                    render_telegram_hub()
-                                return _setter
-                            ui.button(d_label, on_click=_make_setter(d_val)).classes(btn_classes).props("dense unelevated" if is_active else "dense flat")
+                    # Selectors: Lookback + Setup Filter
+                    with ui.row().classes("items-center gap-2 flex-wrap"):
+                        # Lookback selector pills
+                        with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
+                            ui.label("Lookback:").classes("text-xs text-[var(--mp-muted)] px-2 font-medium")
+                            for d_val, d_label in [(10, "10 Days"), (20, "20 Days (Default)"), (30, "30 Days")]:
+                                is_active = (days == d_val)
+                                btn_classes = "mp-primary text-xs" if is_active else "text-xs text-[var(--mp-muted)]"
+                                def _make_setter(v: int):
+                                    def _setter() -> None:
+                                        hub_state["lookback_days"] = v
+                                        render_telegram_hub()
+                                    return _setter
+                                ui.button(d_label, on_click=_make_setter(d_val)).classes(btn_classes).props("dense unelevated" if is_active else "dense flat")
+
+                        # Setup filter selector pills
+                        with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
+                            ui.label("Setup:").classes("text-xs text-[var(--mp-muted)] px-2 font-medium")
+                            curr_f = hub_state.get("setup_filter", "ALL")
+                            for f_val, f_label in [("ALL", "All Setups"), ("ABOVE_200", "Stage 2 (>200 EMA)"), ("TURNAROUND", "Base / Turnaround")]:
+                                is_active = (curr_f == f_val)
+                                btn_classes = "mp-primary text-xs" if is_active else "text-xs text-[var(--mp-muted)]"
+                                def _make_filter_setter(f: str):
+                                    def _setter() -> None:
+                                        hub_state["setup_filter"] = f
+                                        render_telegram_hub()
+                                    return _setter
+                                ui.button(f_label, on_click=_make_filter_setter(f_val)).classes(btn_classes).props("dense unelevated" if is_active else "dense flat")
 
                 # Master Quick Actions
                 with ui.row().classes("w-full items-center gap-2 flex-wrap p-2.5 bg-[var(--mp-surface)] rounded-lg border border-[var(--mp-border)] mb-3"):
                     ui.label("⚡ Quick Export:").classes("text-xs font-semibold text-[var(--mp-text)]")
-                    if master_tv:
-                        ui.button("📋 Copy Master TV (Tier 1 & 2)", on_click=lambda t=master_tv: copy_text("Master Deals TV", t)).classes("mp-primary text-xs font-bold").props("dense")
+                    total_master_count = len(conviction_df) + len(fresh_radar_df)
+                    if active_master_tv:
+                        ui.button(f"📋 Copy Master TV ({total_master_count} Stocks)", on_click=lambda t=active_master_tv: copy_text("Master Deals TV", t)).classes("mp-primary text-xs font-bold").props("dense")
                     if conviction_tv:
-                        ui.button("📋 Copy Conviction Only", on_click=lambda t=conviction_tv: copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
+                        conv_syms = conviction_df["symbol"].tolist() if not conviction_df.empty else []
+                        c_str = to_tv_list(conv_syms, header="💎 Conviction Accumulation") if conv_syms else conviction_tv
+                        ui.button(f"📋 Copy Conviction Only ({len(conv_syms)})", on_click=lambda t=c_str: copy_text("Conviction Deals TV", t)).classes("mp-button text-xs text-emerald-400 font-semibold").props("dense outline")
                     if fresh_radar_tv:
-                        ui.button("📋 Copy Fresh Radar", on_click=lambda t=fresh_radar_tv: copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
+                        fresh_syms = fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else []
+                        f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else fresh_radar_tv
+                        ui.button(f"📋 Copy Fresh Radar ({len(fresh_syms)})", on_click=lambda t=f_str: copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
+                    if tv_map.get("above_200_tv"):
+                        ui.button("📋 Stage 2 (>200 EMA)", on_click=lambda t=tv_map["above_200_tv"]: copy_text("Stage 2 Deals TV", t)).classes("mp-button text-xs text-teal-400").props("dense outline")
+                    if tv_map.get("turnaround_tv"):
+                        ui.button("📋 Turnaround (<200 EMA)", on_click=lambda t=tv_map["turnaround_tv"]: copy_text("Turnaround Deals TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
                     if prop_tv:
-                        ui.button("📋 Copy Prop HFT Only", on_click=lambda t=prop_tv: copy_text("Prop HFT Deals TV", t)).classes("mp-button text-xs text-amber-400").props("dense outline")
+                        ui.button("📋 Copy Prop HFT Only", on_click=lambda t=prop_tv: copy_text("Prop HFT Deals TV", t)).classes("mp-button text-xs text-amber-400/80").props("dense outline")
                     if quarantined_tv:
-                        ui.button("📋 Copy Quarantined (<200 EMA)", on_click=lambda t=quarantined_tv: copy_text("Quarantined Deals TV", t)).classes("mp-button text-xs text-rose-400").props("dense outline")
+                        ui.button("📋 Copy Quarantined (5% Band)", on_click=lambda t=quarantined_tv: copy_text("Quarantined Deals TV", t)).classes("mp-button text-xs text-rose-400").props("dense outline")
 
                 # Tabs for Clean Inspection
                 with ui.tabs().classes("w-full bg-[var(--mp-surface)] rounded-t-lg border border-[var(--mp-border)]") as hub_tabs:
@@ -194,9 +244,11 @@ def build_deals_page(
                     # Tab 1: Conviction Accumulation
                     with ui.tab_panel(t1).classes("p-2 gap-2"):
                         with ui.row().classes("w-full items-center justify-between mb-2"):
-                            ui.label("🔥 Primary Swing Watchlist: Multi-day persistence (2+ days) or Whale Inflows (≥₹50Cr) with real FII/DII backing and price above 200 EMA.").classes("text-xs text-[var(--mp-muted)]")
+                            ui.label("🔥 Primary Swing Watchlist: Multi-day persistence (2+ days) or Whale Inflows (≥₹25Cr) with genuine institutional sponsorship (FII/DII/HNI). Includes both Stage 2 momentum and high-conviction Stage 1 turnarounds.").classes("text-xs text-[var(--mp-muted)]")
                             if conviction_tv:
-                                ui.button("📋 Copy TV List", on_click=lambda t=conviction_tv: copy_text("Conviction TV", t)).classes("text-xs").props("dense outline")
+                                conv_syms = conviction_df["symbol"].tolist() if not conviction_df.empty else []
+                                c_str = to_tv_list(conv_syms, header="💎 Conviction Accumulation") if conv_syms else conviction_tv
+                                ui.button("📋 Copy TV List", on_click=lambda t=c_str: copy_text("Conviction TV", t)).classes("text-xs").props("dense outline")
                         if conviction_df.empty:
                             ui.label("No stocks meet Tier 1 conviction accumulation criteria in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
                         else:
@@ -207,7 +259,9 @@ def build_deals_page(
                         with ui.row().classes("w-full items-center justify-between mb-2"):
                             ui.label("⚡ Early Radar: Day-1 institutional entry with genuine institutional sponsorship. Watch for follow-through.").classes("text-xs text-[var(--mp-muted)]")
                             if fresh_radar_tv:
-                                ui.button("📋 Copy TV List", on_click=lambda t=fresh_radar_tv: copy_text("Fresh Radar TV", t)).classes("text-xs").props("dense outline")
+                                fresh_syms = fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else []
+                                f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else fresh_radar_tv
+                                ui.button("📋 Copy TV List", on_click=lambda t=f_str: copy_text("Fresh Radar TV", t)).classes("text-xs").props("dense outline")
                         if fresh_radar_df.empty:
                             ui.label("No fresh institutional entries in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
                         else:
@@ -227,7 +281,7 @@ def build_deals_page(
                     # Tab 4: Quarantined
                     with ui.tab_panel(t4).classes("p-2 gap-2"):
                         with ui.row().classes("w-full items-center justify-between mb-2"):
-                            ui.label("📉 Quarantined from Swings: MCap ≥ 900 Cr but below 200 EMA or locked in ≤5% circuit bands.").classes("text-xs text-rose-400/80")
+                            ui.label("📉 Quarantined from Swings: MCap ≥ 900 Cr but locked in tight ≤5% circuit bands (illiquid collar risk).").classes("text-xs text-rose-400/80")
                             if quarantined_tv:
                                 ui.button("📋 Copy TV List", on_click=lambda t=quarantined_tv: copy_text("Quarantined TV", t)).classes("text-xs").props("dense outline")
                         if quarantined_df.empty:
@@ -245,7 +299,7 @@ def build_deals_page(
                         if distribution_df.empty:
                             ui.label("No institutional distribution recorded in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
                         else:
-                            table_from_df(distribution_df, "", pagination=15, compact=True)
+                            table_from_df(_prepare_tier_table_df(distribution_df), "", pagination=15, compact=True)
 
     desk_host = ui.column().classes("w-full")
 

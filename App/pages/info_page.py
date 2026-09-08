@@ -14,6 +14,11 @@ try:
 except ModuleNotFoundError:
     from data_health_page import build_data_health_page  # type: ignore
 
+try:
+    from App.ui.playbook_guide import open_playbook_modal
+except ModuleNotFoundError:
+    from ui.playbook_guide import open_playbook_modal  # type: ignore
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. MACRO PLAYBOOK DEFINITION (Plain English)
@@ -404,12 +409,14 @@ def build_info_page(
 
     with ui.row().classes("gap-2 flex-wrap items-center mt-2 mb-4 mp-desk-action"):
         btn_playbook = ui.button("🌍 Macro Playbook", on_click=lambda: _select_tab("playbook")).props("dense").classes("mp-button")
+        btn_trading_guide = ui.button("🎯 Swing Trading Playbook", on_click=lambda: _select_tab("trading_guide")).props("dense outline").classes("mp-button")
         btn_chrono = ui.button("⏱ Chronology & Ripple Effects", on_click=lambda: _select_tab("chrono")).props("dense outline").classes("mp-button")
         btn_cases = ui.button("💡 Real-World Case Studies", on_click=lambda: _select_tab("cases")).props("dense outline").classes("mp-button")
         btn_health = ui.button("⚙️ System & Data Health", on_click=lambda: _select_tab("health")).props("dense outline").classes("mp-button")
 
     buttons = {
         "playbook": btn_playbook,
+        "trading_guide": btn_trading_guide,
         "chrono": btn_chrono,
         "cases": btn_cases,
         "health": btn_health,
@@ -432,12 +439,68 @@ def build_info_page(
             active = current_tab["value"]
             if active == "playbook":
                 _render_playbook()
+            elif active == "trading_guide":
+                _render_trading_guide()
             elif active == "chrono":
                 _render_chronology()
             elif active == "cases":
                 _render_case_studies()
             elif active == "health":
                 _render_data_health()
+
+    def _render_trading_guide() -> None:
+        with ui.row().classes("w-full items-center justify-between pb-2 mb-3 border-b border-zinc-800 flex-wrap gap-2"):
+            with ui.column().classes("gap-0.5"):
+                ui.label("Action Desk Trading Playbook & Decision Framework").classes("text-lg font-bold text-zinc-100")
+                ui.label("Empirical 4-step framework, data dictionary, Holy Trinity checklist, and real case studies from 581 historical market sessions.").classes("text-xs text-zinc-400")
+            ui.button("📖 Open Interactive Modal ↗", on_click=open_playbook_modal).classes("mp-button text-xs bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400").props("dense unelevated")
+
+        with ui.column().classes("w-full gap-4"):
+            with ui.card().classes("w-full p-4 rounded-lg bg-zinc-900/90 border border-zinc-800 shadow-md"):
+                ui.label("1. The 3-Step Execution Funnel").classes("text-sm font-bold text-emerald-400 uppercase tracking-wider mb-2")
+                with ui.row().classes("w-full gap-3 flex-wrap md:flex-nowrap"):
+                    with ui.column().classes("flex-1 p-3 rounded bg-zinc-950 border border-zinc-800 gap-1"):
+                        ui.label("Step 1: Exposure Gate").classes("font-bold text-xs text-sky-400")
+                        ui.label("Check market breadth before buying: 🟢 75-100% (Full size); 🟡 25-50% (Selective 5-7% size); 🔴 0-25% (Cash preservation).").classes("text-[11px] text-zinc-300")
+                    with ui.column().classes("flex-1 p-3 rounded bg-zinc-950 border border-zinc-800 gap-1"):
+                        ui.label("Step 2: Leading Sectors").classes("font-bold text-xs text-amber-400")
+                        ui.label("50% of a stock's gain is driven by its sector. Always pick setups belonging to a #1, #2, or #3 ranked sector.").classes("text-[11px] text-zinc-300")
+                    with ui.column().classes("flex-1 p-3 rounded bg-zinc-950 border border-zinc-800 gap-1"):
+                        ui.label("Step 3: Setup Queues").classes("font-bold text-xs text-emerald-400")
+                        ui.label("Pre-Move Accumulation (Silent Coil, Stair-Step, Darvas) vs Continuation Flags (Spike-Pause) vs Breakouts (VCP, 52W).").classes("text-[11px] text-zinc-300")
+
+            with ui.card().classes("w-full p-4 rounded-lg bg-zinc-900/90 border border-emerald-500/30 shadow-md"):
+                ui.label("2. The 'Holy Trinity' Checklist for 10% / 20% UC Super-Movers").classes("text-sm font-bold text-emerald-400 uppercase tracking-wider mb-2")
+                with ui.column().classes("w-full gap-2 text-xs font-mono"):
+                    ui.label("✓ 1. Support Proximity: Sitting within [-1.5%, +2.0%] of the rising 10 EMA or 20 EMA (unextended).").classes("text-zinc-200")
+                    ui.label("✓ 2. Volume Signature: Severe volume dry-up (RVOL <= 0.65x) showing zero sellers, OR volume stair-stepping higher.").classes("text-zinc-200")
+                    ui.label("✓ 3. Institutional Footprint: TICKET 🏛️ expansion (>=1.2x) or Delivery >= 50% (real absorption into demat).").classes("text-zinc-200")
+                    ui.label("⭐ Bonus Edge: 10% Band stocks (marked 10% ⚡) have 2x higher odds of multi-day runner continuation (21.6% vs 9.6%).").classes("text-emerald-300 font-bold")
+
+            with ui.card().classes("w-full p-4 rounded-lg bg-zinc-900/90 border border-zinc-800 shadow-md"):
+                ui.label("3. How to Read Every Column").classes("text-sm font-bold text-sky-400 uppercase tracking-wider mb-2")
+                with ui.column().classes("w-full gap-1.5 text-xs font-mono"):
+                    ui.label("• TICKET 🏛️: Average trade size ratio. >1.2x indicates large institutions placing block orders.").classes("text-zinc-300")
+                    ui.label("• BAND: Circuit collar. '10% ⚡' highlights supply starvation. 20% indicates normal band.").classes("text-zinc-300")
+                    ui.label("• 10 EMA %: Proximity to support. Target [-1.5%, +1.5%]. Never chase if > +6.0%.").classes("text-zinc-300")
+                    ui.label("• RVOL TRAIL: 7-Day progression trail. Look for dying volume (0.4x -> 0.3x) or stair-step (0.5x -> 1.0x -> 1.8x).").classes("text-zinc-300")
+                    ui.label("• DELIVERY %: Delivery percentage. >=50% = real absorption. Blast days with <15% delivery had 40% trap rate.").classes("text-zinc-300")
+
+            with ui.card().classes("w-full p-4 rounded-lg bg-zinc-900/90 border border-zinc-800 shadow-md"):
+                ui.label("4. Historical Case Studies (What Winners Looked Like Before The Move)").classes("text-sm font-bold text-amber-400 uppercase tracking-wider mb-2")
+                with ui.column().classes("w-full gap-2 text-xs font-mono"):
+                    ui.label("• MVGJL (₹151 -> ₹215.88, +43% in 5 days): Aug 31 resting at -1.47% on 10 EMA, 0.67x RVOL, 61.1% Deliv, 1.32x Ticket 🏛️.").classes("text-zinc-300")
+                    ui.label("• XTRANET (3 Consecutive 20% Circuits): Aug 26 resting at -0.41% on 10 EMA, 0.37x RVOL, 48.3% Deliv.").classes("text-zinc-300")
+                    ui.label("• Current Real-Time Examples: COMSYN (1.6x 🏛️, 10% ⚡, +0.0% 10 EMA) and HDBFS (2.2x 🏛️, +0.1% 10 EMA, 85.8% Deliv).").classes("text-emerald-300")
+
+            with ui.card().classes("w-full p-4 rounded-lg bg-zinc-900/90 border border-zinc-800 shadow-md"):
+                ui.label("5. Your 15-Minute Daily Routine (4:00 PM - 9:00 AM)").classes("text-sm font-bold text-emerald-400 uppercase tracking-wider mb-2")
+                with ui.column().classes("w-full gap-1.5 text-xs font-mono"):
+                    ui.label("1. Check Step 1 Exposure Gate: If Green/Yellow, continue. If Red, halt new buying.").classes("text-zinc-300")
+                    ui.label("2. Glance at Step 2 Leading Sectors: Keep note of top 3 sectors.").classes("text-zinc-300")
+                    ui.label("3. Scan '6. Silent Coil' & '7. Stair-Step': Look for rows with '🏛️' ticket expansion badge and '10% ⚡' band.").classes("text-zinc-300")
+                    ui.label("4. Inspect Top 3 Charts in right pane: Verify orderly candles respecting 10 EMA line.").classes("text-zinc-300")
+                    ui.label("5. Click '📋 Copy [Queue] (TV)': Paste into TradingView watchlist and set alerts / GTT orders near 10 EMA.").classes("text-emerald-300 font-bold")
 
     def _render_playbook() -> None:
         ui.label("How to Think About Global Macros in Plain English").classes("text-lg font-bold text-zinc-100 mt-1")

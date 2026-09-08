@@ -36,13 +36,18 @@ try:
 except ModuleNotFoundError:
     from ui.vcp_chart import render_vcp_ohlc  # type: ignore
 
+try:
+    from App.ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner
+except ModuleNotFoundError:
+    from ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner  # type: ignore
+
 
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     """
     Query and assemble all datasets required for the Action Desk.
     Results are cached in memory for sub-millisecond response on subsequent tab visits.
     """
-    key = cache_key(db_path, None, "action_desk_v5")
+    key = cache_key(db_path, None, "action_desk_v6")
     cached = get_cached(key)
     if cached is not None:
         return cached
@@ -173,10 +178,25 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             [trade_date, trade_date],
         ).fetchdf()
 
-        # 4. Strict Quality Filtered Pool for Setups
+        # 4. Strict Quality Filtered Pool for Setups (Without RS gate, so Darvas & Pre-Move queues can find unextended gems)
         setup_pool = con.execute(
             """
-            WITH pool AS (
+            WITH dates AS (
+                SELECT DISTINCT trade_date 
+                FROM indicators_daily 
+                ORDER BY trade_date DESC 
+                LIMIT 7
+            ),
+            hist AS (
+                SELECT symbol,
+                       ARRAY_AGG(round(rvol, 2) ORDER BY trade_date ASC) as rvol_arr,
+                       ARRAY_AGG(round(delivery_pct, 1) ORDER BY trade_date ASC) as deliv_arr,
+                       ARRAY_AGG(round((close_price / prev_close - 1.0)*100, 2) ORDER BY trade_date ASC) as day_pct_arr
+                FROM indicators_daily
+                WHERE trade_date IN (SELECT trade_date FROM dates)
+                GROUP BY symbol
+            ),
+            pool AS (
                 SELECT 
                     i.trade_date,
                     i.symbol,
@@ -192,6 +212,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     i.away_52w_high_pct,
                     i.rs_percentile,
                     i.rvol,
+                    i.delivery_pct,
                     i.high_20d,
                     i.low_10d,
                     i.low_price,
@@ -204,18 +225,19 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     i.away_10ema_pct,
                     i.away_20ema_pct,
                     i.low_volatility_near_high,
-                    COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) AS to_cr
+                    COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) AS to_cr,
+                    round(i.avg_trade_size / nullif(i.avg_trade_size_20d, 0), 2) AS ticket_ratio,
+                    h.rvol_arr,
+                    h.deliv_arr,
+                    h.day_pct_arr
                 FROM indicators_daily i
                 JOIN stocks_master m ON m.symbol = i.symbol
+                JOIN hist h ON h.symbol = i.symbol
                 WHERE i.trade_date = ?
                   AND m.market_cap_cr >= 1000.0
                   AND COALESCE(m.band, 20.0) > 5.0
-                  AND i.close_price > i.ema_200
-                  AND i.ema_50 > i.ema_200
-                  AND i.away_52w_high_pct >= -25.0
                   AND i.symbol NOT LIKE '%-RE' AND i.symbol NOT LIKE '%_RE'
-                  AND COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) >= 5.0
-                  AND i.rs_percentile >= 70.0
+                  AND COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) >= 3.0
                   AND COALESCE(m.band_remarks, '') NOT LIKE '%GSM%'
                   AND COALESCE(m.band_remarks, '') NOT LIKE '%STAGE 2%'
             )
@@ -223,6 +245,26 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             """,
             [trade_date],
         ).fetchdf()
+
+        # Build readable RVOL Trail and institutional flow strings
+        if not setup_pool.empty:
+            setup_pool["rvol_trail"] = setup_pool["rvol_arr"].apply(
+                lambda arr: " -> ".join([f"{x:.1f}x" for x in arr]) if arr is not None and len(arr) > 0 else "—"
+            )
+            setup_pool["ticket_flow"] = setup_pool["ticket_ratio"].apply(
+                lambda tr: f"{float(tr):.1f}x 🏛️" if tr is not None and not (pd.isna(tr) or np.isnan(float(tr))) and float(tr) >= 1.20 else (f"{float(tr):.1f}x" if tr is not None and not (pd.isna(tr) or np.isnan(float(tr))) else "—")
+            )
+            setup_pool["band_fmt"] = setup_pool["band"].apply(
+                lambda b: "10% ⚡" if b is not None and not pd.isna(b) and float(b) == 10.0 else (f"{int(b)}%" if b is not None and not pd.isna(b) else "20%")
+            )
+            setup_pool["away_10ema"] = setup_pool["away_10ema_pct"].apply(
+                lambda a: f"{float(a):+.1f}%" if a is not None and not pd.isna(a) else "—"
+            )
+        else:
+            setup_pool["rvol_trail"] = pd.Series(dtype=str)
+            setup_pool["ticket_flow"] = pd.Series(dtype=str)
+            setup_pool["band_fmt"] = pd.Series(dtype=str)
+            setup_pool["away_10ema"] = pd.Series(dtype=str)
 
         # Attach macro theme tags to setup pool
         user_db_path = Path(db_path).parent / "marketpulse_user.duckdb"
@@ -271,7 +313,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     ORDER BY trade_date DESC 
                     LIMIT 45
                 )
-                SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10
+                SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20
                 FROM indicators_daily i
                 JOIN pool_syms_tbl p ON i.symbol = p.symbol
                 JOIN dates d ON i.trade_date = d.trade_date
@@ -279,81 +321,90 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 """
             ).fetchdf()
 
-    # Classify the 5 Setup Queues
+    # Classify the Setup Queues (No stop loss filter in screeners)
     # -------------------------------------------------------------
     # Queue 1: VCP / Coiling Base Breakout
     # -------------------------------------------------------------
-    vcp_df = setup_pool.copy()
-    vcp_df["trigger_price"] = vcp_df["high_20d"].round(2)
-    vcp_df["stop_loss"] = vcp_df[["ema_20", "low_10d"]].max(axis=1).round(2)
-    vcp_df["dist_to_trigger_pct"] = ((vcp_df["trigger_price"] / vcp_df["cmp"] - 1.0) * 100).round(2)
-    vcp_df["risk_pct"] = ((vcp_df["trigger_price"] / vcp_df["stop_loss"] - 1.0) * 100).round(2)
-    vcp_df = vcp_df[
-        (vcp_df["dist_to_trigger_pct"].between(0.0, 3.5))
-        & (vcp_df["risk_pct"] > 0)
-        & (vcp_df["risk_pct"] <= 6.0)
-    ].sort_values(["rs_percentile", "dist_to_trigger_pct"], ascending=[False, True]).head(10)
-    vcp_df["setup_type"] = "VCP Breakout"
-    vcp_df["is_vdu"] = vcp_df["rvol"] <= 0.70
-    vcp_df["why_now"] = np.where(
-        vcp_df["is_vdu"],
-        "Coiling <3.5% below pivot with confirmed Volume Dry-Up (VDU)",
-        "Coiling <3.5% below 20D pivot with tight <6% invalidation",
-    )
+    vcp_df = setup_pool[
+        (setup_pool["rs_percentile"] >= 70.0)
+        & (setup_pool["away_52w_high_pct"] >= -25.0)
+        & (setup_pool["ema_200"].isna() | (setup_pool["cmp"] > setup_pool["ema_200"]))
+        & (setup_pool["ema_200"].isna() | (setup_pool["ema_50"] > setup_pool["ema_200"]))
+    ].copy() if not setup_pool.empty else pd.DataFrame()
+    if not vcp_df.empty:
+        vcp_df["trigger_price"] = vcp_df["high_20d"].round(2)
+        vcp_df["stop_loss"] = vcp_df[["ema_20", "low_10d"]].max(axis=1).round(2)
+        vcp_df["dist_to_trigger_pct"] = ((vcp_df["trigger_price"] / vcp_df["cmp"] - 1.0) * 100).round(2)
+        vcp_df["risk_pct"] = ((vcp_df["trigger_price"] / vcp_df["stop_loss"] - 1.0) * 100).round(2)
+        vcp_df = vcp_df[
+            vcp_df["dist_to_trigger_pct"].between(0.0, 3.5)
+        ].sort_values(["rs_percentile", "dist_to_trigger_pct"], ascending=[False, True]).head(15)
+        vcp_df["setup_type"] = "VCP Breakout"
+        vcp_df["is_vdu"] = vcp_df["rvol"] <= 0.70
+        vcp_df["why_now"] = np.where(
+            vcp_df["is_vdu"],
+            "Coiling <3.5% below pivot with confirmed Volume Dry-Up (VDU)",
+            "Coiling <3.5% below 20D pivot with orderly consolidation",
+        )
 
     # -------------------------------------------------------------
     # Queue 2: 10/20 EMA Pullback (Continuation)
     # -------------------------------------------------------------
-    pb_df = setup_pool.copy()
-    pb_df["trigger_price"] = (pb_df["cmp"] * 1.01).round(2)  # Trigger on breaking above previous bar
-    pb_df["stop_loss"] = (pb_df["ema_20"] * 0.985).round(2)  # Stop just under 20 EMA
-    pb_df["risk_pct"] = ((pb_df["cmp"] / pb_df["stop_loss"] - 1.0) * 100).round(2)
-    pb_df = pb_df[
-        ((pb_df["away_10ema_pct"].abs() <= 2.2) | (pb_df["away_20ema_pct"].abs() <= 2.2))
-        & (pb_df["away_52w_high_pct"].between(-18.0, -2.5))
-        & (pb_df["risk_pct"] > 0)
-        & (pb_df["risk_pct"] <= 5.5)
-    ].sort_values("rs_percentile", ascending=False).head(10)
-    pb_df["setup_type"] = "EMA Pullback"
-    pb_df["why_now"] = "Orderly rest on 10/20 EMA support in confirmed uptrend"
+    pb_df = setup_pool[
+        (setup_pool["rs_percentile"] >= 70.0)
+        & (setup_pool["away_52w_high_pct"].between(-25.0, -2.5))
+        & (setup_pool["ema_200"].isna() | (setup_pool["cmp"] > setup_pool["ema_200"]))
+    ].copy() if not setup_pool.empty else pd.DataFrame()
+    if not pb_df.empty:
+        pb_df["trigger_price"] = (pb_df["cmp"] * 1.01).round(2)
+        pb_df["stop_loss"] = (pb_df["ema_20"] * 0.985).round(2)
+        pb_df["risk_pct"] = ((pb_df["cmp"] / pb_df["stop_loss"] - 1.0) * 100).round(2)
+        pb_df = pb_df[
+            ((pb_df["away_10ema_pct"].abs() <= 2.2) | (pb_df["away_20ema_pct"].abs() <= 2.2))
+            & (pb_df["away_52w_high_pct"].between(-18.0, -2.5))
+        ].sort_values("rs_percentile", ascending=False).head(15)
+        pb_df["setup_type"] = "EMA Pullback"
+        pb_df["why_now"] = "Orderly rest on 10/20 EMA support in confirmed uptrend"
 
     # -------------------------------------------------------------
     # Queue 3: High RVOL Episodic Pivot
     # -------------------------------------------------------------
     ep_df = setup_pool.copy()
-    ep_df["trigger_price"] = ep_df["high_price"].round(2)
-    ep_df["stop_loss"] = ep_df["low_price"].round(2)
-    ep_df["risk_pct"] = ((ep_df["cmp"] / ep_df["stop_loss"] - 1.0) * 100).round(2)
-    ep_df = ep_df[
-        (ep_df["rvol"] >= 2.0)
-        & (ep_df["day_pct"] >= 2.5)
-        & (ep_df["risk_pct"] > 0)
-        & (ep_df["risk_pct"] <= 6.0)
-    ].sort_values(["rvol", "day_pct"], ascending=[False, False]).head(10)
-    ep_df["setup_type"] = "Episodic Pivot"
-    ep_df["why_now"] = "Explosive 2x+ RVOL surge out of base with tight day-low stop"
+    if not ep_df.empty:
+        ep_df["trigger_price"] = ep_df["high_price"].round(2)
+        ep_df["stop_loss"] = ep_df["low_price"].round(2)
+        ep_df["risk_pct"] = ((ep_df["cmp"] / ep_df["stop_loss"] - 1.0) * 100).round(2)
+        ep_df = ep_df[
+            (ep_df["rvol"] >= 2.0)
+            & (ep_df["day_pct"] >= 2.5)
+        ].sort_values(["rvol", "day_pct"], ascending=[False, False]).head(15)
+        ep_df["setup_type"] = "Episodic Pivot"
+        ep_df["why_now"] = "Explosive 2x+ RVOL surge out of base"
 
     # -------------------------------------------------------------
     # Queue 4: 52-Week High Breakout
     # -------------------------------------------------------------
-    h52_df = setup_pool.copy()
-    h52_df["trigger_price"] = (h52_df["cmp"] * 1.005).round(2)
-    h52_df["stop_loss"] = h52_df[["ema_20", "low_10d"]].max(axis=1).round(2)
-    h52_df["risk_pct"] = ((h52_df["cmp"] / h52_df["stop_loss"] - 1.0) * 100).round(2)
-    h52_df = h52_df[
-        (h52_df["away_52w_high_pct"] >= -2.0)
-        & (h52_df["rvol"] >= 1.2)
-        & (h52_df["risk_pct"] > 0)
-        & (h52_df["risk_pct"] <= 6.0)
-    ].sort_values(["rs_percentile", "rvol"], ascending=[False, False]).head(10)
-    h52_df["setup_type"] = "52W High Breakout"
-    h52_df["why_now"] = "Printing fresh 52-week high with volume thrust and leadership RS"
+    h52_df = setup_pool[
+        (setup_pool["rs_percentile"] >= 70.0)
+        & (setup_pool["away_52w_high_pct"] >= -2.0)
+    ].copy() if not setup_pool.empty else pd.DataFrame()
+    if not h52_df.empty:
+        h52_df["trigger_price"] = (h52_df["cmp"] * 1.005).round(2)
+        h52_df["stop_loss"] = h52_df[["ema_20", "low_10d"]].max(axis=1).round(2)
+        h52_df["risk_pct"] = ((h52_df["cmp"] / h52_df["stop_loss"] - 1.0) * 100).round(2)
+        h52_df = h52_df[
+            (h52_df["away_52w_high_pct"] >= -2.0)
+            & (h52_df["rvol"] >= 1.2)
+        ].sort_values(["rs_percentile", "rvol"], ascending=[False, False]).head(15)
+        h52_df["setup_type"] = "52W High Breakout"
+        h52_df["why_now"] = "Printing fresh 52-week high with volume thrust and leadership RS"
 
     # -------------------------------------------------------------
-    # Queue 5: Darvas Box & 10 EMA Squeeze (OHLC Inside Box in Near Range)
+    # Queue 5: Darvas Box & 10/20 EMA Squeeze (Decoupled from RS)
+    # Squeeze into top box and 10 EMA / 20 EMA
     # -------------------------------------------------------------
     darvas_candidates = []
-    if not setup_pool.empty and not darvas_hist.empty:
+    if not darvas_hist.empty:
         for sym, group in darvas_hist.groupby("symbol"):
             if len(group) < 10:
                 continue
@@ -367,6 +418,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             last_top = float(top_box[-1])
             last_btm = float(bottom_box[-1])
             last_ema10 = float(group["ema_10"].iloc[-1])
+            last_ema20 = float(group["ema_20"].iloc[-1]) if "ema_20" in group.columns and pd.notna(group["ema_20"].iloc[-1]) else None
             if is_darvas_10ema_squeeze(
                 last_c,
                 last_top,
@@ -375,11 +427,15 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 high=last_h,
                 low=last_l,
                 open_price=last_o,
-                max_squeeze_pct=3.5,
+                max_squeeze_pct=5.0,
                 max_candle_range_pct=3.5,
                 require_ohlc_inside=True,
+                ema20=last_ema20,
             ):
-                sq_pct = round(((last_top - last_ema10) / last_top) * 100.0, 2)
+                qual_emas = [e for e in [last_ema10, last_ema20] if e is not None and 0.0 <= ((last_top - e) / last_top) * 100.0 <= 5.0]
+                effective_ema = max(qual_emas) if qual_emas else last_ema10
+                sq_pct = round(((last_top - effective_ema) / last_top) * 100.0, 2)
+                sq_pct = max(0.0, min(sq_pct, 5.0))
                 cr_pct = round(((last_h - last_l) / last_c) * 100.0, 2) if last_c > 0 else 0.0
                 darvas_candidates.append({
                     "symbol": sym,
@@ -389,22 +445,122 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     "candle_range_pct": cr_pct,
                 })
 
-    if darvas_candidates:
+    if darvas_candidates and not setup_pool.empty:
         darvas_cand_df = pd.DataFrame(darvas_candidates)
         darvas_df = setup_pool.merge(darvas_cand_df, on="symbol", how="inner")
         darvas_df["trigger_price"] = darvas_df["darvas_top"]
         darvas_df["stop_loss"] = (darvas_df["ema_10"] * 0.985).round(2)
         darvas_df["risk_pct"] = ((darvas_df["trigger_price"] / darvas_df["stop_loss"] - 1.0) * 100.0).round(2)
-        darvas_df["setup_type"] = "Darvas 10 EMA Squeeze"
+        darvas_df["setup_type"] = "Darvas Squeeze"
         darvas_df["why_now"] = [
-            f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) near Green Line ₹{top:,.1f}"
+            f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
             for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
         ]
-        darvas_df = darvas_df[
-            (darvas_df["risk_pct"] > 0) & (darvas_df["risk_pct"] <= 6.0)
-        ].sort_values(["squeeze_pct", "candle_range_pct", "rs_percentile"], ascending=[True, True, False]).head(15)
+        darvas_df = darvas_df.sort_values(["squeeze_pct", "candle_range_pct"], ascending=[True, True]).head(150)
     else:
         darvas_df = pd.DataFrame()
+
+    def _is_num(v: Any) -> bool:
+        if v is None or v is np.ma.masked:
+            return False
+        try:
+            f = float(v)
+            return not (np.isnan(f) or np.isinf(f))
+        except Exception:
+            return False
+
+    # -------------------------------------------------------------
+    # Queue 6: Silent Coil (VDU at 10/20 EMA) — 82% Pre-Move Footprint
+    # -------------------------------------------------------------
+    sc_candidates = []
+    if not setup_pool.empty:
+        for _, r in setup_pool.iterrows():
+            raw_rvol = r.get("rvol_arr")
+            arr = [float(x) for x in raw_rvol if _is_num(x)] if isinstance(raw_rvol, (list, np.ndarray)) else []
+            if len(arr) < 3:
+                continue
+            near_ema = abs(r["away_10ema_pct"]) <= 2.5 or abs(r["away_20ema_pct"]) <= 2.5
+            vdu = r["rvol"] <= 0.70
+            raw_day = r.get("day_pct_arr")
+            d_arr = [float(x) for x in raw_day if _is_num(x)] if isinstance(raw_day, (list, np.ndarray)) else []
+            tight_days = sum(1 for d in d_arr if abs(d) < 2.0)
+            raw_del = r.get("deliv_arr")
+            deliv_valid = [float(x) for x in raw_del if _is_num(x)] if isinstance(raw_del, (list, np.ndarray)) else []
+            deliv_good = (r["delivery_pct"] >= 50.0 if _is_num(r.get("delivery_pct")) else False) or (max(deliv_valid) >= 55.0 if deliv_valid else False)
+            unextended = abs(r["return_5d_pct"]) <= 3.5 if _is_num(r.get("return_5d_pct")) else True
+            if near_ema and vdu and (tight_days >= 3 or unextended) and deliv_good:
+                sc_candidates.append(r)
+    sc_df = pd.DataFrame(sc_candidates) if sc_candidates else pd.DataFrame()
+    if not sc_df.empty:
+        sc_df["trigger_price"] = (sc_df["cmp"] * 1.005).round(2)
+        sc_df["stop_loss"] = (sc_df["ema_20"] * 0.985).round(2)
+        sc_df["risk_pct"] = ((sc_df["cmp"] / sc_df["stop_loss"] - 1.0) * 100).round(2)
+        sc_df["setup_type"] = "Silent Coil"
+        sc_df["why_now"] = "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with delivery accumulation"
+        sort_col = "ticket_ratio" if "ticket_ratio" in sc_df.columns else "delivery_pct"
+        sc_df = sc_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(25)
+
+    # -------------------------------------------------------------
+    # Queue 7: Volume Stair-Step (RVOL Escalation) — 71% Pre-Move Footprint
+    # -------------------------------------------------------------
+    vss_candidates = []
+    if not setup_pool.empty:
+        for _, r in setup_pool.iterrows():
+            raw_rvol = r.get("rvol_arr")
+            arr = [float(x) for x in raw_rvol if _is_num(x)] if isinstance(raw_rvol, (list, np.ndarray)) else []
+            if len(arr) < 3:
+                continue
+            near_ema = abs(r["away_10ema_pct"]) <= 3.0 or abs(r["away_20ema_pct"]) <= 3.0
+            rising_3d = (len(arr) >= 3) and (arr[-1] > arr[-2] > arr[-3])
+            prev_slice = arr[-4:-1]
+            prev_min = min(prev_slice) if len(prev_slice) > 0 else 99.0
+            jump_from_dry = arr[-1] >= 1.3 and prev_min <= 0.65
+            unextended = r["day_pct"] <= 4.0 and (not _is_num(r.get("return_5d_pct")) or r["return_5d_pct"] <= 5.0)
+            if near_ema and (rising_3d or jump_from_dry) and unextended:
+                vss_candidates.append(r)
+    vss_df = pd.DataFrame(vss_candidates) if vss_candidates else pd.DataFrame()
+    if not vss_df.empty:
+        vss_df["trigger_price"] = (vss_df["cmp"] * 1.005).round(2)
+        vss_df["stop_loss"] = (vss_df["ema_20"] * 0.985).round(2)
+        vss_df["risk_pct"] = ((vss_df["cmp"] / vss_df["stop_loss"] - 1.0) * 100).round(2)
+        vss_df["setup_type"] = "Volume Stair-Step"
+        vss_df["why_now"] = "RVOL expanding day-over-day at 10/20 EMA support before the breakout"
+        sort_col = "ticket_ratio" if "ticket_ratio" in vss_df.columns else "rvol"
+        vss_df = vss_df.sort_values([sort_col, "rvol"], ascending=[False, False]).head(25)
+
+    # -------------------------------------------------------------
+    # Queue 8: Spike-Pause (Pre-Blast Consolidation) — 56% Pre-Move Footprint
+    # -------------------------------------------------------------
+    sp_candidates = []
+    if not setup_pool.empty:
+        for _, r in setup_pool.iterrows():
+            raw_rvol = r.get("rvol_arr")
+            arr = [float(x) for x in raw_rvol if _is_num(x)] if isinstance(raw_rvol, (list, np.ndarray)) else []
+            if len(arr) < 3:
+                continue
+            prev_slice = arr[:-1]
+            had_spike = max(prev_slice) >= 2.0 if len(prev_slice) > 0 else False
+            raw_day = r.get("day_pct_arr")
+            d_arr = [float(x) for x in raw_day if _is_num(x)] if isinstance(raw_day, (list, np.ndarray)) else []
+            prev_days = d_arr[:-1]
+            had_blast = max(prev_days) >= 9.5 if len(prev_days) > 0 else False
+            pausing = (abs(r["day_pct"]) <= 3.5) and (r["rvol"] <= 0.85)
+            near_ema = abs(r["away_10ema_pct"]) <= 4.0 or abs(r["away_20ema_pct"]) <= 4.0
+            if (had_spike or had_blast) and pausing and near_ema:
+                sp_candidates.append(r)
+    sp_df = pd.DataFrame(sp_candidates) if sp_candidates else pd.DataFrame()
+    if not sp_df.empty:
+        sp_df["trigger_price"] = (sp_df["cmp"] * 1.005).round(2)
+        sp_df["stop_loss"] = (sp_df["ema_20"] * 0.985).round(2)
+        sp_df["risk_pct"] = ((sp_df["cmp"] / sp_df["stop_loss"] - 1.0) * 100).round(2)
+        sp_df["setup_type"] = "Spike-Pause"
+        sp_df["why_now"] = "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA"
+        sort_col = "ticket_ratio" if "ticket_ratio" in sp_df.columns else "delivery_pct"
+        sp_df = sp_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(25)
+
+
+
+
 
     macro_pulse = get_macro_pulse(Path(db_path))
     data = {
@@ -434,6 +590,9 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "episodic": ep_df,
             "high52": h52_df,
             "darvas": darvas_df,
+            "silent_coil": sc_df,
+            "stair_step": vss_df,
+            "spike_pause": sp_df,
         },
         "tv_lists": {
             "vcp": to_tv_list(vcp_df["symbol"].tolist()) if not vcp_df.empty else "",
@@ -441,6 +600,9 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "episodic": to_tv_list(ep_df["symbol"].tolist()) if not ep_df.empty else "",
             "high52": to_tv_list(h52_df["symbol"].tolist()) if not h52_df.empty else "",
             "darvas": to_tv_list(darvas_df["symbol"].tolist()) if not darvas_df.empty else "",
+            "silent_coil": to_tv_list(sc_df["symbol"].tolist()) if not sc_df.empty else "",
+            "stair_step": to_tv_list(vss_df["symbol"].tolist()) if not vss_df.empty else "",
+            "spike_pause": to_tv_list(sp_df["symbol"].tolist()) if not sp_df.empty else "",
             "all_focus": to_tv_list(
                 list(dict.fromkeys(
                     vcp_df["symbol"].tolist()
@@ -448,9 +610,13 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     + ep_df["symbol"].tolist()
                     + h52_df["symbol"].tolist()
                     + darvas_df["symbol"].tolist()
+                    + (sc_df["symbol"].tolist() if not sc_df.empty else [])
+                    + (vss_df["symbol"].tolist() if not vss_df.empty else [])
+                    + (sp_df["symbol"].tolist() if not sp_df.empty else [])
                 ))
             ),
         }
+
     }
 
     set_cached(key, data)
@@ -717,16 +883,18 @@ def build_action_desk_page(
     pulse = data.get("macro_pulse", {})
     top_themes = pulse.get("top", [])
     bottom_themes = pulse.get("bottom", [])
-    if top_themes or bottom_themes:
-        with ui.row().classes("w-full items-center justify-between px-3 py-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] mb-3 flex-wrap gap-2 text-xs"):
-            with ui.row().classes("items-center gap-2 flex-wrap"):
-                ui.label("🔥 TOP MACRO THEMES:").classes("font-bold text-emerald-400 tracking-wider")
-                for item in top_themes:
+    with ui.row().classes("w-full items-center justify-between px-3 py-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] mb-3 flex-wrap gap-2 text-xs"):
+        with ui.row().classes("items-center gap-2 flex-wrap"):
+            if top_themes:
+                ui.label("🔥 TOP THEMES:").classes("font-bold text-emerald-400 tracking-wider")
+                for item in top_themes[:3]:
                     ui.label(f"{item['name']} ({item['return_1d']:+.2f}%)").classes("font-semibold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30")
-            with ui.row().classes("items-center gap-2 flex-wrap"):
-                ui.label("❄️ LAGGING THEMES:").classes("font-bold text-rose-400 tracking-wider")
-                for item in bottom_themes:
+            if bottom_themes:
+                ui.label("❄️ LAGGING:").classes("font-bold text-rose-400 tracking-wider")
+                for item in bottom_themes[:2]:
                     ui.label(f"{item['name']} ({item['return_1d']:+.2f}%)").classes("font-semibold text-rose-300 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-500/30")
+        with ui.row().classes("items-center gap-2 ml-auto"):
+            ui.button("📖 Trading Playbook & Field Guide", on_click=open_playbook_modal).classes("mp-button text-xs bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400").props("dense unelevated")
 
     queue_meta = {
         "vcp": {
@@ -754,17 +922,35 @@ def build_action_desk_page(
             "tv_key": "high52",
         },
         "darvas": {
-            "title": "5. Darvas 10 EMA Squeeze",
+            "title": "5. Darvas 10/20 EMA Squeeze",
             "short_title": "5. Darvas Squeeze",
-            "desc": "OHLC strictly inside the box in near range, squeezed between Green Line (TopBox) and rising 10 EMA.",
+            "desc": "OHLC strictly inside the box in near range, squeezed into Green Line (TopBox) and rising 10/20 EMA.",
             "tv_key": "darvas",
+        },
+        "silent_coil": {
+            "title": "6. Silent Coil (VDU at 10/20 EMA)",
+            "short_title": "6. Silent Coil",
+            "desc": "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with high delivery accumulation (82% pre-move signature).",
+            "tv_key": "silent_coil",
+        },
+        "stair_step": {
+            "title": "7. Volume Stair-Step (RVOL Escalation)",
+            "short_title": "7. Stair-Step",
+            "desc": "RVOL expanding day-over-day at 10/20 EMA support before the breakout (71% pre-move signature).",
+            "tv_key": "stair_step",
+        },
+        "spike_pause": {
+            "title": "8. Spike-Pause (Pre-Blast Consolidation)",
+            "short_title": "8. Spike-Pause",
+            "desc": "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA (Qullamaggie High-Tight Flag).",
+            "tv_key": "spike_pause",
         },
     }
 
     # Initial selection
     initial_queue = "vcp"
     initial_sym = ""
-    for q_key in ("vcp", "pullback", "episodic", "high52", "darvas"):
+    for q_key in ("vcp", "pullback", "episodic", "high52", "darvas", "silent_coil", "stair_step", "spike_pause"):
         q_df = queues.get(q_key, pd.DataFrame())
         if not q_df.empty and "symbol" in q_df.columns:
             if not initial_sym:
@@ -780,8 +966,8 @@ def build_action_desk_page(
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "deal_flow", "theme", "cmp", "trigger_price", "stop_loss", "risk_pct", 
-        "day_pct", "rvol", "rs_percentile", "sector"
+        "symbol", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss", 
+        "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
     ]
 
     # Cockpit 3-column split-pane layout
@@ -936,10 +1122,16 @@ def build_action_desk_page(
                         ).classes("mp-button text-xs").props("dense outline")
 
                 # Quality Filter Strip
+                is_classic_rs = q_key in ("vcp", "pullback", "high52")
+                rules_txt = (
+                    "Rules: MCap > ₹1000Cr · Circuit > 5% · Stage 2 Uptrend · Within 25% 52W · RS >= 70"
+                    if is_classic_rs else
+                    "Evidence-Based Rules: MCap > ₹1000Cr · 10/20 EMA Support · VDU & High Deliv · Institutional Footprint · No Stop-Loss Cutoff"
+                )
                 with ui.row().classes("w-full items-center justify-between text-[11px] text-[var(--mp-muted)] font-mono mt-2 pt-2 border-t border-[var(--mp-border)] flex-wrap gap-2"):
-                    ui.label("Rules: MCap > ₹1000Cr · Circuit > 5% · > 200 EMA · 50>200 EMA · Within 25% 52W · RS >= 70").classes("truncate")
+                    ui.label(rules_txt).classes("truncate")
                     with ui.row().classes("items-center gap-3"):
-                        ui.label("Risk Ceiling: <= 6.0%").classes("font-bold text-emerald-400 font-mono")
+                        ui.label("Stop Loss: Off (No filter)").classes("font-bold text-emerald-400 font-mono")
                         ui.button(
                             "🏛️ Real Inst Flow Only",
                             on_click=lambda: (
@@ -950,6 +1142,8 @@ def build_action_desk_page(
                             "font-mono font-bold px-2 py-0.5 rounded transition-all " +
                             ("bg-emerald-600 text-white shadow" if state.get("real_inst_flow_only") else "bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700")
                         )
+
+                render_inline_field_guide_banner(q_key)
 
             # Candidate Quick Selector Chips
             if not q_df.empty and "symbol" in q_df.columns:

@@ -341,30 +341,34 @@ def build_deals_telegram_report(
     # -------------------------------------------------------------
     # QUALITY & QUARANTINE CLASSIFICATION
     # -------------------------------------------------------------
-    # 1. Trend & Circuit filter: Below 200 EMA or in 5% Band
-    sym_meta["is_below_200_or_band5"] = sym_meta.apply(
-        lambda r: (pd.notna(r["band"]) and float(r["band"]) <= 5.0)
-        or (pd.notna(r["close_price"]) and pd.notna(r["ema_200"]) and float(r["close_price"]) < float(r["ema_200"])),
-        axis=1,
+    # 1. Circuit filter: Locked in tight <=5% Circuit Bands (illiquid/collar risk)
+    sym_meta["is_quarantined_band"] = sym_meta["band"].map(
+        lambda b: pd.notna(b) and float(b) <= 5.0
     )
 
-    # 2. Only in PROP filter: all recorded deals were PROP, or deals contain PROP without real institutional backing (no FII and no DII)
-    sym_meta["has_real_inst"] = sym_meta["categories"].map(lambda cats: bool(cats & {"FII", "DII"}))
-    sym_meta["is_only_prop"] = sym_meta.apply(
-        lambda r: ("PROP" in r["categories"] and not r["has_real_inst"]),
+    # 2. Pure Prop Desk filter: ALL recorded deals in the window were PROP desks (zero external participation)
+    sym_meta["is_only_prop"] = sym_meta["categories"].map(lambda cats: cats == {"PROP"})
+
+    # 3. Trend classification (for informative labeling & optional UI filtering; NOT a disqualifier)
+    sym_meta["is_above_200"] = sym_meta.apply(
+        lambda r: bool(pd.notna(r["close_price"]) and pd.notna(r["ema_200"]) and float(r["close_price"]) >= float(r["ema_200"])),
         axis=1,
     )
+    sym_meta["trend_stage"] = sym_meta["is_above_200"].map(
+        lambda x: "🟢 >200 EMA" if x else "🟡 Base / Turnaround"
+    )
 
-    # Tier 3B: Quarantined streams (Below 200 EMA / 5% Band)
+    # Tier 3B: Quarantined streams (Locked in <=5% Circuit Bands)
     below_1000cr_df = pd.DataFrame()  # Stocks below min_mcap_cr are completely excluded
-    below_200_df = sym_meta[sym_meta["is_below_200_or_band5"]].sort_values("buy_cr", ascending=False)
+    quarantined_df = sym_meta[sym_meta["is_quarantined_band"]].sort_values("buy_cr", ascending=False).copy()
+    below_200_df = sym_meta[(~sym_meta["is_quarantined_band"]) & (~sym_meta["is_above_200"])].sort_values("buy_cr", ascending=False).copy()
 
-    # Tier 3A: Prop HFT Churn (Only Prop Desks, Above 200 EMA)
-    prop_only_df = sym_meta[(~sym_meta["is_below_200_or_band5"]) & sym_meta["is_only_prop"]].sort_values("buy_cr", ascending=False)
+    # Tier 3A: Prop HFT Churn (100% Prop Desk scalp activity, not quarantined)
+    prop_only_df = sym_meta[(~sym_meta["is_quarantined_band"]) & sym_meta["is_only_prop"]].sort_values("buy_cr", ascending=False).copy()
 
-    # Pure Quality Universe (Market Cap >= min_mcap_val, Above 200 EMA, Band > 5%, Real Institutional Backing)
+    # Pure Institutional Universe: Not quarantined (band > 5%) and not pure prop churn
     quality_df = sym_meta[
-        (~sym_meta["is_below_200_or_band5"])
+        (~sym_meta["is_quarantined_band"])
         & (~sym_meta["is_only_prop"])
     ].copy()
 
@@ -375,19 +379,27 @@ def build_deals_telegram_report(
     # -------------------------------------------------------------
     # 3-TIER ACTION-FIRST CLASSIFICATION (MUTUALLY EXCLUSIVE)
     # -------------------------------------------------------------
-    # Tier 1: Conviction Accumulation — Net Buyer AND (2+ Deal Days OR Single-Day Whale Inflow >= 50 Cr)
-    conviction_df = quality_df[
-        (quality_df["net_cr"] > 0)
-        & ((quality_df["deal_days"] >= 2) | (quality_df["net_cr"] >= 50.0))
-    ].sort_values(["deal_days", "net_cr", "buy_cr"], ascending=[False, False, False]).copy()
+    # Non-prop stocks with BUY side interest
+    quality_buys = quality_df[quality_df["buy_cr"] > 0].copy()
+
+    # Tier 1: Conviction Accumulation — Multi-day persistence (2+ Deal Days) OR Substantial Buying (buy_cr >= 25 Cr or net_cr >= 20 Cr)
+    conviction_df = quality_buys[
+        (quality_buys["deal_days"] >= 2)
+        | (quality_buys["buy_cr"] >= 25.0)
+        | (quality_buys["net_cr"] >= 20.0)
+    ].sort_values(["deal_days", "buy_cr", "net_cr"], ascending=[False, False, False]).copy()
 
     conviction_syms = set(conviction_df["symbol"])
 
-    # Tier 2: Fresh Whale Radar — Net Buyer, Day-1 Inflow (< 50 Cr) with Real Institutional / Quality Backing
-    fresh_radar_df = quality_df[
-        (quality_df["net_cr"] > 0)
-        & (~quality_df["symbol"].isin(conviction_syms))
-    ].sort_values(["net_cr", "buy_cr"], ascending=[False, False]).copy()
+    # Tier 2: Fresh Whale Radar — Day-1 institutional entries / emerging accumulation
+    fresh_radar_df = quality_buys[
+        ~quality_buys["symbol"].isin(conviction_syms)
+    ].sort_values(["buy_cr", "net_cr"], ascending=[False, False]).copy()
+
+    # Pure Distribution: Non-prop stocks with zero buying and active selling
+    distribution_df = quality_df[
+        (quality_df["buy_cr"] == 0) & (quality_df["sell_cr"] > 0)
+    ].sort_values("sell_cr", ascending=False).copy()
 
     # Retain backward-compatible persistence slices
     four_plus = quality_df[quality_df["deal_days"] >= 4].sort_values(
@@ -436,14 +448,27 @@ def build_deals_telegram_report(
     # TRADINGVIEW LISTS
     # -------------------------------------------------------------
     sec_conviction = to_tv_list(conviction_df["symbol"].tolist(), header="💎 Conviction Accumulation") if not conviction_df.empty else ""
-    sec_fresh = to_tv_list(fresh_radar_df["symbol"].head(25).tolist(), header="⚡ Fresh Whale Radar") if not fresh_radar_df.empty else ""
-    sec_prop = to_tv_list(prop_only_df["symbol"].head(30).tolist(), header="🎯 Prop HFT Churn") if not prop_only_df.empty else ""
-    sec_below_200 = to_tv_list(below_200_df["symbol"].head(30).tolist(), header="📉 Below 200 EMA") if not below_200_df.empty else ""
-    sec_top_sells = to_tv_list(top_sells["symbol"].head(25).tolist(), header="🔴 Institutional Exits") if not top_sells.empty else ""
+    sec_fresh = to_tv_list(fresh_radar_df["symbol"].tolist(), header="⚡ Fresh Whale Radar") if not fresh_radar_df.empty else ""
+    sec_prop = to_tv_list(prop_only_df["symbol"].tolist(), header="🎯 Prop HFT Churn") if not prop_only_df.empty else ""
+    sec_quarantined = to_tv_list(quarantined_df["symbol"].tolist(), header="📉 Quarantined (5% Band)") if not quarantined_df.empty else ""
+    sec_below_200 = to_tv_list(below_200_df["symbol"].tolist(), header="🟡 Turnaround (<200 EMA)") if not below_200_df.empty else ""
+    sec_top_sells = to_tv_list(top_sells["symbol"].tolist(), header="🔴 Institutional Exits") if not top_sells.empty else ""
 
-    # Master TV string: Tier 1 + Tier 2 combined cleanly
+    # Slices for above 200 EMA and base/turnaround
+    above_200_syms = (
+        conviction_df[conviction_df["is_above_200"]]["symbol"].tolist()
+        + fresh_radar_df[fresh_radar_df["is_above_200"]]["symbol"].tolist()
+    )
+    turnaround_syms = (
+        conviction_df[~conviction_df["is_above_200"]]["symbol"].tolist()
+        + fresh_radar_df[~fresh_radar_df["is_above_200"]]["symbol"].tolist()
+    )
+    sec_above_200 = to_tv_list(above_200_syms, header="🟢 Above 200 EMA") if above_200_syms else ""
+    sec_turnaround = to_tv_list(turnaround_syms, header="🟡 Base/Turnaround (<200 EMA)") if turnaround_syms else ""
+
+    # Master TV string: Tier 1 + Tier 2 combined cleanly (Full Institutional Radar)
     master_tv = ",".join([s for s in [sec_conviction, sec_fresh] if s])
-    all_tiers_tv = ",".join([s for s in [sec_conviction, sec_fresh, sec_prop, sec_below_200] if s])
+    all_tiers_tv = ",".join([s for s in [sec_conviction, sec_fresh, sec_prop, sec_quarantined] if s])
 
     # Backward compatibility TV strings
     sec_4plus = to_tv_list(four_plus["symbol"].tolist(), header="4+ Deal Days") if not four_plus.empty else ""
@@ -451,8 +476,8 @@ def build_deals_telegram_report(
     sec_2days = to_tv_list(two["symbol"].tolist(), header="2 Deal Days") if not two.empty else ""
     sec_fii = to_tv_list(clientele_buys.get("FII", pd.DataFrame())["symbol"].tolist(), header="FII") if not clientele_buys.get("FII", pd.DataFrame()).empty else ""
     sec_dii = to_tv_list(clientele_buys.get("DII", pd.DataFrame())["symbol"].tolist(), header="DII") if not clientele_buys.get("DII", pd.DataFrame()).empty else ""
-    sec_others = to_tv_list(clientele_buys.get("Others", pd.DataFrame())["symbol"].head(30).tolist(), header="Others") if not clientele_buys.get("Others", pd.DataFrame()).empty else ""
-    sec_top_buys = to_tv_list(top_buys["symbol"].head(25).tolist(), header="Highest Buys") if not top_buys.empty else ""
+    sec_others = to_tv_list(clientele_buys.get("Others", pd.DataFrame())["symbol"].tolist(), header="Others") if not clientele_buys.get("Others", pd.DataFrame()).empty else ""
+    sec_top_buys = to_tv_list(top_buys["symbol"].tolist(), header="Highest Buys") if not top_buys.empty else ""
     sec_below_1000cr = ""
 
     persistence_buckets = ",".join([s for s in [sec_4plus, sec_3days, sec_2days] if s])
@@ -480,7 +505,7 @@ def build_deals_telegram_report(
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
         f"💎 *TIER 1: CONVICTION ACCUMULATION* ({len(conviction_df)} stocks)",
-        "_Multi-day persistence (2+ days) or Whale Inflows (>=₹50Cr)_",
+        "_Multi-day persistence (2+ days) or Whale Inflows (>=₹25Cr)_",
         "━━━━━━━━━━━━━━━━━━━━━",
     ]
     if conviction_df.empty:
@@ -499,7 +524,7 @@ def build_deals_telegram_report(
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
         f"⚡ *TIER 2: FRESH WHALE RADAR* ({len(fresh_radar_df)} stocks)",
-        "_Day-1 institutional entries with real FII/DII backing_",
+        "_Day-1 institutional entries / emerging accumulation_",
         "━━━━━━━━━━━━━━━━━━━━━",
     ])
     if fresh_radar_df.empty:
@@ -555,17 +580,17 @@ def build_deals_telegram_report(
     msg2_lines.extend([
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
-        f"📉 *TIER 3B: QUARANTINED* ({len(below_200_df)} stocks)",
-        "_Below 200 EMA or locked in <=5% Circuit Bands_",
+        f"📉 *TIER 3B: QUARANTINED (5% Band)* ({len(quarantined_df)} stocks)",
+        "_Locked in tight <=5% Circuit Bands_",
         "━━━━━━━━━━━━━━━━━━━━━",
     ])
-    if below_200_df.empty:
-        msg2_lines.append("• No stocks quarantined below 200 EMA / 5% band.")
+    if quarantined_df.empty:
+        msg2_lines.append("• No stocks quarantined in 5% circuit bands.")
     else:
-        for _, r in below_200_df.head(6).iterrows():
+        for _, r in quarantined_df.head(6).iterrows():
             msg2_lines.append(f"• `{r['symbol']}` — ₹{r['buy_cr']:,.1f} Cr buy")
-        if sec_below_200:
-            msg2_lines.extend(["", "📋 *TV Paste (Quarantined):*", f"`{sec_below_200}`"])
+        if sec_quarantined:
+            msg2_lines.extend(["", "📋 *TV Paste (Quarantined):*", f"`{sec_quarantined}`"])
 
     messages.append("\n".join(msg2_lines))
 
@@ -581,7 +606,9 @@ def build_deals_telegram_report(
         "conviction_tv": sec_conviction,
         "fresh_radar_tv": sec_fresh,
         "prop_tv": sec_prop,
-        "quarantined_tv": sec_below_200,
+        "quarantined_tv": sec_quarantined,
+        "above_200_tv": sec_above_200,
+        "turnaround_tv": sec_turnaround,
         "all_tiers_tv": all_tiers_tv,
         "quality_buckets": quality_buckets,
         "persistence_buckets": persistence_buckets,
@@ -605,7 +632,7 @@ def build_deals_telegram_report(
         "prop": sec_prop,
         "top_buys": sec_top_buys,
         "top_sells": sec_top_sells,
-        "below_200ema": sec_below_200,
+        "below_200ema": sec_turnaround,
         "below_1000cr": sec_below_1000cr,
     }
 
@@ -620,8 +647,8 @@ def build_deals_telegram_report(
             "conviction": conviction_df,
             "fresh_radar": fresh_radar_df,
             "prop_only": prop_only_df,
-            "quarantined": below_200_df,
-            "distribution": top_sells,
+            "quarantined": quarantined_df,
+            "distribution": distribution_df if not distribution_df.empty else top_sells,
         },
         "persistence": {
             "four_plus": four_plus,

@@ -103,62 +103,66 @@ def is_darvas_10ema_squeeze(
     high: float | None = None,
     low: float | None = None,
     open_price: float | None = None,
-    max_squeeze_pct: float = 3.5,
+    max_squeeze_pct: float = 5.0,
     max_candle_range_pct: float = 3.5,
     require_ohlc_inside: bool = True,
+    ema20: float | None = None,
 ) -> bool:
     """
-    Check if a candle meets the Darvas Green Line + 10 EMA Squeeze criteria:
-    1. TopBox and 10 EMA are active and valid.
-    2. Squeeze spread between TopBox and 10 EMA is tight (0 to max_squeeze_pct, e.g. 3.5%).
-    3. Price is coiled below or testing Green Line (within 0% to 3.5% of Green Line).
-    4. Price is holding above / near 10 EMA (within -1.5% to +3.5% of 10 EMA).
+    Check if a candle meets the Darvas Green Line + 10 EMA / 20 EMA Squeeze criteria:
+    1. TopBox and 10 EMA (or 20 EMA) are active and valid.
+    2. Squeeze spread between TopBox and EMA is tight (0 to max_squeeze_pct, e.g. 5.0%).
+    3. Price is coiled below or testing Green Line (within -0.2% to 4.0% of Green Line).
+    4. Price is holding above / near 10 EMA or 20 EMA (within -2.0% to +3.5% of EMA).
     5. When require_ohlc_inside is True:
        - Entire OHLC (Open, High, Low, Close) is strictly contained inside the box:
          * High <= top_box * 1.002 (does not pierce above ceiling; hasn't broken out yet)
          * Low >= bottom_box * 0.998 (does not break below floor)
-         * Low >= ema10 * 0.98 (holds the 10 EMA dynamic support)
-         * Open and Close are inside [ema10 * 0.98, top_box * 1.002]
+         * Low >= support_ema * 0.98 (holds dynamic EMA support)
+         * Open and Close are inside [support_ema * 0.98, top_box * 1.002]
        - In Near Range: candle range (High - Low) / Close <= max_candle_range_pct (e.g. 3.5%).
     """
-    if np.isnan(top_box) or top_box <= 0 or np.isnan(ema10) or ema10 <= 0:
+    if np.isnan(top_box) or top_box <= 0:
         return False
 
-    squeeze_pct = ((top_box - ema10) / top_box) * 100.0
-    dist_to_green = ((top_box - close) / top_box) * 100.0
-    dist_to_ema10 = ((close - ema10) / ema10) * 100.0
-
-    if not (0.0 <= squeeze_pct <= max_squeeze_pct):
+    # Support either 10 EMA or 20 EMA
+    emas_to_check = [e for e in [ema10, ema20] if e is not None and not np.isnan(e) and e > 0]
+    if not emas_to_check:
         return False
 
-    if not (-1.5 <= dist_to_ema10 <= 3.5 and -0.2 <= dist_to_green <= 3.5):
-        return False
+    qualified = False
+    for cur_ema in emas_to_check:
+        squeeze_pct = ((top_box - cur_ema) / top_box) * 100.0
+        dist_to_green = ((top_box - close) / top_box) * 100.0
+        dist_to_ema = ((close - cur_ema) / cur_ema) * 100.0
 
-    if require_ohlc_inside:
-        h = high if high is not None else close
-        l = low if low is not None else close
-        o = open_price if open_price is not None else close
+        if not (0.0 <= squeeze_pct <= max_squeeze_pct):
+            continue
 
-        # High must be inside the ceiling (cannot exceed top_box + 0.2% tick buffer)
-        if h > top_box * 1.002:
-            return False
+        if not (-2.0 <= dist_to_ema <= 3.5 and -0.2 <= dist_to_green <= 4.0):
+            continue
 
-        # Low must not breach the bottom box or drop below 10 EMA support
-        if l < bottom_box * 0.998:
-            return False
-        if l < ema10 * 0.98:
-            return False
+        if require_ohlc_inside:
+            h = high if high is not None else close
+            l = low if low is not None else close
+            o = open_price if open_price is not None else close
 
-        # Open and Close must be between 10 EMA and Top Box
-        if o > top_box * 1.002 or o < ema10 * 0.98:
-            return False
-        if close > top_box * 1.002 or close < ema10 * 0.98:
-            return False
+            if h > top_box * 1.002:
+                continue
+            if l < bottom_box * 0.998:
+                continue
+            if l < cur_ema * 0.98:
+                continue
+            if o > top_box * 1.002 or o < cur_ema * 0.98:
+                continue
+            if close > top_box * 1.002 or close < cur_ema * 0.98:
+                continue
+            if close > 0:
+                candle_range_pct = ((h - l) / close) * 100.0
+                if candle_range_pct > max_candle_range_pct:
+                    continue
 
-        # Candle range contraction (near range)
-        if close > 0:
-            candle_range_pct = ((h - l) / close) * 100.0
-            if candle_range_pct > max_candle_range_pct:
-                return False
+        qualified = True
+        break
 
-    return True
+    return qualified
