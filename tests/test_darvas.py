@@ -209,6 +209,24 @@ def test_stacked_ema_floor_uses_min_10_20():
     assert state["qualifies"] is True
 
 
+def test_is_darvas_reads_cfg_when_max_kwargs_none():
+    """cfg caps apply when max_squeeze_pct / max_candle_range_pct are left None."""
+    kwargs = dict(
+        close=97.5,
+        top_box=100.0,
+        bottom_box=90.0,
+        ema10=95.8,
+        high=98.0,
+        low=96.0,
+        open_price=96.5,
+        ema20=95.5,
+    )
+    squeeze = ((100.0 - 95.8) / 100.0) * 100.0
+    assert 3.5 < squeeze <= 5.0
+    assert is_darvas_10ema_squeeze(**kwargs) is True
+    assert is_darvas_10ema_squeeze(**kwargs, cfg={"max_squeeze_pct": 3.5}) is False
+
+
 def test_legacy_drawer_queue_predicate_split():
     """Fails on current main if queue 5.0/4.0 and drawer 3.5/3.5 are treated as one predicate.
 

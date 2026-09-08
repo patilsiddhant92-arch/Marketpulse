@@ -162,7 +162,13 @@ def evaluate_squeeze_bar(
     require_ohlc_inside: bool = True,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Truth-table evaluation of one bar. Open is not tested against the floor."""
+    """Truth-table evaluation of one bar. Open is not tested against the floor.
+
+    bottom_box is accepted for call-site compatibility with the Pine pair; v2 does
+    not gate on the red line (§8.3 discovery gates are spread, green-line, ceiling,
+    floor_ok, trend, range).
+    """
+    _ = bottom_box  # red-line floor is intentionally gone in v2
     params = dict(DARVAS)
     if cfg:
         params.update(cfg)
@@ -246,13 +252,16 @@ def is_darvas_10ema_squeeze(
     high: float | None = None,
     low: float | None = None,
     open_price: float | None = None,
-    max_squeeze_pct: float = 5.0,
-    max_candle_range_pct: float = 4.0,
+    max_squeeze_pct: float | None = None,
+    max_candle_range_pct: float | None = None,
     require_ohlc_inside: bool = True,
     ema20: float | None = None,
     cfg: dict[str, Any] | None = None,
 ) -> bool:
-    """Daily squeeze membership (v2 truth table). Open is not tested against the floor."""
+    """Daily squeeze membership (v2 truth table). Open is not tested against the floor.
+
+    Numeric caps default to DARVAS / cfg when left as None (do not hard-code 5.0/4.0 here).
+    """
     state = evaluate_squeeze_bar(
         close,
         top_box,
@@ -481,3 +490,19 @@ def sort_qualifying_squeezes(df: pd.DataFrame) -> pd.DataFrame:
         ascending.append(True)
     out = out.sort_values(sort_cols, ascending=ascending, kind="mergesort").drop(columns=["_boost"])
     return out.reset_index(drop=True)
+
+
+def apply_display_window(
+    df: pd.DataFrame, window: int | None = None
+) -> tuple[pd.DataFrame, int]:
+    """Rank, then split unclipped count from the matrix window.
+
+    Count is taken *before* head(window). TV/matrix callers must use the returned frame.
+    """
+    if df is None or df.empty:
+        empty = df if df is not None else pd.DataFrame(columns=SQUEEZE_COLUMNS)
+        return empty, 0
+    ranked = sort_qualifying_squeezes(df)
+    n = int(len(ranked))
+    w = int(window if window is not None else DARVAS["display_window"])
+    return ranked.head(w).reset_index(drop=True), n

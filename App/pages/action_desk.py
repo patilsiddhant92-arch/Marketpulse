@@ -18,10 +18,10 @@ from nicegui import ui
 from App.cache_manager import get_cached, set_cached, cache_key
 from App.indicators.darvas import (
     DARVAS,
+    apply_display_window,
     calculate_darvas_box,
     darvas_v2_enabled,
     is_darvas_10ema_squeeze_legacy,
-    sort_qualifying_squeezes,
     squeeze_frame,
 )
 try:
@@ -474,15 +474,17 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         darvas_df["stop_loss"] = (darvas_df["ema_10"] * 0.985).round(2)
         darvas_df["risk_pct"] = ((darvas_df["trigger_price"] / darvas_df["stop_loss"] - 1.0) * 100.0).round(2)
         darvas_df["setup_type"] = "Darvas Squeeze"
-        darvas_df["why_now"] = [
-            f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
-            for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
-        ]
         if use_v2:
-            darvas_df = sort_qualifying_squeezes(darvas_df)
-            darvas_count = int(len(darvas_df))
-            darvas_df = darvas_df.head(int(DARVAS["display_window"]))
+            darvas_df["why_now"] = [
+                f"Close inside, wick ≤1.5% under stacked 10/20 floor · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
+                for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
+            ]
+            darvas_df, darvas_count = apply_display_window(darvas_df)
         else:
+            darvas_df["why_now"] = [
+                f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
+                for sq, cr, top in zip(darvas_df["squeeze_pct"], darvas_df["candle_range_pct"], darvas_df["darvas_top"])
+            ]
             darvas_df = darvas_df.sort_values(
                 ["squeeze_pct", "candle_range_pct"], ascending=[True, True]
             ).head(150)
@@ -614,13 +616,13 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "total_stocks": total_stocks,
         },
         "themes": top_sectors,
+        "darvas_count": darvas_count,
         "queues": {
             "vcp": vcp_df,
             "pullback": pb_df,
             "episodic": ep_df,
             "high52": h52_df,
             "darvas": darvas_df,
-            "darvas_count": darvas_count,
             "silent_coil": sc_df,
             "stair_step": vss_df,
             "spike_pause": sp_df,
@@ -955,7 +957,11 @@ def build_action_desk_page(
         "darvas": {
             "title": "5. Darvas 10/20 EMA Squeeze",
             "short_title": "5. Darvas Squeeze",
-            "desc": "OHLC strictly inside the box in near range, squeezed into Green Line (TopBox) and rising 10/20 EMA.",
+            "desc": (
+                "Close inside, wick ≤1.5% under stacked 10/20 floor, squeezed into Green Line (TopBox)."
+                if darvas_v2_enabled()
+                else "OHLC strictly inside the box in near range, squeezed into Green Line (TopBox) and rising 10/20 EMA."
+            ),
             "tv_key": "darvas",
         },
         "silent_coil": {
@@ -1114,10 +1120,10 @@ def build_action_desk_page(
             with ui.column().classes("w-full gap-1.5"):
                 for q_key, q_info in queue_meta.items():
                     q_df = queues.get(q_key, pd.DataFrame())
-                    if q_key == "darvas" and "darvas_count" in queues:
-                        count = int(queues["darvas_count"] or 0)
+                    if q_key == "darvas":
+                        count = int(data.get("darvas_count") or 0)
                     else:
-                        count = len(q_df) if isinstance(q_df, pd.DataFrame) and not q_df.empty else 0
+                        count = len(q_df) if not q_df.empty else 0
                     is_active = (q_key == state["active_queue"])
                     
                     with ui.button(
@@ -1206,7 +1212,14 @@ def build_action_desk_page(
                 with ui.card().classes("w-full mp-card p-8 text-center border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
                     ui.label(f"No {q_info['short_title']} setups currently active in this session.").classes("text-sm text-[var(--mp-muted)]")
             else:
-                table_cols = [c for c in display_cols if c in q_df.columns]
+                matrix_cols = display_cols
+                if q_key == "darvas" and darvas_v2_enabled():
+                    squeeze_cols = [
+                        "squeeze_pct", "candle_range_pct", "darvas_top",
+                        "tightening", "squeeze_age", "failed_low",
+                    ]
+                    matrix_cols = ["symbol"] + squeeze_cols + [c for c in display_cols if c != "symbol"]
+                table_cols = [c for c in matrix_cols if c in q_df.columns]
                 tbl = table_from_df(q_df[table_cols], "", pagination=10)
                 if tbl is not None:
                     def on_table_click(e):

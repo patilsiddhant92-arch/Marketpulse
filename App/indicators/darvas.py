@@ -4,6 +4,7 @@ from __future__ import annotations
 try:
     from Scripts.darvas_squeeze import (
         DARVAS,
+        apply_display_window,
         calculate_darvas_box,
         compute_darvas_metrics,
         darvas_v2_enabled,
@@ -25,6 +26,7 @@ except ImportError:
         calculate_darvas_box,
         compute_darvas_metrics,
         darvas_v2_enabled,
+        apply_display_window,
         evaluate_squeeze_bar,
         is_darvas_10ema_squeeze,
         is_darvas_10ema_squeeze_legacy,
@@ -34,6 +36,7 @@ except ImportError:
 
 __all__ = [
     "DARVAS",
+    "apply_display_window",
     "calculate_darvas_box",
     "compute_darvas_metrics",
     "darvas_v2_enabled",
