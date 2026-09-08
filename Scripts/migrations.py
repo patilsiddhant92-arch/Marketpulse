@@ -104,6 +104,7 @@ _INDICATORS_DAILY_SIDE_COLUMNS = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_rank_t5 DOUBLE",
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_rank_t15 DOUBLE",
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_rank_t30 DOUBLE",
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS wema_20 DOUBLE",
 )
 
 # Additive sector-rotation share/leader columns. Applied even when schema

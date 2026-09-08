@@ -35,8 +35,8 @@ def test_schema_v8_preserves_versioned_indicator_clientele_and_sector_contracts(
         "rs_rank_t5",
         "rs_rank_t15",
         "rs_rank_t30",
+        "wema_20",
     } <= indicator_columns
-    assert "wema_20" not in indicator_columns
     assert {"clientele", "clientele_sub", "is_prop", "needs_review"} <= deal_columns
     with duckdb.connect(str(db_path), read_only=True) as db:
         assert db.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'sector_metrics_daily'").fetchone()[0] == 1
@@ -75,5 +75,5 @@ def test_version_7_databases_gain_rs_side_columns_and_migrate_to_8(tmp_path) -> 
         "rs_rank_t5",
         "rs_rank_t15",
         "rs_rank_t30",
+        "wema_20",
     } <= columns
-    assert "wema_20" not in columns

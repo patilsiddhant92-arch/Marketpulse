@@ -13,7 +13,7 @@ def flag_on(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-# MP_SECTOR_V2, MP_DARVAS_V2 default off. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
+# MP_SECTOR_V2, MP_DARVAS_V2, MP_DARVAS_WEEKLY default off. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
 
 POOL = dict(min_mcap=1000.0, min_adv_cr=3.0, min_band=5.0)
 
