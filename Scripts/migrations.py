@@ -91,6 +91,18 @@ _MIGRATION_7 = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_percentile_primary DOUBLE",
 )
 
+# Additive side columns for ADR / IPO RS / RS rank history. Always applied when
+# indicators_daily exists so version-7 databases pick them up without bumping
+# CURRENT_SCHEMA_VERSION (version 8 is reserved for idx_indicators_date_symbol).
+_INDICATORS_DAILY_SIDE_COLUMNS = (
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS adr_20_pct DOUBLE",
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_score_adaptive DOUBLE",
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_percentile_ipo DOUBLE",
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_rank_t5 DOUBLE",
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_rank_t15 DOUBLE",
+    "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS rs_rank_t30 DOUBLE",
+)
+
 _SECTOR_METRICS_TABLE = """
 CREATE TABLE IF NOT EXISTS sector_metrics_daily (
     trade_date DATE,
@@ -153,6 +165,13 @@ def _has_index(db: duckdb.DuckDBPyConnection, index_name: str) -> bool:
     return bool(row and row[0])
 
 
+def _ensure_indicators_daily_side_columns(db: duckdb.DuckDBPyConnection) -> None:
+    if not _table_exists(db, "indicators_daily"):
+        return
+    for statement in _INDICATORS_DAILY_SIDE_COLUMNS:
+        db.execute(statement)
+
+
 def schema_version(db_path: Path) -> int:
     if not Path(db_path).exists():
         return 0
@@ -172,6 +191,7 @@ def run_migrations(db_path: Path) -> None:
         _ensure_migration_table(db)
         current = int(db.execute("SELECT coalesce(max(version), 0) FROM schema_migrations").fetchone()[0] or 0)
         if current >= CURRENT_SCHEMA_VERSION:
+            _ensure_indicators_daily_side_columns(db)
             return
         db.begin()
         try:
@@ -225,6 +245,7 @@ def run_migrations(db_path: Path) -> None:
                     for statement in _MIGRATION_7:
                         db.execute(statement)
                 db.execute("INSERT INTO schema_migrations(version) VALUES (7)")
+            _ensure_indicators_daily_side_columns(db)
             db.commit()
         except Exception:
             db.rollback()

@@ -69,6 +69,24 @@ def test_build_pipeline_uses_corrected_primary_semantics():
     assert 'g["atr_pct_primary"] = g["atr_pct_wilder"]' in source
 
 
+def test_adaptive_mixer_is_side_column_and_never_assigned_to_rs_percentile():
+    from pathlib import Path
+
+    source = Path("Scripts/build_database.py").read_text(encoding="utf-8")
+
+    assert 'indicators["rs_percentile"] = indicators["rs_percentile_primary"]' in source
+    assert 'indicators["rs_score_adaptive"]' in source
+    assert 'indicators["rs_percentile_ipo"]' in source
+    assert 'g["adr_20_pct"] = adr_pct' in source
+    assert 'indicators["rs_rank_t5"]' in source
+    assert 'indicators["rs_rank_t15"]' in source
+    assert 'indicators["rs_rank_t30"]' in source
+    assert 'indicators["rs_percentile"] = indicators["rs_score_adaptive"]' not in source
+    assert 'indicators["rs_percentile"] = indicators["rs_percentile_ipo"]' not in source
+    assert 'g["wema_20"]' not in source
+    assert 'indicators["wema_20"]' not in source
+
+
 def test_risk_off_prepare_policy_cannot_be_disabled():
     from pathlib import Path
 
