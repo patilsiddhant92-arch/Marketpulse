@@ -867,6 +867,10 @@ def render_inline_candlestick_chart(db_path: Path | str, symbol: str, is_darvas:
         "tooltip": {
             "trigger": "axis",
             "axisPointer": {"type": "cross"},
+            "backgroundColor": "rgba(15, 23, 42, 0.95)",
+            "borderColor": "#334155",
+            "borderWidth": 1,
+            "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
             "confine": True,
         },
         "legend": {
@@ -1317,6 +1321,7 @@ def build_action_desk_page(
                 Path(db_path),
                 sym,
                 copy_text=copy_text,
+                on_select_symbol=select_symbol,
             )
 
     # Initial render

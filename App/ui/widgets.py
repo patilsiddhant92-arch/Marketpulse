@@ -217,7 +217,10 @@ def flow_spark(flow: pd.DataFrame) -> None:
             "tooltip": {
                 "trigger": "axis",
                 "axisPointer": {"type": "shadow"},
-                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono"},
+                "backgroundColor": theme.get("tooltip_bg", "rgba(15, 23, 42, 0.95)"),
+                "borderColor": theme.get("tooltip_border", "#334155"),
+                "borderWidth": 1,
+                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono", "fontSize": 11},
             },
             "grid": {"left": 40, "right": 12, "top": 16, "bottom": 28},
             "legend": {"show": True, "top": 0, "right": 0, "textStyle": {"fontSize": 12, "color": theme["text"]}},
@@ -278,6 +281,8 @@ def chart_theme() -> dict[str, Any]:
         "text_strong": "#F1F4F8",
         "faint": "#6E7E93",
         "grid": "#263447",
+        "tooltip_bg": "rgba(15, 23, 42, 0.95)",
+        "tooltip_border": "#334155",
         "series": ["#D8AC3D", "#74A9FF", "#45D483", "#F27C84", "#5AD3D0", "#F0BE58"],
         "primary": "#D8AC3D",
         "info": "#74A9FF",
@@ -350,7 +355,10 @@ def line_chart(
             "tooltip": {
                 "trigger": "axis",
                 "axisPointer": {"type": "line"},
-                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono"},
+                "backgroundColor": theme.get("tooltip_bg", "rgba(15, 23, 42, 0.95)"),
+                "borderColor": theme.get("tooltip_border", "#334155"),
+                "borderWidth": 1,
+                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono", "fontSize": 11},
             },
             "legend": {
                 "top": 0,
@@ -421,7 +429,10 @@ def grouped_line_chart(
             "tooltip": {
                 "trigger": "axis",
                 "axisPointer": {"type": "line"},
-                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono"},
+                "backgroundColor": theme.get("tooltip_bg", "rgba(15, 23, 42, 0.95)"),
+                "borderColor": theme.get("tooltip_border", "#334155"),
+                "borderWidth": 1,
+                "textStyle": {"color": theme["text_strong"], "fontFamily": "IBM Plex Mono", "fontSize": 11},
             },
             "legend": {
                 "top": 0,

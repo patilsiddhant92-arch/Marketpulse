@@ -1031,7 +1031,13 @@ def chart_line(title: str, df: pd.DataFrame, x_col: str, series_cols: list[str])
         {
             "backgroundColor": "transparent",
             "title": {"text": title, "left": 8, "textStyle": {"fontSize": 13, "fontWeight": 700, "color": "#f8fafc"}},
-            "tooltip": {"trigger": "axis"},
+            "tooltip": {
+                "trigger": "axis",
+                "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                "borderColor": "#334155",
+                "borderWidth": 1,
+                "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+            },
             "legend": {"top": 0, "right": 10, "orient": "horizontal", "textStyle": {"color": "#94a3b8", "fontSize": 11, "fontWeight": 600}},
             "color": colors,
             "grid": {"left": 40, "right": 20, "top": 35, "bottom": 25, "borderColor": "#334155"},

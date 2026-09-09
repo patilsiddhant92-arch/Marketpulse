@@ -234,6 +234,202 @@ def query_stock_candlestick_data(
     return res
 
 
+def query_stock_peer_comparison(
+    db_path: Path,
+    symbol: str,
+    *,
+    db_con: duckdb.DuckDBPyConnection | None = None,
+) -> dict[str, Any] | None:
+    """Fetch live industry and sector peer rankings, comparative metrics, and 'better options'.
+    
+    Returns a dict with:
+        - target: dict of target stock stats
+        - group_type: 'Industry' or 'Sector'
+        - group_name: name of the peer group
+        - industry: str
+        - sector: str
+        - target_rank: int (1-based rank by RS within peer group)
+        - total_peers: int
+        - is_leader: bool (True if target_rank == 1)
+        - peers_df: pd.DataFrame (all peers sorted by RS DESC)
+        - better_options: list[dict] (actionable higher-RS or coiled leader peers)
+        - sector_leaders_df: pd.DataFrame (top leaders across parent sector)
+    """
+    sym = str(symbol).strip().upper()
+    if not sym:
+        return None
+
+    def _query(db: duckdb.DuckDBPyConnection) -> dict[str, Any] | None:
+        try:
+            t_df = db.execute(
+                """
+                SELECT 
+                    m.symbol, m.security_name, m.industry, m.sector, m.broad_industry, m.market_cap_cr,
+                    i.trade_date, i.close_price, i.prev_close,
+                    ROUND(((i.close_price - NULLIF(i.prev_close, 0)) / NULLIF(i.prev_close, 0)) * 100, 2) AS day_pct,
+                    ROUND(COALESCE(i.rs_percentile, 0), 1) AS rs_percentile,
+                    ROUND(i.away_10ema_pct, 1) AS away_10ema_pct,
+                    ROUND(i.away_52w_high_pct, 1) AS away_52w_pct,
+                    ROUND(i.rvol, 1) AS rvol,
+                    ROUND(i.delivery_pct, 1) AS delivery_pct,
+                    COALESCE(i.vcp_state, '') AS vcp_state
+                FROM indicators_daily i
+                JOIN stocks_master m ON m.symbol = i.symbol
+                WHERE m.symbol = ?
+                ORDER BY i.trade_date DESC
+                LIMIT 1
+                """,
+                [sym],
+            ).fetchdf()
+        except duckdb.Error:
+            return None
+
+        if t_df.empty:
+            return None
+
+        t_row = t_df.iloc[0].to_dict()
+        dt = t_row["trade_date"]
+        ind = str(t_row.get("industry") or "").strip()
+        sec = str(t_row.get("sector") or "").strip()
+        target_rs = float(t_row.get("rs_percentile") or 0.0)
+        target_away10 = float(t_row.get("away_10ema_pct") or 0.0)
+
+        where_col = "m.industry" if ind else "m.sector"
+        where_val = ind if ind else sec
+
+        def fetch_peers(col_name: str, val: str) -> pd.DataFrame:
+            try:
+                return db.execute(
+                    f"""
+                    SELECT 
+                        m.symbol, m.security_name, m.industry, m.sector, m.market_cap_cr,
+                        i.close_price, 
+                        ROUND(((i.close_price - NULLIF(i.prev_close, 0)) / NULLIF(i.prev_close, 0)) * 100, 2) AS day_pct,
+                        ROUND(COALESCE(i.rs_percentile, 0), 1) AS rs_percentile,
+                        ROUND(i.away_10ema_pct, 1) AS away_10ema_pct,
+                        ROUND(i.away_52w_high_pct, 1) AS away_52w_pct,
+                        ROUND(i.rvol, 1) AS rvol,
+                        ROUND(i.delivery_pct, 1) AS delivery_pct,
+                        COALESCE(i.vcp_state, '') AS vcp_state
+                    FROM indicators_daily i
+                    JOIN stocks_master m ON m.symbol = i.symbol
+                    WHERE i.trade_date = ? AND {col_name} = ?
+                    ORDER BY i.rs_percentile DESC NULLS LAST, i.close_price DESC
+                    """,
+                    [dt, val],
+                ).fetchdf()
+            except duckdb.Error:
+                return pd.DataFrame()
+
+        peers_df = fetch_peers(where_col, where_val) if where_val else pd.DataFrame()
+        if len(peers_df) < 2 and sec and where_col != "m.sector":
+            where_col = "m.sector"
+            where_val = sec
+            peers_df = fetch_peers(where_col, where_val)
+
+        if peers_df.empty:
+            peers_df = t_df.copy()
+
+        peers_df["rs_rank"] = range(1, len(peers_df) + 1)
+        target_match = peers_df[peers_df["symbol"] == sym]
+        target_rank = int(target_match.iloc[0]["rs_rank"]) if not target_match.empty else 1
+
+        better: list[dict[str, Any]] = []
+        for _, r in peers_df.iterrows():
+            p_sym = str(r["symbol"])
+            if p_sym == sym:
+                continue
+            p_rs = float(r["rs_percentile"]) if pd.notna(r["rs_percentile"]) else 0.0
+            p_10ema = float(r["away_10ema_pct"]) if pd.notna(r["away_10ema_pct"]) else 0.0
+            p_52w = float(r["away_52w_pct"]) if pd.notna(r["away_52w_pct"]) else -99.0
+            p_rvol = float(r["rvol"]) if pd.notna(r["rvol"]) else 1.0
+            p_vcp = str(r.get("vcp_state") or "")
+
+            reasons: list[str] = []
+            score = 0.0
+            if p_rs > target_rs + 3:
+                reasons.append(f"Higher RS ({p_rs:.0f} vs {target_rs:.0f})")
+                score += (p_rs - target_rs)
+            if target_away10 > 7.0 and -2.0 <= p_10ema <= 5.0 and p_rs >= 70:
+                reasons.append(f"Coiled at 10 EMA (+{p_10ema:.1f}%)")
+                score += 30
+            if p_52w >= -5.0 and p_rs >= 80:
+                reasons.append(f"Near 52W High ({p_52w:+.1f}%)")
+                score += 20
+            if p_rvol >= 2.5:
+                reasons.append(f"Surging Volume ({p_rvol:.1f}x RVOL)")
+                score += 15
+            if p_vcp in ("Breakout", "Near Pivot"):
+                reasons.append(f"VCP {p_vcp}")
+                score += 15
+
+            if reasons:
+                better.append({
+                    "symbol": p_sym,
+                    "security_name": str(r["security_name"]),
+                    "rs_percentile": p_rs,
+                    "away_10ema_pct": p_10ema,
+                    "away_52w_pct": p_52w,
+                    "rvol": p_rvol,
+                    "day_pct": r["day_pct"],
+                    "close_price": r["close_price"],
+                    "rank": int(r["rs_rank"]),
+                    "reason": " · ".join(reasons[:2]),
+                    "score": score,
+                })
+
+        better.sort(key=lambda x: x["score"], reverse=True)
+
+        sec_leaders_df = pd.DataFrame()
+        if sec:
+            try:
+                sec_leaders_df = db.execute(
+                    """
+                    SELECT 
+                        m.symbol, m.security_name, m.industry, m.market_cap_cr,
+                        i.close_price, 
+                        ROUND(((i.close_price - NULLIF(i.prev_close, 0)) / NULLIF(i.prev_close, 0)) * 100, 2) AS day_pct,
+                        ROUND(COALESCE(i.rs_percentile, 0), 1) AS rs_percentile,
+                        ROUND(i.away_10ema_pct, 1) AS away_10ema_pct,
+                        ROUND(i.away_52w_high_pct, 1) AS away_52w_pct,
+                        ROUND(i.rvol, 1) AS rvol
+                    FROM indicators_daily i
+                    JOIN stocks_master m ON m.symbol = i.symbol
+                    WHERE i.trade_date = ? AND m.sector = ?
+                    ORDER BY i.rs_percentile DESC NULLS LAST
+                    LIMIT 8
+                    """,
+                    [dt, sec],
+                ).fetchdf()
+            except duckdb.Error:
+                sec_leaders_df = pd.DataFrame()
+
+        return {
+            "target": t_row,
+            "group_type": "Industry" if where_col == "m.industry" else "Sector",
+            "group_name": where_val,
+            "industry": ind,
+            "sector": sec,
+            "target_rank": target_rank,
+            "total_peers": len(peers_df),
+            "is_leader": target_rank == 1,
+            "peers_df": peers_df,
+            "better_options": better[:6],
+            "sector_leaders_df": sec_leaders_df,
+        }
+
+    if db_con is not None:
+        try:
+            res = _query(db_con)
+            if res is not None:
+                return res
+        except Exception:
+            pass
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        return _query(db)
+
+
 def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
     """Fetch complete multi-dimensional data for a symbol in a single query transaction."""
     sym = str(symbol).strip().upper()
@@ -386,6 +582,8 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
             except Exception:
                 pass
 
+        peer_comparison = query_stock_peer_comparison(db_path, sym, db_con=db)
+
     profile = ind.iloc[0].to_dict() if not ind.empty else {"symbol": sym}
     candidate_setup = cand.iloc[0].to_dict() if not cand.empty else {}
     ref_row = ref.iloc[0].to_dict() if not ref.empty else {}
@@ -408,6 +606,7 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
         "company_profile": company_profile,
         "thematic_tags": thematic_tags,
         "peer_groups": peer_groups,
+        "peer_comparison": peer_comparison,
     }
 
 
@@ -432,6 +631,7 @@ def open_stock_360_modal(
     comp_prof = data.get("company_profile", {})
     thematic_tags = data.get("thematic_tags", [])
     peer_details = data.get("peer_groups", [])
+    peer_comp = data.get("peer_comparison") or query_stock_peer_comparison(db_path, sym)
     full_name = comp_prof.get("company_name") or profile.get("security_name") or ""
 
     user_db = db_path.parent / "marketpulse_user.duckdb"
@@ -475,6 +675,12 @@ def open_stock_360_modal(
                             ui.label(f"🏷️ {tag}").classes("mp-badge mp-info text-[10px]")
 
                 with ui.row().classes("gap-2 flex-wrap mt-2"):
+                    if peer_comp:
+                        p_rk = peer_comp["target_rank"]
+                        p_tot = peer_comp["total_peers"]
+                        p_grp = peer_comp["group_name"]
+                        rk_tone = "mp-good" if p_rk <= 3 else "mp-info" if p_rk <= 10 else "mp-neutral"
+                        ui.label(f"Industry Rank #{p_rk} of {p_tot} ({p_grp})").classes(f"mp-badge {rk_tone} font-semibold")
                     ui.label(f"Action State · {candidate_state}").classes("mp-badge mp-warn")
                     ui.label(f"Market Regime · {market_regime}").classes("mp-badge mp-neutral")
                     ui.label(f"Event Risk · {event_risk}").classes("mp-badge mp-neutral")
@@ -509,9 +715,9 @@ def open_stock_360_modal(
                         wl_btn.on_click(make_toggle(wl_idx, wl_btn, name_str))
 
                     tv_url = tradingview_url(sym)
-                    ui.button("TV", on_click=lambda: ui.run_javascript(f'window.open("{tv_url}", "_blank")')).props("dense flat size=xs").classes("mp-primary")
+                    ui.button("TV", on_click=lambda url=tv_url: ui.run_javascript(f'window.open("{url}", "_blank")')).props("dense flat size=xs").classes("mp-primary")
                     if copy_text:
-                        ui.button("Copy", on_click=lambda: copy_text(f"Symbol {sym}", f"NSE:{sym.replace('-', '_')}")).props("dense flat size=xs").classes("mp-button")
+                        ui.button("Copy", on_click=lambda *_, s=sym: copy_text(f"Symbol {s}", f"NSE:{s.replace('-', '_')}")).props("dense flat size=xs").classes("mp-button")
                     ui.button(icon="close", on_click=dialog.close).props("dense flat round size=xs").classes("text-slate-400")
 
         # Tabs for 360 sections
@@ -584,6 +790,10 @@ def open_stock_360_modal(
                         "tooltip": {
                             "trigger": "axis",
                             "axisPointer": {"type": "cross"},
+                            "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                            "borderColor": "#334155",
+                            "borderWidth": 1,
+                            "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
                             "confine": True,
                         },
                         "legend": {
@@ -758,51 +968,197 @@ def open_stock_360_modal(
                     else:
                         ui.label("No thematic tags mapped.").classes("text-xs text-[var(--mp-muted)] italic")
 
-                # 3. Direct Peers & Sympathy Plays Card
+                # 3. Industry Peer Comparison & Relative Strength Leaderboard
                 with ui.card().classes("p-4 mp-card w-full"):
-                    with ui.row().classes("w-full items-center justify-between mb-2"):
+                    all_peer_syms = []
+                    if peer_comp and not peer_comp["peers_df"].empty:
+                        all_peer_syms = [str(s) for s in peer_comp["peers_df"]["symbol"].dropna().tolist()]
+
+                    with ui.row().classes("w-full items-center justify-between mb-3 border-b border-[var(--mp-border)] pb-2 flex-wrap gap-2"):
                         with ui.column().classes("gap-0.5"):
-                            ui.label("Direct Peers & Sympathy Plays").classes("text-sm font-bold text-[var(--mp-text)]")
-                            ui.label("Tickers with correlated business drivers — cross-check when sector or stock moves").classes("text-xs text-[var(--mp-muted)]")
-                        ui.label(f"{len(peer_details)} peers identified").classes("text-xs text-[var(--mp-muted)]")
+                            ui.label("Industry Peers & Relative Strength Leaderboard").classes("text-sm font-bold text-[var(--mp-text)]")
+                            if peer_comp:
+                                ui.label(f"Rank #{peer_comp['target_rank']} of {peer_comp['total_peers']} in {peer_comp['group_name']} (Sector: {peer_comp['sector']})").classes("text-xs text-sky-400 font-medium")
+                            else:
+                                ui.label("Cross-check momentum and leadership across industry peers").classes("text-xs text-[var(--mp-muted)]")
 
-                    if not peer_details:
-                        ui.label("No direct peer relationships identified for this symbol.").classes("text-xs text-[var(--mp-muted)] italic")
-                    else:
-                        with ui.column().classes("w-full gap-2 mt-2"):
-                            for p in peer_details:
-                                p_sym = p["peer_symbol"]
-                                sim_raw = p.get("similarity_type") or "thematic"
-                                sim_label = sim_raw.replace("_", " ").title()
-                                tone_sim = "mp-good" if sim_raw == "direct_competitor" else ("mp-info" if sim_raw == "supply_chain" else "mp-neutral")
-                                p_px = p.get("close_price")
-                                p_chg = p.get("day_change_pct")
-                                p_mcap = p.get("market_cap_cr")
-                                p_ind = p.get("industry") or "—"
+                        with ui.row().classes("items-center gap-2"):
+                            if all_peer_syms and copy_text:
+                                tv_copy_str = ",".join(f"NSE:{s.replace('-', '_')}" for s in all_peer_syms)
+                                grp_lbl = peer_comp["group_name"] if peer_comp else "Industry"
+                                ui.button(
+                                    f"📋 Copy All Peers ({len(all_peer_syms)})",
+                                    on_click=lambda *_, t=tv_copy_str, g=grp_lbl: copy_text(f"{g} Peers", t)
+                                ).props("dense outline size=sm color=primary").classes("text-xs font-mono")
 
-                                with ui.row().classes("w-full items-center justify-between p-2.5 rounded-lg border border-[var(--mp-border)] bg-[var(--mp-surface-raised)] hover:bg-[var(--mp-surface-hover)] transition-colors"):
-                                    with ui.row().classes("items-center gap-3"):
-                                        def make_peer_open(peer_s=p_sym):
-                                            def _handler():
-                                                dialog.close()
-                                                open_stock_360_modal(db_path, peer_s, copy_text=copy_text)
-                                            return _handler
-                                        ui.button(p_sym, on_click=make_peer_open(p_sym)).props("dense unelevated size=sm color=primary").classes("font-mono font-bold text-xs")
-                                        ui.label(sim_label).classes(f"mp-badge {tone_sim} text-[10px]")
-                                        ui.label(p["company_name"]).classes("text-xs text-slate-300 font-medium truncate max-w-[240px]")
+                    # Better Options in this Industry
+                    if peer_comp and peer_comp.get("better_options"):
+                        better_opts = peer_comp["better_options"]
+                        with ui.column().classes("w-full gap-2 mb-4 p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-lg"):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.label("🌟 BETTER OPTIONS IN THIS INDUSTRY:").classes("text-xs font-bold text-emerald-400 tracking-wider")
+                                ui.label("Higher RS / Coiled at 10 EMA / High Volume Breakouts").classes("text-[11px] text-[var(--mp-muted)]")
 
-                                    with ui.row().classes("items-center gap-3"):
-                                        ui.label(p_ind).classes("text-xs text-[var(--mp-muted)] hidden md:block")
-                                        if p_mcap and pd.notna(p_mcap):
-                                            ui.label(f"₹{float(p_mcap):,.0f} Cr").classes("text-xs text-[var(--mp-muted)] font-mono")
-                                        if p_px and pd.notna(p_px):
-                                            ui.label(f"₹{float(p_px):,.2f}").classes("text-xs font-semibold font-mono")
-                                        if pd.notna(p_chg):
-                                            c_tone = "text-emerald-400" if float(p_chg) >= 0 else "text-rose-400"
-                                            ui.label(f"{float(p_chg):+.2f}%").classes(f"text-xs font-semibold font-mono {c_tone}")
+                            with ui.grid(columns=3).classes("w-full gap-2.5"):
+                                for bo in better_opts[:6]:
+                                    bo_sym = bo["symbol"]
+                                    bo_name = bo.get("security_name") or bo_sym
+                                    bo_rs = bo["rs_percentile"]
+                                    bo_10ema = bo["away_10ema_pct"]
+                                    bo_52w = bo["away_52w_pct"]
+                                    bo_rvol = bo["rvol"]
+                                    bo_day = bo["day_pct"]
+                                    bo_px = bo["close_price"]
+                                    bo_rk = bo["rank"]
+                                    bo_reason = bo["reason"]
 
-                                        p_tv = tradingview_url(p_sym)
-                                        ui.button("TV", on_click=lambda url=p_tv: ui.run_javascript(f'window.open("{url}", "_blank")')).props("dense flat size=xs").classes("mp-primary")
+                                    with ui.card().classes("p-2.5 mp-card bg-[var(--mp-surface-raised)] border border-emerald-500/20 hover:border-emerald-500/50 transition-all flex flex-col justify-between gap-1.5"):
+                                        with ui.row().classes("w-full items-center justify-between"):
+                                            with ui.row().classes("items-center gap-1.5"):
+                                                ui.label(f"#{bo_rk}").classes("text-[10px] text-slate-400 font-mono")
+                                                ui.label(bo_sym).classes("font-bold text-xs text-sky-400 font-mono")
+                                            ui.label(f"RS {bo_rs:.0f}").classes("mp-badge mp-good text-[10px] font-bold")
+
+                                        ui.label(bo_name).classes("text-[11px] text-slate-300 truncate max-w-[200px]")
+
+                                        with ui.row().classes("w-full items-center justify-between text-[11px] font-mono"):
+                                            ui.label(f"₹{float(bo_px):,.1f}").classes("text-slate-200")
+                                            day_tone = "text-emerald-400" if bo_day and float(bo_day) >= 0 else "text-rose-400"
+                                            ui.label(f"{float(bo_day):+.1f}%").classes(f"font-bold {day_tone}")
+
+                                        with ui.row().classes("w-full items-center justify-between text-[10px] font-mono text-[var(--mp-muted)]"):
+                                            ui.label(f"10EMA {float(bo_10ema):+.1f}%")
+                                            ui.label(f"52W {float(bo_52w):+.1f}%")
+                                            ui.label(f"RVOL {float(bo_rvol):.1f}x")
+
+                                        ui.label(bo_reason).classes("text-[10px] font-semibold text-emerald-400/90 truncate")
+
+                                        with ui.row().classes("w-full items-center justify-end gap-1.5 pt-1 border-t border-slate-800"):
+                                            def make_bo_open(bsym=bo_sym):
+                                                def _h():
+                                                    dialog.close()
+                                                    open_stock_360_modal(db_path, bsym, copy_text=copy_text)
+                                                return _h
+                                            ui.button("Open 360", on_click=make_bo_open(bo_sym)).props("dense unelevated size=xs color=primary").classes("text-[10px]")
+                                            bo_tv = tradingview_url(bo_sym)
+                                            ui.button("TV", on_click=lambda *_, u=bo_tv: ui.run_javascript(f'window.open("{u}", "_blank")')).props("dense flat size=xs").classes("mp-primary text-[10px]")
+
+                    elif peer_comp and peer_comp.get("is_leader"):
+                        with ui.row().classes("w-full items-center gap-2 mb-3 p-2.5 bg-amber-950/20 border border-amber-500/40 rounded-lg text-amber-300 text-xs font-bold"):
+                            ui.label(f"🏆 {sym} is the #1 Relative Strength Leader in {peer_comp['group_name']} (RS {peer_comp['target'].get('rs_percentile', 0):.0f})!")
+
+                    # Full Interactive Peer Table
+                    if peer_comp and not peer_comp["peers_df"].empty:
+                        p_rows = []
+                        for _, r in peer_comp["peers_df"].iterrows():
+                            psym = str(r["symbol"])
+                            p_px = r.get("close_price")
+                            p_day = r.get("day_pct")
+                            p_rs = r.get("rs_percentile")
+                            p_10e = r.get("away_10ema_pct")
+                            p_52w = r.get("away_52w_pct")
+                            p_rv = r.get("rvol")
+                            p_del = r.get("delivery_pct")
+                            p_vcp = r.get("vcp_state") or "—"
+                            is_curr = psym == sym
+                            p_rows.append({
+                                "Rank": int(r["rs_rank"]),
+                                "Symbol": f"▶ {psym}" if is_curr else psym,
+                                "Company": str(r.get("security_name") or psym)[:22],
+                                "Price": f"₹{float(p_px):,.1f}" if p_px and pd.notna(p_px) else "—",
+                                "Day %": f"{float(p_day):+.2f}%" if p_day and pd.notna(p_day) else "—",
+                                "RS": f"{float(p_rs):.0f}" if p_rs and pd.notna(p_rs) else "—",
+                                "10EMA %": f"{float(p_10e):+.1f}%" if p_10e and pd.notna(p_10e) else "—",
+                                "52W High %": f"{float(p_52w):+.1f}%" if p_52w and pd.notna(p_52w) else "—",
+                                "RVOL": f"{float(p_rv):.1f}x" if p_rv and pd.notna(p_rv) else "—",
+                                "Del %": f"{float(p_del):.1f}%" if p_del and pd.notna(p_del) else "—",
+                                "Setup": p_vcp,
+                                "_sym": psym,
+                            })
+
+                        peer_cols = [
+                            {"name": "Rank", "label": "#", "field": "Rank", "align": "center", "sortable": True},
+                            {"name": "Symbol", "label": "Symbol", "field": "Symbol", "align": "left", "sortable": True},
+                            {"name": "Company", "label": "Company", "field": "Company", "align": "left"},
+                            {"name": "Price", "label": "Price", "field": "Price", "align": "right", "sortable": True},
+                            {"name": "Day %", "label": "Day %", "field": "Day %", "align": "right", "sortable": True},
+                            {"name": "RS", "label": "RS", "field": "RS", "align": "right", "sortable": True},
+                            {"name": "10EMA %", "label": "10 EMA %", "field": "10EMA %", "align": "right", "sortable": True},
+                            {"name": "52W High %", "label": "52W High %", "field": "52W High %", "align": "right", "sortable": True},
+                            {"name": "RVOL", "label": "RVOL", "field": "RVOL", "align": "right", "sortable": True},
+                            {"name": "Del %", "label": "Del %", "field": "Del %", "align": "right", "sortable": True},
+                            {"name": "Setup", "label": "Setup", "field": "Setup", "align": "center"},
+                        ]
+                        
+                        tbl = ui.table(
+                            columns=peer_cols,
+                            rows=p_rows,
+                            pagination=12,
+                        ).classes("w-full mp-table text-xs")
+
+                        def on_peer_table_click(e):
+                            try:
+                                args = e.args[1] if len(e.args) > 1 else e.args[0]
+                                ps = args.get("_sym") or args.get("Symbol")
+                                if ps:
+                                    ps = ps.replace("▶", "").strip()
+                                    if ps != sym:
+                                        dialog.close()
+                                        open_stock_360_modal(db_path, ps, copy_text=copy_text)
+                            except Exception:
+                                pass
+                        tbl.on("rowClick", on_peer_table_click)
+                        tbl.on("row-click", on_peer_table_click)
+
+                    # Parent Sector Leaders
+                    if peer_comp and not peer_comp["sector_leaders_df"].empty:
+                        sec_df = peer_comp["sector_leaders_df"]
+                        with ui.column().classes("w-full gap-1.5 mt-4 pt-3 border-t border-[var(--mp-border)]"):
+                            with ui.row().classes("items-center justify-between"):
+                                ui.label(f"🏢 Sector Leaders ({peer_comp['sector']})").classes("text-xs font-bold text-[var(--mp-muted)] uppercase tracking-wider")
+                                sec_syms = [str(s) for s in sec_df["symbol"].dropna().tolist()]
+                                if copy_text:
+                                    sec_tv = ",".join(f"NSE:{s.replace('-', '_')}" for s in sec_syms)
+                                    ui.button(f"Copy Sector Leaders ({len(sec_syms)})", on_click=lambda *_, t=sec_tv, s=peer_comp['sector']: copy_text(f"{s} Leaders", t)).props("dense flat size=xs color=primary").classes("text-[10px]")
+
+                            with ui.row().classes("gap-1.5 flex-wrap"):
+                                for _, sr in sec_df.iterrows():
+                                    ssym = str(sr["symbol"])
+                                    srs = sr.get("rs_percentile")
+                                    spx = sr.get("close_price")
+                                    sday = sr.get("day_pct")
+                                    tone = "text-emerald-400" if sday and float(sday) >= 0 else "text-rose-400"
+                                    def make_sec_open(target_s=ssym):
+                                        def _h():
+                                            dialog.close()
+                                            open_stock_360_modal(db_path, target_s, copy_text=copy_text)
+                                        return _h
+                                    with ui.button(on_click=make_sec_open(ssym)).props("dense unelevated size=xs color=dark").classes("border border-slate-800 hover:border-slate-700 px-2 py-1"):
+                                        with ui.row().classes("items-center gap-1.5 text-[11px] font-mono"):
+                                            ui.label(ssym).classes("font-bold text-sky-400")
+                                            ui.label(f"RS {float(srs):.0f}" if srs else "—").classes("text-amber-400")
+                                            ui.label(f"{float(sday):+.1f}%" if sday else "—").classes(f"font-semibold {tone}")
+
+                    # Curated Supply Chain & Competitor Links
+                    if peer_details:
+                        with ui.column().classes("w-full gap-2 mt-4 pt-3 border-t border-[var(--mp-border)]"):
+                            ui.label("🔗 Supply Chain & Direct Competitor Links (Curated)").classes("text-xs font-bold text-[var(--mp-muted)]")
+                            with ui.row().classes("gap-2 flex-wrap"):
+                                for p in peer_details:
+                                    p_sym = p["peer_symbol"]
+                                    sim_raw = p.get("similarity_type") or "thematic"
+                                    sim_label = sim_raw.replace("_", " ").title()
+                                    tone_sim = "mp-good" if sim_raw == "direct_competitor" else ("mp-info" if sim_raw == "supply_chain" else "mp-neutral")
+                                    def make_curated_open(target_s=p_sym):
+                                        def _h():
+                                            dialog.close()
+                                            open_stock_360_modal(db_path, target_s, copy_text=copy_text)
+                                        return _h
+                                    with ui.row().classes("items-center gap-1.5 px-2 py-1 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] cursor-pointer hover:border-slate-600", on_click=make_curated_open(p_sym)):
+                                        ui.label(p_sym).classes("font-bold text-xs text-sky-400 font-mono")
+                                        ui.label(sim_label).classes(f"mp-badge {tone_sim} text-[9px]")
+                                        if p.get("close_price"):
+                                            ui.label(f"₹{float(p['close_price']):,.1f}").classes("text-[10px] text-slate-300 font-mono")
 
             # Tab 2: Overview
             with ui.tab_panel(t_overview).classes("mp-confirmation-section"):
@@ -972,6 +1328,7 @@ def render_stock_inspector_panel(
     user_db: Path | None = None,
     copy_text: Any = None,
     on_close: Any = None,
+    on_select_symbol: Any = None,
 ) -> None:
     """Render an embedded, persistent stock inspector panel (Zero-Popup Solution)."""
     db_path = Path(db_path)
@@ -999,6 +1356,7 @@ def render_stock_inspector_panel(
     comp_prof = data.get("company_profile", {})
     thematic_tags = data.get("thematic_tags", [])
     peer_details = data.get("peer_groups", [])
+    peer_comp = data.get("peer_comparison") or query_stock_peer_comparison(db_path, clean_sym)
     full_name = comp_prof.get("company_name") or profile.get("security_name") or ""
 
     close_price = profile.get("close_price") or profile.get("latest_close") or 0.0
@@ -1023,6 +1381,12 @@ def render_stock_inspector_panel(
                 if full_name:
                     ui.label(full_name).classes("text-[11px] text-slate-300 font-medium truncate max-w-[280px]")
                 ui.label(f"{sector} · {industry}").classes("text-[10px] text-[var(--mp-muted)]")
+                if peer_comp:
+                    p_rk = peer_comp["target_rank"]
+                    p_tot = peer_comp["total_peers"]
+                    p_grp = peer_comp["group_name"]
+                    rk_color = "text-amber-400" if p_rk <= 3 else "text-sky-400" if p_rk <= 10 else "text-slate-400"
+                    ui.label(f"Industry Rank #{p_rk} of {p_tot} in {p_grp}").classes(f"text-[10px] font-bold {rk_color}")
 
             with ui.column().classes("items-end gap-1"):
                 with ui.row().classes("items-center gap-1.5"):
@@ -1075,7 +1439,15 @@ def render_stock_inspector_panel(
             echart_opt = {
                 "backgroundColor": "transparent",
                 "animation": False,
-                "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
+                "tooltip": {
+                    "trigger": "axis",
+                    "axisPointer": {"type": "cross"},
+                    "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                    "borderColor": "#334155",
+                    "borderWidth": 1,
+                    "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                    "confine": True,
+                },
                 "legend": {
                     "data": ["Price", "Darvas Top", "10 EMA", "20 EMA", "50 EMA", "200 EMA"],
                     "textStyle": {"color": "#94a3b8", "fontSize": 9},
@@ -1235,26 +1607,103 @@ def render_stock_inspector_panel(
                                 ui.label(side).classes(f"font-bold {side_tone}")
                                 ui.label(f"₹{d_val:,.1f}Cr").classes("font-bold text-slate-100")
 
-        # 6. Themes & Peers Context
-        if thematic_tags or peer_details:
+        # 6. Themes & Dynamic Industry Peer Comparison
+        if thematic_tags or peer_comp:
             with ui.card().classes("w-full mp-card p-2.5 bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
                 if thematic_tags:
                     with ui.row().classes("items-center gap-1 flex-wrap mb-2"):
                         ui.label("THEMES:").classes("text-[9px] font-bold text-[var(--mp-muted)]")
                         for t in thematic_tags[:3]:
                             ui.label(f"🏷️ {t}").classes("mp-badge mp-good text-[10px] py-0 px-1.5")
-                if peer_details:
-                    with ui.row().classes("items-center justify-between mb-1"):
-                        ui.label("INDUSTRY PEERS").classes("text-[9px] font-bold text-[var(--mp-muted)] uppercase")
+
+                if peer_comp:
+                    target_rk = peer_comp["target_rank"]
+                    tot_peers = peer_comp["total_peers"]
+                    grp_name = peer_comp["group_name"]
+                    better_opts = peer_comp.get("better_options", [])
+                    is_leader = peer_comp.get("is_leader", False)
+
+                    # Peer Rank Header & TV Copy
+                    with ui.row().classes("w-full items-center justify-between mb-1.5 border-b border-slate-800 pb-1"):
+                        with ui.row().classes("items-center gap-1.5"):
+                            ui.label("👥 PEER STATUS:").classes("text-[9px] font-bold text-[var(--mp-muted)] uppercase")
+                            rk_color = "text-amber-400" if target_rk <= 3 else "text-sky-400" if target_rk <= 10 else "text-slate-400"
+                            ui.label(f"Rank #{target_rk} of {tot_peers} in {grp_name}").classes(f"text-[10px] font-bold {rk_color}")
+
+                        all_peer_syms = [str(s) for s in peer_comp["peers_df"]["symbol"].dropna().tolist()]
+                        if copy_text and all_peer_syms:
+                            tv_copy_str = ",".join(f"NSE:{s.replace('-', '_')}" for s in all_peer_syms)
+                            ui.button(
+                                f"Copy Peers ({len(all_peer_syms)})",
+                                on_click=lambda *_, t=tv_copy_str, g=grp_name: copy_text(f"{g} Peers", t)
+                            ).props("dense outline size=xs color=primary").classes("text-[9px] px-1 py-0 font-mono")
+
+                    # Better Options Chips
+                    if better_opts:
+                        with ui.column().classes("w-full gap-1 mb-2 bg-emerald-950/20 p-2 rounded border border-emerald-500/30"):
+                            with ui.row().classes("items-center justify-between"):
+                                ui.label("🌟 BETTER OPTIONS IN THIS INDUSTRY:").classes("text-[9px] font-bold text-emerald-400 tracking-wider")
+                                ui.label("Click to inspect").classes("text-[9px] text-[var(--mp-muted)]")
+                            with ui.row().classes("gap-1 flex-wrap"):
+                                for bo in better_opts[:4]:
+                                    bo_sym = bo["symbol"]
+                                    bo_rs = bo["rs_percentile"]
+                                    bo_rs_str = f"RS {bo_rs:.0f}" if bo_rs else ""
+                                    bo_btn_txt = f"{bo_sym} ({bo_rs_str})"
+
+                                    def make_chip_click(bsym=bo_sym):
+                                        if on_select_symbol:
+                                            return lambda *_: on_select_symbol(bsym)
+                                        return lambda *_: open_stock_360_modal(db_path, bsym, copy_text=copy_text)
+
+                                    ui.button(bo_btn_txt, on_click=make_chip_click(bo_sym)).props(
+                                        "dense unelevated size=xs color=dark"
+                                    ).classes("text-[10px] font-mono border border-emerald-500/40 text-emerald-300 hover:border-emerald-400")
+
+                    elif is_leader:
+                        with ui.row().classes("w-full items-center gap-1.5 mb-1.5 p-1.5 bg-amber-950/30 border border-amber-500/30 rounded text-amber-300 text-[10px] font-bold"):
+                            ui.label(f"🏆 {sym} is the #1 RS Leader in {grp_name}!")
+
+                    # Peer Table Preview (Top 5 + target stock)
                     with ui.column().classes("w-full gap-1"):
-                        for p in peer_details[:3]:
-                            p_sym = p.get("symbol")
+                        ui.label("TOP PEERS & RELATIVE STRENGTH:").classes("text-[9px] font-bold text-[var(--mp-muted)]")
+                        peers_preview = peer_comp["peers_df"].head(5)
+                        if target_rk > 5:
+                            target_row = peer_comp["peers_df"][peer_comp["peers_df"]["symbol"] == sym]
+                            if not target_row.empty:
+                                peers_preview = pd.concat([peers_preview, target_row]).drop_duplicates("symbol")
+
+                        for _, p in peers_preview.iterrows():
+                            p_sym = str(p.get("symbol"))
                             p_rs = p.get("rs_percentile")
                             p_cmp = p.get("close_price")
-                            p_5d = p.get("return_5d_pct")
-                            p_tone = "text-emerald-400" if p_5d and float(p_5d) >= 0 else "text-rose-400"
-                            with ui.row().classes("w-full items-center justify-between text-[11px] font-mono"):
-                                ui.label(p_sym).classes("font-bold text-sky-400")
-                                ui.label(f"RS {float(p_rs):.0f}" if p_rs else "—").classes("text-[var(--mp-muted)]")
-                                ui.label(f"₹{float(p_cmp):,.1f}" if p_cmp else "—").classes("text-slate-300")
-                                ui.label(f"{float(p_5d):+.1f}%" if p_5d else "—").classes(f"font-bold {p_tone}")
+                            p_day = p.get("day_pct")
+                            p_rk = p.get("rs_rank")
+                            p_10ema = p.get("away_10ema_pct")
+                            is_current = p_sym == sym
+
+                            row_bg = "bg-primary/10 border-l-2 border-primary font-bold" if is_current else "hover:bg-slate-800/40"
+                            p_tone = "text-emerald-400" if p_day and float(p_day) >= 0 else "text-rose-400"
+
+                            def make_row_click(rsym=p_sym):
+                                if rsym == sym:
+                                    return None
+                                if on_select_symbol:
+                                    return lambda *_: on_select_symbol(rsym)
+                                return lambda *_: open_stock_360_modal(db_path, rsym, copy_text=copy_text)
+
+                            with ui.row().classes(f"w-full items-center justify-between text-[10px] font-mono px-1 py-0.5 rounded cursor-pointer {row_bg}", on_click=make_row_click(p_sym)):
+                                with ui.row().classes("items-center gap-1.5"):
+                                    ui.label(f"#{int(p_rk):<2}").classes("text-slate-400 text-[9px]")
+                                    ui.label(f"{'▶ ' if is_current else ''}{p_sym}").classes(
+                                        "text-primary font-bold" if is_current else "text-sky-300 hover:underline"
+                                    )
+                                    if p_10ema and pd.notna(p_10ema):
+                                        ui.label(f"10E:{float(p_10ema):+.0f}%").classes("text-[9px] text-slate-400")
+
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.label(f"RS {float(p_rs):.0f}" if p_rs and pd.notna(p_rs) else "—").classes(
+                                        "text-amber-400 font-bold" if p_rs and float(p_rs) >= 80 else "text-slate-400"
+                                    )
+                                    ui.label(f"₹{float(p_cmp):,.1f}" if p_cmp and pd.notna(p_cmp) else "—").classes("text-slate-300")
+                                    ui.label(f"{float(p_day):+.1f}%" if p_day and pd.notna(p_day) else "—").classes(f"{p_tone}")

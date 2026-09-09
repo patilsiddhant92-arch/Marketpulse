@@ -75,7 +75,14 @@ def render_vcp_ohlc(db_path: Path, symbol: str, *, bars: int = 180) -> None:
         {
             "backgroundColor": "transparent",
             "animation": False,
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}, "textStyle": {"color": "#F1F4F8", "fontFamily": "IBM Plex Mono"}},
+            "tooltip": {
+                "trigger": "axis",
+                "axisPointer": {"type": "cross"},
+                "backgroundColor": theme.get("tooltip_bg", "rgba(15, 23, 42, 0.95)"),
+                "borderColor": theme.get("tooltip_border", "#334155"),
+                "borderWidth": 1,
+                "textStyle": {"color": "#F1F4F8", "fontFamily": "IBM Plex Mono", "fontSize": 11},
+            },
             "legend": {
                 "top": 0,
                 "textStyle": {"color": theme["text"], "fontSize": 12, "fontFamily": "IBM Plex Sans"},
@@ -157,7 +164,14 @@ def _render_rs_vs_nifty(db_path: Path, dates: list[str], close: pd.Series) -> No
         {
             "backgroundColor": "transparent",
             "animation": False,
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "line"}, "textStyle": {"color": "#F1F4F8", "fontFamily": "IBM Plex Mono"}},
+            "tooltip": {
+                "trigger": "axis",
+                "axisPointer": {"type": "line"},
+                "backgroundColor": theme.get("tooltip_bg", "rgba(15, 23, 42, 0.95)"),
+                "borderColor": theme.get("tooltip_border", "#334155"),
+                "borderWidth": 1,
+                "textStyle": {"color": "#F1F4F8", "fontFamily": "IBM Plex Mono", "fontSize": 11},
+            },
             "grid": {"left": 48, "right": 16, "top": 12, "bottom": 24},
             "xAxis": {
                 "type": "category",
