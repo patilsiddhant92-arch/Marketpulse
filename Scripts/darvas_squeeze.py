@@ -140,18 +140,16 @@ def completed_weeks(sessions: Any, as_of: Any) -> list[date]:
         sess.append(sd)
     if not sess:
         return []
-    seen_p: set[pd.Period] = set()
-    ends: list[date] = []
-    for s in sess:
-        p = pd.Period(s, freq="W-FRI")
-        if p in seen_p:
-            continue
-        seen_p.add(p)
-        if week_complete(p, as_of_d):
-            end = week_end_session(p, sess)
-            if end is not None:
-                ends.append(end)
-    return ends
+    sess.sort()
+    s_dt = pd.to_datetime(sess)
+    periods = s_dt.to_period("W-FRI")
+    fridays = periods.end_time.date
+    valid_mask = fridays <= as_of_d
+    if not valid_mask.any():
+        return []
+    valid_periods = periods[valid_mask]
+    valid_sessions = pd.Series(sess)[valid_mask]
+    return valid_sessions.groupby(valid_periods).max().tolist()
 
 
 def last_completed_week(sessions: Any, as_of: Any) -> date | None:
@@ -193,37 +191,46 @@ def weekly_ohlc(daily: pd.DataFrame, *, as_of: Any = None) -> pd.DataFrame:
     as_of_d = _to_date(as_of)
     if as_of_d is None:
         return empty
-    frame = frame[pd.to_datetime(frame[date_col]).dt.normalize() <= pd.Timestamp(as_of_d)]
+
+    frame["_dt"] = pd.to_datetime(frame[date_col])
+    frame = frame[frame["_dt"].dt.normalize() <= pd.Timestamp(as_of_d)]
     if frame.empty:
         return empty
 
-    rows: list[dict[str, Any]] = []
-    for sym, group in frame.groupby(sym_col, sort=False):
-        g = group.sort_values(date_col)
-        sessions = pd.to_datetime(g[date_col]).dt.date.tolist()
-        week_ends = completed_weeks(sessions, as_of_d)
-        if not week_ends:
-            continue
-        periods = pd.to_datetime(g[date_col]).dt.to_period("W-FRI")
-        for week_end in week_ends:
-            p = pd.Period(week_end, freq="W-FRI")
-            bars = g.loc[periods == p]
-            if bars.empty:
-                continue
-            row: dict[str, Any] = {
-                "symbol": sym,
-                "trade_date": pd.Timestamp(week_end),
-                "open_price": bars[open_col].iloc[0],
-                "high_price": bars[high_col].max(),
-                "low_price": bars[low_col].min(),
-                "close_price": bars[close_col].iloc[-1],
-                "volume": bars[vol_col].sum() if vol_col is not None else np.nan,
-            }
-            rows.append(row)
-
-    if not rows:
+    frame["_period"] = frame["_dt"].dt.to_period("W-FRI")
+    frame["_fri"] = frame["_period"].dt.end_time.dt.date
+    frame_completed = frame[frame["_fri"] <= as_of_d]
+    if frame_completed.empty:
         return empty
-    out = pd.DataFrame(rows, columns=empty_cols)
+
+    agg_rules = {
+        date_col: "max",
+        open_col: "first",
+        high_col: "max",
+        low_col: "min",
+        close_col: "last",
+    }
+    if vol_col:
+        agg_rules[vol_col] = "sum"
+
+    grouped = (
+        frame_completed.sort_values(date_col)
+        .groupby([sym_col, "_period"], sort=False)
+        .agg(agg_rules)
+        .reset_index()
+    )
+    out = pd.DataFrame(
+        {
+            "symbol": grouped[sym_col],
+            "trade_date": pd.to_datetime(grouped[date_col]).dt.normalize(),
+            "open_price": grouped[open_col],
+            "high_price": grouped[high_col],
+            "low_price": grouped[low_col],
+            "close_price": grouped[close_col],
+            "volume": grouped[vol_col] if vol_col else np.nan,
+        },
+        columns=empty_cols,
+    )
     return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
 
 

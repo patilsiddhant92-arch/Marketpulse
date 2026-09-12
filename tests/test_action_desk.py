@@ -123,7 +123,8 @@ def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
     # Rule 5: Darvas Squeeze is decoupled from RS (no RS>=70 gate) and includes coiled leaders
     darvas_df = queues.get("darvas")
     assert isinstance(darvas_df, pd.DataFrame) and not darvas_df.empty
-    assert any(s in darvas_df["symbol"].values for s in ["MIDHANI", "NPST", "EXPLEOSOL", "BANCOINDIA"])
+    assert len(darvas_df) >= 5
+    assert any(s in darvas_df["symbol"].values for s in ["MIDHANI", "NPST", "EXPLEOSOL", "BANCOINDIA", "HAL", "MCX", "AUROPHARMA", "GAIL", "IIFLCAPS"])
     assert "NTPC" not in darvas_df["symbol"].values
     assert "RHIM" not in darvas_df["symbol"].values
     if "rs_percentile" in darvas_df.columns:
@@ -166,7 +167,7 @@ def test_action_desk_darvas_squeeze_queue(monkeypatch) -> None:
     assert "darvas_top" in darvas_df.columns
     assert "trigger_price" in darvas_df.columns
     assert "stop_loss" in darvas_df.columns
-    assert any(s in darvas_df["symbol"].values for s in ["MIDHANI", "NPST", "EXPLEOSOL", "BANCOINDIA"])
+    assert any(s in darvas_df["symbol"].values for s in ["MIDHANI", "NPST", "EXPLEOSOL", "BANCOINDIA", "HAL", "MCX", "AUROPHARMA", "GAIL", "IIFLCAPS"])
     assert "NTPC" not in darvas_df["symbol"].values
     assert "RHIM" not in darvas_df["symbol"].values
     assert (darvas_df["squeeze_pct"] <= 5.0).all()

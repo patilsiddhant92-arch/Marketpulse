@@ -1,6 +1,9 @@
 import argparse
+import concurrent.futures
+import os
 import re
 import shutil
+import time
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +75,7 @@ except ModuleNotFoundError:
 
 
 warnings.simplefilter("ignore", PerformanceWarning)
+warnings.simplefilter("ignore", FutureWarning)
 
 
 def ensure_folders() -> None:
@@ -465,156 +469,204 @@ def resampled_timeframe_features(g: pd.DataFrame, rule: str) -> pd.DataFrame:
     return bars
 
 
+def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
+    g = group.copy().sort_values("trade_date")
+    close = g["close_price"]
+    high = g["high_price"]
+    low = g["low_price"]
+    prev_close = close.shift(1)
+    for window in EMA_WINDOWS:
+        g[f"ema_{window}"] = ema(close, span=window)
+    g["sma_50"] = sma(close, 50)
+    g["sma_150"] = sma(close, 150)
+    g["sma_200"] = sma(close, 200)
+    g["sma_200_rising"] = g["sma_200"] > g["sma_200"].shift(20)
+    for name, window in RETURN_WINDOWS.items():
+        g[name] = (close / close.shift(window) - 1) * 100
+    g["rsi_14"] = rsi_wilder(close)
+    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = rsi_divergence_flags(close, g["rsi_14"])
+    g["avg_volume_5d"] = g["volume"].rolling(5, min_periods=3).mean()
+    g["avg_volume_10d"] = g["volume"].rolling(10, min_periods=3).mean()
+    g["avg_volume_20d"] = g["volume"].rolling(20, min_periods=5).mean()
+    g["avg_volume_50d"] = g["volume"].rolling(50, min_periods=10).mean()
+    g["avg_traded_value_cr_20d"] = g["turnover_cr"].rolling(20, min_periods=5).mean()
+    g["avg_traded_value_cr_50d"] = g["turnover_cr"].rolling(50, min_periods=10).mean()
+    g["rvol"] = rvol(g["volume"], window=20)
+    g["avg_delivery_qty_20d"] = g["delivery_qty"].rolling(20, min_periods=5).mean()
+    g["avg_delivery_pct_20d"] = g["delivery_pct"].rolling(20, min_periods=5).mean()
+    g["delivery_spike"] = g["delivery_qty"] > (2 * g["avg_delivery_qty_20d"])
+    g["true_range"] = true_range(high, low, close)
+    g["atr_14"] = atr_sma(high, low, close, period=14)
+    g["atr_pct"] = g["atr_14"] / close * 100
+    g["adr_20_pct"] = adr_pct(high, low, window=20)
+    g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
+    g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
+    # Primary risk volatility uses the standard Wilder smoothing. Keep
+    # legacy ``atr_pct`` intact for compatibility with older snapshots.
+    g["atr_pct_primary"] = g["atr_pct_wilder"]
+    g["atr_pct_avg_5d"] = g["atr_pct"].rolling(5, min_periods=3).mean()
+    g["atr_pct_avg_20d"] = g["atr_pct"].rolling(20, min_periods=5).mean()
+    g["atr_pct_avg_50d"] = g["atr_pct"].rolling(50, min_periods=10).mean()
+    day_range = (high - low).replace(0, np.nan)
+    g["body_pct"] = (close - g["open_price"]).abs() / day_range * 100
+    g["upper_wick_pct"] = (high - pd.concat([close, g["open_price"]], axis=1).max(axis=1)) / day_range * 100
+    g["lower_wick_pct"] = (pd.concat([close, g["open_price"]], axis=1).min(axis=1) - low) / day_range * 100
+    g["close_location_pct"] = (close - low) / day_range * 100
+    if "trades" in g.columns:
+        g["avg_trade_size"] = g["volume"] / g["trades"].replace(0, np.nan)
+        g["avg_trade_size_20d"] = g["avg_trade_size"].rolling(20, min_periods=5).mean()
+    if "avg_price" in g.columns:
+        g["vwap_distance_pct"] = (close / g["avg_price"].replace(0, np.nan) - 1) * 100
+    for window in [5, 10, 20, 50, 100, 252]:
+        g[f"high_{window}d"] = high.rolling(window, min_periods=3).max()
+        g[f"low_{window}d"] = low.rolling(window, min_periods=3).min()
+        g[f"range_{window}d_pct"] = (g[f"high_{window}d"] - g[f"low_{window}d"]) / close * 100
+    g["database_high"] = high.cummax()
+    g["ema_200_rising"] = g["ema_200"] > g["ema_200"].shift(20)
+    g["away_10ema_pct"] = (close / g["ema_10"] - 1) * 100
+    g["away_20ema_pct"] = (close / g["ema_20"] - 1) * 100
+    g["away_50ema_pct"] = (close / g["ema_50"] - 1) * 100
+    g["away_database_high_pct"] = (close / g["database_high"] - 1) * 100
+    g["price_up_delivery_up"] = (close > prev_close) & (g["delivery_qty"] > g["avg_delivery_qty_20d"])
+    g["fresh_200ema_reclaim"] = (prev_close <= g["ema_200"].shift(1)) & (close > g["ema_200"])
+    g["ema_10_cross_200"] = (g["ema_10"] > g["ema_200"]) & (g["ema_10"].shift(1) <= g["ema_200"].shift(1))
+    g["ema_stack_bullish"] = (g["ema_10"] > g["ema_20"]) & (g["ema_20"] > g["ema_50"]) & (g["ema_50"] > g["ema_100"]) & (g["ema_100"] > g["ema_200"])
+    g["new_20d_high"] = close >= g["high_20d"].shift(1)
+    g["new_50d_high"] = close >= g["high_50d"].shift(1)
+    g["new_100d_high"] = close >= g["high_100d"].shift(1)
+    g["ema_shakeout"] = ((low < g["ema_10"]) | (low < g["ema_20"])) & (close > g["ema_10"]) & (g["close_location_pct"] >= 60)
+    g["shakeout"] = (low < g["low_10d"].shift(1)) & (close > g["low_10d"].shift(1)) & (g["close_location_pct"] >= 60)
+    g["hammer"] = (g["lower_wick_pct"] >= 50) & (g["upper_wick_pct"] <= 20) & (g["close_location_pct"] >= 60)
+    g["shooting_star"] = (g["upper_wick_pct"] >= 50) & (g["lower_wick_pct"] <= 20) & (g["close_location_pct"] <= 40) & (close > close.shift(10))
+    g["bullish_engulfing"] = (close > g["open_price"]) & (prev_close < g["open_price"].shift(1)) & (close >= g["open_price"].shift(1)) & (g["open_price"] <= prev_close)
+    g["inside_bar"] = (high < high.shift(1)) & (low > low.shift(1))
+    g["nr7"] = day_range == day_range.rolling(7, min_periods=7).min()
+    small_body = g["body_pct"] <= 35
+    g["morning_star"] = (
+        (close.shift(2) < g["open_price"].shift(2))
+        & small_body.shift(1)
+        & (close > g["open_price"])
+        & (close > ((g["open_price"].shift(2) + close.shift(2)) / 2))
+    )
+    g["confirmed_morning_star"] = g["morning_star"] & (close.shift(2) < close.shift(7)) & (g["close_location_pct"] >= 60)
+    g["confirmed_hammer"] = g["hammer"] & (close < close.shift(5)) & (g["close_location_pct"] >= 60)
+    g["confirmed_bullish_engulfing"] = g["bullish_engulfing"] & (close.shift(1) < close.shift(6))
+    g["confirmed_shooting_star"] = g["shooting_star"] & (close > close.shift(10)) & (g["away_database_high_pct"] >= -15)
+    g = g.copy()
+    weekly_features = resampled_timeframe_features(g, "W-FRI")
+    monthly_features = resampled_timeframe_features(g, "ME")
+    if not weekly_features.empty:
+        weekly = weekly_features["close_price"]
+        weekly_ema = weekly.ewm(span=10, adjust=False, min_periods=10).mean()
+        weekly_ema_200 = weekly.ewm(span=200, adjust=False, min_periods=10).mean()
+        weekly_ma30 = weekly.rolling(30, min_periods=10).mean()
+        weekly_10_cross_200 = (weekly_ema > weekly_ema_200) & (weekly_ema.shift(1) <= weekly_ema_200.shift(1))
+        g["wema_10"] = weekly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
+        g["wema_200"] = weekly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
+        g["wema_10_cross_200"] = weekly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        weekly_completed = weekly_ohlc(g, as_of=g["trade_date"].max())
+        if not weekly_completed.empty:
+            w20_close = weekly_completed.set_index(pd.to_datetime(weekly_completed["trade_date"]))["close_price"]
+            weekly_ema_20 = w20_close.ewm(span=20, adjust=False, min_periods=20).mean()
+            g["wema_20"] = weekly_ema_20.reindex(
+                pd.DatetimeIndex(pd.to_datetime(g["trade_date"])), method="ffill"
+            ).to_numpy()
+        else:
+            g["wema_20"] = np.nan
+        g["wma_30"] = weekly_ma30.reindex(g["trade_date"], method="ffill").to_numpy()
+        g["rsi_14_w"] = weekly_features["rsi_14"].reindex(g["trade_date"], method="ffill").to_numpy()
+        g["confirmed_morning_star_w"] = weekly_features["confirmed_morning_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["confirmed_shooting_star_w"] = weekly_features["confirmed_shooting_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["bullish_rsi_divergence_w"] = weekly_features["bullish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["bearish_rsi_divergence_w"] = weekly_features["bearish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+    else:
+        g["wema_10"] = np.nan
+        g["wema_200"] = np.nan
+        g["wema_20"] = np.nan
+        g["wema_10_cross_200"] = False
+        g["wma_30"] = np.nan
+        g["rsi_14_w"] = np.nan
+        g["confirmed_morning_star_w"] = False
+        g["confirmed_shooting_star_w"] = False
+        g["bullish_rsi_divergence_w"] = False
+        g["bearish_rsi_divergence_w"] = False
+    if not monthly_features.empty:
+        monthly = monthly_features["close_price"]
+        monthly_ema = monthly.ewm(span=10, adjust=False, min_periods=10).mean()
+        monthly_ema_200 = monthly.ewm(span=200, adjust=False, min_periods=10).mean()
+        monthly_10_cross_200 = (monthly_ema > monthly_ema_200) & (monthly_ema.shift(1) <= monthly_ema_200.shift(1))
+        g["mema_10"] = monthly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
+        g["mema_200"] = monthly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
+        g["mema_10_cross_200"] = monthly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["rsi_14_m"] = monthly_features["rsi_14"].reindex(g["trade_date"], method="ffill").to_numpy()
+        g["confirmed_morning_star_m"] = monthly_features["confirmed_morning_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["confirmed_shooting_star_m"] = monthly_features["confirmed_shooting_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["bullish_rsi_divergence_m"] = monthly_features["bullish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+        g["bearish_rsi_divergence_m"] = monthly_features["bearish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
+    else:
+        g["mema_10"] = np.nan
+        g["mema_200"] = np.nan
+        g["mema_10_cross_200"] = False
+        g["rsi_14_m"] = np.nan
+        g["confirmed_morning_star_m"] = False
+        g["confirmed_shooting_star_m"] = False
+        g["bullish_rsi_divergence_m"] = False
+        g["bearish_rsi_divergence_m"] = False
+    g["away_10wema_pct"] = (close / g["wema_10"] - 1) * 100
+    g["away_10mema_pct"] = (close / g["mema_10"] - 1) * 100
+    return g.copy()
+
+
+def _calc_symbol_indicators_chunk(groups: list[pd.DataFrame]) -> list[pd.DataFrame]:
+    """Worker task processing a batch of symbol groups in parallel."""
+    return [_calc_single_symbol_indicators(group) for group in groups]
+
+
 def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFrame:
     df = prices.sort_values(["symbol", "trade_date"]).copy()
-    parts = []
-    for _, group in df.groupby("symbol", sort=False):
-        g = group.copy().sort_values("trade_date")
-        close = g["close_price"]
-        high = g["high_price"]
-        low = g["low_price"]
-        prev_close = close.shift(1)
-        for window in EMA_WINDOWS:
-            g[f"ema_{window}"] = ema(close, span=window)
-        g["sma_50"] = sma(close, 50)
-        g["sma_150"] = sma(close, 150)
-        g["sma_200"] = sma(close, 200)
-        g["sma_200_rising"] = g["sma_200"] > g["sma_200"].shift(20)
-        for name, window in RETURN_WINDOWS.items():
-            g[name] = (close / close.shift(window) - 1) * 100
-        g["rsi_14"] = rsi_wilder(close)
-        g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = rsi_divergence_flags(close, g["rsi_14"])
-        g["avg_volume_5d"] = g["volume"].rolling(5, min_periods=3).mean()
-        g["avg_volume_10d"] = g["volume"].rolling(10, min_periods=3).mean()
-        g["avg_volume_20d"] = g["volume"].rolling(20, min_periods=5).mean()
-        g["avg_volume_50d"] = g["volume"].rolling(50, min_periods=10).mean()
-        g["avg_traded_value_cr_20d"] = g["turnover_cr"].rolling(20, min_periods=5).mean()
-        g["avg_traded_value_cr_50d"] = g["turnover_cr"].rolling(50, min_periods=10).mean()
-        g["rvol"] = rvol(g["volume"], window=20)
-        g["avg_delivery_qty_20d"] = g["delivery_qty"].rolling(20, min_periods=5).mean()
-        g["avg_delivery_pct_20d"] = g["delivery_pct"].rolling(20, min_periods=5).mean()
-        g["delivery_spike"] = g["delivery_qty"] > (2 * g["avg_delivery_qty_20d"])
-        g["true_range"] = true_range(high, low, close)
-        g["atr_14"] = atr_sma(high, low, close, period=14)
-        g["atr_pct"] = g["atr_14"] / close * 100
-        g["adr_20_pct"] = adr_pct(high, low, window=20)
-        g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
-        g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
-        # Primary risk volatility uses the standard Wilder smoothing. Keep
-        # legacy ``atr_pct`` intact for compatibility with older snapshots.
-        g["atr_pct_primary"] = g["atr_pct_wilder"]
-        g["atr_pct_avg_5d"] = g["atr_pct"].rolling(5, min_periods=3).mean()
-        g["atr_pct_avg_20d"] = g["atr_pct"].rolling(20, min_periods=5).mean()
-        g["atr_pct_avg_50d"] = g["atr_pct"].rolling(50, min_periods=10).mean()
-        day_range = (high - low).replace(0, np.nan)
-        g["body_pct"] = (close - g["open_price"]).abs() / day_range * 100
-        g["upper_wick_pct"] = (high - pd.concat([close, g["open_price"]], axis=1).max(axis=1)) / day_range * 100
-        g["lower_wick_pct"] = (pd.concat([close, g["open_price"]], axis=1).min(axis=1) - low) / day_range * 100
-        g["close_location_pct"] = (close - low) / day_range * 100
-        if "trades" in g.columns:
-            g["avg_trade_size"] = g["volume"] / g["trades"].replace(0, np.nan)
-            g["avg_trade_size_20d"] = g["avg_trade_size"].rolling(20, min_periods=5).mean()
-        if "avg_price" in g.columns:
-            g["vwap_distance_pct"] = (close / g["avg_price"].replace(0, np.nan) - 1) * 100
-        for window in [5, 10, 20, 50, 100, 252]:
+    parts: list[pd.DataFrame] = []
+    groups = [group for _, group in df.groupby("symbol", sort=False)]
+    total_symbols = len(groups)
+    t_start = time.time()
 
-            g[f"high_{window}d"] = high.rolling(window, min_periods=3).max()
-            g[f"low_{window}d"] = low.rolling(window, min_periods=3).min()
-            g[f"range_{window}d_pct"] = (g[f"high_{window}d"] - g[f"low_{window}d"]) / close * 100
-        g["database_high"] = high.cummax()
-        g["ema_200_rising"] = g["ema_200"] > g["ema_200"].shift(20)
-        g["away_10ema_pct"] = (close / g["ema_10"] - 1) * 100
-        g["away_20ema_pct"] = (close / g["ema_20"] - 1) * 100
-        g["away_50ema_pct"] = (close / g["ema_50"] - 1) * 100
-        g["away_database_high_pct"] = (close / g["database_high"] - 1) * 100
-        g["price_up_delivery_up"] = (close > prev_close) & (g["delivery_qty"] > g["avg_delivery_qty_20d"])
-        g["fresh_200ema_reclaim"] = (prev_close <= g["ema_200"].shift(1)) & (close > g["ema_200"])
-        g["ema_10_cross_200"] = (g["ema_10"] > g["ema_200"]) & (g["ema_10"].shift(1) <= g["ema_200"].shift(1))
-        g["ema_stack_bullish"] = (g["ema_10"] > g["ema_20"]) & (g["ema_20"] > g["ema_50"]) & (g["ema_50"] > g["ema_100"]) & (g["ema_100"] > g["ema_200"])
-        g["new_20d_high"] = close >= g["high_20d"].shift(1)
-        g["new_50d_high"] = close >= g["high_50d"].shift(1)
-        g["new_100d_high"] = close >= g["high_100d"].shift(1)
-        g["ema_shakeout"] = ((low < g["ema_10"]) | (low < g["ema_20"])) & (close > g["ema_10"]) & (g["close_location_pct"] >= 60)
-        g["shakeout"] = (low < g["low_10d"].shift(1)) & (close > g["low_10d"].shift(1)) & (g["close_location_pct"] >= 60)
-        g["hammer"] = (g["lower_wick_pct"] >= 50) & (g["upper_wick_pct"] <= 20) & (g["close_location_pct"] >= 60)
-        g["shooting_star"] = (g["upper_wick_pct"] >= 50) & (g["lower_wick_pct"] <= 20) & (g["close_location_pct"] <= 40) & (close > close.shift(10))
-        g["bullish_engulfing"] = (close > g["open_price"]) & (prev_close < g["open_price"].shift(1)) & (close >= g["open_price"].shift(1)) & (g["open_price"] <= prev_close)
-        g["inside_bar"] = (high < high.shift(1)) & (low > low.shift(1))
-        g["nr7"] = day_range == day_range.rolling(7, min_periods=7).min()
-        small_body = g["body_pct"] <= 35
-        g["morning_star"] = (
-            (close.shift(2) < g["open_price"].shift(2))
-            & small_body.shift(1)
-            & (close > g["open_price"])
-            & (close > ((g["open_price"].shift(2) + close.shift(2)) / 2))
-        )
-        g["confirmed_morning_star"] = g["morning_star"] & (close.shift(2) < close.shift(7)) & (g["close_location_pct"] >= 60)
-        g["confirmed_hammer"] = g["hammer"] & (close < close.shift(5)) & (g["close_location_pct"] >= 60)
-        g["confirmed_bullish_engulfing"] = g["bullish_engulfing"] & (close.shift(1) < close.shift(6))
-        g["confirmed_shooting_star"] = g["shooting_star"] & (close > close.shift(10)) & (g["away_database_high_pct"] >= -15)
-        weekly_features = resampled_timeframe_features(g, "W-FRI")
-        monthly_features = resampled_timeframe_features(g, "ME")
-        if not weekly_features.empty:
-            weekly = weekly_features["close_price"]
-            weekly_ema = weekly.ewm(span=10, adjust=False, min_periods=10).mean()
-            weekly_ema_200 = weekly.ewm(span=200, adjust=False, min_periods=10).mean()
-            weekly_ma30 = weekly.rolling(30, min_periods=10).mean()
-            weekly_10_cross_200 = (weekly_ema > weekly_ema_200) & (weekly_ema.shift(1) <= weekly_ema_200.shift(1))
-            g["wema_10"] = weekly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
-            g["wema_200"] = weekly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
-            g["wema_10_cross_200"] = weekly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            weekly_completed = weekly_ohlc(g, as_of=g["trade_date"].max())
-            if not weekly_completed.empty:
-                w20_close = weekly_completed.set_index(pd.to_datetime(weekly_completed["trade_date"]))["close_price"]
-                weekly_ema_20 = w20_close.ewm(span=20, adjust=False, min_periods=20).mean()
-                g["wema_20"] = weekly_ema_20.reindex(
-                    pd.DatetimeIndex(pd.to_datetime(g["trade_date"])), method="ffill"
-                ).to_numpy()
-            else:
-                g["wema_20"] = np.nan
-            g["wma_30"] = weekly_ma30.reindex(g["trade_date"], method="ffill").to_numpy()
-            g["rsi_14_w"] = weekly_features["rsi_14"].reindex(g["trade_date"], method="ffill").to_numpy()
-            g["confirmed_morning_star_w"] = weekly_features["confirmed_morning_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["confirmed_shooting_star_w"] = weekly_features["confirmed_shooting_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["bullish_rsi_divergence_w"] = weekly_features["bullish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["bearish_rsi_divergence_w"] = weekly_features["bearish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-        else:
-            g["wema_10"] = np.nan
-            g["wema_200"] = np.nan
-            g["wema_20"] = np.nan
-            g["wema_10_cross_200"] = False
-            g["wma_30"] = np.nan
-            g["rsi_14_w"] = np.nan
-            g["confirmed_morning_star_w"] = False
-            g["confirmed_shooting_star_w"] = False
-            g["bullish_rsi_divergence_w"] = False
-            g["bearish_rsi_divergence_w"] = False
-        if not monthly_features.empty:
-            monthly = monthly_features["close_price"]
-            monthly_ema = monthly.ewm(span=10, adjust=False, min_periods=10).mean()
-            monthly_ema_200 = monthly.ewm(span=200, adjust=False, min_periods=10).mean()
-            monthly_10_cross_200 = (monthly_ema > monthly_ema_200) & (monthly_ema.shift(1) <= monthly_ema_200.shift(1))
-            g["mema_10"] = monthly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
-            g["mema_200"] = monthly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
-            g["mema_10_cross_200"] = monthly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["rsi_14_m"] = monthly_features["rsi_14"].reindex(g["trade_date"], method="ffill").to_numpy()
-            g["confirmed_morning_star_m"] = monthly_features["confirmed_morning_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["confirmed_shooting_star_m"] = monthly_features["confirmed_shooting_star"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["bullish_rsi_divergence_m"] = monthly_features["bullish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-            g["bearish_rsi_divergence_m"] = monthly_features["bearish_rsi_divergence"].reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-        else:
-            g["mema_10"] = np.nan
-            g["mema_200"] = np.nan
-            g["mema_10_cross_200"] = False
-            g["rsi_14_m"] = np.nan
-            g["confirmed_morning_star_m"] = False
-            g["confirmed_shooting_star_m"] = False
-            g["bullish_rsi_divergence_m"] = False
-            g["bearish_rsi_divergence_m"] = False
-        g["away_10wema_pct"] = (close / g["wema_10"] - 1) * 100
-        g["away_10mema_pct"] = (close / g["mema_10"] - 1) * 100
-        parts.append(g)
+    disable_mp = os.environ.get("MP_DISABLE_MULTIPROCESSING", "").strip().lower() in {"1", "true", "yes", "on"}
+    num_cores = max(1, min(os.cpu_count() or 4, 10))
+
+    if not disable_mp and num_cores > 1 and total_symbols > 50:
+        chunk_size = max(10, total_symbols // (num_cores * 4))
+        chunks = [groups[i : i + chunk_size] for i in range(0, total_symbols, chunk_size)]
+        completed_symbols = 0
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+                for chunk_res in executor.map(_calc_symbol_indicators_chunk, chunks):
+                    parts.extend(chunk_res)
+                    completed_symbols += len(chunk_res)
+                    pct = (completed_symbols / total_symbols) * 100
+                    elapsed = time.time() - t_start
+                    if completed_symbols % 200 < chunk_size or completed_symbols == total_symbols:
+                        print(
+                            f"  5a/8: Calculating stock indicators ({num_cores} cores): {completed_symbols:,}/{total_symbols:,} stocks ({pct:.1f}%) [{elapsed:.0f}s elapsed]...",
+                            flush=True,
+                        )
+        except Exception as exc:
+            print(f"Warning: Multiprocessing encountered an issue ({exc}); falling back to sequential execution.", flush=True)
+            parts.clear()
+            for idx, group in enumerate(groups, start=1):
+                if idx == 1 or idx % 200 == 0 or idx == total_symbols:
+                    elapsed = time.time() - t_start
+                    pct = (idx / total_symbols) * 100
+                    print(f"  5a/8: Calculating stock indicators (sequential fallback): {idx:,}/{total_symbols:,} stocks ({pct:.1f}%) [{elapsed:.0f}s elapsed]...", flush=True)
+                parts.append(_calc_single_symbol_indicators(group))
+    else:
+        for idx, group in enumerate(groups, start=1):
+            if idx == 1 or idx % 200 == 0 or idx == total_symbols:
+                elapsed = time.time() - t_start
+                pct = (idx / total_symbols) * 100
+                print(f"  5a/8: Calculating stock indicators: {idx:,}/{total_symbols:,} stocks ({pct:.1f}%) [{elapsed:.0f}s elapsed]...", flush=True)
+            parts.append(_calc_single_symbol_indicators(group))
+
     indicators = pd.concat(parts, ignore_index=True)
+    print("  5b/8: Merging historical 52-week & reference snapshots (as-of join)...", flush=True)
     # Point-in-time 52W: as-of join when enrichment has effective_date history.
     # Never paint a future 52W onto older rows. If NSE snapshot missing, fall back
     # to rolling 252-session high/low already on the row (leak-free).
@@ -663,6 +715,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     if "high_52w_date" in indicators.columns:
         indicators["is_fresh_52w_high"] = indicators["trade_date"] == indicators["high_52w_date"]
 
+    print("  5c/8: Computing cross-sectional relative strength percentiles...", flush=True)
     close_by_symbol = indicators.groupby("symbol", sort=False)["close_price"]
     rs_latest_q = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
     rs_prior_q2 = (close_by_symbol.shift(63) / close_by_symbol.shift(126) - 1) * 100
@@ -693,6 +746,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     indicators["rs_3m_percentile"] = rs_3m.groupby(indicators["trade_date"]).rank(pct=True) * 100
 
     # NOTE on RS: All are cross-sectional daily ranks (0-100). Higher = stronger relative performance vs other stocks that day.
+    print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)
     close = indicators["close_price"]
     sma50 = indicators["sma_50"]
     sma150 = indicators["sma_150"]

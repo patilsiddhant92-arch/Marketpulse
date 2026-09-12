@@ -34,6 +34,16 @@ except ModuleNotFoundError:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from cache_manager import get_cached, set_cached, cache_key  # type: ignore
 
+try:
+    from Scripts.institutional_attribution import fetch_stock_fund_attribution
+except ModuleNotFoundError:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "Scripts"))
+    try:
+        from institutional_attribution import fetch_stock_fund_attribution  # type: ignore
+    except ModuleNotFoundError:
+        fetch_stock_fund_attribution = None
+
 
 def tradingview_url(symbol: str) -> str:
     tok = str(symbol).strip().upper().replace("-", "_")
@@ -259,6 +269,11 @@ def query_stock_peer_comparison(
     if not sym:
         return None
 
+    ckey = cache_key(db_path, "latest", "stock_peer_comparison", sym)
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+
     def _query(db: duckdb.DuckDBPyConnection) -> dict[str, Any] | None:
         try:
             t_df = db.execute(
@@ -418,16 +433,20 @@ def query_stock_peer_comparison(
             "sector_leaders_df": sec_leaders_df,
         }
 
+    res = None
     if db_con is not None:
         try:
             res = _query(db_con)
-            if res is not None:
-                return res
         except Exception:
             pass
 
-    with duckdb.connect(str(db_path), read_only=True) as db:
-        return _query(db)
+    if res is None:
+        with duckdb.connect(str(db_path), read_only=True) as db:
+            res = _query(db)
+
+    if res is not None:
+        set_cached(ckey, res)
+    return res
 
 
 def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
@@ -435,6 +454,11 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
     sym = str(symbol).strip().upper()
     if not sym:
         return {}
+
+    ckey = cache_key(db_path, "latest", "stock_360_data", sym)
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
 
     with duckdb.connect(str(db_path), read_only=True) as db:
         # 1. Latest Indicator & Master Profile
@@ -453,16 +477,19 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
         except duckdb.Error:
             ind = pd.DataFrame()
 
-        # 2. Latest Decision / Candidate Setup
+        # 2. Latest Decision / Candidate Setup from real candidate_daily table
         try:
             cand = db.execute(
                 """
-                WITH latest AS (SELECT max(trade_date) AS max_d FROM candidate_setups)
-                SELECT c.*, s.candidate_state, s.total_score, s.market_regime, s.sector_state, s.why_now, s.latest_change, s.risk_summary
-                FROM candidate_setups c
+                WITH latest AS (
+                    SELECT max(trade_date) AS max_d 
+                    FROM candidate_daily 
+                    WHERE score_version = 'focused-v2'
+                )
+                SELECT c.*
+                FROM candidate_daily c
                 JOIN latest l ON c.trade_date = l.max_d
-                LEFT JOIN swing_candidates s ON s.symbol = c.symbol AND s.trade_date = c.trade_date
-                WHERE c.symbol = ?
+                WHERE c.symbol = ? AND c.score_version = 'focused-v2'
                 """,
                 [sym],
             ).fetchdf()
@@ -496,12 +523,12 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
             except duckdb.Error:
                 deals = pd.DataFrame()
 
-        # 4. Corporate Events
+        # 4. Corporate Events from real security_events table
         try:
             events = db.execute(
                 """
                 SELECT event_date, event_type, headline
-                FROM corporate_events
+                FROM security_events
                 WHERE symbol = ?
                 ORDER BY event_date DESC
                 LIMIT 20
@@ -596,7 +623,14 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
         deals["is_hft"] = [c["is_hft"] for c in classifications]
         deals["is_institutional"] = [c["is_institutional"] for c in classifications]
 
-    return {
+    fund_attribution = []
+    if fetch_stock_fund_attribution is not None:
+        try:
+            fund_attribution = fetch_stock_fund_attribution(db_path, sym)
+        except Exception:
+            fund_attribution = []
+
+    res = {
         "symbol": sym,
         "profile": profile,
         "candidate_setup": candidate_setup,
@@ -607,7 +641,22 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
         "thematic_tags": thematic_tags,
         "peer_groups": peer_groups,
         "peer_comparison": peer_comparison,
+        "fund_attribution": fund_attribution,
     }
+    set_cached(ckey, res)
+    return res
+
+
+def _clean_symbol_param(sym: Any) -> str:
+    """Sanitize symbol parameter to handle lists, dicts, or stringified list artifacts."""
+    if isinstance(sym, (list, tuple)):
+        sym = sym[0] if sym else ""
+    if isinstance(sym, dict):
+        sym = sym.get("symbol") or sym.get("value") or ""
+    s = str(sym or "").strip()
+    if (s.startswith("['") and s.endswith("']")) or (s.startswith('["') and s.endswith('"]')):
+        s = s[2:-2].strip()
+    return s.upper()
 
 
 def open_stock_360_modal(
@@ -617,9 +666,13 @@ def open_stock_360_modal(
     copy_text: Any = None,
 ) -> None:
     """Open interactive slide-over dialog for any stock."""
-    data = query_stock_360_data(db_path, symbol)
+    clean_sym = _clean_symbol_param(symbol)
+    if not clean_sym:
+        ui.notify("No symbol provided", type="warning")
+        return
+    data = query_stock_360_data(db_path, clean_sym)
     if not data:
-        ui.notify(f"No data available for {symbol}", type="warning")
+        ui.notify(f"No data available for {clean_sym}", type="warning")
         return
 
     sym = data["symbol"]
@@ -1240,6 +1293,30 @@ def open_stock_360_modal(
                             ui.label("Net Institutional Flow").classes("text-xs text-[var(--mp-muted)]")
                             ui.label(f"₹{net:+,.1f} Cr").classes(f"text-lg font-bold {tone}")
 
+                    fund_attr = data.get("fund_attribution", [])
+                    if fund_attr:
+                        with ui.card().classes("w-full p-3 mp-card mb-3 border border-amber-500/40 bg-amber-950/10"):
+                            with ui.row().classes("w-full items-center justify-between mb-1"):
+                                ui.label("⭐ Institutional Alpha & Track Record").classes("text-xs font-bold text-amber-400")
+                                ui.label("Forward performance since fund entry").classes("text-[11px] text-[var(--mp-muted)]")
+                            for a in fund_attr[:4]:
+                                with ui.row().classes("w-full items-center justify-between text-xs py-1.5 border-b border-[var(--mp-border)]/50 last:border-0"):
+                                    with ui.column().classes("gap-0.5"):
+                                        with ui.row().classes("items-center gap-1.5"):
+                                            ui.label(a["fund_house"]).classes("font-semibold text-[var(--mp-text)]")
+                                            if a.get("fund_tier"):
+                                                ui.label(a["fund_tier"]).classes("text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-300 rounded font-medium")
+                                        wr_str = f"Win Rate: {a['fund_win_rate']:.1f}%" if a.get("fund_win_rate") is not None else ""
+                                        b_str = f"Bought {a['deal_date']} @ ₹{a['deal_price']:,.2f} ({a['deal_value_cr']:,.1f} Cr)"
+                                        meta_str = f"{b_str} · {wr_str}" if wr_str else b_str
+                                        ui.label(meta_str).classes("text-[11px] text-[var(--mp-muted)]")
+                                    with ui.column().classes("items-end gap-0.5"):
+                                        ret_c = a.get("ret_current", 0)
+                                        c_color = "text-emerald-400" if ret_c >= 0 else "text-rose-400"
+                                        ui.label(f"CMP: ₹{a.get('cmp', 0):,.2f} ({ret_c:+.1f}%)").classes(f"font-bold {c_color}")
+                                        peak_g = a.get("max_runup_pct", 0)
+                                        ui.label(f"Peak: +{peak_g:.1f}% in {a.get('days_to_peak', 0)}d").classes("text-[11px] text-emerald-400/80 font-mono")
+
                     deal_rows = []
                     for _, d in deals.iterrows():
                         d_price = float(d["price"])
@@ -1336,7 +1413,7 @@ def render_stock_inspector_panel(
         user_db = db_path.parent / "marketpulse_user.duckdb"
     user_db = Path(user_db)
 
-    clean_sym = str(symbol or "").strip().upper()
+    clean_sym = _clean_symbol_param(symbol)
     if not clean_sym:
         with ui.card().classes("w-full mp-card p-6 text-center border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
             ui.label("🔍 Stock Inspector").classes("text-sm font-bold uppercase tracking-wider text-[var(--mp-primary)] mb-2")
@@ -1424,7 +1501,7 @@ def render_stock_inspector_panel(
                     ui.button("✕", on_click=on_close).props("dense flat round size=xs").classes("text-slate-400 text-xs")
 
         # 3. Interactive Candlestick + Darvas + EMAs Chart
-        cdata = query_stock_candlestick_data(db_path, sym, limit=90)
+        cdata = query_stock_candlestick_data(db_path, sym, limit=250)
         if cdata and cdata.get("ohlc"):
             if cdata.get("is_darvas_squeeze"):
                 with ui.row().classes("w-full items-center justify-between px-2 py-1 rounded bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono"):
@@ -1434,7 +1511,7 @@ def render_stock_inspector_panel(
                     ui.label(f"Spread: {sq_val} · {cr_val}").classes("font-semibold")
 
             dates_len = len(cdata["dates"])
-            z_start = max(0, int(((dates_len - 30) / max(1, dates_len)) * 100))
+            z_start = max(0, int(((dates_len - 65) / max(1, dates_len)) * 100))
 
             echart_opt = {
                 "backgroundColor": "transparent",
@@ -1519,20 +1596,27 @@ def render_stock_inspector_panel(
             with ui.row().classes("w-full items-center justify-end gap-1.5 text-[10px] font-mono"):
                 ui.label("Zoom:").classes("text-[var(--mp-muted)]")
                 z20 = max(0, int(((dates_len - 20) / max(1, dates_len)) * 100))
-                z45 = max(0, int(((dates_len - 45) / max(1, dates_len)) * 100))
+                z65 = max(0, int(((dates_len - 65) / max(1, dates_len)) * 100))
                 ui.button("20D", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': z20, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
-                ui.button("45D", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': z45, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+                ui.button("65D", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': z65, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
                 ui.button("All", on_click=lambda: inspector_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': 0, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
         else:
             ui.label("Candlestick data not available.").classes("text-xs text-[var(--mp-muted)] py-4 text-center")
 
         # 4. Risk & Position Sizing Calculator
-        trigger_px = float(cand.get("trigger_price") or close_price * 1.01)
-        stop_px = float(cand.get("invalidation_price") or profile.get("ema_20") or close_price * 0.95)
-        res_px = float(cand.get("first_resistance") or trigger_px + (trigger_px - stop_px) * 2.0)
+        cand_row = cand.iloc[0].to_dict() if isinstance(cand, pd.DataFrame) and not cand.empty else (cand if isinstance(cand, dict) else {})
+        trigger_px = float(cand_row.get("trigger_price") or profile.get("high_20d") or close_price * 1.01)
+        stop_px = float(cand_row.get("invalidation_price") or profile.get("low_10d") or profile.get("ema_20") or close_price * 0.95)
+        res_px = float(cand_row.get("first_resistance") or profile.get("high_52w") or (trigger_px + (trigger_px - stop_px) * 2.0))
+
         risk_per_share = max(0.05, trigger_px - stop_px)
-        risk_pct_val = (risk_per_share / trigger_px) * 100.0 if trigger_px > 0 else 5.0
-        rr_val = ((res_px - trigger_px) / risk_per_share) if risk_per_share > 0 else 2.0
+        risk_pct_val = float(cand_row.get("initial_risk_pct") or ((risk_per_share / trigger_px) * 100.0 if trigger_px > 0 else 5.0))
+        rr_val = float(cand_row.get("reward_to_risk") or (((res_px - trigger_px) / risk_per_share) if risk_per_share > 0 else 2.0))
+
+        # Dynamic width for R:R track (eliminating hardcoded 30%/70%)
+        total_span = max(0.01, res_px - stop_px)
+        risk_span_pct = min(90.0, max(10.0, ((trigger_px - stop_px) / total_span) * 100.0))
+        reward_span_pct = 100.0 - risk_span_pct
 
         with ui.card().classes("w-full mp-card p-2.5 bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
             with ui.row().classes("w-full items-center justify-between mb-1 text-[11px]"):
@@ -1555,8 +1639,8 @@ def render_stock_inspector_panel(
                 ui.label(f"Stop ₹{stop_px:,.1f}")
                 ui.label(f"Target ₹{res_px:,.1f}")
             with ui.element("div").classes("w-full h-2 rounded-full overflow-hidden bg-slate-800 border border-slate-700 flex mb-2"):
-                ui.element("div").classes("h-full bg-rose-500/60 w-[30%]")
-                ui.element("div").classes("h-full bg-emerald-500/70 w-[70%]")
+                ui.element("div").classes("h-full bg-rose-500/60").style(f"width: {risk_span_pct:.1f}%")
+                ui.element("div").classes("h-full bg-emerald-500/70").style(f"width: {reward_span_pct:.1f}%")
 
             # Interactive Position Sizer
             with ui.row().classes("w-full items-center justify-between gap-2 pt-1 border-t border-[var(--mp-border)]"):
@@ -1692,7 +1776,11 @@ def render_stock_inspector_panel(
                                     return lambda *_: on_select_symbol(rsym)
                                 return lambda *_: open_stock_360_modal(db_path, rsym, copy_text=copy_text)
 
-                            with ui.row().classes(f"w-full items-center justify-between text-[10px] font-mono px-1 py-0.5 rounded cursor-pointer {row_bg}", on_click=make_row_click(p_sym)):
+                            row_click_cb = make_row_click(p_sym)
+                            row_el = ui.row().classes(f"w-full items-center justify-between text-[10px] font-mono px-1 py-0.5 rounded cursor-pointer {row_bg}")
+                            if row_click_cb:
+                                row_el.on("click", row_click_cb)
+                            with row_el:
                                 with ui.row().classes("items-center gap-1.5"):
                                     ui.label(f"#{int(p_rk):<2}").classes("text-slate-400 text-[9px]")
                                     ui.label(f"{'▶ ' if is_current else ''}{p_sym}").classes(

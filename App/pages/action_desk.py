@@ -524,6 +524,8 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     if "ema_20" in group.columns and pd.notna(group["ema_20"].iloc[-1])
                     else None
                 )
+                if last_ema20 is not None and last_ema10 < last_ema20:
+                    continue
                 if is_darvas_10ema_squeeze_legacy(
                     last_c,
                     last_top,
@@ -936,48 +938,6 @@ def render_inline_candlestick_chart(db_path: Path | str, symbol: str, is_darvas:
         ui.button("📊 90D (All)", on_click=lambda: chart_elem.run_chart_method('dispatchAction', {'type': 'dataZoom', 'dataZoomIndex': 0, 'start': 0, 'end': 100})).props("dense outline size=xs").classes("mp-button")
 
 
-def render_queue_chart_preview(
-    db_path: Path | str,
-    df: pd.DataFrame,
-    queue_name: str,
-    *,
-    is_darvas: bool = False,
-    is_vcp: bool = False,
-    copy_text: Callable | None = None,
-) -> None:
-    if df.empty or "symbol" not in df.columns:
-        return
-
-    sym_list = [str(s) for s in df["symbol"].dropna().tolist()]
-    if not sym_list:
-        return
-
-    default_sym = sym_list[0]
-    with ui.card().classes("w-full mp-card p-3 mt-4 border border-[var(--mp-border)] bg-[var(--mp-surface-raised)]"):
-        with ui.row().classes("w-full items-center justify-between pb-2 border-b border-[var(--mp-border)] flex-wrap gap-2"):
-            with ui.row().classes("items-center gap-2"):
-                ui.label(f"📈 {queue_name} Interactive Chart Preview").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase")
-                sel = ui.select(sym_list, value=default_sym, label="Candidate").classes("w-44").props("dense outlined")
-            with ui.row().classes("items-center gap-2"):
-                ui.button("Open Stock 360 ↗", on_click=lambda: open_stock_360_modal(Path(db_path), str(sel.value), copy_text=copy_text)).classes("mp-button text-xs").props("dense outline")
-
-        chart_host = ui.column().classes("w-full mt-2")
-
-        def update_chart():
-            chart_host.clear()
-            sym = str(sel.value or "").strip().upper()
-            if not sym:
-                return
-            with chart_host:
-                if is_vcp:
-                    render_vcp_ohlc(Path(db_path), sym)
-                else:
-                    render_inline_candlestick_chart(db_path, sym, is_darvas=is_darvas)
-
-        sel.on_value_change(lambda _: update_chart())
-        update_chart()
-
-
 def build_action_desk_page(
     db_path: Path | str,
     section_header: Callable,
@@ -1068,35 +1028,10 @@ def build_action_desk_page(
                 ui.label(exp["state"]).classes("text-xs font-semibold text-[var(--mp-text)] mt-1")
                 ui.label(exp["guidance"]).classes("text-[11px] text-[var(--mp-muted)] mt-1 leading-snug font-mono")
 
-                # Market Breadth Strip — one labeled universe (strip row or indicators fallback)
-                with ui.column().classes("w-full gap-1 mt-2 pt-2 border-t border-[var(--mp-border)] text-xs"):
-                    src = exp.get("breadth_source") or ""
-                    src_label = "indicators_daily fallback" if src == "indicators_daily" else (src or "breadth")
-                    as_of = exp.get("as_of") or data["trade_date"]
-                    ui.label(f"{as_of} · {src_label}").classes("text-[10px] text-[var(--mp-muted)] font-mono")
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("Net Advance:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(_fmt_exp_pct(exp.get("adv_pct"))).classes("font-mono font-bold text-[11px] " + _exp_pct_tone(exp.get("adv_pct"), 50))
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("> 20 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(_fmt_exp_pct(exp.get("ab20_pct"))).classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("> 50 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(_fmt_exp_pct(exp.get("ab50_pct"))).classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("> 200 EMA:").classes("text-[var(--mp-muted)] text-[11px]")
-                        ui.label(_fmt_exp_pct(exp.get("ab200_pct"))).classes("font-mono font-bold text-[11px] text-[var(--mp-text)]")
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("India VIX:").classes("text-[var(--mp-muted)] text-[11px]")
-                        if exp.get("vix") is None or exp.get("vix_na"):
-                            ui.label(exp.get("vix_label") or "VIX n/a").classes("font-mono font-bold text-[11px] text-amber-400")
-                        else:
-                            vix_sign = "+" if exp.get("vix_1d_pct", 0) > 0 else ""
-                            ui.label(f"{exp['vix']} ({vix_sign}{exp.get('vix_1d_pct', 0):.1f}%)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if exp['vix'] < 15 else "text-amber-400"))
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("Net 52W Highs:").classes("text-[var(--mp-muted)] text-[11px]")
-                        net_h = exp.get("net_highs", 0)
-                        ui.label(f"{'+' if net_h > 0 else ''}{net_h} ({exp.get('count_52w_highs', 0)}H / {exp.get('count_52w_lows', 0)}L)").classes("font-mono font-bold text-[11px] " + ("text-emerald-400" if net_h >= 0 else "text-rose-400"))
+                src = exp.get("breadth_source") or ""
+                src_label = "indicators_daily fallback" if src == "indicators_daily" else (src or "breadth")
+                as_of = exp.get("as_of") or data["trade_date"]
+                ui.label(f"{as_of} · {src_label}").classes("text-[10px] text-[var(--mp-muted)] font-mono mt-1")
 
                 if copy_text and tv.get("all_focus"):
                     ui.button(
@@ -1106,31 +1041,22 @@ def build_action_desk_page(
 
             # Card 2: Leading Sector Themes
             with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
-                ui.label("STEP 2: LEADING SECTORS").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
-                ui.label("Δ SHARE 5D").classes("text-[10px] text-[var(--mp-muted)] uppercase tracking-wider mb-1")
-                with ui.column().classes("w-full gap-2"):
-                    for idx, (_, sec) in enumerate(themes.iterrows(), 1):
+                with ui.row().classes("w-full items-center justify-between mb-1.5"):
+                    ui.label("STEP 2: LEADING SECTORS").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                    ui.label("Δ 5D Share").classes("text-[9px] text-[var(--mp-muted)] font-mono")
+
+                with ui.column().classes("w-full gap-1.5"):
+                    for idx, (_, sec) in enumerate(themes.head(3).iterrows(), 1):
                         grp_name = str(sec.get("group_name") or sec.get("sector") or "—")
                         delta = float(sec.get("turnover_share_delta_5d") or 0.0)
-                        to_cr = float(sec.get("turnover_1d_cr") or sec.get("total_to_cr") or 0.0)
                         leaders_raw = str(sec.get("leader_symbols") or sec.get("leaders") or "")
-                        with ui.column().classes("w-full p-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] gap-0.5"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                ui.label(f"#{idx} {grp_name}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
-                                ui.label(f"{delta:+.2f} pp").classes(
-                                    "text-[11px] font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400")
-                                )
-                            with ui.row().classes("w-full items-center justify-between text-[10px] text-[var(--mp-muted)] font-mono"):
-                                ui.label("Δ SHARE 5D")
-                                ui.label(f"₹{to_cr:,.0f}Cr")
-                            if leaders_raw:
-                                top_syms = [s.strip() for s in leaders_raw.split(",") if s.strip()][:3]
-                                with ui.row().classes("w-full items-center gap-1 mt-1"):
-                                    for sym in top_syms:
-                                        ui.button(
-                                            sym,
-                                            on_click=lambda s=sym: select_symbol(s),
-                                        ).props("dense flat size=xs").classes("font-mono text-[10px] text-sky-400 px-1 py-0 hover:underline")
+                        with ui.row().classes("w-full items-center justify-between p-1.5 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
+                            with ui.column().classes("gap-0 max-w-[140px]"):
+                                ui.label(f"#{idx} {grp_name[:16]}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
+                                if leaders_raw:
+                                    top_sym = leaders_raw.split(",")[0].strip()
+                                    ui.button(f"★ {top_sym}", on_click=lambda s=top_sym: select_symbol(s)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
+                            ui.label(f"{delta:+.1f}pp").classes("text-xs font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400"))
 
             # Card 3: Setup Queues Navigation
             queue_nav_card = ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]")

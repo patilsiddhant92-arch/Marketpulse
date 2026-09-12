@@ -80,6 +80,20 @@ TREE_STATUS_ICONS = {
 }
 
 
+def _extract_event_arg(val: Any) -> str:
+    """Safely extract clean string identifier from NiceGUI/Quasar event arguments."""
+    if val is None:
+        return ""
+    if isinstance(val, (list, tuple)):
+        val = val[0] if val else ""
+    if isinstance(val, dict):
+        val = val.get("symbol") or val.get("value") or val.get("group") or val.get("index_name") or ""
+    s = str(val or "").strip()
+    if (s.startswith("['") and s.endswith("']")) or (s.startswith('["') and s.endswith('"]')):
+        s = s[2:-2].strip()
+    return s
+
+
 def sector_v2_enabled() -> bool:
     return os.environ.get("MP_SECTOR_V2", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -401,7 +415,7 @@ def _build_sector_v2_page(
                                     </q-td>
                                     """,
                                 )
-                                child_tbl.on("select_child", lambda e: select_child(str(e.args)))
+                                child_tbl.on("select_child", lambda e: select_child(_extract_event_arg(e.args)))
 
                 member_level = "Industry" if child else grain
                 member_name = child or grp
@@ -450,7 +464,7 @@ def _build_sector_v2_page(
                             </q-td>
                             """,
                         )
-                        t.on("open_stock", lambda e: open_stock_360_modal(db_path, str(e.args)))
+                        t.on("open_stock", lambda e: open_stock_360_modal(db_path, _extract_event_arg(e.args), copy_text=copy_text))
 
         def select_group(group_name: str, *, from_parent: bool = False) -> None:
             if from_parent:
@@ -593,7 +607,7 @@ def _build_sector_v2_page(
                                         </q-td>
                                         """,
                                     )
-                                    matrix_tbl.on("select_group", lambda e: select_group(str(e.args)))
+                                    matrix_tbl.on("select_group", lambda e: select_group(_extract_event_arg(e.args)))
 
         def _on_level_change(e):
             state["level"] = str(e.value)
@@ -751,8 +765,8 @@ def build_sector_board_page(
                                     </q-td>
                                     """
                                 )
-                                t.on("open_stock", lambda e: open_stock_360_modal(db_path, str(e.args)))
-                                t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(str(e.args)))
+                                t.on("open_stock", lambda e: open_stock_360_modal(db_path, _extract_event_arg(e.args), copy_text=copy_text))
+                                t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(_extract_event_arg(e.args)))
                 return
 
             grp = state["selected_group"]
@@ -808,8 +822,8 @@ def build_sector_board_page(
                                 </q-td>
                                 """
                             )
-                            t.on("open_stock", lambda e: open_stock_360_modal(db_path, str(e.args)))
-                            t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(str(e.args)))
+                            t.on("open_stock", lambda e: open_stock_360_modal(db_path, _extract_event_arg(e.args), copy_text=copy_text))
+                            t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(_extract_event_arg(e.args)))
 
         def render_section() -> None:
             content_host.clear()
@@ -963,7 +977,7 @@ def build_sector_board_page(
                                 </q-td>
                                 """,
                             )
-                            matrix_tbl.on("select_group", lambda e: select_group(str(e.args)))
+                            matrix_tbl.on("select_group", lambda e: select_group(_extract_event_arg(e.args)))
 
                 elif sec == "breadth_52w":
                     # ==================== 52-WEEK HIGH & BREADTH RADAR ====================
@@ -1064,7 +1078,7 @@ def build_sector_board_page(
                                     </q-td>
                                     """
                                 )
-                                tbl_52.on("select_group", lambda e: select_group(str(e.args)))
+                                tbl_52.on("select_group", lambda e: select_group(_extract_event_arg(e.args)))
 
                 elif sec == "heatmaps":
                     # ==================== 2. 15-SESSION TURNOVER HEATMAPS ====================
@@ -1111,7 +1125,7 @@ def build_sector_board_page(
                                     </q-td>
                                     """
                                 )
-                                tbl.on("select_group", lambda e: select_group(str(e.args)))
+                                tbl.on("select_group", lambda e: select_group(_extract_event_arg(e.args)))
 
                     with chart_panel("Turnover vs Own History", "Today's turnover relative to the group's trailing average (>1.0x indicates expansion)", tone="good"):
                         cols_hist = [get_quasar_column_def("group_name", field="group", width_override=200)]
@@ -1145,7 +1159,7 @@ def build_sector_board_page(
                                     </q-td>
                                     """
                                 )
-                                tbl_hist.on("select_group", lambda e: select_group(str(e.args)))
+                                tbl_hist.on("select_group", lambda e: select_group(_extract_event_arg(e.args)))
 
                 elif sec == "rs_leadership":
                     # ==================== 3. RELATIVE STRENGTH LEADERSHIP ====================
@@ -1180,7 +1194,7 @@ def build_sector_board_page(
                                     </q-td>
                                     """
                                 )
-                                tbl_rs.on("select_group", lambda e: select_group(str(e.args)))
+                                tbl_rs.on("select_group", lambda e: select_group(_extract_event_arg(e.args)))
 
                 elif sec == "indices":
                     # ==================== 4. 44 OFFICIAL THEMATIC & SECTORAL INDICES ====================
@@ -1303,7 +1317,7 @@ def build_sector_board_page(
                                     </q-td>
                                     """
                                 )
-                                tbl_idx.on("select_index", lambda e: select_index(str(e.args)))
+                                tbl_idx.on("select_index", lambda e: select_index(_extract_event_arg(e.args)))
 
         def _on_level_change(e):
             state["level"] = str(e.value)

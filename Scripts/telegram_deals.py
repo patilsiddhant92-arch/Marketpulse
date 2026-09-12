@@ -519,7 +519,13 @@ def build_deals_telegram_report(
                 net_val = 0.0
                 sign = "+"
             close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
-            away_str = f"{r['away_52w_high_pct']:+.1f}% 52W" if pd.notna(r["away_52w_high_pct"]) else ""
+            if pd.notna(r["away_52w_high_pct"]):
+                away_val = float(r["away_52w_high_pct"])
+                if abs(away_val) < 0.05:
+                    away_val = 0.0
+                away_str = f"{away_val:+.1f}% 52W"
+            else:
+                away_str = ""
             metrics = " · ".join([s for s in [close_str, away_str] if s])
             m_bracket = f" | {metrics}" if metrics else ""
             msg1_lines.append(f"• `{r['symbol']}`: {r['deal_days']}d | Net ₹{net_val:,.1f}Cr ({sign}) [{tags}]{m_bracket}")
@@ -542,7 +548,13 @@ def build_deals_telegram_report(
                 net_val = 0.0
                 sign = "+"
             close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
-            away_str = f"{r['away_52w_high_pct']:+.1f}% 52W" if pd.notna(r["away_52w_high_pct"]) else ""
+            if pd.notna(r["away_52w_high_pct"]):
+                away_val = float(r["away_52w_high_pct"])
+                if abs(away_val) < 0.05:
+                    away_val = 0.0
+                away_str = f"{away_val:+.1f}% 52W"
+            else:
+                away_str = ""
             metrics = " · ".join([s for s in [close_str, away_str] if s])
             m_bracket = f" | {metrics}" if metrics else ""
             msg1_lines.append(f"• `{r['symbol']}`: 1d | Net ₹{net_val:,.1f}Cr ({sign}) [{tags}]{m_bracket}")

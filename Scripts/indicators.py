@@ -22,14 +22,22 @@ def sma(close: pd.Series, window: int) -> pd.Series:
 
 
 def rsi_wilder(close: pd.Series, period: int = 14) -> pd.Series:
-    """Return RSI using Wilder's RMA smoothing."""
+    """Return RSI using Wilder's RMA smoothing with zero-loss boundary handling."""
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+
+    # Safe division: when avg_loss is 0 (pure uptrend/circuits), RSI is 100.0; when avg_gain is 0, RSI is 0.0
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+
+    valid_idx = avg_gain.notna() & avg_loss.notna()
+    res = rsi.copy()
+    res[valid_idx & (avg_loss == 0)] = 100.0
+    res[valid_idx & (avg_gain == 0) & (avg_loss > 0)] = 0.0
+    return res
 
 
 def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
@@ -70,9 +78,10 @@ def atr_wilder(
 
 
 def rvol(volume: pd.Series, window: int = 20) -> pd.Series:
-    """Return volume relative to its rolling simple average."""
-    average_volume = volume.rolling(window, min_periods=5).mean()
-    return volume / average_volume
+    """Return volume relative to rolling simple average of preceding sessions."""
+    # Exclude current bar from denominator so volume thrust does not dilute its own baseline
+    prior_average = volume.shift(1).rolling(window, min_periods=5).mean()
+    return volume / prior_average
 
 
 def rs_quarterly_mix(

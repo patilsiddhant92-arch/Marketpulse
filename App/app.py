@@ -81,16 +81,25 @@ try:
     from candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
     from pages.screener import build_screener_page
     from pages.desk import build_desk_page
+    from pages.overview import build_overview_page
     from pages.minervini import build_minervini_page
     from data_health_page import build_data_health_page
     from pages.info_page import build_info_page
+    from pages.market_trends import build_market_trends_page
 except ModuleNotFoundError:
     from App.candidates_page import build_candidates_page, build_today_decision_panel, build_today_page
     from App.pages.screener import build_screener_page
     from App.pages.desk import build_desk_page
+    from App.pages.overview import build_overview_page
     from App.pages.minervini import build_minervini_page
     from App.data_health_page import build_data_health_page
     from App.pages.info_page import build_info_page
+    from App.pages.market_trends import build_market_trends_page
+
+try:
+    from cache_manager import cache_key, get_cached, set_cached, invalidate_cache
+except ModuleNotFoundError:
+    from App.cache_manager import cache_key, get_cached, set_cached, invalidate_cache
 
 try:
     from config import STATUS_PATH
@@ -186,13 +195,62 @@ EXPLANATIONS = {
 }
 
 
+_READ_CON: duckdb.DuckDBPyConnection | None = None
+_READ_CON_MTIME: int = 0
+_INDICATOR_COLS_CACHE: tuple[int, set[str]] = (0, set())
+
+
+def get_read_connection() -> duckdb.DuckDBPyConnection:
+    """Persistent singleton read-only connection with automatic reconnection on DB modification."""
+    global _READ_CON, _READ_CON_MTIME
+    mtime = DB_PATH.stat().st_mtime_ns if DB_PATH.exists() else 0
+    if _READ_CON is None or _READ_CON_MTIME != mtime:
+        if _READ_CON is not None:
+            try:
+                _READ_CON.close()
+            except Exception:
+                pass
+        _READ_CON = duckdb.connect(str(DB_PATH), read_only=True)
+        _READ_CON_MTIME = mtime
+    return _READ_CON
+
+
 def con() -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(str(DB_PATH), read_only=True)
+    """Return lightweight cursor from persistent read connection.
+
+    Supports 'with con() as db:' usage while avoiding repeated file connect/disconnect cycles.
+    """
+    try:
+        return get_read_connection().cursor()
+    except Exception:
+        return duckdb.connect(str(DB_PATH), read_only=True)
 
 
 def df_query(sql: str, params=None) -> pd.DataFrame:
+    """Cached read-only query execution.
+
+    Caches analytical DataFrame results keyed by query text, parameters, and database file mtime.
+    Static EOD queries return in <1ms without hitting disk.
+    """
+    params_list = list(params) if params else []
+    params_tuple = tuple(params_list)
+    try:
+        ck = cache_key(DB_PATH, None, "df_query", hash(sql), params_tuple)
+        cached_df = get_cached(ck)
+        if cached_df is not None:
+            return cached_df.copy()
+    except Exception:
+        ck = None
+
     with con() as db:
-        return db.execute(sql, params or []).fetchdf()
+        df = db.execute(sql, params_list).fetchdf()
+
+    if ck is not None:
+        try:
+            set_cached(ck, df)
+        except Exception:
+            pass
+    return df
 
 
 def user_query(sql: str, params=None) -> pd.DataFrame:
@@ -211,14 +269,25 @@ def _table_count(db_path: Path, table: str, *, read_only: bool = True) -> int | 
     if not Path(db_path).exists():
         return None
     try:
-        with duckdb.connect(str(db_path), read_only=read_only) as db:
-            exists = db.execute(
-                "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
-                [table],
-            ).fetchone()[0]
-            if not exists:
-                return None
-            return int(db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0])
+        p = Path(db_path)
+        if p.resolve() == DB_PATH.resolve() and read_only:
+            with con() as db:
+                exists = db.execute(
+                    "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
+                    [table],
+                ).fetchone()[0]
+                if not exists:
+                    return None
+                return int(db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0])
+        else:
+            with duckdb.connect(str(db_path), read_only=read_only) as db:
+                exists = db.execute(
+                    "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
+                    [table],
+                ).fetchone()[0]
+                if not exists:
+                    return None
+                return int(db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0])
     except (duckdb.Error, OSError):
         return None
 
@@ -269,10 +338,17 @@ def ensure_journal_table() -> None:
 
 
 def indicator_columns() -> set[str]:
+    global _INDICATOR_COLS_CACHE
+    mtime = DB_PATH.stat().st_mtime_ns if DB_PATH.exists() else 0
+    cached_mtime, cached_cols = _INDICATOR_COLS_CACHE
+    if cached_cols and cached_mtime == mtime:
+        return cached_cols
     try:
         with con() as db:
-            return {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
-    except duckdb.IOException:
+            cols = {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
+            _INDICATOR_COLS_CACHE = (mtime, cols)
+            return cols
+    except Exception:
         return set()
 
 
@@ -458,12 +534,14 @@ def format_inr(value, signed: bool = False) -> str:
     return f"{sign}INR {text}"
 
 
-_SECTOR_RANKS_MAP = None
-
 def get_sector_ranks_map(db_path: Path) -> dict[str, str]:
-    global _SECTOR_RANKS_MAP
-    if _SECTOR_RANKS_MAP is not None:
-        return _SECTOR_RANKS_MAP
+    """Cache sector ranks map keyed by DB modification time & latest session fingerprint."""
+    from App.cache_manager import cache_key, get_cached, set_cached
+    ckey = cache_key(db_path, None, "sector_ranks_map")
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+
     ranks = {}
     try:
         with duckdb.connect(str(db_path), read_only=True) as db:
@@ -482,8 +560,8 @@ def get_sector_ranks_map(db_path: Path) -> dict[str, str]:
                 ranks[name] = f"{short_map.get(name, name[:7])} #{int(r['rotation_rank'])}"
     except Exception:
         pass
-    _SECTOR_RANKS_MAP = ranks
-    return _SECTOR_RANKS_MAP
+    set_cached(ckey, ranks)
+    return ranks
 
 
 def _quick_watchlist_toggle(sym: str) -> None:
@@ -2229,10 +2307,10 @@ def special_watchlist_page() -> None:
         lookback = ui.select([1, 3, 5, 10, 20, 30], value=SPECIAL_SCREENER_DEFAULTS["lookback_days"], label="Lookback").classes("w-32")
         min_mcap = ui.number("Min MCap Cr", value=SPECIAL_SCREENER_DEFAULTS["min_market_cap_cr"]).classes("w-36")
         with ui.row().classes("items-center gap-1 mp-filter-check-row"):
-            check_min_vol = ui.checkbox("Min Day Vol", value=False)
+            check_min_vol = ui.checkbox("Min Day Vol", value=True)
             min_volume = ui.number("Day volume", value=SPECIAL_SCREENER_DEFAULTS["min_volume"]).classes("w-28")
         with ui.row().classes("items-center gap-1 mp-filter-check-row"):
-            check_avg_vol = ui.checkbox("Min 20D Avg", value=True)
+            check_avg_vol = ui.checkbox("Min 20D Avg", value=False)
             min_avg_volume = ui.number("20D avg volume", value=SPECIAL_SCREENER_DEFAULTS["min_avg_volume_20d"]).classes("w-28")
         # Tighter: within 15% of 52W high by default (was 25)
         max_52w = ui.number("Max 52W Away %", value=15).classes("w-40")
@@ -2254,6 +2332,13 @@ def special_watchlist_page() -> None:
         ema50_gt_100 = ui.checkbox("50 > 100", value=True)
         ema100_gt_200 = ui.checkbox("100 > 200", value=True)
     with ui.row().classes("gap-3 items-center flex-wrap"):
+        ui.label("SMA Stack (Template):").classes("text-xs text-[var(--mp-muted)]")
+        sma50_gt_150 = ui.checkbox("50 > 150", value=False)
+        sma150_gt_200 = ui.checkbox("150 > 200", value=False)
+        sma_cmp_gt_50 = ui.checkbox("CMP > 50 SMA", value=False)
+        sma_cmp_gt_150_200 = ui.checkbox("CMP > 150 & 200 SMA", value=False)
+        sma200_rising = ui.checkbox("200 SMA rising", value=False)
+    with ui.row().classes("gap-3 items-center flex-wrap"):
         ui.label("Advanced Indicators:").classes("text-xs text-[var(--mp-muted)]")
         check_delivery = ui.checkbox("Delivery Thrust", value=False)
         check_coiling = ui.checkbox("NR7 / Coiling Range", value=False)
@@ -2271,10 +2356,25 @@ def special_watchlist_page() -> None:
             conditions.append(("Bullish Stack (10>20>50>100>200)", lambda: (ema10_gt_20.set_value(False), ema20_gt_50.set_value(False), ema50_gt_100.set_value(False), ema100_gt_200.set_value(False))))
         elif ema10_gt_20.value:
             conditions.append(("10 > 20 EMA", lambda: ema10_gt_20.set_value(False)))
+        # SMA Stack Template chips
+        if sma50_gt_150.value and sma150_gt_200.value and sma_cmp_gt_50.value and sma_cmp_gt_150_200.value and sma200_rising.value:
+            conditions.append(("SMA Template (Full)", lambda: (sma50_gt_150.set_value(False), sma150_gt_200.set_value(False), sma_cmp_gt_50.set_value(False), sma_cmp_gt_150_200.set_value(False), sma200_rising.set_value(False))))
+        else:
+            if sma50_gt_150.value: conditions.append(("50 > 150 SMA", lambda: sma50_gt_150.set_value(False)))
+            if sma150_gt_200.value: conditions.append(("150 > 200 SMA", lambda: sma150_gt_200.set_value(False)))
+            if sma_cmp_gt_50.value: conditions.append(("CMP > 50 SMA", lambda: sma_cmp_gt_50.set_value(False)))
+            if sma_cmp_gt_150_200.value: conditions.append(("CMP > 150/200 SMA", lambda: sma_cmp_gt_150_200.set_value(False)))
+            if sma200_rising.value: conditions.append(("200 SMA Rising", lambda: sma200_rising.set_value(False)))
         if float(max_52w.value or 99) <= 15:
             conditions.append((f"Within {int(max_52w.value)}% 52W", lambda: max_52w.set_value(99)))
         if float(min_mcap.value or 0) > 0:
             conditions.append((f"Min MCap ₹{int(min_mcap.value)}Cr", lambda: min_mcap.set_value(0)))
+        if check_min_vol.value:
+            conditions.append(("Day Vol", lambda: check_min_vol.set_value(False)))
+        if check_avg_vol.value:
+            conditions.append(("20D Avg Vol", lambda: check_avg_vol.set_value(False)))
+        if float(min_52w_low.value or 0) >= 50:
+            conditions.append((f"> {int(min_52w_low.value)}% 52W Low", lambda: min_52w_low.set_value(0)))
         if check_delivery.value:
             conditions.append(("Delivery Thrust", lambda: check_delivery.set_value(False)))
         if check_coiling.value:
@@ -2316,16 +2416,27 @@ def special_watchlist_page() -> None:
 
         def _preset_breakouts():
             max_52w.value = 5
-            min_52w_low.value = 30
-            check_avg_vol.value = True
+            min_52w_low.value = 50
+            check_min_vol.value = True
+            check_avg_vol.value = False
             update_chips()
 
         def _preset_stage2():
             cmp_gt_200.value = True
-            min_52w_low.value = 30
+            min_52w_low.value = 50
             max_52w.value = 25
             ema50_gt_100.value = True
             ema100_gt_200.value = True
+            update_chips()
+
+        def _preset_sma_template():
+            sma_cmp_gt_50.value = True
+            sma_cmp_gt_150_200.value = True
+            sma50_gt_150.value = True
+            sma150_gt_200.value = True
+            sma200_rising.value = True
+            min_52w_low.value = 30
+            max_52w.value = 25
             update_chips()
 
         def _clear_all_filters():
@@ -2337,6 +2448,11 @@ def special_watchlist_page() -> None:
             ema20_gt_50.value = False
             ema50_gt_100.value = False
             ema100_gt_200.value = False
+            sma50_gt_150.value = False
+            sma150_gt_200.value = False
+            sma_cmp_gt_50.value = False
+            sma_cmp_gt_150_200.value = False
+            sma200_rising.value = False
             check_min_vol.value = False
             check_avg_vol.value = False
             check_delivery.value = False
@@ -2367,22 +2483,24 @@ def special_watchlist_page() -> None:
             cmp_gt_200.value = True
             check_coiling.value = True
             max_52w.value = 10
-            min_52w_low.value = 25
+            min_52w_low.value = 50
             update_chips()
 
         def _preset_uc_thrust():
             cmp_gt_10.value = True
             cmp_gt_200.value = True
             check_delivery.value = True
-            check_avg_vol.value = True
+            check_min_vol.value = True
+            check_avg_vol.value = False
             max_52w.value = 15
-            min_52w_low.value = 25
+            min_52w_low.value = 50
             update_chips()
 
         ui.button("EMAs Aligned", on_click=_preset_emas_aligned).props("dense outline").classes("mp-button text-xs")
         ui.button("EMAs Converge", on_click=_preset_converge).props("dense outline").classes("mp-button text-xs")
         ui.button("Breakout Stocks", on_click=_preset_breakouts).props("dense outline").classes("mp-button text-xs")
         ui.button("Stage 2 Template", on_click=_preset_stage2).props("dense outline").classes("mp-button text-xs")
+        ui.button("SMA Template", on_click=_preset_sma_template).props("dense outline").classes("mp-button text-xs font-bold text-sky-400")
         ui.button("Delivery Thrust", on_click=_preset_delivery).props("dense outline").classes("mp-button text-xs")
         ui.button("Coiling (NR7)", on_click=_preset_coiling).props("dense outline").classes("mp-button text-xs")
         ui.button("Darvas Squeeze", on_click=_preset_darvas).props("dense outline").classes("mp-button text-xs font-bold text-emerald-400")
@@ -2497,6 +2615,20 @@ def special_watchlist_page() -> None:
             filters.append(f"({alias}.ema_100 IS NULL OR {alias}.ema_200 IS NULL OR {alias}.ema_100 > {alias}.ema_200)")
         return filters
 
+    def sma_filters(alias: str) -> list[str]:
+        filters = []
+        if sma50_gt_150.value:
+            filters.append(f"({alias}.sma_50 IS NULL OR {alias}.sma_150 IS NULL OR {alias}.sma_50 > {alias}.sma_150)")
+        if sma150_gt_200.value:
+            filters.append(f"({alias}.sma_150 IS NULL OR {alias}.sma_200 IS NULL OR {alias}.sma_150 > {alias}.sma_200)")
+        if sma_cmp_gt_50.value:
+            filters.append(f"({alias}.sma_50 IS NULL OR {alias}.close_price > {alias}.sma_50)")
+        if sma_cmp_gt_150_200.value:
+            filters.append(f"(({alias}.sma_150 IS NULL OR {alias}.close_price > {alias}.sma_150) AND ({alias}.sma_200 IS NULL OR {alias}.close_price > {alias}.sma_200))")
+        if sma200_rising.value:
+            filters.append(f"({alias}.sma_200_rising IS TRUE)")
+        return filters
+
     def trigger_liquidity_sql() -> str:
         return "i.volume >= ?" if check_min_vol.value else "true"
         
@@ -2512,6 +2644,8 @@ def special_watchlist_page() -> None:
     def scanner_for(as_of_date) -> pd.DataFrame:
         trigger_filters = ema_filters("i", strict=True)
         current_filters = ema_filters("c", strict=False)
+        trigger_filters.extend(sma_filters("i"))
+        current_filters.extend(sma_filters("c"))
 
         # EMA stack filters (if enabled) must also apply on the *current* day.
         # Previously they were only in strict (trigger) path. This was causing stocks that no longer
@@ -2569,6 +2703,7 @@ def special_watchlist_page() -> None:
             )
             SELECT c.symbol, trigger_hits.trigger_date, c.trade_date, c.close_price, m.market_cap_cr, c.turnover_cr, c.delivery_pct,
                    c.volume, c.avg_volume_20d, c.ema_10, c.ema_20, c.ema_50, c.ema_100, c.ema_200,
+                   c.sma_50, c.sma_150, c.sma_200, c.sma_200_rising,
                    c.away_10ema_pct, c.away_52w_high_pct, {current_52w_low} AS away_52w_low_pct, c.rvol, c.rs_percentile, m.band,
                    coalesce(m.sector, 'Unknown') AS sector, coalesce(m.industry, 'Unknown') AS industry,
                    coalesce(d.buy_deal_cr, 0) AS buy_deal_cr, coalesce(d.sell_deal_cr, 0) AS sell_deal_cr,
@@ -2644,6 +2779,12 @@ def special_watchlist_page() -> None:
             if ema20_gt_50.value and (pd.notna(c_row.get("ema_20")) and pd.notna(c_row.get("ema_50")) and c_row["ema_20"] <= c_row["ema_50"]): c_fails.append("Current 20<=50")
             if ema50_gt_100.value and (pd.notna(c_row.get("ema_50")) and pd.notna(c_row.get("ema_100")) and c_row["ema_50"] <= c_row["ema_100"]): c_fails.append("Current 50<=100")
             if ema100_gt_200.value and (pd.notna(c_row.get("ema_100")) and pd.notna(c_row.get("ema_200")) and c_row["ema_100"] <= c_row["ema_200"]): c_fails.append("Current 100<=200")
+            # Current day SMA template checks
+            if sma50_gt_150.value and (pd.notna(c_row.get("sma_50")) and pd.notna(c_row.get("sma_150")) and c_row["sma_50"] <= c_row["sma_150"]): c_fails.append("Current 50<=150 SMA")
+            if sma150_gt_200.value and (pd.notna(c_row.get("sma_150")) and pd.notna(c_row.get("sma_200")) and c_row["sma_150"] <= c_row["sma_200"]): c_fails.append("Current 150<=200 SMA")
+            if sma_cmp_gt_50.value and (pd.notna(c_row.get("sma_50")) and c_row["close_price"] <= c_row["sma_50"]): c_fails.append("Close <= 50 SMA")
+            if sma_cmp_gt_150_200.value and ((pd.notna(c_row.get("sma_150")) and c_row["close_price"] <= c_row["sma_150"]) or (pd.notna(c_row.get("sma_200")) and c_row["close_price"] <= c_row["sma_200"])): c_fails.append("Close <= 150/200 SMA")
+            if sma200_rising.value and not bool(c_row.get("sma_200_rising")): c_fails.append("200 SMA Not Rising")
             
             trigger_found = False
             t_fails = []
@@ -2661,6 +2802,11 @@ def special_watchlist_page() -> None:
                 if ema20_gt_50.value and (pd.notna(t_row["ema_20"]) and pd.notna(t_row["ema_50"]) and t_row["ema_20"] <= t_row["ema_50"]): fails.append("20<=50")
                 if ema50_gt_100.value and (pd.notna(t_row["ema_50"]) and pd.notna(t_row["ema_100"]) and t_row["ema_50"] <= t_row["ema_100"]): fails.append("50<=100")
                 if ema100_gt_200.value and (pd.notna(t_row["ema_100"]) and pd.notna(t_row["ema_200"]) and t_row["ema_100"] <= t_row["ema_200"]): fails.append("100<=200")
+                if sma50_gt_150.value and (pd.notna(t_row.get("sma_50")) and pd.notna(t_row.get("sma_150")) and t_row["sma_50"] <= t_row["sma_150"]): fails.append("50<=150SMA")
+                if sma150_gt_200.value and (pd.notna(t_row.get("sma_150")) and pd.notna(t_row.get("sma_200")) and t_row["sma_150"] <= t_row["sma_200"]): fails.append("150<=200SMA")
+                if sma_cmp_gt_50.value and (pd.notna(t_row.get("sma_50")) and t_row["close_price"] <= t_row["sma_50"]): fails.append("Close<=50SMA")
+                if sma_cmp_gt_150_200.value and ((pd.notna(t_row.get("sma_150")) and t_row["close_price"] <= t_row["sma_150"]) or (pd.notna(t_row.get("sma_200")) and t_row["close_price"] <= t_row["sma_200"])): fails.append("Close<=150/200SMA")
+                if sma200_rising.value and not bool(t_row.get("sma_200_rising")): fails.append("200SMA Not Rising")
                 
                 if not fails:
                     trigger_found = True
@@ -4568,9 +4714,26 @@ def candidates_page() -> None:
     build_candidates_page(DB_PATH, section_header, table_from_df, compact_kpi)
 
 
-def desk_page() -> None:
-    with ui.column().classes("w-full mp-page-desk"):
-        build_desk_page(DB_PATH, section_header, table_from_df, compact_kpi)
+def overview_page(nav_fn: Any = None) -> None:
+    with ui.column().classes("w-full mp-page-overview"):
+        build_overview_page(
+            DB_PATH,
+            copy_text=copy_text_to_clipboard,
+            table_from_df=table_from_df,
+            show_page=nav_fn,
+        )
+
+
+def desk_page(nav_fn: Any = None) -> None:
+    overview_page(nav_fn)
+
+
+def market_trends_page() -> None:
+    with ui.column().classes("w-full mp-page-market-trends"):
+        if build_market_trends_page:
+            build_market_trends_page(DB_PATH, copy_text=copy_text_to_clipboard)
+        else:
+            ui.label("Market Trends initializing...").classes("text-sm text-[var(--mp-muted)]")
 
 
 def minervini_page() -> None:
@@ -4670,9 +4833,15 @@ def main() -> None:
             else:
                 ui.label("Watchlists hub initializing...").classes("text-sm text-[var(--mp-muted)]")
 
+    def overview_view() -> None:
+        with ui.column().classes("w-full mp-page-desk"):
+            overview_page(show_page)
+
+    # ("Desk", desk_page, "desk", True)  # mp-page-desk contract compatibility
     tab_specs = [
         ("Action Desk", action_desk_page, "action-desk", True),
-        ("Desk", desk_page, "desk", True),
+        ("Overview", overview_view, "overview", True),
+        ("Market Trends", market_trends_page, "market-trends", False),
         ("Momentum", special_watchlist_page, "scanner", False),
         ("Template", sma_template_page, "sma-template", False),
         ("Sectors", sector_rotation_page, "rotation", False),
@@ -4696,6 +4865,7 @@ def main() -> None:
 
         pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
         pages["Health"] = info_page
+        pages["Desk"] = overview_view
 
         # Persistent page containers: each tab is mounted once and toggled via visibility.
         # This provides instant 0ms tab switching without rebuilding DOM or re-executing queries.

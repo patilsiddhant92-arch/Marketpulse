@@ -18,6 +18,13 @@ try:
     from App.ui.widgets import compact_kpi_row, deal_flow_card, flow_spark, symbol_chip_strip
     from App.cache_manager import get_cached, set_cached, cache_key
     from Scripts.telegram_deals import build_deals_telegram_report, to_tv_list
+    from Scripts.institutional_attribution import (
+        fetch_deal_attribution_df,
+        build_fund_leaderboard,
+        fetch_star_fund_radar,
+        fetch_stock_fund_attribution,
+        to_tv_symbols_list,
+    )
 except ModuleNotFoundError:
     from deals_read_model import query_deals_advanced, query_deals_desk_default  # type: ignore
     from market_status import load_market_status, non_actionable_message  # type: ignore
@@ -27,6 +34,15 @@ except ModuleNotFoundError:
     from ui.widgets import compact_kpi_row, deal_flow_card, flow_spark, symbol_chip_strip  # type: ignore
     from cache_manager import get_cached, set_cached, cache_key  # type: ignore
     from telegram_deals import build_deals_telegram_report, to_tv_list  # type: ignore
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "Scripts"))
+    from institutional_attribution import (  # type: ignore
+        fetch_deal_attribution_df,
+        build_fund_leaderboard,
+        fetch_star_fund_radar,
+        fetch_stock_fund_attribution,
+        to_tv_symbols_list,
+    )
 
 
 def fetch_deals_telegram_data(db_path: Path, lookback_days: int) -> dict:
@@ -36,6 +52,17 @@ def fetch_deals_telegram_data(db_path: Path, lookback_days: int) -> dict:
     if cached is not None:
         return cached
     res = build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=900.0, db_path=db_path)
+    set_cached(ckey, res)
+    return res
+
+
+def fetch_cached_star_radar(db_path: Path, lookback_days: int = 15) -> dict:
+    """Fetch cached Star Fund Radar and Attribution Leaderboard."""
+    ckey = cache_key(db_path, None, "star_fund_radar", lookback_days)
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+    res = fetch_star_fund_radar(db_path, lookback_days=lookback_days)
     set_cached(ckey, res)
     return res
 
@@ -138,6 +165,7 @@ def build_deals_page(
         with hub_container:
             days = int(hub_state["lookback_days"])
             report = fetch_deals_telegram_data(db_path, days)
+            star_radar = fetch_cached_star_radar(db_path, lookback_days=days)
             tv_map = report.get("tv_strings", {})
             as_of = report.get("as_of") or "—"
             tiers = report.get("tiers", {})
@@ -223,6 +251,11 @@ def build_deals_page(
                     f_str = to_tv_list(fresh_syms, header="⚡ Fresh Whale Radar") if fresh_syms else ""
                     if f_str or fresh_radar_tv:
                         ui.button(f"📋 Copy Fresh Radar ({len(fresh_syms)})", on_click=lambda *_, t=(f_str or fresh_radar_tv): copy_text("Fresh Radar TV", t)).classes("mp-button text-xs text-sky-400").props("dense outline")
+                    if star_radar.get("tv_list"):
+                        ui.button(
+                            f"⭐ Copy Star Radar ({len(star_radar.get('symbols', []))})",
+                            on_click=lambda *_, t=star_radar["tv_list"]: copy_text("Star Fund Radar TV", t),
+                        ).classes("mp-button text-xs text-amber-400 font-semibold border-amber-500/50").props("dense outline")
                     if tv_map.get("above_200_tv"):
                         ui.button("📋 Stage 2 (>200 EMA)", on_click=lambda *_, t=tv_map["above_200_tv"]: copy_text("Stage 2 Deals TV", t)).classes("mp-button text-xs text-teal-400").props("dense outline")
                     if tv_map.get("turnaround_tv"):
@@ -236,6 +269,8 @@ def build_deals_page(
                 with ui.tabs().classes("w-full bg-[var(--mp-surface)] rounded-t-lg border border-[var(--mp-border)]") as hub_tabs:
                     t1 = ui.tab(f"💎 Tier 1: Conviction Accumulation ({len(conviction_df)})")
                     t2 = ui.tab(f"⚡ Tier 2: Fresh Whale Radar ({len(fresh_radar_df)})")
+                    t_star = ui.tab(f"⭐ Star Fund Radar ({len(star_radar.get('deals', []))})")
+                    t_lead = ui.tab("🏆 Fund Leaderboard & Alpha")
                     t3 = ui.tab(f"🎯 Tier 3A: Prop HFT Churn ({len(prop_only_df)})")
                     t4 = ui.tab(f"📉 Tier 3B: Quarantined ({len(quarantined_df)})")
                     t5 = ui.tab(f"🔴 Distribution ({len(distribution_df)})")
@@ -262,6 +297,54 @@ def build_deals_page(
                             ui.label("No fresh institutional entries in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
                         else:
                             table_from_df(_prepare_tier_table_df(fresh_radar_df), "", pagination=15, compact=True)
+
+                    # Tab: Star Fund Radar
+                    with ui.tab_panel(t_star).classes("p-2 gap-2"):
+                        with ui.row().classes("w-full items-center justify-between mb-2 flex-wrap gap-2"):
+                            ui.label("⭐ High-Conviction Radar: Recent stocks added by proven Star Catalyst funds (Win Rate >= 65% or Catalyst Score >= 65). Tracks who made stocks run faster.").classes("text-xs text-[var(--mp-muted)]")
+                            if star_radar.get("tv_list"):
+                                ui.button("📋 Copy Star TV List", on_click=lambda t=star_radar["tv_list"]: copy_text("Star Radar TV", t)).classes("text-xs mp-primary").props("dense")
+                        radar_deals = star_radar.get("deals", [])
+                        if not radar_deals:
+                            ui.label("No recent additions by Star Catalyst funds in this window.").classes("text-xs text-[var(--mp-muted)] py-4")
+                        else:
+                            r_df = pd.DataFrame(radar_deals)
+                            r_table_df = pd.DataFrame({
+                                "symbol": r_df["symbol"],
+                                "fund_house": r_df["fund_house"],
+                                "tier": r_df["fund_tier"],
+                                "win_rate": r_df["fund_win_rate"].map(lambda w: f"{w:.1f}%" if pd.notna(w) else "—"),
+                                "deal_date": r_df["deal_date"],
+                                "deal_price": r_df["deal_price"].map(lambda p: f"₹{p:,.2f}"),
+                                "cmp": r_df["cmp"].map(lambda p: f"₹{p:,.2f}"),
+                                "gain_pct": r_df["ret_current"].map(lambda g: f"{g:+.1f}%"),
+                                "peak_runup": r_df["max_runup_pct"].map(lambda m: f"+{m:.1f}%"),
+                                "holding_days": r_df["holding_days"].map(lambda d: f"{d}d"),
+                                "deal_cr": r_df["deal_value_cr"].map(lambda v: f"₹{v:,.1f}Cr"),
+                            })
+                            table_from_df(r_table_df, "", pagination=15, compact=True)
+
+                    # Tab: Fund Leaderboard & Alpha Tracker
+                    with ui.tab_panel(t_lead).classes("p-2 gap-2"):
+                        lead_df = star_radar.get("leaderboard", pd.DataFrame())
+                        with ui.row().classes("w-full items-center justify-between mb-2 flex-wrap gap-2"):
+                            ui.label("🏆 Institutional Fund Attribution Scorecard: Ranks funds by historical Win Rate (% bets achieving >= +5% in 20D), Velocity (speed of breakout), and Average Peak Run-up. Filters out prop scalping noise.").classes("text-xs text-[var(--mp-muted)]")
+                        if lead_df.empty:
+                            ui.label("No institutional funds meet minimum bet criteria.").classes("text-xs text-[var(--mp-muted)] py-4")
+                        else:
+                            l_table_df = pd.DataFrame({
+                                "fund_house": lead_df["fund_house"],
+                                "tier": lead_df["fund_tier"],
+                                "score": lead_df["catalyst_score"].map(lambda s: f"{s:.1f}"),
+                                "win_rate_20d": lead_df["win_rate_20d"].map(lambda w: f"{w:.1f}%" if pd.notna(w) else "—"),
+                                "avg_peak_gain": lead_df["avg_runup"].map(lambda r: f"+{r:.1f}%" if pd.notna(r) else "—"),
+                                "avg_20d_gain": lead_df["avg_20d"].map(lambda r: f"{r:+.1f}%" if pd.notna(r) else "—"),
+                                "baggers_25pct": lead_df["baggers"],
+                                "days_to_peak": lead_df["avg_days_to_peak"].map(lambda d: f"{d:.0f}d" if pd.notna(d) else "—"),
+                                "total_cr": lead_df["total_cr"].map(lambda v: f"₹{v:,.1f}Cr"),
+                                "bets": lead_df["total_bets"],
+                            })
+                            table_from_df(l_table_df, "", pagination=20, compact=True)
 
                     # Tab 3: Prop HFT Churn
                     with ui.tab_panel(t3).classes("p-2 gap-2"):

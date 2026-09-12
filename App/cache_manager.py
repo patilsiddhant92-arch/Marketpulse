@@ -13,6 +13,7 @@ import duckdb
 
 # Global in-memory cache: (cache_key) -> (timestamp, data)
 _CACHE: dict[str, tuple[float, Any]] = {}
+_FP_CACHE: dict[tuple[str, int], str] = {}
 CACHE_TTL_SECONDS = 3600.0  # 1 hour default TTL for EOD data
 CACHE_MAX_ENTRIES = 256
 
@@ -23,6 +24,10 @@ def _latest_session_fingerprint(db_path: Path | str) -> str:
         p = Path(db_path)
         if not p.exists():
             return ""
+        mtime = p.stat().st_mtime_ns
+        cache_key_tuple = (str(p.resolve()), mtime)
+        if cache_key_tuple in _FP_CACHE:
+            return _FP_CACHE[cache_key_tuple]
         with duckdb.connect(str(p), read_only=True) as db:
             row = db.execute(
                 """
@@ -32,9 +37,12 @@ def _latest_session_fingerprint(db_path: Path | str) -> str:
                 """
             ).fetchone()
         if not row or row[0] is None:
-            return ""
-        max_d = str(row[0])[:10]
-        return f"max_{max_d}_n_{int(row[1] or 0)}"
+            res = ""
+        else:
+            max_d = str(row[0])[:10]
+            res = f"max_{max_d}_n_{int(row[1] or 0)}"
+        _FP_CACHE[cache_key_tuple] = res
+        return res
     except Exception:
         return ""
 

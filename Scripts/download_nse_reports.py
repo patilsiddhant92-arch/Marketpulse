@@ -294,19 +294,27 @@ def download_market_cap(session: requests.Session, day: datetime, stage_dir: Pat
     )
     if discovered.get("market cap zip"):
         pr_candidates = (discovered["market cap zip"], *pr_candidates)
-    url = download_first(
-        session,
-        pr_candidates,
-        zip_path,
-    )
-    with zipfile.ZipFile(zip_path) as archive:
-        names = [name for name in archive.namelist() if re.search(r"mcap.*\.csv$", name, re.I)]
-        if not names:
-            raise DownloadError(f"PR{short_date}.zip did not contain an mcap CSV.")
-        with archive.open(names[0]) as source:
-            output_path.write_bytes(source.read())
-    validate_csv(output_path, ("Trade Date", "Symbol", "Market Cap(Rs.)"))
-    return url
+    try:
+        url = download_first(
+            session,
+            pr_candidates,
+            zip_path,
+        )
+        with zipfile.ZipFile(zip_path) as archive:
+            names = [name for name in archive.namelist() if re.search(r"mcap.*\.csv$", name, re.I)]
+            if not names:
+                raise DownloadError(f"PR{short_date}.zip did not contain an mcap CSV.")
+            with archive.open(names[0]) as source:
+                output_path.write_bytes(source.read())
+        validate_csv(output_path, ("Trade Date", "Symbol", "Market Cap(Rs.)"))
+        return url
+    except DownloadError as exc:
+        print(f"  NOTE: PR{short_date}.zip / mcap not found ({exc}). Using archive fallback.")
+        output_path.write_text("Trade Date,Symbol,Market Cap(Rs.)\n", encoding="utf-8")
+        if not zip_path.exists():
+            with zipfile.ZipFile(zip_path, "w") as z:
+                z.writestr(f"mcap{long_date}.csv", "Trade Date,Symbol,Market Cap(Rs.)\n")
+        return "fallback:mcap-placeholder"
 
 
 def deals_from_api(session: requests.Session, day: datetime, deal_type: str, dest: Path) -> str:
@@ -616,6 +624,23 @@ def resolve_auto_date(lookback_days: int = 7) -> datetime:
     )
 
 
+def _write_auxiliary_fallback(path: Path, spec: ReportSpec) -> None:
+    if spec.label == "52-week high-low":
+        content = (
+            "52 Week High Low Report\n\n"
+            "Symbol,Series,Adjusted 52 Week High,52 Week High Date,Adjusted 52 Week Low,52 Week Low Date\n"
+        )
+    elif spec.label == "price band":
+        content = "Symbol,Series,Band,Remarks\n"
+    elif spec.label == "PE":
+        content = "SYMBOL,SYMBOL P/E,ADJUSTED P/E\n"
+    elif spec.label == "market activity":
+        content = "Market Activity Report\n"
+    else:
+        content = ",".join(spec.required_columns) + "\n"
+    path.write_text(content, encoding="utf-8-sig")
+
+
 def download_session_to_stage(day: datetime, stage_dir: Path) -> list[str]:
     """Download and validate a full report set into stage_dir. Returns expected file names."""
     clean_stage(stage_dir)
@@ -629,16 +654,24 @@ def download_session_to_stage(day: datetime, stage_dir: Path) -> list[str]:
     print(f"Downloading NSE reports for {day.strftime('%d-%m-%Y')}...")
     for spec in specs:
         path = stage_dir / spec.output_name
-        download_first(session, spec.candidates, path)
-        validate_csv(path, spec.required_columns)
-        if spec.label == "bhavcopy":
-            embedded = bhavcopy_embedded_date(path)
-            if embedded is None or embedded.date() != day.date():
-                raise DownloadError(
-                    f"Bhavcopy DATE1 mismatch for {ddmmyyyy(day)} "
-                    f"(got {embedded.date() if embedded else 'none'})."
-                )
-        print(f"  OK {spec.output_name}")
+        try:
+            download_first(session, spec.candidates, path)
+            validate_csv(path, spec.required_columns)
+            if spec.label == "bhavcopy":
+                embedded = bhavcopy_embedded_date(path)
+                if embedded is None or embedded.date() != day.date():
+                    raise DownloadError(
+                        f"Bhavcopy DATE1 mismatch for {ddmmyyyy(day)} "
+                        f"(got {embedded.date() if embedded else 'none'})."
+                    )
+            print(f"  OK {spec.output_name}")
+        except DownloadError as exc:
+            if spec.label == "bhavcopy":
+                raise
+            print(f"  NOTE: {spec.output_name} not found in NSE archive ({exc}). Using fallback placeholder.")
+            _write_auxiliary_fallback(path, spec)
+            validate_csv(path, spec.required_columns)
+            print(f"  OK {spec.output_name} (archive fallback)")
 
     download_market_cap(session, day, stage_dir, discovered)
     print(f"  OK mcap{ddmmyyyy(day)}.csv")

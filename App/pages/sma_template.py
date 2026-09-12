@@ -44,68 +44,59 @@ CHECKS = (
 
 
 def scan_template(db_path: Path, min_mcap: float, min_avg_vol: float = 0.0) -> pd.DataFrame:
-    """Latest session + live SMA 50/150/200 from official EOD prices."""
+    """Latest session using pre-computed SMA 50/150/200 from indicators_daily, with prices_daily fallback."""
     db_path = Path(db_path)
     with duckdb.connect(str(db_path), read_only=True) as db:
         cols = {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
         low_pct = "i.away_52w_low_pct" if "away_52w_low_pct" in cols else "NULL"
         avg_vol = "i.avg_volume_20d" if "avg_volume_20d" in cols else "NULL"
-        return db.execute(
-            f"""
-            WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
-            univ AS (
-                SELECT m.symbol, m.market_cap_cr, m.sector, m.industry, m.band,
-                       i.rs_percentile, i.away_52w_high_pct, {low_pct} AS away_52w_low_pct,
-                       i.turnover_cr, i.rvol, i.delivery_pct, i.close_price,
-                       {avg_vol} AS avg_volume_20d
+
+        if "sma_50" in cols and "sma_150" in cols and "sma_200" in cols:
+            rising_col = "i.sma_200_rising" if "sma_200_rising" in cols else "(i.sma_200 > lag(i.sma_200, 20) over (partition by i.symbol order by i.trade_date))"
+            return db.execute(
+                f"""
+                WITH latest AS (SELECT max(trade_date) d FROM indicators_daily)
+                SELECT m.symbol, i.close_price, i.rs_percentile, i.away_52w_high_pct, {low_pct} AS away_52w_low_pct,
+                       i.sma_50, i.sma_150, i.sma_200, {rising_col} AS sma_200_rising,
+                       i.turnover_cr, i.rvol, i.delivery_pct, {avg_vol} AS avg_volume_20d,
+                       m.market_cap_cr, m.sector, m.industry, m.band
                 FROM indicators_daily i
                 JOIN stocks_master m USING(symbol), latest
                 WHERE i.trade_date = latest.d
                   AND coalesce(m.market_cap_cr, 0) >= ?
                   AND coalesce({avg_vol}, 0) >= ?
+                """,
+                [min_mcap, min_avg_vol],
+            ).fetchdf()
+
+        # Fallback for databases or test fixtures without pre-computed SMAs
+        return db.execute(
+            f"""
+            WITH latest AS (
+                SELECT max(trade_date) d FROM indicators_daily
             ),
-            px AS (
-                SELECT p.symbol, p.trade_date, p.close_price
-                FROM prices_daily p
-                JOIN univ u USING(symbol), latest
-                WHERE p.trade_date >= latest.d - INTERVAL 400 DAY
+            p_win1 AS (
+                SELECT symbol, trade_date, close_price,
+                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
+                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW) AS sma_150,
+                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200
+                FROM prices_daily
             ),
-            sma AS (
-                SELECT
-                    symbol, trade_date, close_price,
-                    avg(close_price) OVER w50 AS sma_50_raw,
-                    avg(close_price) OVER w150 AS sma_150_raw,
-                    avg(close_price) OVER w200 AS sma_200_raw,
-                    count(*) OVER w50 AS n50,
-                    count(*) OVER w150 AS n150,
-                    count(*) OVER w200 AS n200
-                FROM px
-                WINDOW
-                    w50 AS (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW),
-                    w150 AS (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW),
-                    w200 AS (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW)
-            ),
-            tagged AS (
-                SELECT
-                    symbol, trade_date,
-                    CASE WHEN n50 = 50 THEN sma_50_raw END AS sma_50,
-                    CASE WHEN n150 = 150 THEN sma_150_raw END AS sma_150,
-                    CASE WHEN n200 = 200 THEN sma_200_raw END AS sma_200
-                FROM sma
-            ),
-            rising AS (
-                SELECT
-                    symbol, trade_date, sma_50, sma_150, sma_200,
-                    sma_200 > lag(sma_200, 21) OVER (PARTITION BY symbol ORDER BY trade_date) AS sma_200_rising
-                FROM tagged
+            p_win2 AS (
+                SELECT symbol, trade_date, sma_50, sma_150, sma_200,
+                       lag(sma_200, 20) OVER (PARTITION BY symbol ORDER BY trade_date) AS sma_200_20d_ago
+                FROM p_win1
             )
-            SELECT r.symbol, u.close_price, u.rs_percentile, u.away_52w_high_pct, u.away_52w_low_pct,
-                   r.sma_50, r.sma_150, r.sma_200, r.sma_200_rising,
-                   u.turnover_cr, u.rvol, u.delivery_pct, u.avg_volume_20d,
-                   u.market_cap_cr, u.sector, u.industry, u.band
-            FROM rising r
-            JOIN univ u USING(symbol), latest
-            WHERE r.trade_date = latest.d
+            SELECT m.symbol, i.close_price, i.rs_percentile, i.away_52w_high_pct, {low_pct} AS away_52w_low_pct,
+                   p.sma_50, p.sma_150, p.sma_200, (p.sma_200 > p.sma_200_20d_ago) AS sma_200_rising,
+                   i.turnover_cr, i.rvol, i.delivery_pct, {avg_vol} AS avg_volume_20d,
+                   m.market_cap_cr, m.sector, m.industry, m.band
+            FROM indicators_daily i
+            JOIN stocks_master m USING(symbol)
+            JOIN latest ON i.trade_date = latest.d
+            LEFT JOIN p_win2 p ON p.symbol = i.symbol AND p.trade_date = latest.d
+            WHERE coalesce(m.market_cap_cr, 0) >= ?
+              AND coalesce({avg_vol}, 0) >= ?
             """,
             [min_mcap, min_avg_vol],
         ).fetchdf()

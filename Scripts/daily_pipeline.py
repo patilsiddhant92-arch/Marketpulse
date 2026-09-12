@@ -22,20 +22,106 @@ import sys
 import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 
 import duckdb
 import pandas as pd
 
-from config import DAILY_DIR, DATABASE_DIR, DB_PATH, LOGS_DIR, ROOT_DIR
-from download_nse_reports import parse_date, run as download_run, resolve_auto_date
+from config import ARCHIVE_DIR, DAILY_DIR, DATABASE_DIR, DB_PATH, LOGS_DIR, ROOT_DIR
+from download_nse_reports import (
+    archive_daily_inputs,
+    clear_daily_dir,
+    ddmmyyyy,
+    install_stage,
+    make_session,
+    parse_date,
+    resolve_auto_date,
+    run as download_run,
+    session_available,
+)
 from decision_pipeline import process_accepted_session
 
 STATUS_PATH = DATABASE_DIR / "status.json"
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_WAIT_MINUTES = 10
+
+
+def _is_session_staged(session_dir: Path, day: datetime) -> bool:
+    if not session_dir.exists() or not session_dir.is_dir():
+        return False
+    long_date = ddmmyyyy(day)
+    bhav = session_dir / f"sec_bhavdata_full_{long_date}.csv"
+    manifest = session_dir / "manifest.json"
+    return bhav.exists() and bhav.stat().st_size > 0 and manifest.exists()
+
+
+def get_missing_trading_dates(
+    db_date: str | datetime | date | None,
+    target_date: str | datetime | date,
+    session=None,
+) -> list[datetime]:
+    """
+    Compute list of missing trading sessions between db_date and target_date (inclusive).
+    Skips weekends (Saturday/Sunday).
+    Skips weekdays where NSE had no trading session (holidays) unless already staged locally.
+    Returns sorted chronological list of datetime objects.
+    """
+    if db_date is None:
+        target_dt = pd.to_datetime(target_date).to_pydatetime()
+        return [datetime.combine(target_dt.date(), datetime.min.time())]
+
+    start = pd.to_datetime(db_date).date() + timedelta(days=1)
+    end = pd.to_datetime(target_date).date()
+
+    if start > end:
+        return []
+
+    req_session = None
+    missing: list[datetime] = []
+    curr = start
+    while curr <= end:
+        # 1. Skip weekends
+        if curr.weekday() >= 5:
+            curr += timedelta(days=1)
+            continue
+
+        curr_dt = datetime.combine(curr, datetime.min.time())
+        long_date = ddmmyyyy(curr_dt)
+
+        # 2. Check local disk first: staged download, daily, or archive
+        local_found = False
+        staged_dir = ROOT_DIR / "Input" / "downloads" / long_date
+        staged_bhav = staged_dir / f"sec_bhavdata_full_{long_date}.csv"
+        if staged_bhav.exists() and staged_bhav.stat().st_size > 0:
+            local_found = True
+        elif (DAILY_DIR / f"sec_bhavdata_full_{long_date}.csv").exists():
+            local_found = True
+        elif (ARCHIVE_DIR / f"sec_bhavdata_full_{long_date}.csv").exists():
+            local_found = True
+
+        if local_found:
+            missing.append(curr_dt)
+            curr += timedelta(days=1)
+            continue
+
+        # 3. Probe NSE to check if this was a trading session or holiday
+        if req_session is None:
+            req_session = session or make_session()
+
+        try:
+            if session_available(req_session, curr_dt):
+                missing.append(curr_dt)
+            else:
+                print(f"Skipping {curr.isoformat()}: NSE market holiday / no session published.")
+        except Exception as exc:
+            print(f"Warning: probe for {curr.isoformat()} failed ({exc}); assuming trading day.")
+            missing.append(curr_dt)
+
+        curr += timedelta(days=1)
+
+    return missing
 
 
 def _now_iso() -> str:
@@ -197,118 +283,133 @@ def run_pipeline(
             print(f"Root: {ROOT_DIR}")
             print(f"DB before: {status['db_date_before']}")
 
-            # --- Download ---
+            sessions_to_process: list[datetime] = []
             if not skip_download:
                 try:
-                    day = date if date is not None else resolve_auto_date(lookback_days=lookback)
-                    status["download_date"] = day.date().isoformat()
-                    # If DB already has this session, still refresh daily files (refs/deals)
-                    # but append will no-op — that is OK.
-                    rc = download_run(day, dry_run=False)
-                    if rc != 0:
-                        raise RuntimeError(f"Download returned code {rc}")
-                    status["steps"].append({"step": "download", "ok": True, "date": status["download_date"]})
-                    print("Download step OK")
+                    target_day = date if date is not None else resolve_auto_date(lookback_days=lookback)
+                    status["download_date"] = target_day.date().isoformat()
+                    missing = get_missing_trading_dates(status["db_date_before"], target_day)
+                    if not missing:
+                        sessions_to_process = [target_day]
+                    else:
+                        sessions_to_process = missing
+                    if len(sessions_to_process) > 1:
+                        session_strs = [s.strftime("%d-%m-%Y") for s in sessions_to_process]
+                        print(f"Multi-day catch-up detected! {len(sessions_to_process)} sessions to process: {', '.join(session_strs)}")
                 except Exception as exc:
-                    status["steps"].append({"step": "download", "ok": False, "error": str(exc)})
+                    status["steps"].append({"step": "download_discovery", "ok": False, "error": str(exc)})
                     raise
             else:
-                status["steps"].append({"step": "download", "ok": True, "skipped": True})
                 print("Download skipped")
+                status["steps"].append({"step": "download", "ok": True, "skipped": True})
+                day_str = _daily_bhav_date()
+                target_day = date if date is not None else (datetime.fromisoformat(day_str) if day_str else None)
+                if target_day is not None:
+                    sessions_to_process = [target_day]
+
+            # Ingest sessions in chronological order
+            for s_idx, s_day in enumerate(sessions_to_process, 1):
+                s_date_str = s_day.date().isoformat()
+                s_long_date = ddmmyyyy(s_day)
+                session_dir = ROOT_DIR / "Input" / "downloads" / s_long_date
+
+                print(f"\n--- Processing session {s_idx}/{len(sessions_to_process)}: {s_date_str} ---")
+
+                # Step 1: Download / Stage
+                if not skip_download:
+                    try:
+                        if _is_session_staged(session_dir, s_day):
+                            print(f"Session {s_date_str} already staged in {session_dir}. Installing to daily...")
+                            archive_daily_inputs()
+                            clear_daily_dir()
+                            from ingestion_manifest import validate_session_manifest
+                            manifest = validate_session_manifest(session_dir)
+                            expected_names = [r.filename for r in manifest.reports]
+                            install_stage(session_dir, expected_names, dry_run=False)
+                        else:
+                            rc = download_run(s_day, dry_run=False)
+                            if rc != 0:
+                                raise RuntimeError(f"Download returned code {rc}")
+                        status["steps"].append({"step": f"download_{s_date_str}", "ok": True, "date": s_date_str})
+                        print(f"Download/install for {s_date_str} OK")
+                    except Exception as exc:
+                        status["steps"].append({"step": f"download_{s_date_str}", "ok": False, "error": str(exc)})
+                        raise
+
+                # Step 2: Provenance check & promote manifest
+                if not skip_append:
+                    bhav_ok, bhav_name = _required_bhav_present(session_dir, s_date_str)
+                    if not bhav_ok:
+                        status["steps"].append(
+                            {"step": f"provenance_{s_date_str}", "ok": False, "error": "required bhavcopy missing or empty"}
+                        )
+                        raise RuntimeError(
+                            f"Required bhavcopy missing for {s_date_str} — refusing append "
+                            "(fail-closed provenance gate)."
+                        )
+                    if session_dir and session_dir.exists():
+                        try:
+                            prov = _promote_manifest_to_db(session_dir, s_date_str)
+                            status["steps"].append({"step": f"provenance_{s_date_str}", "ok": prov.get("ok", False), **prov, "bhav": bhav_name})
+                        except Exception as exc:
+                            status["steps"].append(
+                                {"step": f"provenance_{s_date_str}", "ok": False, "error": str(exc), "bhav": bhav_name}
+                            )
+                            print(f"Manifest promote failed (bhav present): {exc}")
+                    else:
+                        status["steps"].append(
+                            {
+                                "step": f"provenance_{s_date_str}",
+                                "ok": True,
+                                "message": "bhav present; session dir/manifest not available to promote",
+                                "bhav": bhav_name,
+                            }
+                        )
+
+                # Step 3: Append
+                if not skip_append:
+                    try:
+                        append_result = _run_append()
+                        status["steps"].append({"step": f"append_{s_date_str}", "ok": True, **append_result})
+                    except Exception as exc:
+                        status["steps"].append({"step": f"append_{s_date_str}", "ok": False, "error": str(exc)})
+                        raise
+
+                # Step 4: Decisions snapshot
+                if not skip_append:
+                    if session_dir and session_dir.exists():
+                        try:
+                            decision_result = process_accepted_session(DB_PATH, session_dir, s_day.date())
+                            status["steps"].append({"step": f"decisions_{s_date_str}", "ok": True, **decision_result})
+                            print(
+                                f"Decision snapshot OK: {decision_result['score_version']} "
+                                f"through {decision_result['trade_date']} ({decision_result['decision_rows']} rows)."
+                            )
+                        except Exception as exc:
+                            status["steps"].append({"step": f"decisions_{s_date_str}", "ok": False, "error": str(exc)})
+                            raise
+                    else:
+                        print(f"No session directory for {s_date_str}; skipping decision snapshot.")
 
             status["daily_bhav_date"] = _daily_bhav_date()
-
-            # Resolve session directory for provenance / decisions
-            decision_text = status.get("download_date") or status.get("daily_bhav_date")
-            session_dir = None
-            if decision_text:
-                decision_day = datetime.fromisoformat(str(decision_text)).date()
-                session_dir = ROOT_DIR / "Input" / "downloads" / decision_day.strftime("%d%m%Y")
-
-            # --- Provenance: fail-closed bhav + promote disk manifest to DB ---
-            if not skip_append:
-                bhav_ok, bhav_name = _required_bhav_present(session_dir, decision_text)
-                if not bhav_ok:
-                    status["steps"].append(
-                        {"step": "provenance", "ok": False, "error": "required bhavcopy missing or empty"}
-                    )
-                    raise RuntimeError(
-                        "Required bhavcopy missing — refusing append/decisions "
-                        "(fail-closed provenance gate)."
-                    )
-                if session_dir and Path(session_dir).exists():
-                    try:
-                        prov = _promote_manifest_to_db(session_dir, str(decision_text))
-                        status["steps"].append({"step": "provenance", "ok": prov.get("ok", False), **prov, "bhav": bhav_name})
-                        if not prov.get("ok"):
-                            print(f"Manifest promote warning: {prov.get('error')}")
-                    except Exception as exc:
-                        # Disk manifest may be incomplete when download was skipped; log and continue
-                        # only if daily bhav exists (already checked). DB rows may stay empty.
-                        status["steps"].append(
-                            {"step": "provenance", "ok": False, "error": str(exc), "bhav": bhav_name}
-                        )
-                        print(f"Manifest promote failed (bhav present): {exc}")
-                else:
-                    status["steps"].append(
-                        {
-                            "step": "provenance",
-                            "ok": True,
-                            "message": "bhav present; session dir/manifest not available to promote",
-                            "bhav": bhav_name,
-                        }
-                    )
-
-            # --- Append ---
-            if not skip_append:
-                try:
-                    append_result = _run_append()
-                    status["steps"].append({"step": "append", "ok": True, **append_result})
-                except Exception as exc:
-                    status["steps"].append({"step": "append", "ok": False, "error": str(exc)})
-                    raise
-            else:
-                status["steps"].append({"step": "append", "ok": True, "skipped": True})
-                print("Append skipped")
-
-            # --- PR reports + focused-v2 decision snapshot ---
-            if not skip_append:
-                if decision_text and session_dir is not None:
-                    decision_day = datetime.fromisoformat(str(decision_text)).date()
-                    try:
-                        decision_result = process_accepted_session(DB_PATH, session_dir, decision_day)
-                        status["steps"].append({"step": "decisions", "ok": True, **decision_result})
-                        print(
-                            f"Decision snapshot OK: {decision_result['score_version']} "
-                            f"through {decision_result['trade_date']} ({decision_result['decision_rows']} rows)."
-                        )
-                    except Exception as exc:
-                        status["steps"].append({"step": "decisions", "ok": False, "error": str(exc)})
-                        raise
-                else:
-                    status["steps"].append({"step": "decisions", "ok": False, "error": "no accepted session date"})
-                    raise RuntimeError("Cannot materialize decisions without an accepted session date")
-            else:
-                status["steps"].append({"step": "decisions", "ok": True, "skipped": True})
-                print("Decision materialization skipped")
-
             status["db_date_after"] = _db_max_trade_date()
             status["ok"] = True
-            action = next(
-                (s.get("action") for s in status["steps"] if s.get("step") == "append" and "action" in s),
-                "done",
-            )
-            if action == "noop":
+            if len(sessions_to_process) > 1:
+                status["message"] = (
+                    f"Multi-day catch-up complete! Processed {len(sessions_to_process)} sessions. "
+                    f"DB {status['db_date_before']} -> {status['db_date_after']}."
+                )
+            elif status["db_date_before"] == status["db_date_after"]:
                 status["message"] = (
                     f"Up to date. DB through {status['db_date_after']}. "
                     f"Daily files for {status['daily_bhav_date']}."
                 )
             else:
                 status["message"] = (
-                    f"Pipeline OK. DB {status['db_date_before']} → {status['db_date_after']}. "
+                    f"Pipeline OK. DB {status['db_date_before']} -> {status['db_date_after']}. "
                     f"Download session {status['download_date']}."
                 )
-            print(status["message"])
+            print(f"\n{status['message']}")
 
             # --- Telegram deals (TV paste lists) after successful DB path ---
             if not skip_telegram:
@@ -370,7 +471,11 @@ def run_pipeline(
         text = buffer.getvalue()
         log_path.write_text(text, encoding="utf-8")
         # Also mirror to stdout for interactive runs
-        sys.stdout.write(text)
+        try:
+            sys.stdout.write(text)
+        except Exception:
+            enc = sys.stdout.encoding or "ascii"
+            sys.stdout.write(text.encode(enc, errors="replace").decode(enc))
         try:
             _write_status(status)
             print(f"Status written: {STATUS_PATH}")

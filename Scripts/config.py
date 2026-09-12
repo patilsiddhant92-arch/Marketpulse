@@ -300,7 +300,7 @@ SPECIAL_SCREENER_DEFAULTS = {
     "min_market_cap_cr": 1000,
     "min_volume": 1_000_000,
     "min_avg_volume_20d": 1_000_000,
-    "min_52w_low_pct": 25,
+    "min_52w_low_pct": 50,
     "lookback_days": 10,
 }
 
