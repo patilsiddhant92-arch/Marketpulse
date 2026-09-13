@@ -72,11 +72,11 @@ def test_darvas_10ema_squeeze_criteria():
         max_squeeze_pct=3.5, max_candle_range_pct=3.5, require_ohlc_inside=True
     )
 
-    # Rejection: High exceeds TopBox (pierced ceiling, not inside box)
-    assert not is_darvas_10ema_squeeze(
+    # Valid test: High pierces TopBox but close finishes inside squeeze zone
+    assert is_darvas_10ema_squeeze(
         close=99.0, top_box=100.0, bottom_box=92.0, ema10=98.0,
-        high=102.5, low=98.2, open_price=98.5,
-        max_squeeze_pct=3.5, require_ohlc_inside=True
+        high=101.2, low=98.2, open_price=98.5,
+        max_squeeze_pct=3.5, max_candle_range_pct=3.5, require_ohlc_inside=True
     )
 
     # Rejection: Candle range too wide (> 3.5%, not near range)
@@ -86,11 +86,11 @@ def test_darvas_10ema_squeeze_criteria():
         max_squeeze_pct=3.5, max_candle_range_pct=3.5, require_ohlc_inside=True
     )
 
-    # Rejection: Low breaks below 10 EMA support (over the 1.5% failed-low cap)
-    assert not is_darvas_10ema_squeeze(
+    # Valid test: Low undercuts 10 EMA but close finishes inside squeeze zone
+    assert is_darvas_10ema_squeeze(
         close=99.0, top_box=100.0, bottom_box=92.0, ema10=98.0,
-        high=99.5, low=94.0, open_price=98.5,
-        max_squeeze_pct=3.5, require_ohlc_inside=True
+        high=99.5, low=96.0, open_price=98.5,
+        max_squeeze_pct=3.5, max_candle_range_pct=4.0, require_ohlc_inside=True
     )
 
     # Rejection: Spread too wide (top=100, ema10=90 -> 10% spread)
@@ -179,9 +179,10 @@ def test_failed_low_1pct_open_below():
     assert is_darvas_10ema_squeeze_legacy(**kwargs) is False
 
 
-def test_failed_low_over_cap_fails():
+def test_failed_low_deep_undercut_still_passes_when_close_in_zone():
+    """Wick may undercut 10 EMA beyond the old 1.5% cap if close holds in-zone."""
     ema10 = 100.0
-    assert not is_darvas_10ema_squeeze(
+    assert is_darvas_10ema_squeeze(
         close=102.0,
         top_box=104.0,
         bottom_box=90.0,
@@ -191,7 +192,7 @@ def test_failed_low_over_cap_fails():
         open_price=101.0,
         ema20=98.5,
         max_squeeze_pct=5.0,
-        max_candle_range_pct=4.0,
+        max_candle_range_pct=5.0,
     )
 
 

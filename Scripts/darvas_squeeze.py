@@ -347,11 +347,10 @@ def evaluate_squeeze_bar(
     require_ohlc_inside: bool = True,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Truth-table evaluation of one bar. Open is not tested against the floor.
+    """Truth-table evaluation of one bar. Close must sit in the squeeze zone; wicks may test outside.
 
     bottom_box is accepted for call-site compatibility with the Pine pair; v2 does
-    not gate on the red line (§8.3 discovery gates are spread, green-line, ceiling,
-    floor_ok, trend, range).
+    not gate on the red line. Wick pierces of TopBox / 10 EMA are valid tests when close holds in-zone.
     """
     _ = bottom_box  # red-line floor is intentionally gone in v2
     params = dict(DARVAS)
@@ -401,23 +400,22 @@ def evaluate_squeeze_bar(
     if np.isfinite(e20) and e20 > 0:
         trend_ok = e10 >= e20 * ema_trend_tol
 
+    # Close must finish inside the squeeze zone (10 EMA ↔ TopBox).
+    # Wicks may test outside: high can pierce TopBox, low can undercut 10/20 EMA —
+    # those are valid range tests when the close reclaims the zone.
     close_ok = (c >= e10 * close_floor_tol) and (c <= top * ceiling_tol)
-    wick_strict = l >= ema_floor * wick_floor_tol
-    failed_low = (
-        (l < ema_floor * wick_floor_tol)
-        and (l >= ema_floor * undercut_cap_tol)
-        and close_ok
-    )
-    floor_ok = wick_strict or failed_low
+    wick_undercut = l < ema_floor * wick_floor_tol
+    failed_low = bool(wick_undercut and close_ok)  # informational: tested support, closed in zone
+    _ = undercut_cap_tol  # retained in DARVAS for charts; no longer a hard reject
+    _ = o  # open may also poke; close_ok is the membership gate
 
     qualifies = trend_ok and (0.0 <= squeeze_pct <= max_sq)
     dist_to_green = ((top - c) / top) * 100.0
     qualifies = qualifies and (-0.2 <= dist_to_green <= max_sq)
 
     if require_ohlc_inside:
-        ceiling_ok = (h <= top * ceiling_tol) and (o <= top * ceiling_tol) and (c <= top * ceiling_tol)
         range_ok = (not np.isfinite(candle_range_pct)) or (candle_range_pct <= max_range)
-        qualifies = qualifies and ceiling_ok and close_ok and floor_ok and range_ok
+        qualifies = qualifies and close_ok and range_ok
 
     # Approach A hard gates (optional args keep pure-geometry unit tests working).
     e10_prev = _f(ema10_prev)
