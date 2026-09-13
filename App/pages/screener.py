@@ -68,7 +68,7 @@ def build_screener_page(
         "Screener",
         "Focused-v2 EOD swing queue. Fundamental inputs are unavailable and are not part of the score.",
     )
-    render_market_health_strip(db_path)
+    render_market_health_strip(db_path, expanded=False)
     ui.label(
         "Fundamentals unavailable · this queue uses price/volume, market-cap, sector, regime, and event-risk inputs only."
     ).classes("mp-badge mp-warn w-full mt-2")

@@ -323,6 +323,23 @@ def test_squeeze_frame_columns_and_unclipped_spread():
     assert row["squeeze_pct"] != 5.0 or raw == 5.0
 
 
+
+def test_darvas_dict_is_single_owner():
+    import Scripts.darvas_squeeze as scripts_d
+    import Scripts.desk_contract as desk
+
+    assert scripts_d.DARVAS is desk.DARVAS
+    assert scripts_d.DARVAS["box_lookback_sessions"] == 252
+
+
+def test_drawer_box_lookback_uses_darvas_contract():
+    source = Path("App/ui/stock_drawer.py").read_text(encoding="utf-8")
+    assert 'DARVAS["box_lookback_sessions"]' in source or "DARVAS['box_lookback_sessions']" in source
+    assert "LIMIT 400" not in source
+    assert "max_squeeze_pct=3.5" not in source
+    assert "max_candle_range_pct=3.5" not in source
+
+
 def test_darvas_reexport_is_canonical_module():
     import App.indicators.darvas as app_d
     import Scripts.darvas_squeeze as scripts_d

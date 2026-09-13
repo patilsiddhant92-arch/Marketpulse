@@ -168,6 +168,86 @@ def load_exposure_inputs(con: Any, *, trade_date: Any = None) -> dict[str, Any]:
     return recompute_exposure_from_indicators(con, trade_date)
 
 
+
+def resolve_india_vix(con: Any, trade_date: Any) -> tuple[float | None, float]:
+    """Load India VIX for the session. Missing row is (None, 0.0) — never a silent default."""
+    try:
+        vix_res = con.execute(
+            """
+            SELECT close_price,
+                   coalesce(
+                       return_1d_pct,
+                       (close_price / nullif(previous_close, 0) - 1.0) * 100
+                   ) AS vix_1d_pct
+            FROM index_daily
+            WHERE trade_date = ? AND index_name = 'India VIX'
+            """,
+            [trade_date],
+        ).fetchone()
+        if vix_res and vix_res[0] is not None:
+            return round(float(vix_res[0]), 2), round(float(vix_res[1] or 0.0), 1)
+    except Exception:
+        pass
+    return None, 0.0
+
+
+def count_52w_extremes(con: Any, trade_date: Any) -> tuple[int, int]:
+    """Near-52W highs / near-52W lows counts used by the Action Desk exposure gate."""
+    try:
+        row = con.execute(
+            """
+            SELECT
+                count(CASE WHEN away_52w_high_pct >= -2.0 THEN 1 END) AS count_52w_highs,
+                count(CASE WHEN (close_price / nullif(low_52w, 0) - 1.0) <= 0.02 THEN 1 END) AS count_52w_lows
+            FROM indicators_daily
+            WHERE trade_date = ?
+            """,
+            [trade_date],
+        ).fetchone()
+        if row:
+            return int(row[0] or 0), int(row[1] or 0)
+    except Exception:
+        pass
+    return 0, 0
+
+
+def load_exposure_gate_args(con: Any, *, trade_date: Any = None) -> dict[str, Any]:
+    """Full match_exposure args: breadth_daily + India VIX + 52W extremes.
+
+    Overview/Brief and Action Desk MUST share this so missing VIX cannot drop Overview
+    to risk_off while Action Desk shows Selective.
+    """
+    exp = load_exposure_inputs(con, trade_date=trade_date)
+    td = trade_date
+    if td is None:
+        try:
+            row = con.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()
+            td = row[0] if row else None
+        except Exception:
+            td = None
+        if td is None and exp.get("as_of"):
+            td = exp["as_of"]
+    vix, vix_1d = resolve_india_vix(con, td)
+    highs, lows = count_52w_extremes(con, td)
+    return {
+        "adv_pct": exp.get("adv_pct"),
+        "ab20_pct": exp.get("ab20_pct"),
+        "ab50_pct": exp.get("ab50_pct"),
+        "ab200_pct": exp.get("ab200_pct"),
+        "total_stocks": exp.get("total_stocks"),
+        "as_of": exp.get("as_of"),
+        "source": exp.get("source"),
+        "trade_date": td,
+        "vix": vix,
+        "vix_1d_pct": vix_1d,
+        "vix_spike": bool(vix is not None and vix_1d >= 10.0),
+        "count_52w_highs": highs,
+        "count_52w_lows": lows,
+        "net_lows_expanding": lows > highs,
+    }
+
+
+
 def query_market_health_summary(db_path: Path) -> dict[str, Any]:
     """Fetch current 7-card market health metrics and 1-session changes."""
     db_path = Path(db_path)
@@ -345,8 +425,11 @@ def open_breadth_history_modal(db_path: Path, title: str, column_series: str | N
     dialog.open()
 
 
-def render_market_health_strip(db_path: Path) -> None:
-    """Render the collapsible 7-card market health strip at the top of a page."""
+def render_market_health_strip(db_path: Path, *, expanded: bool = True) -> None:
+    """Render the collapsible 7-card market health strip at the top of a page.
+
+    expanded=False starts collapsed (Lab pages like Momentum); Action Desk keeps True.
+    """
     data = query_market_health_summary(db_path)
     if not data:
         return
@@ -384,7 +467,10 @@ def render_market_health_strip(db_path: Path) -> None:
                     ui.label(c["context"]).classes("text-[10px] text-[var(--mp-text-subtle)] truncate")
 
         # Collapse / Expand toggle
-        is_expanded = [True]
+        is_expanded = [bool(expanded)]
+        if not is_expanded[0]:
+            cards_row.set_visibility(False)
+            toggle_btn.set_text("Show market health")
 
         def _toggle():
             is_expanded[0] = not is_expanded[0]

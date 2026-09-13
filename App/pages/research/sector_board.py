@@ -95,7 +95,16 @@ def _extract_event_arg(val: Any) -> str:
 
 
 def sector_v2_enabled() -> bool:
-    return os.environ.get("MP_SECTOR_V2", "").strip().lower() in {"1", "true", "yes", "on"}
+    # Default ON — set MP_SECTOR_V2=0 to force legacy sector board.
+    raw = os.environ.get("MP_SECTOR_V2")
+    if raw is None or str(raw).strip() == "":
+        return True
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return True
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -663,7 +672,7 @@ def build_sector_board_page(
                 else:
                     ui.label(f"EOD · {st.database_date or 'Live'}").classes("text-xs text-[var(--mp-muted)]")
 
-        render_market_health_strip(db_path)
+        render_market_health_strip(db_path, expanded=False)
 
         # Controls & Section Nav Toolbar
         with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mp-toolbar"):

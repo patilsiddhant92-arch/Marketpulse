@@ -9,11 +9,24 @@ import os
 from typing import Any, Mapping
 
 
-def flag_on(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+def flag_on(name: str, *, default: bool = False) -> bool:
+    """Env truthy/falsey with an explicit default when unset/blank.
+
+    Truthy: 1/true/yes/on. Falsy: 0/false/no/off. Anything else falls back to default.
+    """
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
-# MP_SECTOR_V2, MP_DARVAS_V2, MP_DARVAS_WEEKLY default off. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
+# MP_SECTOR_V2 and MP_DARVAS_V2 default ON; MP_DARVAS_WEEKLY stays off.
+# Opt out with MP_SECTOR_V2=0 / MP_DARVAS_V2=0. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
 
 POOL = dict(min_mcap=1000.0, min_adv_cr=3.0, min_band=5.0)
 
@@ -28,6 +41,7 @@ QUEUE_DISPLAY_CAPS = dict(
     spike_pause=25,
 )
 
+# Single source of truth for Darvas/squeeze knobs. Imported by Scripts.darvas_squeeze.
 DARVAS = dict(
     max_squeeze_pct=5.0,
     max_range_pct=4.0,
@@ -240,6 +254,39 @@ def exposure_playbook_line(rule: Mapping[str, Any]) -> str:
     return (
         f"{prefix}{rule['pct']} ({rule['state']}): {rule['when_label']}. {rule['guidance']}"
     )
+
+
+
+def brief_fields_from_gate(gate: Mapping[str, Any]) -> dict[str, Any]:
+    """Overview/Brief posture copy compiled from the Action Desk exposure gate.
+
+    Allocation band and stance are the gate's own pct/state — never a second formula.
+    Cash stance is the complement of the exposure band for Brief display only.
+    """
+    gid = str(gate.get("id") or "risk_off")
+    cash_by_id = {
+        "aggressive": "0% – 25% Cash",
+        "constructive": "25% – 50% Cash",
+        "selective": "50% – 75% Cash",
+        "risk_off": "85% – 100% Cash",
+    }
+    tone_by_id = {
+        "aggressive": "positive",
+        "constructive": "info",
+        "selective": "warning",
+        "risk_off": "negative",
+    }
+    pct = str(gate.get("pct") or "")
+    state = str(gate.get("state") or gid)
+    return {
+        "exposure_id": gid,
+        "exposure_pct": pct,
+        "exposure_state": state,
+        "posture_title": f"{state} ({pct} Allocation)",
+        "cash_recommendation": cash_by_id.get(gid, "85% – 100% Cash"),
+        "posture_desc": str(gate.get("guidance") or ""),
+        "regime_tone": tone_by_id.get(gid, "negative"),
+    }
 
 
 def match_exposure(args: Mapping[str, Any]) -> dict[str, Any]:

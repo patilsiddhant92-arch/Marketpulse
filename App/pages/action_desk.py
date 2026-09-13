@@ -61,9 +61,9 @@ except ModuleNotFoundError:
     from desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
 try:
-    from App.ui.market_health import load_exposure_inputs, render_market_health_strip
+    from App.ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix
 except ModuleNotFoundError:
-    from ui.market_health import load_exposure_inputs, render_market_health_strip  # type: ignore
+    from ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix  # type: ignore
 
 
 def _fmt_exp_pct(val: Any) -> str:
@@ -85,25 +85,10 @@ def _exp_pct_tone(val: Any, threshold: float) -> str:
 
 
 def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[float | None, float]:
-    """Load India VIX for the session. Missing row is (None, 0.0) — never a silent 11.3."""
-    try:
-        vix_res = con.execute(
-            """
-            SELECT close_price,
-                   coalesce(
-                       return_1d_pct,
-                       (close_price / nullif(previous_close, 0) - 1.0) * 100
-                   ) AS vix_1d_pct
-            FROM index_daily
-            WHERE trade_date = ? AND index_name = 'India VIX'
-            """,
-            [trade_date],
-        ).fetchone()
-        if vix_res and vix_res[0] is not None:
-            return round(float(vix_res[0]), 2), round(float(vix_res[1] or 0.0), 1)
-    except Exception:
-        pass
-    return None, 0.0
+    """Delegate to market_health so Overview/Brief share the same VIX source."""
+    return _mh_resolve_india_vix(con, trade_date)
+
+
 
 
 def compute_exposure_gate(
@@ -168,7 +153,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         trade_date_str = str(pd.to_datetime(trade_date).date())
 
         # 2. Market Breadth & Exposure Gate — same breadth_daily row as the health strip.
-        exp_inputs = load_exposure_inputs(con, trade_date=trade_date)
+        exp_inputs = load_exposure_gate_args(con, trade_date=trade_date)
         total_stocks = exp_inputs["total_stocks"]
         adv_pct = exp_inputs["adv_pct"]
         ab20_pct = exp_inputs["ab20_pct"]
@@ -177,23 +162,12 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         breadth_source = exp_inputs["source"]
         breadth_as_of = exp_inputs["as_of"]
 
-        vix_val, vix_1d_pct = resolve_india_vix(con, trade_date)
-
-        # Net 52-Week Highs / Lows Breadth Gate
-        high_low_row = con.execute(
-            """
-            SELECT 
-                count(CASE WHEN away_52w_high_pct >= -2.0 THEN 1 END) AS count_52w_highs,
-                count(CASE WHEN (close_price / nullif(low_52w, 0) - 1.0) <= 0.02 THEN 1 END) AS count_52w_lows
-            FROM indicators_daily
-            WHERE trade_date = ?
-            """,
-            [trade_date],
-        ).fetchone()
-        count_52w_highs = int(high_low_row[0] or 0) if high_low_row else 0
-        count_52w_lows = int(high_low_row[1] or 0) if high_low_row else 0
+        vix_val = exp_inputs["vix"]
+        vix_1d_pct = float(exp_inputs["vix_1d_pct"] or 0.0)
+        count_52w_highs = int(exp_inputs["count_52w_highs"] or 0)
+        count_52w_lows = int(exp_inputs["count_52w_lows"] or 0)
         net_highs = count_52w_highs - count_52w_lows
-        net_lows_expanding = count_52w_lows > count_52w_highs
+        net_lows_expanding = bool(exp_inputs["net_lows_expanding"])
 
         gate = compute_exposure_gate(
             adv_pct=adv_pct,
@@ -318,8 +292,37 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         stock_tags = get_stock_thematic_tags(str(user_db_path))
         if not setup_pool.empty:
             setup_pool["theme"] = setup_pool["symbol"].map(lambda s: stock_tags.get(s, ["—"])[0])
+            # Compact peer chip: Sector abbrev + industry peer rank (same grammar as Template Fin #12)
+            try:
+                ind_rank = con.execute(
+                    """
+                    WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
+                    SELECT group_name, rotation_rank
+                    FROM sector_rotation, latest
+                    WHERE trade_date = latest.d AND level = 'Industry'
+                    """
+                ).fetchdf()
+                rank_map = {
+                    str(r.group_name): int(r.rotation_rank)
+                    for r in ind_rank.itertuples(index=False)
+                    if pd.notna(getattr(r, 'rotation_rank', None))
+                } if not ind_rank.empty else {}
+            except Exception:
+                rank_map = {}
+
+            def _peer_chip(row):
+                sector = str(row.get('sector') or '').strip()
+                industry = str(row.get('industry') or '').strip()
+                short = (sector[:8] if sector else '—')
+                rk = rank_map.get(industry)
+                if rk is None:
+                    return short
+                return f"{short} #{rk}"
+
+            setup_pool['peer'] = setup_pool.apply(_peer_chip, axis=1)
         else:
             setup_pool["theme"] = pd.Series(dtype=str)
+            setup_pool['peer'] = pd.Series(dtype=str)
 
         # Attach institutional deal accumulation tags to setup pool (25-day lookback)
         deals_agg = con.execute(
@@ -1003,7 +1006,7 @@ def build_action_desk_page(
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss", 
+        "symbol", "peer", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
         "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
     ]
 
@@ -1050,13 +1053,17 @@ def build_action_desk_page(
                         grp_name = str(sec.get("group_name") or sec.get("sector") or "—")
                         delta = float(sec.get("turnover_share_delta_5d") or 0.0)
                         leaders_raw = str(sec.get("leader_symbols") or sec.get("leaders") or "")
+                        state_lbl = str(sec.get("rotation_state") or sec.get("state") or "").strip()
                         with ui.row().classes("w-full items-center justify-between p-1.5 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
-                            with ui.column().classes("gap-0 max-w-[140px]"):
+                            with ui.column().classes("gap-0 max-w-[150px]"):
                                 ui.label(f"#{idx} {grp_name[:16]}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
-                                if leaders_raw:
-                                    top_sym = leaders_raw.split(",")[0].strip()
-                                    ui.button(f"★ {top_sym}", on_click=lambda s=top_sym: select_symbol(s)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
-                            ui.label(f"{delta:+.1f}pp").classes("text-xs font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400"))
+                                with ui.row().classes("items-center gap-1"):
+                                    if state_lbl:
+                                        ui.label(state_lbl).classes("text-[9px] font-mono text-[var(--mp-muted)]")
+                                    if leaders_raw:
+                                        top_sym = leaders_raw.split(",")[0].strip()
+                                        ui.button(f"★ {top_sym}", on_click=lambda s=top_sym: select_symbol(s)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
+                            ui.label(f"Δ {delta:+.1f}pp").classes("text-xs font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400"))
 
             # Card 3: Setup Queues Navigation
             queue_nav_card = ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]")
