@@ -314,10 +314,12 @@ def test_sector_board_does_not_label_industry_as_mantis_58():
     assert 'os.environ.get("MP_SECTOR_V2"' in source
 
 
-def test_mp_sector_v2_defaults_off(monkeypatch):
+def test_mp_sector_v2_defaults_on(monkeypatch):
     monkeypatch.delenv("MP_SECTOR_V2", raising=False)
     from App.pages.research.sector_board import sector_v2_enabled
 
+    assert sector_v2_enabled() is True
+    monkeypatch.setenv("MP_SECTOR_V2", "0")
     assert sector_v2_enabled() is False
     monkeypatch.setenv("MP_SECTOR_V2", "1")
     assert sector_v2_enabled() is True

@@ -24,19 +24,11 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
-# Duplicated until PR 7 owns desk_contract.DARVAS.
-DARVAS: dict[str, float | int] = dict(
-    max_squeeze_pct=5.0,
-    max_range_pct=4.0,
-    ceiling_tol=1.002,
-    wick_floor_tol=0.995,
-    close_floor_tol=0.998,
-    undercut_cap_tol=0.985,
-    ema_stack_tol=0.004,
-    ema_trend_tol=0.995,
-    box_lookback_sessions=252,
-    display_window=40,
-)
+# Single owner: Scripts.desk_contract.DARVAS (imported — do not re-literal here).
+try:
+    from Scripts.desk_contract import DARVAS
+except ImportError:  # script/cwd import style
+    from desk_contract import DARVAS  # type: ignore
 
 SQUEEZE_COLUMNS = [
     "symbol",
@@ -55,12 +47,26 @@ SQUEEZE_COLUMNS = [
 ]
 
 
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def darvas_v2_enabled() -> bool:
-    return os.environ.get("MP_DARVAS_V2", "").strip().lower() in {"1", "true", "yes", "on"}
+    # Default ON — set MP_DARVAS_V2=0 to force legacy desk/chart paths.
+    return _env_flag("MP_DARVAS_V2", default=True)
 
 
 def darvas_weekly_enabled() -> bool:
-    return os.environ.get("MP_DARVAS_WEEKLY", "").strip().lower() in {"1", "true", "yes", "on"}
+    # Completed-week path stays opt-in.
+    return _env_flag("MP_DARVAS_WEEKLY", default=False)
 
 
 WEEKLY_LOOKBACK_SESSIONS = 400

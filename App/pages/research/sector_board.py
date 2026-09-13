@@ -95,7 +95,16 @@ def _extract_event_arg(val: Any) -> str:
 
 
 def sector_v2_enabled() -> bool:
-    return os.environ.get("MP_SECTOR_V2", "").strip().lower() in {"1", "true", "yes", "on"}
+    # Default ON — set MP_SECTOR_V2=0 to force legacy sector board.
+    raw = os.environ.get("MP_SECTOR_V2")
+    if raw is None or str(raw).strip() == "":
+        return True
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return True
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:

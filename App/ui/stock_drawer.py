@@ -133,6 +133,7 @@ def query_stock_candlestick_data(
     if cached is not None:
         return cached
 
+    box_lookback = int(DARVAS["box_lookback_sessions"])
     with duckdb.connect(str(db_path), read_only=True) as db:
         df = db.execute(
             """
@@ -141,9 +142,9 @@ def query_stock_candlestick_data(
             FROM indicators_daily
             WHERE symbol = ?
             ORDER BY trade_date DESC
-            LIMIT 400
+            LIMIT ?
             """,
-            [sym],
+            [sym, box_lookback],
         ).fetchdf()
 
     if df.empty:
@@ -151,7 +152,7 @@ def query_stock_candlestick_data(
 
     df = df.iloc[::-1].reset_index(drop=True)
 
-    # Darvas box on the trailing 400 sessions, then tail to the display window
+    # Darvas box on DARVAS box_lookback_sessions, then tail to the display window
     top_box, bottom_box = calculate_darvas_box(
         df["high_price"].values, df["low_price"].values, boxp=5
     )
@@ -204,6 +205,7 @@ def query_stock_candlestick_data(
             cfg=cfg,
         )
     else:
+        # Legacy path kept for MP_DARVAS_V2=0, but knobs match desk/DARVAS (no 3.5/3.5 split).
         is_squeeze = is_darvas_10ema_squeeze_legacy(
             last_close,
             last_top,
@@ -212,15 +214,16 @@ def query_stock_candlestick_data(
             high=last_high,
             low=last_low,
             open_price=last_open,
-            max_squeeze_pct=3.5,
-            max_candle_range_pct=3.5,
+            max_squeeze_pct=float(DARVAS["max_squeeze_pct"]),
+            max_candle_range_pct=float(DARVAS["max_range_pct"]),
             require_ohlc_inside=True,
         )
+    # Near-miss evidence: always report spreads when computable, even if badge is false.
     squeeze_pct = (
-        round(((last_top - last_ema10) / last_top) * 100.0, 2) if is_squeeze and last_top > 0 else None
+        round(((last_top - last_ema10) / last_top) * 100.0, 2) if last_top > 0 and last_ema10 > 0 else None
     )
     candle_range_pct = (
-        round(((last_high - last_low) / last_close) * 100.0, 2) if is_squeeze and last_close > 0 else None
+        round(((last_high - last_low) / last_close) * 100.0, 2) if last_close > 0 else None
     )
 
     res = {

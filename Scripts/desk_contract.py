@@ -9,11 +9,24 @@ import os
 from typing import Any, Mapping
 
 
-def flag_on(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+def flag_on(name: str, *, default: bool = False) -> bool:
+    """Env truthy/falsey with an explicit default when unset/blank.
+
+    Truthy: 1/true/yes/on. Falsy: 0/false/no/off. Anything else falls back to default.
+    """
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
-# MP_SECTOR_V2, MP_DARVAS_V2, MP_DARVAS_WEEKLY default off. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
+# MP_SECTOR_V2 and MP_DARVAS_V2 default ON; MP_DARVAS_WEEKLY stays off.
+# Opt out with MP_SECTOR_V2=0 / MP_DARVAS_V2=0. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
 
 POOL = dict(min_mcap=1000.0, min_adv_cr=3.0, min_band=5.0)
 
@@ -28,6 +41,7 @@ QUEUE_DISPLAY_CAPS = dict(
     spike_pause=25,
 )
 
+# Single source of truth for Darvas/squeeze knobs. Imported by Scripts.darvas_squeeze.
 DARVAS = dict(
     max_squeeze_pct=5.0,
     max_range_pct=4.0,

@@ -36,7 +36,7 @@ PLAYBOOK_COPY_FILES = (
 
 
 def _force_v1(monkeypatch) -> None:
-    monkeypatch.delenv("MP_DARVAS_V2", raising=False)
+    monkeypatch.setenv("MP_DARVAS_V2", "0")
     assert darvas_v2_enabled() is False
     invalidate_cache()
 
@@ -308,13 +308,24 @@ def _exposure_args(**overrides):
     return args
 
 
-def test_flag_on_defaults_off(monkeypatch) -> None:
+def test_flag_on_respects_default_kwarg(monkeypatch) -> None:
     monkeypatch.delenv("MP_DARVAS_V2", raising=False)
     monkeypatch.delenv("MP_SECTOR_V2", raising=False)
     assert flag_on("MP_DARVAS_V2") is False
     assert flag_on("MP_SECTOR_V2") is False
+    assert flag_on("MP_DARVAS_V2", default=True) is True
+    assert flag_on("MP_SECTOR_V2", default=True) is True
+    monkeypatch.setenv("MP_DARVAS_V2", "0")
+    assert flag_on("MP_DARVAS_V2", default=True) is False
     monkeypatch.setenv("MP_DARVAS_V2", "true")
     assert flag_on("MP_DARVAS_V2") is True
+
+
+def test_darvas_v2_defaults_on(monkeypatch) -> None:
+    monkeypatch.delenv("MP_DARVAS_V2", raising=False)
+    assert darvas_v2_enabled() is True
+    monkeypatch.setenv("MP_DARVAS_V2", "0")
+    assert darvas_v2_enabled() is False
 
 
 def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
