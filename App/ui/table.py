@@ -275,7 +275,8 @@ SYMBOL_CELL_SLOT = """
     <q-btn dense flat no-caps class="mp-symbol-open"
            @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)"
            title="Open stock box">↗</q-btn>
-    <span v-if="props.row.sector_badge" class="mp-mini-badge mp-sector-tag">{{ props.row.sector_badge }}</span>
+    <span v-if="props.row.peer" class="mp-mini-badge mp-sector-tag" title="Industry RS peer rank">{{ props.row.peer }}</span>
+    <span v-else-if="props.row.sector_badge" class="mp-mini-badge mp-sector-tag" title="Sector rotation rank">{{ props.row.sector_badge }}</span>
     <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Lead</span>
     <span v-if="props.row.is_improving_sector" class="mp-mini-badge mp-improving-badge">Impr</span>
     <span v-if="props.row.is_top_industry" class="mp-mini-badge mp-industry-badge">Lead Ind</span>

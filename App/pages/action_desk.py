@@ -138,7 +138,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     key = cache_key(
         db_path,
         None,
-        "action_desk_v11_peer_rs",
+        "action_desk_v12_peer_on_symbol",
         "darvas_v2" if use_v2 else "darvas_v1",
         "weekly" if use_weekly else "daily",
     )

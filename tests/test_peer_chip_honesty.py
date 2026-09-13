@@ -26,3 +26,10 @@ def test_action_desk_peer_chip_uses_indicators_rs_rank_not_rotation_rank():
     start = src.index("ind_rs_rank")
     window = src[start - 200 : start + 200]
     assert "FROM indicators_daily" in window or "indicators_daily" in src[start - 400 : start + 50]
+
+
+def test_symbol_cell_prefers_peer_over_sector_badge():
+    from App.ui.table import SYMBOL_CELL_SLOT
+
+    assert "props.row.peer" in SYMBOL_CELL_SLOT
+    assert "v-else-if=\"props.row.sector_badge\"" in SYMBOL_CELL_SLOT or "v-else-if='props.row.sector_badge'" in SYMBOL_CELL_SLOT or 'v-else-if="props.row.sector_badge"' in SYMBOL_CELL_SLOT

@@ -89,6 +89,31 @@ TREE_STATE_CLASS = {
     "Neutral": "mp-tree-state-neutral",
 }
 
+STATE_SORT_ORDER = {
+    "Leading": 0,
+    "Emerging": 1,
+    "Improving": 2,
+    "Weakening": 3,
+    "Lagging": 4,
+    "Neutral": 5,
+}
+
+
+def _state_sort_key(node: dict[str, Any]) -> tuple[int, str]:
+    state = str(node.get("rotation_state") or "Neutral")
+    return (STATE_SORT_ORDER.get(state, 9), str(node.get("name") or "").lower())
+
+
+def _sort_taxonomy_by_state(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Leading → Emerging → Improving → Weakening → Lagging → Neutral, then name."""
+    ordered = sorted(nodes, key=_state_sort_key)
+    for node in ordered:
+        kids = node.get("children") or []
+        if kids:
+            node["children"] = _sort_taxonomy_by_state(kids)
+    return ordered
+
+
 
 
 def _extract_event_arg(val: Any) -> str:
@@ -294,23 +319,31 @@ def _nodes_at_level(node: dict[str, Any], level: str) -> list[dict[str, Any]]:
 
 
 def _prune_taxonomy_for_grain(nodes: list[dict[str, Any]], grain: str) -> list[dict[str, Any]]:
-    """Navigator tree: Broad Sector roots; children depend on selected grain."""
+    """Navigator for the selected grain.
+
+    Broad Industry / Sector: flat list at that grain (so Broad Industry (59) shows 59 rows,
+    not 12 Broad Sector folders), sorted Leading→…→Lagging.
+    Industry: keep Broad Sector → Broad Industry → Industry so 187 stays browsable.
+    """
+    if grain in {"Broad Industry", "Sector"}:
+        flat: list[dict[str, Any]] = []
+        for root in nodes:
+            if root.get("level") != "Broad Sector":
+                continue
+            for item in _nodes_at_level(root, grain):
+                flat.append(_copy_tree_node_shallow(item, []))
+        return _sort_taxonomy_by_state(flat)
+
     result: list[dict[str, Any]] = []
     for root in nodes:
         if root.get("level") != "Broad Sector":
             continue
-        if grain == "Sector":
-            children = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(root, "Sector")]
-        elif grain == "Industry":
-            bi_nodes = []
-            for broad in _nodes_at_level(root, "Broad Industry"):
-                industries = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(broad, "Industry")]
-                bi_nodes.append(_copy_tree_node_shallow(broad, industries))
-            children = bi_nodes
-        else:
-            children = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(root, "Broad Industry")]
-        result.append(_copy_tree_node_shallow(root, children))
-    return result
+        bi_nodes = []
+        for broad in _nodes_at_level(root, "Broad Industry"):
+            industries = [_copy_tree_node_shallow(item, []) for item in _nodes_at_level(broad, "Industry")]
+            bi_nodes.append(_copy_tree_node_shallow(broad, industries))
+        result.append(_copy_tree_node_shallow(root, bi_nodes))
+    return _sort_taxonomy_by_state(result)
 
 
 def _walk_taxonomy(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -511,11 +544,19 @@ def _build_sector_v2_page(
             taxonomy = query_taxonomy_hierarchy(db_path, min_mcap=1_000)
             pruned = _prune_taxonomy_for_grain(taxonomy, grain)
             _decorate_taxonomy_tree(pruned)
+            pruned = _sort_taxonomy_by_state(pruned)
             node_map = {str(node["id"]): node for node in _walk_taxonomy(pruned)}
             df = query_rotation_board(db_path, level=grain)
             if not df.empty:
                 if is_weekly and "return_5d_pct" in df.columns:
                     df = df.sort_values(by="return_5d_pct", ascending=False).reset_index(drop=True)
+                elif "rotation_state" in df.columns:
+                    df = df.assign(
+                        _state_pri=df["rotation_state"].map(lambda s: STATE_SORT_ORDER.get(str(s), 9))
+                    ).sort_values(
+                        by=["_state_pri", "turnover_share_delta_5d"] if "turnover_share_delta_5d" in df.columns else ["_state_pri"],
+                        ascending=[True, False] if "turnover_share_delta_5d" in df.columns else [True],
+                    ).drop(columns=["_state_pri"]).reset_index(drop=True)
                 selected_id = str(state.get("selected_node_id") or "")
                 selected_node = node_map.get(selected_id)
                 if selected_node is not None and selected_node.get("level") != grain:
@@ -580,7 +621,7 @@ def _build_sector_v2_page(
                     with ui.column().classes("w-full mp-sector-detail-host gap-2"):
                         ui.label("Δ SHARE 5D").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
                         if df.empty:
-                            ui.label("No groups pass Min names 8 / Min T/O ₹200 Cr.").classes("text-sm text-[var(--mp-muted)]")
+                            ui.label(f"No groups pass Min names 8 / Min T/O ₹200 Cr (grain={grain}).").classes("text-sm text-[var(--mp-muted)]")
                         else:
                             top = df.head(4)
                             with ui.row().classes("w-full gap-2 flex-wrap"):

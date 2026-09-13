@@ -633,7 +633,10 @@ def table_from_df(
         # On reload the localStorage is authoritative; we still respect the passed hidden_cols as default
         pass
     view = df.copy()
-    if "sector" in view.columns and "sector_badge" not in view.columns:
+    # Prefer explicit peer chip (industry RS rank). Sector rotation badge is a fallback only.
+    if "peer" in view.columns:
+        view["sector_badge"] = ""
+    elif "sector" in view.columns and "sector_badge" not in view.columns:
         smap = get_sector_ranks_map(DB_PATH)
         view["sector_badge"] = view["sector"].map(smap).fillna("")
     # Long rationale belongs in the stock drawer, never in a comparison table.
