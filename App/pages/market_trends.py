@@ -19,9 +19,10 @@ from nicegui import ui
 from App.cache_manager import cache_key, get_cached, set_cached
 from App.market_status import load_market_status, non_actionable_message
 from App.ui.stock_drawer import open_stock_360_modal, tradingview_url
+from App.ui.desk_chrome import rotation_badge_class, signed_pct_class
 
 
-def _rotation_badge_class(state: str) -> str:
+def rotation_badge_class(state: str) -> str:
     s = (state or "Neutral").strip()
     return {
         "Leading": "mp-badge mp-state-leading",
@@ -31,10 +32,6 @@ def _rotation_badge_class(state: str) -> str:
         "Lagging": "mp-badge mp-state-lagging",
         "Neutral": "mp-badge mp-neutral",
     }.get(s, "mp-badge mp-neutral")
-
-
-def _signed_pct_class(val: float) -> str:
-    return "text-[var(--mp-good)] font-bold" if float(val) >= 0 else "text-[var(--mp-bad)] font-bold"
 
 
 def _open_symbol_tv_and_360(db_path: Path, symbol: str, *, copy_text=None, on_select_symbol=None) -> None:
@@ -584,10 +581,10 @@ def build_market_trends_page(
                                 with ui.card().classes("p-3 mp-card border border-[var(--mp-border)] bg-[var(--mp-surface-raised)] flex flex-col gap-1"):
                                     with ui.row().classes("w-full items-center justify-between"):
                                         ui.label(grp).classes("text-sm font-bold text-[var(--mp-text)]")
-                                        ui.label(st_name).classes(_rotation_badge_class(st_name) + " text-[10px]")
+                                        ui.label(st_name).classes(rotation_badge_class(st_name) + " text-[10px]")
 
                                     with ui.row().classes("w-full items-center justify-between text-xs font-mono"):
-                                        ui.label(f"5D Share Expansion: {d5:+.2f} pp").classes(_signed_pct_class(d5))
+                                        ui.label(f"5D Share Expansion: {d5:+.2f} pp").classes(signed_pct_class(d5))
                                         if net_inst > 0:
                                             ui.label(f"Inst Deals: +₹{net_inst:,.0f}Cr").classes("text-amber-400 font-bold")
 

@@ -16,6 +16,7 @@ from typing import Any, Callable
 import duckdb
 import pandas as pd
 from nicegui import ui
+from App.ui.desk_chrome import rotation_badge_class
 
 try:
     from App.market_status import load_market_status, non_actionable_message
@@ -612,7 +613,7 @@ def _build_sector_v2_page(
                                         "body-cell-rotation_state",
                                         """
                                         <q-td :props="props">
-                                            <q-badge :color="props.value === 'Leading' ? 'positive' : props.value === 'Improving' ? 'info' : props.value === 'Weakening' ? 'warning' : 'grey'" :label="props.value" />
+                                            <span :class="props.value === 'Leading' ? 'mp-badge mp-state-leading' : props.value === 'Emerging' ? 'mp-badge mp-state-emerging' : props.value === 'Improving' ? 'mp-badge mp-state-improving' : props.value === 'Weakening' ? 'mp-badge mp-state-weakening' : props.value === 'Lagging' ? 'mp-badge mp-state-lagging' : 'mp-badge mp-neutral'">{{ props.value }}</span>
                                         </q-td>
                                         """,
                                     )
@@ -982,7 +983,7 @@ def build_sector_board_page(
                                 "body-cell-rotation_state",
                                 """
                                 <q-td :props="props">
-                                    <q-badge :color="props.value === 'Leading' ? 'positive' : props.value === 'Improving' ? 'info' : props.value === 'Weakening' ? 'warning' : 'grey'" :label="props.value" />
+                                    <span :class="props.value === 'Leading' ? 'mp-badge mp-state-leading' : props.value === 'Emerging' ? 'mp-badge mp-state-emerging' : props.value === 'Improving' ? 'mp-badge mp-state-improving' : props.value === 'Weakening' ? 'mp-badge mp-state-weakening' : props.value === 'Lagging' ? 'mp-badge mp-state-lagging' : 'mp-badge mp-neutral'">{{ props.value }}</span>
                                 </q-td>
                                 """,
                             )
@@ -1322,7 +1323,7 @@ def build_sector_board_page(
                                     "body-cell-trend_state",
                                     """
                                     <q-td :props="props">
-                                        <q-badge :color="props.value === 'Leading' ? 'positive' : props.value === 'Improving' ? 'info' : props.value === 'Weakening' ? 'warning' : 'grey'" :label="props.value" />
+                                        <span :class="props.value === 'Leading' ? 'mp-badge mp-state-leading' : props.value === 'Emerging' ? 'mp-badge mp-state-emerging' : props.value === 'Improving' ? 'mp-badge mp-state-improving' : props.value === 'Weakening' ? 'mp-badge mp-state-weakening' : props.value === 'Lagging' ? 'mp-badge mp-state-lagging' : 'mp-badge mp-neutral'">{{ props.value }}</span>
                                     </q-td>
                                     """
                                 )

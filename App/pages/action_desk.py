@@ -62,8 +62,10 @@ except ModuleNotFoundError:
 
 try:
     from App.ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix
+    from App.ui.desk_chrome import peer_chip_label, rotation_badge_class, signed_pct_class
 except ModuleNotFoundError:
     from ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix  # type: ignore
+    from ui.desk_chrome import peer_chip_label, rotation_badge_class, signed_pct_class  # type: ignore
 
 
 def _fmt_exp_pct(val: Any) -> str:
@@ -136,7 +138,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     key = cache_key(
         db_path,
         None,
-        "action_desk_v10",
+        "action_desk_v11_peer_rs",
         "darvas_v2" if use_v2 else "darvas_v1",
         "weekly" if use_weekly else "daily",
     )
@@ -292,34 +294,42 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         stock_tags = get_stock_thematic_tags(str(user_db_path))
         if not setup_pool.empty:
             setup_pool["theme"] = setup_pool["symbol"].map(lambda s: stock_tags.get(s, ["—"])[0])
-            # Compact peer chip: Sector abbrev + industry peer rank (same grammar as Template Fin #12)
+            # Compact peer chip: industry abbrev + stock RS rank within industry
+            # (same owner as Stock 360 peer list — NOT sector_rotation.rotation_rank)
             try:
-                ind_rank = con.execute(
+                peer_ranks = con.execute(
                     """
-                    WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
-                    SELECT group_name, rotation_rank
-                    FROM sector_rotation, latest
-                    WHERE trade_date = latest.d AND level = 'Industry'
+                    WITH latest AS (SELECT max(trade_date) AS d FROM indicators_daily)
+                    SELECT m.symbol,
+                           m.industry,
+                           m.sector,
+                           rank() OVER (
+                               PARTITION BY m.industry
+                               ORDER BY i.rs_percentile DESC NULLS LAST, i.close_price DESC
+                           ) AS ind_rs_rank
+                    FROM indicators_daily i
+                    JOIN stocks_master m ON m.symbol = i.symbol
+                    JOIN latest ON i.trade_date = latest.d
+                    WHERE m.industry IS NOT NULL AND m.industry <> ''
                     """
                 ).fetchdf()
-                rank_map = {
-                    str(r.group_name): int(r.rotation_rank)
-                    for r in ind_rank.itertuples(index=False)
-                    if pd.notna(getattr(r, 'rotation_rank', None))
-                } if not ind_rank.empty else {}
+                rank_by_sym = {
+                    str(r.symbol): (str(r.industry), int(r.ind_rs_rank))
+                    for r in peer_ranks.itertuples(index=False)
+                } if not peer_ranks.empty else {}
             except Exception:
-                rank_map = {}
+                rank_by_sym = {}
 
             def _peer_chip(row):
-                sector = str(row.get('sector') or '').strip()
-                industry = str(row.get('industry') or '').strip()
-                short = (sector[:8] if sector else '—')
-                rk = rank_map.get(industry)
-                if rk is None:
-                    return short
-                return f"{short} #{rk}"
+                sym = str(row.get("symbol") or "").strip().upper()
+                industry = str(row.get("industry") or "").strip()
+                sector = str(row.get("sector") or "").strip()
+                hit = rank_by_sym.get(sym)
+                if hit:
+                    return peer_chip_label(hit[0], hit[1])
+                return peer_chip_label(industry or sector, None)
 
-            setup_pool['peer'] = setup_pool.apply(_peer_chip, axis=1)
+            setup_pool["peer"] = setup_pool.apply(_peer_chip, axis=1)
         else:
             setup_pool["theme"] = pd.Series(dtype=str)
             setup_pool['peer'] = pd.Series(dtype=str)
@@ -1059,11 +1069,11 @@ def build_action_desk_page(
                                 ui.label(f"#{idx} {grp_name[:16]}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
                                 with ui.row().classes("items-center gap-1"):
                                     if state_lbl:
-                                        ui.label(state_lbl).classes("text-[9px] font-mono text-[var(--mp-muted)]")
+                                        ui.label(state_lbl).classes(rotation_badge_class(state_lbl) + " text-[9px]")
                                     if leaders_raw:
                                         top_sym = leaders_raw.split(",")[0].strip()
                                         ui.button(f"★ {top_sym}", on_click=lambda s=top_sym: select_symbol(s)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
-                            ui.label(f"Δ {delta:+.1f}pp").classes("text-xs font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400"))
+                            ui.label(f"Δ {delta:+.1f}pp").classes("text-xs font-mono " + signed_pct_class(delta))
 
             # Card 3: Setup Queues Navigation
             queue_nav_card = ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]")
