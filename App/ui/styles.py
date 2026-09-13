@@ -331,6 +331,43 @@ STYLES_HTML = """
           .mp-tabs .q-tab--active {
             color: var(--mp-primary) !important;
           }
+          /* P1.4 — Morning louder; Lab/Ops quieter; Overview + Watchlists demoted */
+          .mp-tabs .q-tab.mp-tab-morning {
+            font-weight: 700 !important;
+            color: var(--mp-text) !important;
+          }
+          .mp-tabs .q-tab.mp-tab-secondary {
+            font-weight: 500 !important;
+            font-size: 12px !important;
+            opacity: 0.78;
+            color: var(--mp-muted) !important;
+          }
+          .mp-tabs .q-tab.mp-tab-lab,
+          .mp-tabs .q-tab.mp-tab-ops {
+            font-weight: 500 !important;
+            font-size: 12px !important;
+            opacity: 0.72;
+            color: var(--mp-muted) !important;
+          }
+          .mp-tabs .q-tab.mp-tab-demoted {
+            font-weight: 500 !important;
+            font-size: 11.5px !important;
+            opacity: 0.55 !important;
+            color: var(--mp-muted) !important;
+          }
+          .mp-tabs .q-tab.mp-tab-group-start {
+            border-left: 1px solid var(--mp-border);
+            margin-left: 6px;
+            padding-left: 14px !important;
+          }
+          .mp-tabs .q-tab.mp-tab-secondary.q-tab--active,
+          .mp-tabs .q-tab.mp-tab-lab.q-tab--active,
+          .mp-tabs .q-tab.mp-tab-ops.q-tab--active,
+          .mp-tabs .q-tab.mp-tab-demoted.q-tab--active {
+            opacity: 1 !important;
+            color: var(--mp-primary) !important;
+            font-weight: 600 !important;
+          }
           @media (max-width: 700px) {
             .mp-header {
               position: relative;

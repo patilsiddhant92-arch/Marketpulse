@@ -6,10 +6,10 @@ import pytest
 def test_app_exposes_candidates_health_and_loopback_default():
     source = Path("App/app.py").read_text(encoding="utf-8")
     assert '("Desk", desk_page, "desk", True)' in source
-    assert '("Info", info_page, "info", False)' in source
-    assert '("Sectors", sector_rotation_page, "rotation", False)' in source
-    assert '("Deals", deals_page, "deals", False)' in source
-    assert '("Portfolio", portfolio_page, "portfolio", False)' in source
+    assert '("Info", info_page, "info", "ops")' in source
+    assert '("Sector Intel", sector_intel_unified_page, "rotation", "morning")' in source
+    assert '("Deals", deals_page, "deals", "ops")' in source
+    assert '("Portfolio", portfolio_page, "portfolio", "ops")' in source
     assert 'show_page("Desk")' in source
     assert 'host = (os.environ.get("MP_HOST") or "127.0.0.1").strip() or "127.0.0.1"' in source
     assert "MP_ALLOW_REMOTE" in source
@@ -19,8 +19,8 @@ def test_app_exposes_candidates_health_and_loopback_default():
 def test_momentum_is_a_first_class_active_tab():
     source = Path("App/app.py").read_text(encoding="utf-8")
 
-    assert '("Momentum", special_watchlist_page, "scanner", False)' in source
-    assert '("Template", sma_template_page, "sma-template", False)' in source
+    assert '("Momentum", special_watchlist_page, "scanner", "lab")' in source
+    assert '("Template", sma_template_page, "sma-template", "lab")' in source
     assert '("Minervini", minervini_page, "minervini", False)' not in source
     assert "build_sma_template_block" not in source
     assert '("Momentum (legacy)", special_watchlist_page, "scanner-legacy", False)' not in source

@@ -4831,7 +4831,8 @@ def main() -> None:
         return
     app_header()
 
-    # Active nav: Desk | Momentum | Sectors | Deals | Portfolio | Info.
+    # Active nav weight (P1.4): Morning loud (AD / Overview brief / Sector Intel),
+    # Lab+Ops quieter; Overview + Watchlists visually demoted. No hard Morning/Lab/Ops rename.
     # Momentum scanner logic is unchanged. Legacy pages remain behind MP_LEGACY_PAGES.
     def watchlist_page() -> None:
         with ui.column().classes("w-full mp-page-watchlists"):
@@ -4845,30 +4846,44 @@ def main() -> None:
             overview_page(show_page)
 
     # ("Desk", desk_page, "desk", True)  # mp-page-desk contract compatibility
+    # weight: morning | morning-secondary | lab | ops | ops-demoted (P1.4 nav weight)
     tab_specs = [
-        ("Action Desk", action_desk_page, "action-desk", True),
-        ("Overview", overview_view, "overview", True),
-        ("Market Trends", market_trends_page, "market-trends", False),
-        ("Momentum", special_watchlist_page, "scanner", False),
-        ("Template", sma_template_page, "sma-template", False),
-        ("Sector Intel", sector_intel_unified_page, "rotation", False),
-        ("Deals", deals_page, "deals", False),
-        ("Watchlists", watchlist_page, "watchlists", False),
-        ("Portfolio", portfolio_page, "portfolio", False),
-        ("Info", info_page, "info", False),
+        ("Action Desk", action_desk_page, "action-desk", "morning"),
+        ("Overview", overview_view, "overview", "morning-secondary"),
+        ("Sector Intel", sector_intel_unified_page, "rotation", "morning"),
+        ("Market Trends", market_trends_page, "market-trends", "lab"),
+        ("Momentum", special_watchlist_page, "scanner", "lab"),
+        ("Template", sma_template_page, "sma-template", "lab"),
+        ("Deals", deals_page, "deals", "ops"),
+        ("Portfolio", portfolio_page, "portfolio", "ops"),
+        ("Watchlists", watchlist_page, "watchlists", "ops-demoted"),
+        ("Info", info_page, "info", "ops"),
     ]
     if os.environ.get("MP_LEGACY_PAGES", "").strip().lower() in {"1", "true", "yes", "on"}:
         tab_specs.extend(
             [
-                ("Today (legacy)", today_page, "today-legacy", False),
-                ("Candidates (legacy)", candidates_page, "candidates-legacy", False),
+                ("Today (legacy)", today_page, "today-legacy", "ops"),
+                ("Candidates (legacy)", candidates_page, "candidates-legacy", "ops"),
             ]
         )
 
     with ui.column().classes("w-full mp-app-shell"):
         with ui.element("div").classes("mp-sticky-nav").props('aria-label="Primary navigation"'):
             with ui.tabs().classes("w-full mp-tabs") as tabs:
-                tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
+                _TAB_WEIGHT_CLASS = {
+                    "morning": "mp-tab-morning",
+                    "morning-secondary": "mp-tab-morning mp-tab-secondary",
+                    "lab": "mp-tab-lab",
+                    "ops": "mp-tab-ops",
+                    "ops-demoted": "mp-tab-ops mp-tab-demoted",
+                }
+                _TAB_GROUP_START = {"Market Trends", "Deals"}
+                tab_els = {}
+                for name, _, _, weight in tab_specs:
+                    classes = _TAB_WEIGHT_CLASS.get(str(weight), "mp-tab-ops")
+                    if name in _TAB_GROUP_START:
+                        classes = f"{classes} mp-tab-group-start"
+                    tab_els[name] = ui.tab(name).classes(classes)
 
         pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
         pages["Health"] = info_page

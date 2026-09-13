@@ -143,10 +143,11 @@ UC Thrust remains lab-only (already honesty-stripped in P0). No new production U
 - **Acceptance:** from a queue row, peer rank + Δ SHARE visible without opening Stock 360; opening Stock 360 still works
 - **Likely files:** `App/pages/action_desk.py`, `App/ui/columns.py`, sector read model / `App/pages/research/sector_board.py` (read-only reuse), Stock drawer only if rail fallback
 
-#### P1.4 — Nav weight demote (after 1–3)
+#### P1.4 — Nav weight demote (after 1–3) — DONE
 - Visual grouping / quieter Lab+Ops tabs; Overview loses primary-cockpit parity (Brief secondary)
 - Watchlists demoted in visual weight
 - Still no hard rename unless product walkthrough asks for it
+- **Shipped:** Morning cluster `Action Desk → Overview → Sector Intel`; Lab then Ops with CSS weight classes (`mp-tab-morning` / `mp-tab-lab` / `mp-tab-ops` / `mp-tab-demoted`); group gutters before Market Trends and Deals
 
 ### P2 — Shared chart kit (after P1)
 - One ECharts kit: ranges **20 / 65 / 252** (sessions), shared brush + legend density

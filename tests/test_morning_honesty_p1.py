@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from Scripts.desk_contract import EXPOSURE_RULES, brief_fields_from_gate, match_exposure
+from pathlib import Path
 
 
 def test_brief_fields_mirror_gate_pct_and_state():
@@ -45,3 +46,37 @@ def test_market_health_strip_accepts_expanded_kwarg():
     sig = inspect.signature(render_market_health_strip)
     assert "expanded" in sig.parameters
     assert sig.parameters["expanded"].default is True
+
+
+def test_nav_weight_p14_morning_cluster_and_demote_classes():
+    """P1.4: Morning tabs clustered; Overview/Watchlists demoted; Lab/Ops quieter CSS."""
+    app = Path(__file__).resolve().parents[1] / "App" / "app.py"
+    styles = Path(__file__).resolve().parents[1] / "App" / "ui" / "styles.py"
+    app_src = app.read_text(encoding="utf-8")
+    styles_src = styles.read_text(encoding="utf-8")
+    start = app_src.index("tab_specs = [")
+    end = app_src.index("]", start)
+    block = app_src[start:end]
+    names = []
+    for label in (
+        "Action Desk",
+        "Overview",
+        "Sector Intel",
+        "Market Trends",
+        "Momentum",
+        "Template",
+        "Deals",
+        "Portfolio",
+        "Watchlists",
+        "Info",
+    ):
+        assert f'"{label}"' in block, label
+        names.append((block.index(f'"{label}"'), label))
+    ordered = [n for _, n in sorted(names)]
+    assert ordered[:3] == ["Action Desk", "Overview", "Sector Intel"]
+    assert ordered.index("Watchlists") > ordered.index("Portfolio")
+    assert '"morning-secondary"' in block
+    assert '"ops-demoted"' in block
+    assert "mp-tab-demoted" in app_src and "mp-tab-demoted" in styles_src
+    assert "mp-tab-group-start" in styles_src
+
