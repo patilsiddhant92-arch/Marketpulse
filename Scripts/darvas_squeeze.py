@@ -757,14 +757,23 @@ def classify_darvas_10ema_frame(
     min_thrust_pct: float = 3.0,
     min_thrust_rvol: float = 1.5,
     max_away_ema_pct: float = 1.5,
-    catchup_high_tol_pct: float = 2.0,
+    catchup_high_tol_pct: float = 2.5,
+    structure_lookback: int = 5,
 ) -> pd.DataFrame:
     """Classify post-thrust Darvas 10 EMA setups: Pullback | Catch-up.
 
-    Shared gates: rising 10 EMA, dry/shallow volume (rvol <= DARVAS max_rvol),
-    and a thrust in the prior `thrust_lookback` sessions.
-    Pullback: close walks back to 10 EMA (|away| <= max_away_ema_pct).
-    Catch-up: close held near recent highs while 10 EMA rises into the zone.
+    Shared gates (Approach A, trader contract):
+    - Prior thrust in lookback (day_pct >= min_thrust_pct, or rvol thrust through prior high).
+    - Rising 10 EMA on the signal bar.
+    - Dry/shallow volume on the signal bar (rvol <= DARVAS max_rvol).
+    - Structure: on the signal bar, close > 10 EMA (high or close above 10 EMA).
+      On the prior `structure_lookback` bars after the thrust (or last N bars),
+      every close must be above 10 EMA; open/high should be above 10 EMA when
+      possible; low may undercut 10 or 20 EMA.
+
+    Pullback: close has walked back toward rising 10 EMA (|away| <= max_away_ema_pct).
+    Catch-up: price held near recent highs while 10 EMA rises into the zone
+    (away > 0.5, near highs), still respecting structure-above-close rule.
     """
     params = dict(DARVAS)
     if cfg:
@@ -790,7 +799,7 @@ def classify_darvas_10ema_frame(
     high_col = _pick_col(frame, "high_price", "high")
     low_col = _pick_col(frame, "low_price", "low")
     close_col = _pick_col(frame, "close_price", "close")
-    if not all([sym_col, date_col, high_col, low_col, close_col]):
+    if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
         return empty
     ema10_col = _pick_col(frame, "ema_10", "ema10")
     rvol_col = _pick_col(frame, "rvol", "rel_volume")
@@ -802,14 +811,18 @@ def classify_darvas_10ema_frame(
         g = group.sort_values(date_col)
         if len(g) < max(6, thrust_lookback):
             continue
-        closes = g[close_col].to_numpy(dtype=float)
+        opens = g[open_col].to_numpy(dtype=float)
         highs = g[high_col].to_numpy(dtype=float)
+        lows = g[low_col].to_numpy(dtype=float)
+        closes = g[close_col].to_numpy(dtype=float)
         ema10 = g[ema10_col].to_numpy(dtype=float)
         rvols = g[rvol_col].to_numpy(dtype=float)
         i = len(g) - 1
         e10 = float(ema10[i])
         e10_prev = float(ema10[i - 1])
         c = float(closes[i])
+        h = float(highs[i])
+        o = float(opens[i])
         rv = float(rvols[i])
         if not (np.isfinite(e10) and np.isfinite(e10_prev) and np.isfinite(c) and np.isfinite(rv)):
             continue
@@ -818,11 +831,15 @@ def classify_darvas_10ema_frame(
         if rv > max_rvol:
             continue
 
+        # Signal bar: High or Close above 10 EMA; close must finish above 10 EMA.
+        if not (c > e10 and (h > e10 or c > e10)):
+            continue
+
         # Prior thrust window excludes the signal bar.
-        start = max(0, i - int(thrust_lookback))
+        start_i = max(0, i - int(thrust_lookback))
         thrust_pct = 0.0
-        saw_thrust = False
-        for j in range(start, i):
+        thrust_idx: int | None = None
+        for j in range(start_i, i):
             prev_c = closes[j - 1] if j > 0 else np.nan
             if not np.isfinite(prev_c) or prev_c <= 0:
                 continue
@@ -836,20 +853,61 @@ def classify_darvas_10ema_frame(
                 and closes[j] > prior_high
             )
             if thrust_day:
-                saw_thrust = True
+                thrust_idx = j
                 thrust_pct = max(thrust_pct, float(day_pct))
-        if not saw_thrust:
+        if thrust_idx is None:
             continue
+
+        # Structure after thrust:
+        # - thrust bar: High or Close > 10 EMA (already implied by thrust quality + close gate below)
+        # - other bars through signal: O, H, C above 10 EMA; Low may undercut 10/20 EMA
+        structure_ok = True
+        for j in range(thrust_idx + 1, i + 1):
+            e = ema10[j]
+            if not (np.isfinite(closes[j]) and np.isfinite(e) and np.isfinite(opens[j]) and np.isfinite(highs[j])):
+                structure_ok = False
+                break
+            if not (closes[j] > e and opens[j] >= e and highs[j] >= e):
+                structure_ok = False
+                break
+        # Thrust bar itself: High or Close above 10 EMA
+        te = ema10[thrust_idx]
+        if not (
+            np.isfinite(te)
+            and (closes[thrust_idx] > te or highs[thrust_idx] > te)
+        ):
+            structure_ok = False
+        if not structure_ok:
+            continue
+
+        # Squeeze-like deferral: tightening dry coil under TopBox with Top↔EMA gap
+        # still modest belongs to Squeeze family (even if primary Squeeze rejects for
+        # max_sq or a green-line poke) — do not mislabel as Catch-up/Pullback.
+        top_box, _bot = calculate_darvas_box(highs, lows, boxp=5)
+        top_now = float(top_box[i]) if np.isfinite(top_box[i]) else np.nan
+        if np.isfinite(top_now) and top_now > 0 and c < top_now:
+            sq_now = ((top_now - e10) / top_now) * 100.0
+            sq_prior = (
+                ((float(top_box[i - 5]) - float(ema10[i - 5])) / float(top_box[i - 5])) * 100.0
+                if i >= 5 and np.isfinite(top_box[i - 5]) and float(top_box[i - 5]) > 0
+                else np.nan
+            )
+            tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_now < sq_prior)
+            if tightening and 0.0 <= sq_now <= 8.0:
+                continue
 
         away = ((c / e10) - 1.0) * 100.0
         recent_high = float(np.nanmax(highs[max(0, i - 9) : i + 1]))
-        near_highs = np.isfinite(recent_high) and recent_high > 0 and ((recent_high - c) / recent_high) * 100.0 <= catchup_high_tol_pct
+        near_highs = (
+            np.isfinite(recent_high)
+            and recent_high > 0
+            and ((recent_high - c) / recent_high) * 100.0 <= catchup_high_tol_pct
+        )
 
         flavor: str | None = None
-        if abs(away) <= max_away_ema_pct and c >= e10 * 0.99:
+        if abs(away) <= max_away_ema_pct:
             flavor = "Pullback"
         elif near_highs and away > 0.5:
-            # Held highs while EMA catches up (still rising, dry).
             flavor = "Catch-up"
         if flavor is None:
             continue

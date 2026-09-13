@@ -1070,6 +1070,8 @@ def build_action_desk_page(
         "selected_symbol": initial_sym,
         "real_inst_flow_only": False,
         "darvas_tf": "Daily",
+        "matrix_rows_per_page": 25,
+        "matrix_page": 1,
     }
 
     # Display columns for the matrix
@@ -1154,8 +1156,8 @@ def build_action_desk_page(
         if not sym:
             return
         state["selected_symbol"] = sym
+        # Do not rebuild the matrix here — Quasar pagination resets to page 1 on remount.
         render_inspector()
-        render_matrix()
 
     def _darvas_is_weekly() -> bool:
         return bool(data.get("darvas_weekly_enabled")) and state.get("darvas_tf") == "Weekly"
@@ -1167,6 +1169,7 @@ def build_action_desk_page(
 
     def set_queue(q_key: str) -> None:
         state["active_queue"] = q_key
+        state["matrix_page"] = 1  # new queue → start at page 1; keep rows-per-page choice
         q_df = _queue_frame(q_key)
         if not q_df.empty and "symbol" in q_df.columns:
             state["selected_symbol"] = str(q_df["symbol"].iloc[0])
@@ -1304,7 +1307,13 @@ def build_action_desk_page(
                     ]
                     matrix_cols = ["symbol"] + squeeze_cols + [c for c in display_cols if c != "symbol"]
                 table_cols = [c for c in matrix_cols if c in q_df.columns]
-                tbl = table_from_df(q_df[table_cols], "", pagination=10)
+                rows_per = int(state.get("matrix_rows_per_page") or 25)
+                page_now = int(state.get("matrix_page") or 1)
+                tbl = table_from_df(
+                    q_df[table_cols],
+                    "",
+                    pagination={"rowsPerPage": rows_per, "page": page_now},
+                )
                 if tbl is not None:
                     def on_table_click(e):
                         try:
@@ -1315,8 +1324,23 @@ def build_action_desk_page(
                                 select_symbol(str(s))
                         except Exception:
                             pass
+
+                    def on_pagination(e):
+                        try:
+                            pag = e.args if isinstance(e.args, dict) else {}
+                            if not isinstance(pag, dict) and hasattr(e, "sender"):
+                                pag = getattr(e.sender, "pagination", {}) or {}
+                            if isinstance(pag, dict):
+                                if "rowsPerPage" in pag and pag["rowsPerPage"]:
+                                    state["matrix_rows_per_page"] = int(pag["rowsPerPage"])
+                                if "page" in pag and pag["page"]:
+                                    state["matrix_page"] = int(pag["page"])
+                        except Exception:
+                            pass
+
                     tbl.on("rowClick", on_table_click)
                     tbl.on("row-click", on_table_click)
+                    tbl.on("update:pagination", on_pagination)
 
     def render_inspector() -> None:
         with inspector_host:

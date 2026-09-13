@@ -585,7 +585,7 @@ def _quick_watchlist_toggle(sym: str) -> None:
 def table_from_df(
     df: pd.DataFrame,
     title: str = "",
-    pagination: int = 25,
+    pagination: int | dict | bool = 25,
     copy_symbols: bool = True,
     hidden_cols=None,
     page_key=None,
