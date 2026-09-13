@@ -113,7 +113,7 @@ def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
         assert (df["band"] > 5.0).all()
 
     # Rule 4: Classic breakout queues enforce Stage 2 uptrend, above 200 EMA, and within 25% 52W
-    for q_name in ["vcp", "pullback", "high52"]:
+    for q_name in ["near_pivot", "pullback", "high52"]:
         q_df = queues.get(q_name)
         if q_df is not None and not q_df.empty:
             assert (q_df["rs_percentile"] >= 70.0).all()
@@ -145,7 +145,7 @@ def test_action_desk_tradingview_paste_lists(monkeypatch) -> None:
     data = fetch_action_desk_data(DB_PATH)
     tv = data["tv_lists"]
     assert "all_focus" in tv
-    assert "vcp" in tv
+    assert "near_pivot" in tv
     assert "pullback" in tv
     assert "episodic" in tv
     assert "high52" in tv
@@ -332,8 +332,10 @@ def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
     assert "near_pivot" in QUEUE_DISPLAY_CAPS
     assert "vcp" not in QUEUE_DISPLAY_CAPS
     assert QUEUE_DISPLAY_CAPS["near_pivot"] == 15
-    assert QUEUE_META["vcp"]["title"] == "1. Near 20D Pivot"
-    assert QUEUE_META["vcp"]["cap_key"] == "near_pivot"
+    assert "vcp" not in QUEUE_META
+    assert QUEUE_META["near_pivot"]["title"] == "1. Near 20D Pivot"
+    assert QUEUE_META["near_pivot"]["cap_key"] == "near_pivot"
+    assert QUEUE_META["near_pivot"]["tv_key"] == "near_pivot"
 
 
 def test_action_desk_header_and_docstring_say_8_setup_queues() -> None:

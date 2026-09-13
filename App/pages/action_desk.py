@@ -18,8 +18,10 @@ from nicegui import ui
 from App.cache_manager import get_cached, set_cached, cache_key
 try:
     from App.sector_read_model import leading_themes_from_board, query_rotation_board
+    from App.indicators.uc_thrust import uc_flag_label, uc_score_map
 except ModuleNotFoundError:
     from sector_read_model import leading_themes_from_board, query_rotation_board  # type: ignore
+    from indicators.uc_thrust import uc_flag_label, uc_score_map  # type: ignore
 from App.indicators.darvas import (
     DARVAS,
     WEEKLY_LOOKBACK_SESSIONS,
@@ -331,9 +333,22 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 return peer_chip_label(industry or sector, None)
 
             setup_pool["peer"] = setup_pool.apply(_peer_chip, axis=1)
+            try:
+                _uc_map = uc_score_map(db_path, limit=200)
+            except Exception:
+                _uc_map = {}
+            setup_pool["uc_flag"] = setup_pool["symbol"].map(
+                lambda s: uc_flag_label(_uc_map.get(str(s).strip().upper()))
+            )
+            setup_pool["uc_score"] = setup_pool["symbol"].map(
+                lambda s: _uc_map.get(str(s).strip().upper())
+            )
+
         else:
             setup_pool["theme"] = pd.Series(dtype=str)
             setup_pool['peer'] = pd.Series(dtype=str)
+            setup_pool['uc_flag'] = pd.Series(dtype=str)
+            setup_pool['uc_score'] = pd.Series(dtype=float)
 
         # Attach institutional deal accumulation tags to setup pool (25-day lookback)
         deals_agg = con.execute(
@@ -713,7 +728,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         "darvas_count_weekly": darvas_count_weekly,
         "darvas_weekly_enabled": use_weekly,
         "queues": {
-            "vcp": vcp_df,
+            "near_pivot": vcp_df,
             "pullback": pb_df,
             "episodic": ep_df,
             "high52": h52_df,
@@ -724,7 +739,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "spike_pause": sp_df,
         },
         "tv_lists": {
-            "vcp": to_tv_list(vcp_df["symbol"].tolist()) if not vcp_df.empty else "",
+            "near_pivot": to_tv_list(vcp_df["symbol"].tolist()) if not vcp_df.empty else "",
             "pullback": to_tv_list(pb_df["symbol"].tolist()) if not pb_df.empty else "",
             "episodic": to_tv_list(ep_df["symbol"].tolist()) if not ep_df.empty else "",
             "high52": to_tv_list(h52_df["symbol"].tolist()) if not h52_df.empty else "",
@@ -998,9 +1013,9 @@ def build_action_desk_page(
         queue_meta["darvas"] = darvas_meta
 
     # Initial selection
-    initial_queue = "vcp"
+    initial_queue = "near_pivot"
     initial_sym = ""
-    for q_key in ("vcp", "pullback", "episodic", "high52", "darvas", "silent_coil", "stair_step", "spike_pause"):
+    for q_key in ("near_pivot", "pullback", "episodic", "high52", "darvas", "silent_coil", "stair_step", "spike_pause"):
         q_df = queues.get(q_key, pd.DataFrame())
         if not q_df.empty and "symbol" in q_df.columns:
             if not initial_sym:
@@ -1017,7 +1032,7 @@ def build_action_desk_page(
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "peer", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
+        "symbol", "peer", "uc_flag", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
         "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
     ]
 
@@ -1150,7 +1165,7 @@ def build_action_desk_page(
             matrix_host.clear()
 
             q_key = state["active_queue"]
-            q_info = queue_meta.get(q_key, queue_meta["vcp"])
+            q_info = queue_meta.get(q_key, queue_meta["near_pivot"])
             q_df = _queue_frame(q_key)
             if state.get("real_inst_flow_only") and not q_df.empty and "deal_flow" in q_df.columns:
                 q_df = q_df[q_df["deal_flow"].astype(str).str.strip().ne("—")]
@@ -1187,7 +1202,7 @@ def build_action_desk_page(
                             ).classes("mp-button text-xs").props("dense outline")
 
                 # Quality Filter Strip
-                is_classic_rs = q_key in ("vcp", "pullback", "high52")
+                is_classic_rs = q_key in ("near_pivot", "pullback", "high52")
                 rules_txt = (
                     "Rules: MCap > ₹1000Cr · Circuit > 5% · Stage 2 Uptrend · Within 25% 52W · RS >= 70"
                     if is_classic_rs else

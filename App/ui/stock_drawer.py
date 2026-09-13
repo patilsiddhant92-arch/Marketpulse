@@ -662,6 +662,19 @@ def _clean_symbol_param(sym: Any) -> str:
     return s.upper()
 
 
+
+def _uc_chip_for_symbol(db_path: Path, symbol: str) -> str | None:
+    """Lab UC heuristic badge for Stock 360 — not a graduated predictor."""
+    try:
+        from App.indicators.uc_thrust import uc_flag_label, uc_score_map
+    except ModuleNotFoundError:
+        from indicators.uc_thrust import uc_flag_label, uc_score_map  # type: ignore
+    score = uc_score_map(db_path, limit=200).get(str(symbol or "").strip().upper())
+    if score is None:
+        return None
+    return uc_flag_label(score)
+
+
 def open_stock_360_modal(
     db_path: Path,
     symbol: str,
@@ -1046,6 +1059,12 @@ def open_stock_360_modal(
                                     f"📋 Copy All Peers ({len(all_peer_syms)})",
                                     on_click=lambda *_, t=tv_copy_str, g=grp_lbl: copy_text(f"{g} Peers", t)
                                 ).props("dense outline size=sm color=primary").classes("text-xs font-mono")
+
+                    uc_chip = _uc_chip_for_symbol(db_path, clean_sym)
+                    if uc_chip:
+                        ui.label(
+                            f"{uc_chip} · lab heuristic (not a graduated UC predictor)"
+                        ).classes("text-xs text-amber-400 font-mono mb-2")
 
                     # Better Options in this Industry
                     if peer_comp and peer_comp.get("better_options"):

@@ -62,16 +62,16 @@ ACTION_DESK_SUBTITLE = (
     "Executive swing trading command center: Exposure gate, leading themes, and 8 setup queues."
 )
 
-# Internal queue key stays "vcp" (data / TV lists). Display name is Near 20D Pivot.
+# Queue key matches the setup: near_pivot (never "vcp" — that lied about the engine).
 QUEUE_META = {
-    "vcp": {
+    "near_pivot": {
         "title": "1. Near 20D Pivot",
         "short_title": "1. Near 20D Pivot",
         "desc": (
             "RS ≥ 70 names coiled within 3.5% of the 20-day high. "
             "Near-pivot scan — not a successive-contraction VCP engine. No stop-loss filter."
         ),
-        "tv_key": "vcp",
+        "tv_key": "near_pivot",
         "cap_key": "near_pivot",
     },
     "pullback": {
@@ -524,7 +524,7 @@ FIELD_GUIDE_TIPS = {
         f"of the Darvas box with rising 10/20 EMA support. Look for squeeze_pct <= {DARVAS['max_squeeze_pct']:.1f}% "
         f"and candle range <= {DARVAS['max_range_pct']:.1f}%."
     ),
-    "vcp": (
+    "near_pivot": (
         "💎 Near 20D Pivot Field Guide: Stage 2 names within 3.5% of the 20-day high. "
         "Enter as price breaks the 20-day high with expanding volume. Not a Minervini VCP engine."
     ),

@@ -27,6 +27,7 @@ try:
         query_group_members,
         query_index_session_count,
         query_rotation_board,
+        rotation_board_filter_stats,
         query_sector_rotation_overview,
         query_taxonomy_hierarchy,
         session_lag_date,
@@ -46,6 +47,7 @@ except ModuleNotFoundError:
         query_group_members,
         query_index_session_count,
         query_rotation_board,
+        rotation_board_filter_stats,
         query_sector_rotation_overview,
         query_taxonomy_hierarchy,
         session_lag_date,
@@ -546,6 +548,7 @@ def _build_sector_v2_page(
             _decorate_taxonomy_tree(pruned)
             pruned = _sort_taxonomy_by_state(pruned)
             node_map = {str(node["id"]): node for node in _walk_taxonomy(pruned)}
+            filter_stats = rotation_board_filter_stats(db_path, level=grain)
             df = query_rotation_board(db_path, level=grain)
             if not df.empty:
                 if is_weekly and "return_5d_pct" in df.columns:
@@ -619,6 +622,11 @@ def _build_sector_v2_page(
                                     tree.expand([str(item["id"]) for item in current_path[:-1]])
                                     tree.select(current_id)
                     with ui.column().classes("w-full mp-sector-detail-host gap-2"):
+                        ui.label(
+                            f"Money board: {filter_stats['shown']} shown · {filter_stats['hidden']} hidden "
+                            f"(min names {filter_stats['min_names']} / min T/O ₹{filter_stats['min_turnover_cr']} Cr) · "
+                            f"{filter_stats['total']} at grain"
+                        ).classes("text-[11px] text-[var(--mp-muted)] font-mono")
                         ui.label("Δ SHARE 5D").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
                         if df.empty:
                             ui.label(f"No groups pass Min names 8 / Min T/O ₹200 Cr (grain={grain}).").classes("text-sm text-[var(--mp-muted)]")

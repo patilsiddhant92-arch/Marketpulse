@@ -1,4 +1,4 @@
-﻿"""
+"""
 UC Thrust Radar — lab heuristic scorer (not a graduated predictor).
 
 Ranks names on delivery spike, near-52W, sector rotation state, institutional
@@ -179,3 +179,26 @@ def calculate_uc_thrust_candidates(
 
     df = df.sort_values(["uc_score", "rs_percentile", "rvol"], ascending=[False, False, False])
     return df.head(limit).reset_index(drop=True)
+
+
+def uc_score_map(db_path: Path | str, *, limit: int = 200) -> dict[str, float]:
+    """symbol -> uc_score for desk flags. Lab heuristic only — not a graduated predictor."""
+    frame = calculate_uc_thrust_candidates(db_path, limit=limit)
+    if frame is None or frame.empty or "symbol" not in frame.columns:
+        return {}
+    scores = pd.to_numeric(frame.get("uc_score"), errors="coerce")
+    out: dict[str, float] = {}
+    for sym, score in zip(frame["symbol"].astype(str), scores):
+        if pd.isna(score):
+            continue
+        out[str(sym).strip().upper()] = float(score)
+    return out
+
+
+def uc_flag_label(score: float | None) -> str:
+    if score is None:
+        return "—"
+    try:
+        return f"UC~{float(score):.1f}"
+    except (TypeError, ValueError):
+        return "—"

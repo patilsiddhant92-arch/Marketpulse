@@ -1382,6 +1382,38 @@ def query_rotation_board(
         ).reset_index(drop=True)
 
 
+
+def rotation_board_filter_stats(
+    db_path: Path,
+    *,
+    level: str,
+    as_of: date | None = None,
+    min_names: int = BOARD_MIN_NAMES,
+    min_turnover_cr: float = BOARD_MIN_TURNOVER_CR,
+) -> dict[str, int]:
+    """How many groups exist at grain vs how many pass the money-board filters."""
+    unfiltered = query_rotation_board(
+        db_path, level=level, as_of=as_of, min_names=0, min_turnover_cr=0.0
+    )
+    filtered = query_rotation_board(
+        db_path,
+        level=level,
+        as_of=as_of,
+        min_names=min_names,
+        min_turnover_cr=min_turnover_cr,
+    )
+    total = int(len(unfiltered))
+    shown = int(len(filtered))
+    return {
+        "total": total,
+        "shown": shown,
+        "hidden": max(0, total - shown),
+        "min_names": int(min_names),
+        "min_turnover_cr": int(min_turnover_cr),
+    }
+
+
+
 def query_group_members(
     db_path: Path,
     *,
