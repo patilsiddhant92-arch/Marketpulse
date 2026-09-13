@@ -636,8 +636,30 @@ STYLES_HTML = """
           .mp-symbol-open:hover { color: var(--mp-primary); }
           .mp-table td.symbol-col,
           .mp-table .q-td.symbol-col {
-            overflow: hidden !important;
+            overflow: visible !important;
+            min-width: 168px !important;
           }
+          /* P2 trader walkthrough: symbol clip + signed arrows */
+          .mp-table td.symbol-col,
+          .mp-table .q-td.symbol-col,
+          .q-table td.symbol-col,
+          .q-table .q-td.symbol-col {
+            overflow: visible !important;
+            min-width: 168px !important;
+            padding-left: 10px !important;
+          }
+          .mp-symbol-cell { padding-left: 2px; }
+          .mp-symbol-open { color: var(--mp-primary) !important; }
+          .mp-symbol-open:hover { color: var(--mp-good) !important; }
+          .mp-up, .mp-arrow-up { color: var(--mp-good) !important; }
+          .mp-down, .mp-arrow-down { color: var(--mp-bad) !important; }
+          .mp-table thead tr th,
+          .mp-table-scroll thead th {
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 5 !important;
+          }
+
 
           /* Buttons */
           .mp-primary {
@@ -1512,6 +1534,13 @@ STYLES_HTML = """
           .mp-app-shell [class~="text-emerald-800"],
           .mp-app-shell [class~="text-emerald-700"],
           .mp-app-shell [class~="text-emerald-600"] { color: var(--mp-good) !important; }
+          /* Sector taxonomy tree state colors */
+          .mp-taxonomy-tree .q-tree__node-header-content { color: var(--mp-text); }
+          .mp-taxonomy-tree .mp-tree-state-leading { color: var(--mp-leading) !important; }
+          .mp-taxonomy-tree .mp-tree-state-emerging { color: var(--mp-emerging) !important; }
+          .mp-taxonomy-tree .mp-tree-state-improving { color: var(--mp-emerging) !important; }
+          .mp-taxonomy-tree .mp-tree-state-weakening { color: var(--mp-weakening) !important; }
+          .mp-taxonomy-tree .mp-tree-state-lagging { color: var(--mp-lagging) !important; }
           .mp-app-shell [class~="text-blue-800"],
           .mp-app-shell [class~="text-blue-700"],
           .mp-app-shell [class~="text-blue-600"] { color: var(--mp-info) !important; }

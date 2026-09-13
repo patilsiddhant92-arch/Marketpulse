@@ -64,7 +64,6 @@ def test_nav_weight_p14_morning_cluster_and_demote_classes():
         "Sector Intel",
         "Market Trends",
         "Momentum",
-        "Template",
         "Deals",
         "Portfolio",
         "Watchlists",
@@ -72,6 +71,8 @@ def test_nav_weight_p14_morning_cluster_and_demote_classes():
     ):
         assert f'"{label}"' in block, label
         names.append((block.index(f'"{label}"'), label))
+    # Template retired from primary nav (legacy only)
+    assert '"Template"' not in block or "sma-template" not in block.split("Watchlists")[0]
     ordered = [n for _, n in sorted(names)]
     assert ordered[:3] == ["Action Desk", "Overview", "Sector Intel"]
     assert ordered.index("Watchlists") > ordered.index("Portfolio")

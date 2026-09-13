@@ -915,6 +915,17 @@ def table_from_df(
         )
     if "rs_5d_trail" in view.columns:
         table.add_slot(
+            "body-cell-away_52w_high_pct",
+            """
+            <q-td :props="props" class="numeric">
+              <span :class="(Number(props.value) <= 0 && Number(props.value) >= -25) || Number(props.value) > 0 ? 'mp-pos' : 'mp-neg'">
+                {{ props.value == null ? '—' : Number(props.value).toFixed(1) + '%' }}
+              </span>
+            </q-td>
+            """,
+        )
+
+        table.add_slot(
             "body-cell-rs_5d_trail",
             """
             <q-td :props="props" class="text-center font-mono text-xs whitespace-nowrap" style="min-width: 155px;">
@@ -2370,19 +2381,72 @@ def special_watchlist_page() -> None:
         ui.label("OHLC vs EMA:").classes("text-xs text-[var(--mp-muted)]")
         ohlc_gt_10 = ui.checkbox("OHLC > 10 EMA", value=False)
         ohlc_gt_20 = ui.checkbox("OHLC > 20 EMA", value=False)
+    # Master: EMA stack XOR SMA stack (one family active at a time)
     with ui.row().classes("gap-3 items-center flex-wrap"):
+        ui.label("Stack family:").classes("text-xs text-[var(--mp-muted)]")
+        stack_ema_master = ui.checkbox("Use EMA Stack", value=True)
+        stack_sma_master = ui.checkbox("Use SMA Stack", value=False)
+
+    with ui.row().classes("gap-3 items-center flex-wrap") as ema_stack_row:
         ui.label("EMA Stack (bullish):").classes("text-xs text-[var(--mp-muted)]")
         ema10_gt_20 = ui.checkbox("10 > 20", value=True)
         ema20_gt_50 = ui.checkbox("20 > 50", value=True)
         ema50_gt_100 = ui.checkbox("50 > 100", value=True)
         ema100_gt_200 = ui.checkbox("100 > 200", value=True)
-    with ui.row().classes("gap-3 items-center flex-wrap"):
+    with ui.row().classes("gap-3 items-center flex-wrap") as sma_stack_row:
         ui.label("SMA Stack (Template):").classes("text-xs text-[var(--mp-muted)]")
         sma50_gt_150 = ui.checkbox("50 > 150", value=False)
         sma150_gt_200 = ui.checkbox("150 > 200", value=False)
         sma_cmp_gt_50 = ui.checkbox("CMP > 50 SMA", value=False)
         sma_cmp_gt_150_200 = ui.checkbox("CMP > 150 & 200 SMA", value=False)
         sma200_rising = ui.checkbox("200 SMA rising", value=False)
+
+    def _clear_ema_stack():
+        for box in (ema10_gt_20, ema20_gt_50, ema50_gt_100, ema100_gt_200):
+            box.set_value(False)
+
+    def _clear_sma_stack():
+        for box in (sma50_gt_150, sma150_gt_200, sma_cmp_gt_50, sma_cmp_gt_150_200, sma200_rising):
+            box.set_value(False)
+
+    def _set_ema_defaults():
+        for box in (ema10_gt_20, ema20_gt_50, ema50_gt_100, ema100_gt_200):
+            box.set_value(True)
+
+    def _set_sma_defaults():
+        for box in (sma50_gt_150, sma150_gt_200, sma_cmp_gt_50, sma_cmp_gt_150_200, sma200_rising):
+            box.set_value(True)
+
+    def _on_ema_master(e=None):
+        if stack_ema_master.value:
+            stack_sma_master.set_value(False)
+            _clear_sma_stack()
+            if not any(b.value for b in (ema10_gt_20, ema20_gt_50, ema50_gt_100, ema100_gt_200)):
+                _set_ema_defaults()
+            sma_stack_row.set_visibility(False)
+            ema_stack_row.set_visibility(True)
+        else:
+            _clear_ema_stack()
+            if not stack_sma_master.value:
+                # keep one family on
+                stack_sma_master.set_value(True)
+
+    def _on_sma_master(e=None):
+        if stack_sma_master.value:
+            stack_ema_master.set_value(False)
+            _clear_ema_stack()
+            if not any(b.value for b in (sma50_gt_150, sma150_gt_200, sma_cmp_gt_50, sma_cmp_gt_150_200, sma200_rising)):
+                _set_sma_defaults()
+            ema_stack_row.set_visibility(False)
+            sma_stack_row.set_visibility(True)
+        else:
+            _clear_sma_stack()
+            if not stack_ema_master.value:
+                stack_ema_master.set_value(True)
+
+    stack_ema_master.on_value_change(_on_ema_master)
+    stack_sma_master.on_value_change(_on_sma_master)
+    sma_stack_row.set_visibility(False)
     with ui.row().classes("gap-3 items-center flex-wrap"):
         ui.label("Advanced Indicators:").classes("text-xs text-[var(--mp-muted)]")
         check_delivery = ui.checkbox("Delivery Thrust", value=False)
@@ -4853,7 +4917,6 @@ def main() -> None:
         ("Sector Intel", sector_intel_unified_page, "rotation", "morning"),
         ("Market Trends", market_trends_page, "market-trends", "lab"),
         ("Momentum", special_watchlist_page, "scanner", "lab"),
-        ("Template", sma_template_page, "sma-template", "lab"),
         ("Deals", deals_page, "deals", "ops"),
         ("Portfolio", portfolio_page, "portfolio", "ops"),
         ("Watchlists", watchlist_page, "watchlists", "ops-demoted"),
@@ -4864,6 +4927,7 @@ def main() -> None:
             [
                 ("Today (legacy)", today_page, "today-legacy", "ops"),
                 ("Candidates (legacy)", candidates_page, "candidates-legacy", "ops"),
+                ("Template (legacy)", sma_template_page, "sma-template", "lab"),
             ]
         )
 

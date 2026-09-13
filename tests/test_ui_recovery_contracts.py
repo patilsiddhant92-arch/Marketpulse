@@ -20,7 +20,7 @@ def test_momentum_is_a_first_class_active_tab():
     source = Path("App/app.py").read_text(encoding="utf-8")
 
     assert '("Momentum", special_watchlist_page, "scanner", "lab")' in source
-    assert '("Template", sma_template_page, "sma-template", "lab")' in source
+    assert '("Template", sma_template_page, "sma-template", "lab")' not in source or '("Template (legacy)", sma_template_page, "sma-template", "lab")' in source
     assert '("Minervini", minervini_page, "minervini", False)' not in source
     assert "build_sma_template_block" not in source
     assert '("Momentum (legacy)", special_watchlist_page, "scanner-legacy", False)' not in source
