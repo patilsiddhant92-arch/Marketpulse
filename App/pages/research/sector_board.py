@@ -672,7 +672,7 @@ def build_sector_board_page(
                 else:
                     ui.label(f"EOD · {st.database_date or 'Live'}").classes("text-xs text-[var(--mp-muted)]")
 
-        render_market_health_strip(db_path)
+        render_market_health_strip(db_path, expanded=False)
 
         # Controls & Section Nav Toolbar
         with ui.row().classes("w-full items-center justify-between gap-3 flex-wrap mp-toolbar"):

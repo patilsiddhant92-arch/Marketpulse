@@ -345,8 +345,11 @@ def open_breadth_history_modal(db_path: Path, title: str, column_series: str | N
     dialog.open()
 
 
-def render_market_health_strip(db_path: Path) -> None:
-    """Render the collapsible 7-card market health strip at the top of a page."""
+def render_market_health_strip(db_path: Path, *, expanded: bool = True) -> None:
+    """Render the collapsible 7-card market health strip at the top of a page.
+
+    expanded=False starts collapsed (Lab pages like Momentum); Action Desk keeps True.
+    """
     data = query_market_health_summary(db_path)
     if not data:
         return
@@ -384,7 +387,10 @@ def render_market_health_strip(db_path: Path) -> None:
                     ui.label(c["context"]).classes("text-[10px] text-[var(--mp-text-subtle)] truncate")
 
         # Collapse / Expand toggle
-        is_expanded = [True]
+        is_expanded = [bool(expanded)]
+        if not is_expanded[0]:
+            cards_row.set_visibility(False)
+            toggle_btn.set_text("Show market health")
 
         def _toggle():
             is_expanded[0] = not is_expanded[0]

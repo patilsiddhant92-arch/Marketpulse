@@ -1539,9 +1539,54 @@ def sector_tree_page() -> None:
 
 
 def sector_rotation_page() -> None:
-    """Sector tape: turnover and trend. Taxonomy tree is not the default."""
-    with ui.column().classes("w-full mp-page-research"):
-        build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
+    """Legacy alias — Sector Intel unified desk."""
+    sector_intel_unified_page()
+
+
+def sector_intel_unified_page() -> None:
+    """Sector Intel desk: Δ SHARE / money-flow home + Intel secondary views.
+
+    Default = sector_board v2 (Δ SHARE). Secondary tabs harvest sector_intel views
+    (RRG, Turnover, 52W highs, Breadth divergence). Taxonomy tree is not primary.
+    """
+    with ui.column().classes("w-full mp-page-research gap-2"):
+        with ui.row().classes("w-full items-end justify-between flex-wrap gap-2"):
+            with ui.column().classes("gap-0.5"):
+                ui.label("Sector Intel").classes("text-xl font-bold text-[var(--mp-text)]")
+                ui.label(
+                    "Money-flow / Δ SHARE home · RRG · Turnover · 52W highs · Breadth. "
+                    "Same read-model feeds Action Desk STEP 2."
+                ).classes("text-xs text-[var(--mp-muted)]")
+        tabs = ui.tabs().classes("w-full")
+        with tabs:
+            tab_flow = ui.tab("Δ SHARE / Money Flow")
+            tab_rrg = ui.tab("RRG Matrix")
+            tab_turn = ui.tab("Turnover")
+            tab_52 = ui.tab("52W Highs")
+            tab_div = ui.tab("Breadth Divergence")
+        panels = ui.tab_panels(tabs, value=tab_flow).classes("w-full")
+        with panels:
+            with ui.tab_panel(tab_flow):
+                build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
+            with ui.tab_panel(tab_rrg):
+                _sector_intel_view("rrg")
+            with ui.tab_panel(tab_turn):
+                _sector_intel_view("turnover")
+            with ui.tab_panel(tab_52):
+                _sector_intel_view("highs52")
+            with ui.tab_panel(tab_div):
+                _sector_intel_view("divergence")
+
+
+def _sector_intel_view(view_key: str) -> None:
+    """Render one Sector Intel secondary view via build_sector_intel_page when possible."""
+    # Prefer calling the legacy intel page which owns all views; it renders its own tab strip.
+    # For a single-view focus we still mount the full intel page (includes all VIEW_TABS)
+    # behind the unified shell — secondary panels may show the full intel UI until split.
+    try:
+        build_sector_intel_page(DB_PATH, copy_text=copy_text_to_clipboard)
+    except TypeError:
+        build_sector_intel_page(DB_PATH)
 
 
 def strong_groups_page() -> None:
@@ -2299,7 +2344,7 @@ def special_watchlist_page() -> None:
             "Tighter trend template: near highs, bullish stack, liquid names. Use for chart prep — not a census.",
         )
         if render_market_health_strip:
-            render_market_health_strip(DB_PATH)
+            render_market_health_strip(DB_PATH, expanded=False)
         momentum_status = load_market_status(DB_PATH, STATUS_PATH)
     if not momentum_status.actionable:
         ui.label(non_actionable_message(momentum_status)).classes("mp-badge mp-bad w-full mt-2")
@@ -4806,7 +4851,7 @@ def main() -> None:
         ("Market Trends", market_trends_page, "market-trends", False),
         ("Momentum", special_watchlist_page, "scanner", False),
         ("Template", sma_template_page, "sma-template", False),
-        ("Sectors", sector_rotation_page, "rotation", False),
+        ("Sector Intel", sector_intel_unified_page, "rotation", False),
         ("Deals", deals_page, "deals", False),
         ("Watchlists", watchlist_page, "watchlists", False),
         ("Portfolio", portfolio_page, "portfolio", False),

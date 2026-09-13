@@ -19,6 +19,13 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+try:
+    from App.ui.market_health import load_exposure_inputs
+    from Scripts.desk_contract import brief_fields_from_gate, match_exposure
+except ModuleNotFoundError:  # pragma: no cover
+    from ui.market_health import load_exposure_inputs  # type: ignore
+    from desk_contract import brief_fields_from_gate, match_exposure  # type: ignore
+
 
 def _fmt_cr(val: float | None) -> str:
     if val is None or pd.isna(val):
@@ -355,35 +362,50 @@ def generate_market_commentary(db_path: Path | str) -> dict[str, Any]:
         )
 
     # ==================== REGIME & POSTURE CLASSIFICATION ====================
-    # Nifty position vs EMAs
+    # Narrative regime title may describe tape structure; allocation/cash MUST mirror
+    # Action Desk exposure gate (desk_contract.match_exposure) — one owner.
     dist_20ema = ((nifty_cmp - nifty_ema20) / nifty_ema20 * 100.0) if nifty_ema20 > 0 else 0.0
     dist_50ema = ((nifty_cmp - nifty_ema50) / nifty_ema50 * 100.0) if nifty_ema50 > 0 else 0.0
     dist_200ema = ((nifty_cmp - nifty_ema200) / nifty_ema200 * 100.0) if nifty_ema200 > 0 else 0.0
 
     if nifty_cmp >= nifty_ema20 and nifty_ema20 >= nifty_ema50 and ab_50 >= 55.0 and adv_pct >= 55.0:
         regime_title = "AGGRESSIVE BULLISH EXPANSION"
-        regime_tone = "positive"
-        posture_title = "Aggressive Swing Allocation (80% – 100%)"
-        posture_desc = "Broad market participation is in full expansion. High-volume breakout continuation setups and 10 EMA pullback entries carry maximum statistical expectancy. Pyramiding into leading winners is favored."
-        cash_recommendation = "0% – 15% Cash"
     elif nifty_cmp >= nifty_ema50 and ab_50 >= 45.0:
         regime_title = "SELECTIVE CONSTRUCTIVE PULLBACK"
-        regime_tone = "info"
-        posture_title = "Selective Precision Posture (50% – 70% Allocation)"
-        posture_desc = "Market is holding key intermediate moving averages but digesting recent gains. Avoid buying extended breakouts; focus strictly on tight Darvas squeezes coiled directly on 10 EMA support with institutional deal backing."
-        cash_recommendation = "30% – 50% Cash"
     elif nifty_cmp < nifty_ema50 and ab_50 < 45.0 and ab_50 >= 35.0:
         regime_title = "DEFENSIVE CONSOLIDATION & DISTRIBUTION"
-        regime_tone = "warning"
-        posture_title = "Defensive Capital Preservation (25% – 40% Allocation)"
-        posture_desc = "Index has dipped below intermediate EMAs and fewer than 45% of stocks are above their 50 EMA. Keep stop-losses tight, trim lagging positions quickly, and only deploy risk into isolated high-RS institutional turnaround setups."
-        cash_recommendation = "60% – 75% Cash"
     else:
         regime_title = "CORRECTION & RISK-OFF DEFENSIVE"
-        regime_tone = "negative"
-        posture_title = "Strict Capital Preservation (0% – 20% Allocation)"
-        posture_desc = "Broad-based distribution is active with market breadth severely compressed below 35%. Cash is a high-conviction position. Protect capital, avoid catching falling knives, and wait for a confirmed Breadth Thrust."
-        cash_recommendation = "80% – 100% Cash"
+
+    import duckdb as _duckdb
+    with _duckdb.connect(str(db_path), read_only=True) as _gate_con:
+        exp = load_exposure_inputs(
+            _gate_con,
+            trade_date=(b_latest["trade_date"] if b_latest is not None else None),
+        )
+    vix_val = exp.get("vix")
+    vix_1d = float(exp.get("vix_1d_pct") or 0.0)
+    vix_spike = bool(vix_val is not None and vix_1d >= 10.0)
+    gate = match_exposure(
+        {
+            "adv_pct": float(exp.get("adv_pct") if exp.get("adv_pct") is not None else adv_pct),
+            "ab20_pct": float(exp.get("ab20_pct") if exp.get("ab20_pct") is not None else ab_20),
+            "ab200_pct": float(exp.get("ab200_pct") if exp.get("ab200_pct") is not None else ab_200),
+            "vix": vix_val,
+            "vix_spike": vix_spike,
+            "net_lows_expanding": bool(exp.get("net_lows_expanding")),
+            "count_52w_lows": int(exp.get("count_52w_lows") or 0),
+            "count_52w_highs": int(exp.get("count_52w_highs") or 0),
+            "vix_1d_pct": vix_1d,
+        }
+    )
+    brief = brief_fields_from_gate(gate)
+    regime_tone = brief["regime_tone"]
+    posture_title = brief["posture_title"]
+    posture_desc = brief["posture_desc"] or (
+        "Follow Action Desk STEP 1 exposure gate for size and stop discipline."
+    )
+    cash_recommendation = brief["cash_recommendation"]
 
     # ==================== NARRATIVE GENERATION ====================
     # 1. Headline
@@ -457,7 +479,7 @@ def generate_market_commentary(db_path: Path | str) -> dict[str, Any]:
 
     plan_directives = [
         f"**Execution Bias:** {posture_desc}",
-        f"**Recommended Exposure:** {cash_recommendation} (adjust size based on individual account risk profile).",
+        f"**Recommended Exposure (Action Desk gate):** {brief['exposure_pct']} · {brief['exposure_state']} (Cash stance: {cash_recommendation}).",
         f"**Key Setups to Target:**",
         f"  • *Darvas 10 EMA Squeezes:* Watch {', '.join(darvas_chips) if darvas_chips else 'Action Desk Darvas queue'} for tight base breakouts.",
         f"  • *Stage 1 Turnarounds:* Inspect {', '.join(stage1_chips) if stage1_chips else 'Stage 1 queue'} for low-risk, asymmetric reward entries off weekly bottoms.",
@@ -507,5 +529,8 @@ def generate_market_commentary(db_path: Path | str) -> dict[str, Any]:
             "darvas_samples": darvas_items,
             "stage1_samples": stage1_items,
             "top_accum": top_accum_list,
+            "exposure_pct": brief["exposure_pct"],
+            "exposure_state": brief["exposure_state"],
+            "exposure_id": brief["exposure_id"],
         },
     }

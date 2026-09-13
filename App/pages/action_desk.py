@@ -318,8 +318,37 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         stock_tags = get_stock_thematic_tags(str(user_db_path))
         if not setup_pool.empty:
             setup_pool["theme"] = setup_pool["symbol"].map(lambda s: stock_tags.get(s, ["—"])[0])
+            # Compact peer chip: Sector abbrev + industry peer rank (same grammar as Template Fin #12)
+            try:
+                ind_rank = con.execute(
+                    """
+                    WITH latest AS (SELECT max(trade_date) d FROM sector_rotation)
+                    SELECT group_name, rotation_rank
+                    FROM sector_rotation, latest
+                    WHERE trade_date = latest.d AND level = 'Industry'
+                    """
+                ).fetchdf()
+                rank_map = {
+                    str(r.group_name): int(r.rotation_rank)
+                    for r in ind_rank.itertuples(index=False)
+                    if pd.notna(getattr(r, 'rotation_rank', None))
+                } if not ind_rank.empty else {}
+            except Exception:
+                rank_map = {}
+
+            def _peer_chip(row):
+                sector = str(row.get('sector') or '').strip()
+                industry = str(row.get('industry') or '').strip()
+                short = (sector[:8] if sector else '—')
+                rk = rank_map.get(industry)
+                if rk is None:
+                    return short
+                return f"{short} #{rk}"
+
+            setup_pool['peer'] = setup_pool.apply(_peer_chip, axis=1)
         else:
             setup_pool["theme"] = pd.Series(dtype=str)
+            setup_pool['peer'] = pd.Series(dtype=str)
 
         # Attach institutional deal accumulation tags to setup pool (25-day lookback)
         deals_agg = con.execute(
@@ -1003,7 +1032,7 @@ def build_action_desk_page(
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss", 
+        "symbol", "peer", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
         "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
     ]
 
@@ -1050,13 +1079,17 @@ def build_action_desk_page(
                         grp_name = str(sec.get("group_name") or sec.get("sector") or "—")
                         delta = float(sec.get("turnover_share_delta_5d") or 0.0)
                         leaders_raw = str(sec.get("leader_symbols") or sec.get("leaders") or "")
+                        state_lbl = str(sec.get("rotation_state") or sec.get("state") or "").strip()
                         with ui.row().classes("w-full items-center justify-between p-1.5 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)]"):
-                            with ui.column().classes("gap-0 max-w-[140px]"):
+                            with ui.column().classes("gap-0 max-w-[150px]"):
                                 ui.label(f"#{idx} {grp_name[:16]}").classes("font-bold text-xs text-[var(--mp-text)] truncate")
-                                if leaders_raw:
-                                    top_sym = leaders_raw.split(",")[0].strip()
-                                    ui.button(f"★ {top_sym}", on_click=lambda s=top_sym: select_symbol(s)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
-                            ui.label(f"{delta:+.1f}pp").classes("text-xs font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400"))
+                                with ui.row().classes("items-center gap-1"):
+                                    if state_lbl:
+                                        ui.label(state_lbl).classes("text-[9px] font-mono text-[var(--mp-muted)]")
+                                    if leaders_raw:
+                                        top_sym = leaders_raw.split(",")[0].strip()
+                                        ui.button(f"★ {top_sym}", on_click=lambda s=top_sym: select_symbol(s)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
+                            ui.label(f"Δ {delta:+.1f}pp").classes("text-xs font-mono font-bold " + ("text-emerald-400" if delta >= 0 else "text-rose-400"))
 
             # Card 3: Setup Queues Navigation
             queue_nav_card = ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]")

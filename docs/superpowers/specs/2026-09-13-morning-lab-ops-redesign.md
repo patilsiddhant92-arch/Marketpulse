@@ -221,3 +221,18 @@ When greenlit to code:
 - All-builds plan: `docs/superpowers/plans/2026-09-12-marketpulse-all-builds.md`
 - UC lift: `docs/research/2026-09-12-uc-lift-summary.md`
 - UI Desk ranked review (2026-09-13): keep/cut/merge + wire adopted into this doc
+
+---
+
+## 12. Sector Intel unify (added 2026-09-13)
+
+User-approved product name and mount:
+
+1. Primary nav label **Sector Intel** (replaces bare "Sectors").
+2. **Default view** = money-flow / Δ SHARE (`sector_board` v2).
+3. **Secondary views** from `sector_intel`: RRG · Turnover · 52W highs · Breadth divergence.
+4. Taxonomy tree is not a primary view (buried/dropped from Morning path).
+5. Action Desk STEP 2 / matrix peer-rank + group Δ SHARE must use the **same sector read-model** — no second formula.
+
+Morning wire update: Sector Intel is the Morning secondary destination (with Brief), not a generic "Sectors" drawer.
+

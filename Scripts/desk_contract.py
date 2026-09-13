@@ -256,6 +256,39 @@ def exposure_playbook_line(rule: Mapping[str, Any]) -> str:
     )
 
 
+
+def brief_fields_from_gate(gate: Mapping[str, Any]) -> dict[str, Any]:
+    """Overview/Brief posture copy compiled from the Action Desk exposure gate.
+
+    Allocation band and stance are the gate's own pct/state — never a second formula.
+    Cash stance is the complement of the exposure band for Brief display only.
+    """
+    gid = str(gate.get("id") or "risk_off")
+    cash_by_id = {
+        "aggressive": "0% – 25% Cash",
+        "constructive": "25% – 50% Cash",
+        "selective": "50% – 75% Cash",
+        "risk_off": "85% – 100% Cash",
+    }
+    tone_by_id = {
+        "aggressive": "positive",
+        "constructive": "info",
+        "selective": "warning",
+        "risk_off": "negative",
+    }
+    pct = str(gate.get("pct") or "")
+    state = str(gate.get("state") or gid)
+    return {
+        "exposure_id": gid,
+        "exposure_pct": pct,
+        "exposure_state": state,
+        "posture_title": f"{state} ({pct} Allocation)",
+        "cash_recommendation": cash_by_id.get(gid, "85% – 100% Cash"),
+        "posture_desc": str(gate.get("guidance") or ""),
+        "regime_tone": tone_by_id.get(gid, "negative"),
+    }
+
+
 def match_exposure(args: Mapping[str, Any]) -> dict[str, Any]:
     """First matching EXPOSURE_RULES entry wins.
 
