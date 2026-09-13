@@ -340,6 +340,8 @@ def evaluate_squeeze_bar(
     open_price: float | None = None,
     ema20: float | None = None,
     *,
+    rvol: float | None = None,
+    ema10_prev: float | None = None,
     max_squeeze_pct: float | None = None,
     max_candle_range_pct: float | None = None,
     require_ohlc_inside: bool = True,
@@ -416,6 +418,16 @@ def evaluate_squeeze_bar(
         ceiling_ok = (h <= top * ceiling_tol) and (o <= top * ceiling_tol) and (c <= top * ceiling_tol)
         range_ok = (not np.isfinite(candle_range_pct)) or (candle_range_pct <= max_range)
         qualifies = qualifies and ceiling_ok and close_ok and floor_ok and range_ok
+
+    # Approach A hard gates (optional args keep pure-geometry unit tests working).
+    e10_prev = _f(ema10_prev)
+    if np.isfinite(e10_prev):
+        qualifies = qualifies and (e10 > e10_prev)
+
+    if rvol is not None:
+        max_rvol = float(params.get("max_rvol", DARVAS.get("max_rvol", 1.0)))
+        rv = _f(rvol)
+        qualifies = qualifies and np.isfinite(rv) and (rv <= max_rvol)
 
     return {
         "qualifies": bool(qualifies),
@@ -620,6 +632,15 @@ def squeeze_frame(
             else:
                 ema20 = pd.Series(closes).ewm(span=20, adjust=False).mean().to_numpy()
 
+        rvol_col = _pick_col(g, "rvol", "rel_volume")
+        rvols = g[rvol_col].to_numpy(dtype=float) if rvol_col else np.full(len(g), np.nan)
+
+        def _bar_rvol(i: int) -> float | None:
+            if rvol_col is None:
+                return None
+            rv = rvols[i] if i < len(rvols) else np.nan
+            return float(rv) if np.isfinite(rv) else None
+
         last_state = evaluate_squeeze_bar(
             closes[-1],
             top_box[-1],
@@ -629,6 +650,8 @@ def squeeze_frame(
             low=lows[-1],
             open_price=opens[-1],
             ema20=ema20[-1],
+            rvol=_bar_rvol(len(g) - 1),
+            ema10_prev=float(ema10[-2]) if len(ema10) >= 2 else None,
             cfg=params,
         )
         sq_now = last_state["squeeze_pct"]
@@ -638,9 +661,17 @@ def squeeze_frame(
         sq_5w = sq_prior if weekly else np.nan
         tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_now < sq_prior)
 
+        # Approach A: tightening is a hard gate when the 5-bar prior spread is finite.
+        qualifies = bool(last_state["qualifies"])
+        if np.isfinite(sq_prior):
+            qualifies = qualifies and tightening
+        # Dry-vol gate applies only when rvol is present (evaluate_squeeze_bar).
+        # Action Desk hist query must SELECT rvol so production never skips it.
+
         squeeze_age = 0
         for i in range(len(g) - 1, -1, -1):
             e20_i = ema20[i] if i < len(ema20) else np.nan
+            e10_prev_i = float(ema10[i - 1]) if i >= 1 else None
             bar_ok = evaluate_squeeze_bar(
                 closes[i],
                 top_box[i],
@@ -650,6 +681,8 @@ def squeeze_frame(
                 low=lows[i],
                 open_price=opens[i],
                 ema20=e20_i,
+                rvol=_bar_rvol(i),
+                ema10_prev=e10_prev_i,
                 cfg=params,
             )["qualifies"]
             if not bar_ok:
@@ -670,7 +703,7 @@ def squeeze_frame(
                 "ema_floor": last_state["ema_floor"],
                 "candle_range_pct": last_state["candle_range_pct"],
                 "box_age_sessions": _box_age_sessions(top_box),
-                "qualifies": bool(last_state["qualifies"]),
+                "qualifies": bool(qualifies),
             }
         )
 
@@ -714,3 +747,125 @@ def apply_display_window(
     n = int(len(ranked))
     w = int(window if window is not None else DARVAS["display_window"])
     return ranked.head(w).reset_index(drop=True), n
+
+
+def classify_darvas_10ema_frame(
+    daily: pd.DataFrame,
+    *,
+    cfg: dict[str, Any] | None = None,
+    thrust_lookback: int = 10,
+    min_thrust_pct: float = 3.0,
+    min_thrust_rvol: float = 1.5,
+    max_away_ema_pct: float = 1.5,
+    catchup_high_tol_pct: float = 2.0,
+) -> pd.DataFrame:
+    """Classify post-thrust Darvas 10 EMA setups: Pullback | Catch-up.
+
+    Shared gates: rising 10 EMA, dry/shallow volume (rvol <= DARVAS max_rvol),
+    and a thrust in the prior `thrust_lookback` sessions.
+    Pullback: close walks back to 10 EMA (|away| <= max_away_ema_pct).
+    Catch-up: close held near recent highs while 10 EMA rises into the zone.
+    """
+    params = dict(DARVAS)
+    if cfg:
+        params.update(cfg)
+    max_rvol = float(params.get("max_rvol", 1.0))
+    cols = [
+        "symbol",
+        "flavor",
+        "ema_10",
+        "away_10ema_pct",
+        "rvol",
+        "thrust_pct",
+        "qualifies",
+    ]
+    empty = pd.DataFrame(columns=cols)
+    if daily is None or daily.empty:
+        return empty
+
+    frame = daily.copy()
+    sym_col = _pick_col(frame, "symbol")
+    date_col = _pick_col(frame, "trade_date", "date")
+    open_col = _pick_col(frame, "open_price", "open")
+    high_col = _pick_col(frame, "high_price", "high")
+    low_col = _pick_col(frame, "low_price", "low")
+    close_col = _pick_col(frame, "close_price", "close")
+    if not all([sym_col, date_col, high_col, low_col, close_col]):
+        return empty
+    ema10_col = _pick_col(frame, "ema_10", "ema10")
+    rvol_col = _pick_col(frame, "rvol", "rel_volume")
+    if ema10_col is None or rvol_col is None:
+        return empty
+
+    rows: list[dict[str, Any]] = []
+    for sym, group in frame.groupby(sym_col, sort=False):
+        g = group.sort_values(date_col)
+        if len(g) < max(6, thrust_lookback):
+            continue
+        closes = g[close_col].to_numpy(dtype=float)
+        highs = g[high_col].to_numpy(dtype=float)
+        ema10 = g[ema10_col].to_numpy(dtype=float)
+        rvols = g[rvol_col].to_numpy(dtype=float)
+        i = len(g) - 1
+        e10 = float(ema10[i])
+        e10_prev = float(ema10[i - 1])
+        c = float(closes[i])
+        rv = float(rvols[i])
+        if not (np.isfinite(e10) and np.isfinite(e10_prev) and np.isfinite(c) and np.isfinite(rv)):
+            continue
+        if e10 <= e10_prev:
+            continue
+        if rv > max_rvol:
+            continue
+
+        # Prior thrust window excludes the signal bar.
+        start = max(0, i - int(thrust_lookback))
+        thrust_pct = 0.0
+        saw_thrust = False
+        for j in range(start, i):
+            prev_c = closes[j - 1] if j > 0 else np.nan
+            if not np.isfinite(prev_c) or prev_c <= 0:
+                continue
+            day_pct = (closes[j] / prev_c - 1.0) * 100.0
+            prior_high = highs[j - 1] if j > 0 else np.nan
+            rvol_j = rvols[j]
+            thrust_day = (day_pct >= min_thrust_pct) or (
+                np.isfinite(rvol_j)
+                and rvol_j >= min_thrust_rvol
+                and np.isfinite(prior_high)
+                and closes[j] > prior_high
+            )
+            if thrust_day:
+                saw_thrust = True
+                thrust_pct = max(thrust_pct, float(day_pct))
+        if not saw_thrust:
+            continue
+
+        away = ((c / e10) - 1.0) * 100.0
+        recent_high = float(np.nanmax(highs[max(0, i - 9) : i + 1]))
+        near_highs = np.isfinite(recent_high) and recent_high > 0 and ((recent_high - c) / recent_high) * 100.0 <= catchup_high_tol_pct
+
+        flavor: str | None = None
+        if abs(away) <= max_away_ema_pct and c >= e10 * 0.99:
+            flavor = "Pullback"
+        elif near_highs and away > 0.5:
+            # Held highs while EMA catches up (still rising, dry).
+            flavor = "Catch-up"
+        if flavor is None:
+            continue
+
+        rows.append(
+            {
+                "symbol": sym,
+                "flavor": flavor,
+                "ema_10": e10,
+                "away_10ema_pct": round(away, 2),
+                "rvol": round(rv, 3),
+                "thrust_pct": round(thrust_pct, 2),
+                "qualifies": True,
+            }
+        )
+
+    if not rows:
+        return empty
+    return pd.DataFrame(rows, columns=cols)

@@ -19,7 +19,9 @@ def test_action_desk_queue_dict_uses_near_pivot():
     src = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
     assert '"near_pivot": vcp_df' in src
     assert '"vcp": vcp_df' not in src
-    assert 'initial_queue = "near_pivot"' in src
+    assert 'initial_queue = "darvas"' in src
+    assert "darvas_10ema" in src
+    assert ("MORE SETUPS" in src) or ("MORE_QUEUES" in src)
     assert '"uc_flag"' in src
 
 

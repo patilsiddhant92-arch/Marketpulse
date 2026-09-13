@@ -36,6 +36,7 @@ QUEUE_DISPLAY_CAPS = dict(
     episodic=15,
     high52=15,
     darvas=40,  # display window; button shows unclipped count (wired in PR 5)
+    darvas_10ema=40,
     silent_coil=25,
     stair_step=25,
     spike_pause=25,
@@ -45,6 +46,7 @@ QUEUE_DISPLAY_CAPS = dict(
 DARVAS = dict(
     max_squeeze_pct=5.0,
     max_range_pct=4.0,
+    max_rvol=1.0,  # Approach A: dry/shallow volume hard gate (kills MAXHEALTH-class wet coils)
     ceiling_tol=1.002,
     wick_floor_tol=0.995,
     close_floor_tol=0.998,
@@ -59,71 +61,105 @@ SECTOR_DEFAULT_SORT = "turnover_share_delta_5d"  # DESC
 SECTOR_DEFAULT_LEVEL = "Broad Industry"  # board only; query_sector_rotation_overview default stays "Sector"
 
 ACTION_DESK_SUBTITLE = (
-    "Executive swing trading command center: Exposure gate, leading themes, and 8 setup queues."
+    "Executive swing trading command center: Exposure gate, leading themes, Darvas Squeeze + Darvas 10 EMA primary; other setups under More."
 )
 
 # Queue key matches the setup: near_pivot (never "vcp" — that lied about the engine).
 QUEUE_META = {
+    "darvas": {
+        "title": "1. Darvas Squeeze",
+        "short_title": "1. Darvas Squeeze",
+        "desc": (
+            "Dry coil under TopBox into a rising 10 EMA (tightening Top↔EMA, rvol ≤ 1.0). "
+            "Approach A primary."
+        ),
+        "tv_key": "darvas",
+        "cap_key": "darvas",
+        "tier": "primary",
+    },
+    "darvas_10ema": {
+        "title": "2. Darvas 10 EMA",
+        "short_title": "2. Darvas 10 EMA",
+        "desc": (
+            "Post-thrust dry setups: Pullback (price to rising 10 EMA) or Catch-up "
+            "(10 EMA rises into held highs). Approach A primary."
+        ),
+        "tv_key": "darvas_10ema",
+        "cap_key": "darvas_10ema",
+        "tier": "primary",
+    },
     "near_pivot": {
-        "title": "1. Near 20D Pivot",
-        "short_title": "1. Near 20D Pivot",
+        "title": "Near 20D Pivot",
+        "short_title": "Near 20D Pivot",
         "desc": (
             "RS ≥ 70 names coiled within 3.5% of the 20-day high. "
-            "Near-pivot scan — not a successive-contraction VCP engine. No stop-loss filter."
+            "Near-pivot scan — not a successive-contraction VCP engine. Lab / More setups."
         ),
         "tv_key": "near_pivot",
         "cap_key": "near_pivot",
+        "tier": "more",
     },
     "pullback": {
-        "title": "2. 10/20 EMA Pullbacks",
-        "short_title": "2. EMA Pullbacks",
-        "desc": "High-RS trend leaders resting orderly on 10/20 EMA support with dry pullback volume.",
+        "title": "10/20 EMA Pullbacks",
+        "short_title": "EMA Pullbacks",
+        "desc": "High-RS trend leaders resting orderly on 10/20 EMA support with dry pullback volume. Lab / More setups.",
         "tv_key": "pullback",
         "cap_key": "pullback",
+        "tier": "more",
     },
     "episodic": {
-        "title": "3. Episodic Pivots (High RVOL)",
-        "short_title": "3. Episodic Pivots",
-        "desc": "Explosive 2x+ RVOL surges out of base with tight day-low stop invalidation.",
+        "title": "Episodic Pivots (High RVOL)",
+        "short_title": "Episodic Pivots",
+        "desc": "Explosive 2x+ RVOL surges out of base with tight day-low stop invalidation. Lab / More setups.",
         "tv_key": "episodic",
         "cap_key": "episodic",
+        "tier": "more",
     },
     "high52": {
-        "title": "4. 52W High Breakouts",
-        "short_title": "4. 52W Breakouts",
-        "desc": "Market leaders printing or testing fresh 52-week highs with volume thrust.",
+        "title": "52W High Breakouts",
+        "short_title": "52W Breakouts",
+        "desc": "Market leaders printing or testing fresh 52-week highs with volume thrust. Lab / More setups.",
         "tv_key": "high52",
         "cap_key": "high52",
-    },
-    "darvas": {
-        "title": "5. Darvas 10/20 EMA Squeeze",
-        "short_title": "5. Darvas Squeeze",
-        "desc": "OHLC strictly inside the box in near range, squeezed into Green Line (TopBox) and rising 10/20 EMA.",
-        "tv_key": "darvas",
-        "cap_key": "darvas",
+        "tier": "more",
     },
     "silent_coil": {
-        "title": "6. Silent Coil (VDU at 10/20 EMA)",
-        "short_title": "6. Silent Coil",
-        "desc": "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with high delivery accumulation.",
+        "title": "Silent Coil (VDU at 10/20 EMA)",
+        "short_title": "Silent Coil",
+        "desc": "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA. Lab / More setups.",
         "tv_key": "silent_coil",
         "cap_key": "silent_coil",
+        "tier": "more",
     },
     "stair_step": {
-        "title": "7. Volume Stair-Step (RVOL Escalation)",
-        "short_title": "7. Stair-Step",
-        "desc": "RVOL expanding day-over-day at 10/20 EMA support before the breakout.",
+        "title": "Volume Stair-Step (RVOL Escalation)",
+        "short_title": "Stair-Step",
+        "desc": "RVOL expanding day-over-day at 10/20 EMA support before the breakout. Lab / More setups.",
         "tv_key": "stair_step",
         "cap_key": "stair_step",
+        "tier": "more",
     },
     "spike_pause": {
-        "title": "8. Spike-Pause (Pre-Blast Consolidation)",
-        "short_title": "8. Spike-Pause",
-        "desc": "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA (high-tight flag).",
+        "title": "Spike-Pause (Pre-Blast Consolidation)",
+        "short_title": "Spike-Pause",
+        "desc": "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause on 10/20 EMA. Lab / More setups.",
         "tv_key": "spike_pause",
         "cap_key": "spike_pause",
+        "tier": "more",
     },
 }
+
+PRIMARY_QUEUES = ("darvas", "darvas_10ema")
+MORE_QUEUES = (
+    "near_pivot",
+    "pullback",
+    "episodic",
+    "high52",
+    "silent_coil",
+    "stair_step",
+    "spike_pause",
+)
+
 
 
 def _when_aggressive(a: Mapping[str, Any]) -> bool:
@@ -591,6 +627,8 @@ __all__ = [
     "SECTOR_DEFAULT_LEVEL",
     "ACTION_DESK_SUBTITLE",
     "QUEUE_META",
+    "PRIMARY_QUEUES",
+    "MORE_QUEUES",
     "EXPOSURE_RULES",
     "match_exposure",
     "format_exposure_guidance",

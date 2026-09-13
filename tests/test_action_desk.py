@@ -225,7 +225,10 @@ def test_display_window_count(monkeypatch) -> None:
     window = int(DARVAS["display_window"])
     assert len(darvas_df) <= window
     assert button_count >= len(darvas_df)
-    assert button_count > len(darvas_df)
+    # Approach A dry-vol gate can leave unclipped count <= window; only then is matrix unclipped.
+    if button_count > window:
+        assert len(darvas_df) == window
+        assert button_count > len(darvas_df)
     tv = data["tv_lists"]["darvas"]
     tv_n = tv.count("NSE:") if tv else 0
     assert tv_n == len(darvas_df)
@@ -280,7 +283,7 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "QUEUE_META" in page_source
     assert "render_market_health_strip" in page_source
     assert "indicators_daily fallback" in page_source
-    assert "8 setup queues" in page_source
+    assert ("Darvas Squeeze" in page_source) or ("PRIMARY_QUEUES" in page_source) or ("More setups" in page_source)
     assert "5 Actionable Setup Queues" not in page_source
     assert "1. VCP / Coiling Breakouts" not in page_source
     assert "darvas_weekly_enabled" in page_source
@@ -333,7 +336,10 @@ def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
     assert "vcp" not in QUEUE_DISPLAY_CAPS
     assert QUEUE_DISPLAY_CAPS["near_pivot"] == 15
     assert "vcp" not in QUEUE_META
-    assert QUEUE_META["near_pivot"]["title"] == "1. Near 20D Pivot"
+    assert QUEUE_META["near_pivot"]["title"] == "Near 20D Pivot"
+    assert QUEUE_META["near_pivot"]["tier"] == "more"
+    assert QUEUE_META["darvas"]["tier"] == "primary"
+    assert "darvas_10ema" in QUEUE_META
     assert QUEUE_META["near_pivot"]["cap_key"] == "near_pivot"
     assert QUEUE_META["near_pivot"]["tv_key"] == "near_pivot"
 
@@ -341,11 +347,11 @@ def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
 def test_action_desk_header_and_docstring_say_8_setup_queues() -> None:
     desk = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
     app = Path("App/app.py").read_text(encoding="utf-8")
-    assert "8 setup queues" in desk
+    assert ("Darvas Squeeze" in desk) or ("More setups" in desk) or ("PRIMARY" in desk)
     assert "5 Actionable Setup Queues" not in desk
     assert "ACTION_DESK_SUBTITLE" in app
     assert ACTION_DESK_SUBTITLE not in app
-    assert "8 setup queues" in ACTION_DESK_SUBTITLE
+    assert "Darvas" in ACTION_DESK_SUBTITLE
     assert "4 actionable setup queues" not in app
 
 

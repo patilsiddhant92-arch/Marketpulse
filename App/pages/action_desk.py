@@ -3,7 +3,7 @@ Action Desk: Executive Swing Trading Command Center.
 Provides a 3-step actionable workflow:
 1. Market Exposure Gate (Recommended Exposure % and Stop Discipline)
 2. Leading Sector Themes (Institutional Money Flow)
-3. The 8 setup queues (Near 20D Pivot, EMA Pullback, Episodic Pivot, 52W Breakout, Darvas Squeeze, Silent Coil, Stair-Step, Spike-Pause)
+3. Primary setups: Darvas Squeeze + Darvas 10 EMA (Pullback/Catch-up); other queues under More setups
 """
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ from App.indicators.darvas import (
     is_darvas_10ema_squeeze,
     is_darvas_10ema_squeeze_legacy,
     squeeze_frame,
+    classify_darvas_10ema_frame,
 )
 try:
     from App.thematic_engine import get_macro_pulse, get_stock_thematic_tags
@@ -58,9 +59,9 @@ except ModuleNotFoundError:
     from ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner  # type: ignore
 
 try:
-    from Scripts.desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure
+    from Scripts.desk_contract import DARVAS, MORE_QUEUES, POOL, PRIMARY_QUEUES, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure
 except ModuleNotFoundError:
-    from desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
+    from desk_contract import DARVAS, MORE_QUEUES, POOL, PRIMARY_QUEUES, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
 try:
     from App.ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix
@@ -394,7 +395,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     ORDER BY trade_date DESC 
                     LIMIT {int(fetch_lookback)}
                 )
-                SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20
+                SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20, i.rvol
                 FROM indicators_daily i
                 JOIN pool_syms_tbl p ON i.symbol = p.symbol
                 JOIN dates d ON i.trade_date = d.trade_date
@@ -582,6 +583,44 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
     darvas_df, darvas_count = _assemble_darvas_queue(darvas_cand_df, v2=use_v2)
 
+    # -------------------------------------------------------------
+    # Queue: Darvas 10 EMA (Pullback / Catch-up) — Approach A primary
+    # -------------------------------------------------------------
+    darvas_10ema_df = pd.DataFrame()
+    if not darvas_hist_daily.empty and not setup_pool.empty:
+        flav = classify_darvas_10ema_frame(darvas_hist_daily)
+        if not flav.empty:
+            if not darvas_df.empty and "symbol" in darvas_df.columns:
+                flav = flav[~flav["symbol"].isin(set(darvas_df["symbol"].astype(str)))].copy()
+            # Avoid merge collisions with setup_pool (ema_10, rvol, away_10ema_pct).
+            flav_slim = flav[["symbol", "flavor", "thrust_pct", "away_10ema_pct", "rvol"]].rename(
+                columns={
+                    "rvol": "flavor_rvol",
+                    "away_10ema_pct": "flavor_away_10ema_pct",
+                }
+            )
+            darvas_10ema_df = setup_pool.merge(flav_slim, on="symbol", how="inner")
+            if not darvas_10ema_df.empty:
+                darvas_10ema_df["trigger_price"] = darvas_10ema_df["ema_10"].round(2)
+                darvas_10ema_df["stop_loss"] = (darvas_10ema_df["ema_10"] * 0.985).round(2)
+                darvas_10ema_df["risk_pct"] = (
+                    (darvas_10ema_df["trigger_price"] / darvas_10ema_df["stop_loss"] - 1.0) * 100.0
+                ).round(2)
+                darvas_10ema_df["setup_type"] = "Darvas 10 EMA"
+                darvas_10ema_df["why_now"] = [
+                    f"{fl} after thrust {tp:.1f}% · dry rvol {rv:.2f} · away 10EMA {aw:+.1f}%"
+                    for fl, tp, rv, aw in zip(
+                        darvas_10ema_df["flavor"],
+                        darvas_10ema_df["thrust_pct"],
+                        darvas_10ema_df["flavor_rvol"],
+                        darvas_10ema_df["flavor_away_10ema_pct"],
+                    )
+                ]
+                darvas_10ema_df = darvas_10ema_df.sort_values(
+                    ["flavor", "flavor_away_10ema_pct"], ascending=[True, True]
+                ).head(QUEUE_DISPLAY_CAPS.get("darvas_10ema", 40))
+
+
     darvas_weekly_df = pd.DataFrame()
     darvas_count_weekly = 0
     if use_weekly and not darvas_hist.empty:
@@ -733,6 +772,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "episodic": ep_df,
             "high52": h52_df,
             "darvas": darvas_df,
+            "darvas_10ema": darvas_10ema_df,
             "darvas_weekly": darvas_weekly_df,
             "silent_coil": sc_df,
             "stair_step": vss_df,
@@ -744,6 +784,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "episodic": to_tv_list(ep_df["symbol"].tolist()) if not ep_df.empty else "",
             "high52": to_tv_list(h52_df["symbol"].tolist()) if not h52_df.empty else "",
             "darvas": to_tv_list(darvas_df["symbol"].tolist()) if not darvas_df.empty else "",
+            "darvas_10ema": to_tv_list(darvas_10ema_df["symbol"].tolist()) if not darvas_10ema_df.empty else "",
             "darvas_weekly": to_tv_list(darvas_weekly_df["symbol"].tolist()) if not darvas_weekly_df.empty else "",
             "silent_coil": to_tv_list(sc_df["symbol"].tolist()) if not sc_df.empty else "",
             "stair_step": to_tv_list(vss_df["symbol"].tolist()) if not vss_df.empty else "",
@@ -755,6 +796,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     + ep_df["symbol"].tolist()
                     + h52_df["symbol"].tolist()
                     + darvas_df["symbol"].tolist()
+                    + (darvas_10ema_df["symbol"].tolist() if not darvas_10ema_df.empty else [])
                     + (sc_df["symbol"].tolist() if not sc_df.empty else [])
                     + (vss_df["symbol"].tolist() if not vss_df.empty else [])
                     + (sp_df["symbol"].tolist() if not sp_df.empty else [])
@@ -1013,9 +1055,9 @@ def build_action_desk_page(
         queue_meta["darvas"] = darvas_meta
 
     # Initial selection
-    initial_queue = "near_pivot"
+    initial_queue = "darvas"
     initial_sym = ""
-    for q_key in ("near_pivot", "pullback", "episodic", "high52", "darvas", "silent_coil", "stair_step", "spike_pause"):
+    for q_key in list(PRIMARY_QUEUES) + list(MORE_QUEUES):
         q_df = queues.get(q_key, pd.DataFrame())
         if not q_df.empty and "symbol" in q_df.columns:
             if not initial_sym:
@@ -1032,7 +1074,7 @@ def build_action_desk_page(
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "peer", "uc_flag", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
+        "symbol", "flavor", "peer", "uc_flag", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
         "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
     ]
 
@@ -1137,21 +1179,14 @@ def build_action_desk_page(
             queue_nav_card.clear()
             ui.label("STEP 3: SETUP QUEUES").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase mb-2")
             with ui.column().classes("w-full gap-1.5"):
-                for q_key, q_info in queue_meta.items():
-                    q_df = _queue_frame(q_key)
-                    if q_key == "darvas":
-                        if _darvas_is_weekly():
-                            count = int(data.get("darvas_count_weekly") or 0)
-                        else:
-                            count = int(data.get("darvas_count") or 0)
-                    else:
-                        count = len(q_df) if not q_df.empty else 0
-                    is_active = (q_key == state["active_queue"])
-                    
+                def _queue_btn(q_key: str) -> None:
+                    q_info = queue_meta[q_key]
+                    count = len(_queue_frame(q_key))
+                    is_active = state["active_queue"] == q_key
                     with ui.button(
                         on_click=lambda k=q_key: set_queue(k)
                     ).classes(
-                        "w-full justify-between items-center px-2.5 py-1.5 rounded text-xs font-semibold text-left transition-colors " +
+                        "w-full justify-between text-left text-xs font-semibold px-2 py-1.5 rounded " +
                         ("bg-emerald-600/20 text-emerald-300 border border-emerald-500/40" if is_active else "bg-[var(--mp-surface-raised)] text-[var(--mp-text)] border border-[var(--mp-border)] hover:bg-[var(--mp-surface-2)]")
                     ).props("dense flat no-caps"):
                         ui.label(q_info["short_title"]).classes("truncate")
@@ -1159,6 +1194,15 @@ def build_action_desk_page(
                             "text-[10px] font-mono px-1.5 py-0.2 rounded font-bold " +
                             ("bg-emerald-500 text-slate-950" if is_active and count > 0 else "bg-slate-800 text-slate-300")
                         )
+
+                ui.label("PRIMARY").classes("text-[9px] font-bold tracking-wider text-emerald-400/80 mt-1")
+                for q_key in PRIMARY_QUEUES:
+                    if q_key in queue_meta:
+                        _queue_btn(q_key)
+                ui.label("MORE SETUPS").classes("text-[9px] font-bold tracking-wider text-[var(--mp-muted)] mt-2")
+                for q_key in MORE_QUEUES:
+                    if q_key in queue_meta:
+                        _queue_btn(q_key)
 
     def render_matrix() -> None:
         with matrix_host:
