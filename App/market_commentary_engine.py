@@ -20,10 +20,10 @@ import numpy as np
 import pandas as pd
 
 try:
-    from App.ui.market_health import load_exposure_inputs
+    from App.ui.market_health import load_exposure_gate_args
     from Scripts.desk_contract import brief_fields_from_gate, match_exposure
 except ModuleNotFoundError:  # pragma: no cover
-    from ui.market_health import load_exposure_inputs  # type: ignore
+    from ui.market_health import load_exposure_gate_args  # type: ignore
     from desk_contract import brief_fields_from_gate, match_exposure  # type: ignore
 
 
@@ -379,26 +379,12 @@ def generate_market_commentary(db_path: Path | str) -> dict[str, Any]:
 
     import duckdb as _duckdb
     with _duckdb.connect(str(db_path), read_only=True) as _gate_con:
-        exp = load_exposure_inputs(
+        gate_args = load_exposure_gate_args(
             _gate_con,
             trade_date=(b_latest["trade_date"] if b_latest is not None else None),
         )
-    vix_val = exp.get("vix")
-    vix_1d = float(exp.get("vix_1d_pct") or 0.0)
-    vix_spike = bool(vix_val is not None and vix_1d >= 10.0)
-    gate = match_exposure(
-        {
-            "adv_pct": float(exp.get("adv_pct") if exp.get("adv_pct") is not None else adv_pct),
-            "ab20_pct": float(exp.get("ab20_pct") if exp.get("ab20_pct") is not None else ab_20),
-            "ab200_pct": float(exp.get("ab200_pct") if exp.get("ab200_pct") is not None else ab_200),
-            "vix": vix_val,
-            "vix_spike": vix_spike,
-            "net_lows_expanding": bool(exp.get("net_lows_expanding")),
-            "count_52w_lows": int(exp.get("count_52w_lows") or 0),
-            "count_52w_highs": int(exp.get("count_52w_highs") or 0),
-            "vix_1d_pct": vix_1d,
-        }
-    )
+    # Same full input set as Action Desk (breadth + VIX + 52W extremes).
+    gate = match_exposure(gate_args)
     brief = brief_fields_from_gate(gate)
     regime_tone = brief["regime_tone"]
     posture_title = brief["posture_title"]

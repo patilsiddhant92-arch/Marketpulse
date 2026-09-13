@@ -464,11 +464,14 @@ def test_exposure_rules_are_four_named_branches() -> None:
 
 def test_action_desk_missing_vix_is_na_not_silent_11_3(tmp_path) -> None:
     """Fails on current main: missing India VIX silently defaulted to 11.3 and still took vix < 15 branches."""
-    source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
-    assert "vix_val = 11.3" not in source
-    assert "VIX n/a" in source
-    assert "nullif(previous_close, 0)" in source
-    assert "nullif(prev_close, 0)" not in source
+    ad_source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
+    mh_source = Path("App/ui/market_health.py").read_text(encoding="utf-8")
+    assert "vix_val = 11.3" not in ad_source
+    assert "vix_val = 11.3" not in mh_source
+    assert "VIX n/a" in ad_source
+    assert "nullif(previous_close, 0)" in mh_source
+    assert "nullif(prev_close, 0)" not in mh_source
+    assert "_mh_resolve_india_vix" in ad_source or "load_exposure_gate_args" in ad_source
 
     db_path = tmp_path / "vix.duckdb"
     with duckdb.connect(str(db_path)) as con:

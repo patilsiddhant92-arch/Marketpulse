@@ -61,9 +61,9 @@ except ModuleNotFoundError:
     from desk_contract import DARVAS, POOL, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
 try:
-    from App.ui.market_health import load_exposure_inputs, render_market_health_strip
+    from App.ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix
 except ModuleNotFoundError:
-    from ui.market_health import load_exposure_inputs, render_market_health_strip  # type: ignore
+    from ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix  # type: ignore
 
 
 def _fmt_exp_pct(val: Any) -> str:
@@ -85,25 +85,10 @@ def _exp_pct_tone(val: Any, threshold: float) -> str:
 
 
 def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[float | None, float]:
-    """Load India VIX for the session. Missing row is (None, 0.0) — never a silent 11.3."""
-    try:
-        vix_res = con.execute(
-            """
-            SELECT close_price,
-                   coalesce(
-                       return_1d_pct,
-                       (close_price / nullif(previous_close, 0) - 1.0) * 100
-                   ) AS vix_1d_pct
-            FROM index_daily
-            WHERE trade_date = ? AND index_name = 'India VIX'
-            """,
-            [trade_date],
-        ).fetchone()
-        if vix_res and vix_res[0] is not None:
-            return round(float(vix_res[0]), 2), round(float(vix_res[1] or 0.0), 1)
-    except Exception:
-        pass
-    return None, 0.0
+    """Delegate to market_health so Overview/Brief share the same VIX source."""
+    return _mh_resolve_india_vix(con, trade_date)
+
+
 
 
 def compute_exposure_gate(
@@ -168,7 +153,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         trade_date_str = str(pd.to_datetime(trade_date).date())
 
         # 2. Market Breadth & Exposure Gate — same breadth_daily row as the health strip.
-        exp_inputs = load_exposure_inputs(con, trade_date=trade_date)
+        exp_inputs = load_exposure_gate_args(con, trade_date=trade_date)
         total_stocks = exp_inputs["total_stocks"]
         adv_pct = exp_inputs["adv_pct"]
         ab20_pct = exp_inputs["ab20_pct"]
@@ -177,23 +162,12 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         breadth_source = exp_inputs["source"]
         breadth_as_of = exp_inputs["as_of"]
 
-        vix_val, vix_1d_pct = resolve_india_vix(con, trade_date)
-
-        # Net 52-Week Highs / Lows Breadth Gate
-        high_low_row = con.execute(
-            """
-            SELECT 
-                count(CASE WHEN away_52w_high_pct >= -2.0 THEN 1 END) AS count_52w_highs,
-                count(CASE WHEN (close_price / nullif(low_52w, 0) - 1.0) <= 0.02 THEN 1 END) AS count_52w_lows
-            FROM indicators_daily
-            WHERE trade_date = ?
-            """,
-            [trade_date],
-        ).fetchone()
-        count_52w_highs = int(high_low_row[0] or 0) if high_low_row else 0
-        count_52w_lows = int(high_low_row[1] or 0) if high_low_row else 0
+        vix_val = exp_inputs["vix"]
+        vix_1d_pct = float(exp_inputs["vix_1d_pct"] or 0.0)
+        count_52w_highs = int(exp_inputs["count_52w_highs"] or 0)
+        count_52w_lows = int(exp_inputs["count_52w_lows"] or 0)
         net_highs = count_52w_highs - count_52w_lows
-        net_lows_expanding = count_52w_lows > count_52w_highs
+        net_lows_expanding = bool(exp_inputs["net_lows_expanding"])
 
         gate = compute_exposure_gate(
             adv_pct=adv_pct,

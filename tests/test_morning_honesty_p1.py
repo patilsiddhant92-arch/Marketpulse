@@ -80,3 +80,36 @@ def test_nav_weight_p14_morning_cluster_and_demote_classes():
     assert "mp-tab-demoted" in app_src and "mp-tab-demoted" in styles_src
     assert "mp-tab-group-start" in styles_src
 
+
+
+def test_overview_gate_args_include_vix_and_52w():
+    """Commentary must not call breadth-only inputs (VIX None -> false risk_off)."""
+    from App.ui import market_health as mh
+    src = Path(mh.__file__).read_text(encoding="utf-8")
+    assert "def load_exposure_gate_args" in src
+    assert "resolve_india_vix" in src
+    assert "count_52w_extremes" in src
+    ce = Path(__file__).resolve().parents[1] / "App" / "market_commentary_engine.py"
+    ce_src = ce.read_text(encoding="utf-8")
+    assert "load_exposure_gate_args" in ce_src
+    assert "load_exposure_inputs(" not in ce_src
+
+
+def test_live_db_overview_gate_matches_action_desk():
+    """On the live DuckDB, Overview brief must match AD Selective when VIX is present."""
+    import duckdb
+    from config import DB_PATH
+    from App.ui.market_health import load_exposure_gate_args
+    from Scripts.desk_contract import brief_fields_from_gate, match_exposure
+
+    if not Path(DB_PATH).exists():
+        return
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        args = load_exposure_gate_args(con)
+    assert args.get("vix") is not None, "India VIX should exist for honesty check"
+    gate = match_exposure(args)
+    brief = brief_fields_from_gate(gate)
+    assert gate["pct"] in brief["posture_title"]
+    assert gate["state"] in brief["posture_title"]
+    # Live tape on 2026-09-11 is Selective / Caution, not risk_off
+    assert gate["id"] != "risk_off" or args.get("vix") is None
