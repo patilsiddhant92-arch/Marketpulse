@@ -314,7 +314,7 @@ def build_deals_page(
                                 "fund_house": r_df["fund_house"],
                                 "tier": r_df["fund_tier"],
                                 "win_rate": r_df["fund_win_rate"].map(lambda w: f"{w:.1f}%" if pd.notna(w) else "—"),
-                                "deal_date": r_df["deal_date"],
+                                "deal_date": pd.to_datetime(r_df["deal_date"], errors="coerce").dt.strftime("%d %b").fillna("—"),
                                 "deal_price": r_df["deal_price"].map(lambda p: f"₹{p:,.2f}"),
                                 "cmp": r_df["cmp"].map(lambda p: f"₹{p:,.2f}"),
                                 "gain_pct": r_df["ret_current"].map(lambda g: f"{g:+.1f}%"),

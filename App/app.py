@@ -641,8 +641,17 @@ def table_from_df(
     formatted_cols: list[str] = []
     compact_kinds = {"signed_return", "level_pct", "distance", "rvol", "signed_delta"}
     for col in list(view.columns):
-        if pd.api.types.is_datetime64_any_dtype(view[col]):
-            view[col] = view[col].dt.strftime("%Y-%m-%d")
+        if pd.api.types.is_datetime64_any_dtype(view[col]) or col in {
+            "latest_deal_date", "trade_date", "deal_date", "buy_date", "sell_date", "last_deal"
+        }:
+            parsed = pd.to_datetime(view[col], errors="coerce")
+            # Trader-friendly short dates: 12 Sep (keeps year only when not current)
+            def _fmt_d(ts):
+                if pd.isna(ts):
+                    return "—"
+                ts = pd.Timestamp(ts)
+                return ts.strftime("%d %b")
+            view[col] = parsed.map(_fmt_d)
             continue
         kind = classify_column(col)
         raw = df[col] if col in df.columns else view[col]
@@ -755,8 +764,8 @@ def table_from_df(
             width, wrap = (72, False)
         elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
             width, wrap = (320, True)
-        elif col in {"deal_when", "trade_date", "latest_deal_date"}:
-            width, wrap = (115, False)
+        elif col in {"deal_when", "trade_date", "latest_deal_date", "deal_date", "last_deal"}:
+            width, wrap = (128, False)
         elif kind == "distance":
             width, wrap = (88, False)
         elif is_num:
@@ -4207,6 +4216,9 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
         out["weight_pct"] = (mv / total_mv * 100.0).round(1)
     else:
         out["weight_pct"] = pd.NA
+    # Default trader scan order: alphabetical by symbol
+    if "symbol" in out.columns:
+        out = out.sort_values("symbol", ascending=True, kind="mergesort").reset_index(drop=True)
     return out
 
 

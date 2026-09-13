@@ -80,6 +80,16 @@ TREE_STATUS_ICONS = {
     "Neutral": "•",
 }
 
+TREE_STATE_CLASS = {
+    "Leading": "mp-tree-state-leading",
+    "Emerging": "mp-tree-state-emerging",
+    "Improving": "mp-tree-state-improving",
+    "Weakening": "mp-tree-state-weakening",
+    "Lagging": "mp-tree-state-lagging",
+    "Neutral": "mp-tree-state-neutral",
+}
+
+
 
 def _extract_event_arg(val: Any) -> str:
     """Safely extract clean string identifier from NiceGUI/Quasar event arguments."""
@@ -323,15 +333,18 @@ def _taxonomy_path(nodes: list[dict[str, Any]], node_id: str) -> list[dict[str, 
 
 def _decorate_taxonomy_tree(nodes: list[dict[str, Any]]) -> None:
     for node in nodes:
+        rotation_state = str(node.get("rotation_state") or "Neutral")
+        node["state_class"] = TREE_STATE_CLASS.get(rotation_state, "mp-tree-state-neutral")
         if node.get("level") == "Stock":
             market_cap = float(node.get("market_cap_cr") or 0.0)
             node["display_label"] = f"{node['name']} · ₹{market_cap:,.0f} Cr"
+            node["state_class"] = "mp-tree-state-neutral"
         else:
-            rotation_state = str(node.get("rotation_state") or "Neutral")
-            icon = TREE_STATUS_ICONS.get(rotation_state, "•")
+            icon = TREE_STATUS_ICONS.get(rotation_state, "·")
             total_stocks = int(node.get("stock_count") or 0)
             node["display_label"] = f"{icon} {node['name']} · {rotation_state} · {total_stocks}"
         _decorate_taxonomy_tree(node.get("children", []))
+
 
 
 def _descendant_group_names(node: dict[str, Any], grain: str) -> list[str]:
@@ -550,6 +563,14 @@ def _build_sector_v2_page(
                                     )
                                     .classes("w-full mp-taxonomy-tree")
                                     .props("dense no-connectors")
+                                )
+                                tree.add_slot(
+                                    "default-header",
+                                    """
+                                    <div class="row items-center no-wrap q-tree__node-header-content">
+                                      <div :class="props.node.state_class || 'mp-tree-state-neutral'">{{ props.node.display_label }}</div>
+                                    </div>
+                                    """,
                                 )
                                 current_id = str(state.get("selected_node_id") or "")
                                 current_path = _taxonomy_path(pruned, current_id)

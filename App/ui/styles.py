@@ -224,8 +224,10 @@ STYLES_HTML = """
           .mp-page-subtitle { color: var(--mp-muted); margin-bottom: 6px; font-size: var(--mp-text-sm); }
           .mp-section-title { font-size: var(--mp-text-lg); font-weight: 700; color: var(--mp-text); letter-spacing: 0px; margin: 4px 0 2px; }
 
+          /* Freeze chrome: beat Quasar .q-header--fixed so header+nav stay put while pages scroll */
+          .q-header.mp-header,
           .mp-header {
-            background: var(--mp-surface);
+            background: var(--mp-surface) !important;
             color: var(--mp-text);
             border-bottom: 1px solid var(--mp-border);
             box-shadow: var(--mp-shadow-sm);
@@ -233,8 +235,8 @@ STYLES_HTML = """
             height: auto;
             padding: 8px 20px;
             font-size: var(--mp-text-base);
-            position: sticky;
-            top: 0;
+            position: sticky !important;
+            top: 0 !important;
             z-index: 3000;
             display: flex;
             align-items: center;
@@ -289,10 +291,10 @@ STYLES_HTML = """
 
           /* Freeze top chrome: header + tab row */
           .mp-sticky-nav {
-            position: sticky;
+            position: sticky !important;
             top: 48px;
             z-index: 2990;
-            background: var(--mp-surface);
+            background: var(--mp-surface) !important;
             border-bottom: 1px solid var(--mp-border);
             box-shadow: 0 1px 0 rgba(40,37,29,0.04);
             overflow: hidden;
@@ -369,15 +371,17 @@ STYLES_HTML = """
             font-weight: 600 !important;
           }
           @media (max-width: 700px) {
+            .q-header.mp-header,
             .mp-header {
-              position: relative;
+              position: sticky !important;
+              top: 0 !important;
               height: auto;
               min-height: 48px;
               padding: 8px 12px;
               flex-wrap: wrap;
               gap: 4px 8px;
             }
-            .mp-sticky-nav { top: 0; }
+            .mp-sticky-nav { top: 48px; position: sticky !important; }
             .mp-tabs .q-tab { padding: 0 12px !important; }
             .q-page, .q-page-container, .nicegui-content { min-width: 0 !important; max-width: 100vw !important; }
             .q-page-container { padding-top: 0 !important; }
@@ -1536,11 +1540,18 @@ STYLES_HTML = """
           .mp-app-shell [class~="text-emerald-600"] { color: var(--mp-good) !important; }
           /* Sector taxonomy tree state colors */
           .mp-taxonomy-tree .q-tree__node-header-content { color: var(--mp-text); }
-          .mp-taxonomy-tree .mp-tree-state-leading { color: var(--mp-leading) !important; }
-          .mp-taxonomy-tree .mp-tree-state-emerging { color: var(--mp-emerging) !important; }
-          .mp-taxonomy-tree .mp-tree-state-improving { color: var(--mp-emerging) !important; }
-          .mp-taxonomy-tree .mp-tree-state-weakening { color: var(--mp-weakening) !important; }
-          .mp-taxonomy-tree .mp-tree-state-lagging { color: var(--mp-lagging) !important; }
+          .mp-taxonomy-tree .mp-tree-state-leading,
+          .mp-taxonomy-tree .mp-tree-state-leading * { color: var(--mp-leading) !important; font-weight: 700; }
+          .mp-taxonomy-tree .mp-tree-state-emerging,
+          .mp-taxonomy-tree .mp-tree-state-emerging * { color: var(--mp-emerging) !important; font-weight: 700; }
+          .mp-taxonomy-tree .mp-tree-state-improving,
+          .mp-taxonomy-tree .mp-tree-state-improving * { color: var(--mp-emerging) !important; font-weight: 600; }
+          .mp-taxonomy-tree .mp-tree-state-weakening,
+          .mp-taxonomy-tree .mp-tree-state-weakening * { color: var(--mp-weakening) !important; font-weight: 600; }
+          .mp-taxonomy-tree .mp-tree-state-lagging,
+          .mp-taxonomy-tree .mp-tree-state-lagging * { color: var(--mp-lagging) !important; font-weight: 700; }
+          .mp-taxonomy-tree .mp-tree-state-neutral,
+          .mp-taxonomy-tree .mp-tree-state-neutral * { color: var(--mp-muted) !important; font-weight: 500; }
           .mp-app-shell [class~="text-blue-800"],
           .mp-app-shell [class~="text-blue-700"],
           .mp-app-shell [class~="text-blue-600"] { color: var(--mp-info) !important; }

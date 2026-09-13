@@ -164,13 +164,12 @@ def validate_position(command: PositionCommand, latest: MarketSnapshot | Mapping
         errors.append("quantity must be greater than zero")
     if entry is None or entry <= 0:
         errors.append("entry price must be greater than zero")
-    if stop is None or stop <= 0:
-        errors.append("stop price must be greater than zero")
-    if target is None or target <= 0:
-        errors.append("target price must be greater than zero")
-    if entry is not None and stop is not None and stop >= entry:
+    # Stop / target are optional (no interlock). Validate geometry only when set.
+    stop_set = stop is not None and stop > 0
+    target_set = target is not None and target > 0
+    if stop_set and entry is not None and stop >= entry:
         errors.append("stop price must be below entry price")
-    if entry is not None and target is not None and target <= entry:
+    if target_set and entry is not None and target <= entry:
         errors.append("target price must be above entry price")
     buy_date = _as_date(command.buy_date)
     reference_day = today or date.today()
