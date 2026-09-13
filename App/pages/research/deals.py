@@ -154,7 +154,7 @@ def build_deals_page(
     if not deals_status.actionable:
         ui.label(non_actionable_message(deals_status)).classes("mp-badge mp-bad w-full mt-2")
 
-    hft_state = {"exclude_hft": False}
+    hft_state = {"exclude_hft": True}
     confluence_state = {"active": False}
     hub_state = {"lookback_days": 20, "setup_filter": "ALL"}
 
@@ -414,7 +414,7 @@ def build_deals_page(
 
                     with ui.row().classes("items-center gap-3"):
                         hft_chk = ui.checkbox(
-                            "Exclude PROP",
+                            "Institutional only (hide PROP/HFT)",
                             value=hft_state["exclude_hft"],
                             on_change=lambda e: _toggle_hft(e.value),
                         ).props("dense")

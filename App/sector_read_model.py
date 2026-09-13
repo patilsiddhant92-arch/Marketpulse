@@ -1193,6 +1193,35 @@ def _coalesce_live_column(frame: pd.DataFrame, dest: str, live: str) -> None:
         frame[dest] = live_series
 
 
+
+LEADING_ROTATION_STATES = frozenset({"Leading", "Emerging"})
+
+
+def leading_themes_from_board(board: pd.DataFrame, *, limit: int = 4) -> pd.DataFrame:
+    """Action Desk STEP2 / shared 'leading themes' contract.
+
+    A group may appear as Leading only when rotation_state is Leading or Emerging
+    AND 5D turnover-share delta is strictly positive. Lagging/Weakening with a
+    one-day money spike must never wear the Leading badge on STEP2.
+    Sorted by turnover_share_delta_5d DESC (same money-flow grain as Sector Intel).
+    """
+    if board is None or getattr(board, "empty", True):
+        return pd.DataFrame()
+    frame = board.copy()
+    if "rotation_state" not in frame.columns:
+        return frame.head(limit).copy()
+    states = frame["rotation_state"].astype(str).str.strip()
+    ok_state = states.isin(LEADING_ROTATION_STATES)
+    if "turnover_share_delta_5d" in frame.columns:
+        delta = pd.to_numeric(frame["turnover_share_delta_5d"], errors="coerce").fillna(0.0)
+        ok_flow = delta > 0
+        frame = frame.loc[ok_state & ok_flow].copy()
+        frame = frame.sort_values("turnover_share_delta_5d", ascending=False)
+    else:
+        frame = frame.loc[ok_state].copy()
+    return frame.head(int(limit)).reset_index(drop=True)
+
+
 def query_rotation_board(
     db_path: Path,
     *,

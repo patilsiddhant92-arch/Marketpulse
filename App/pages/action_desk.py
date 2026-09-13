@@ -17,9 +17,9 @@ from nicegui import ui
 
 from App.cache_manager import get_cached, set_cached, cache_key
 try:
-    from App.sector_read_model import query_rotation_board
+    from App.sector_read_model import leading_themes_from_board, query_rotation_board
 except ModuleNotFoundError:
-    from sector_read_model import query_rotation_board  # type: ignore
+    from sector_read_model import leading_themes_from_board, query_rotation_board  # type: ignore
 from App.indicators.darvas import (
     DARVAS,
     WEEKLY_LOOKBACK_SESSIONS,
@@ -186,9 +186,10 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         exposure_badge = gate["badge"]
         exposure_guidance = gate["guidance"]
 
-        # 3. Top Leading Themes — same named sort as the Broad Industry board
+        # 3. Top Leading Themes — shared contract with Sector Intel money board
+        # (Leading/Emerging + positive Δ SHARE 5D only; never Lagging wearing Leading)
         board = query_rotation_board(Path(db_path), level="Broad Industry")
-        top_sectors = board.head(4).copy() if not board.empty else pd.DataFrame()
+        top_sectors = leading_themes_from_board(board, limit=4)
         if not top_sectors.empty:
             top_sectors["sector"] = top_sectors["group_name"]
             top_sectors["leaders"] = top_sectors["leader_symbols"] if "leader_symbols" in top_sectors.columns else ""
@@ -1055,10 +1056,12 @@ def build_action_desk_page(
             # Card 2: Leading Sector Themes
             with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
                 with ui.row().classes("w-full items-center justify-between mb-1.5"):
-                    ui.label("STEP 2: LEADING SECTORS").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                    ui.label("STEP 2: LEADING THEMES").classes("text-[11px] font-bold tracking-wider text-[var(--mp-primary)] uppercase")
                     ui.label("Δ 5D Share").classes("text-[9px] text-[var(--mp-muted)] font-mono")
 
                 with ui.column().classes("w-full gap-1.5"):
+                    if themes.empty:
+                        ui.label("No Leading/Emerging + ΔSHARE>0 themes today.").classes("text-[11px] text-[var(--mp-muted)]")
                     for idx, (_, sec) in enumerate(themes.head(3).iterrows(), 1):
                         grp_name = str(sec.get("group_name") or sec.get("sector") or "—")
                         delta = float(sec.get("turnover_share_delta_5d") or 0.0)
