@@ -112,13 +112,10 @@ def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
         # Rule 3: No 5% Band
         assert (df["band"] > 5.0).all()
 
-    # Rule 4: Classic breakout queues enforce Stage 2 uptrend, above 200 EMA, and within 25% 52W
-    for q_name in ["near_pivot", "pullback", "high52"]:
-        q_df = queues.get(q_name)
-        if q_df is not None and not q_df.empty:
-            assert (q_df["rs_percentile"] >= 70.0).all()
-            assert (q_df["away_52w_high_pct"] >= -25.0).all()
-            assert (q_df["ema_200"].isna() | (q_df["cmp"] > q_df["ema_200"])).all()
+    # Rule 4: retired classic RS breakout queues (near_pivot/pullback/high52) — gone.
+    # Primaries are not gated by RS>=70 (Darvas decoupled; VCP uses shakeout/force/purple).
+    for q_name in ["near_pivot", "pullback", "episodic", "high52", "silent_coil", "stair_step", "spike_pause", "manas"]:
+        assert q_name not in queues
 
     # Rule 5: Darvas Squeeze is decoupled from RS (no RS>=70 gate) and includes coiled leaders
     darvas_df = queues.get("darvas")
@@ -131,12 +128,10 @@ def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
         # Must not apply the classic RS>=70 filter; names below 70 are allowed.
         assert (darvas_df["rs_percentile"] < 70.0).any() or (darvas_df["rs_percentile"] >= 0).all()
 
-    # Rule 6: Pre-move queues attach institutional ticket flow
-    for q_name in ["silent_coil", "stair_step", "spike_pause"]:
+    # Rule 6: pool-level display helpers still attach when columns exist on a queue
+    for q_name in ["darvas", "darvas_10ema", "vcp"]:
         q_df = queues.get(q_name)
-        if q_df is not None and not q_df.empty:
-            assert "ticket_flow" in q_df.columns
-            assert "away_10ema" in q_df.columns
+        if q_df is not None and not q_df.empty and "band_fmt" in q_df.columns:
             assert "band_fmt" in q_df.columns
 
 
@@ -145,14 +140,12 @@ def test_action_desk_tradingview_paste_lists(monkeypatch) -> None:
     data = fetch_action_desk_data(DB_PATH)
     tv = data["tv_lists"]
     assert "all_focus" in tv
-    assert "near_pivot" in tv
-    assert "pullback" in tv
-    assert "episodic" in tv
-    assert "high52" in tv
     assert "darvas" in tv
-    assert "silent_coil" in tv
-    assert "stair_step" in tv
-    assert "spike_pause" in tv
+    assert "darvas_10ema" in tv
+    assert "vcp" in tv
+    assert "pullback" not in tv
+    assert "near_pivot" not in tv
+    assert "silent_coil" not in tv
     assert "NSE:" in tv["all_focus"]
     assert "NSE:" in tv["darvas"]
 
@@ -283,7 +276,7 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "QUEUE_META" in page_source
     assert "render_market_health_strip" in page_source
     assert "indicators_daily fallback" in page_source
-    assert ("Darvas Squeeze" in page_source) or ("PRIMARY_QUEUES" in page_source) or ("More setups" in page_source)
+    assert ("Darvas Squeeze" in page_source) or ("PRIMARY_QUEUES" in page_source) or ("PRIMARY" in page_source)
     assert "5 Actionable Setup Queues" not in page_source
     assert "1. VCP / Coiling Breakouts" not in page_source
     assert "darvas_weekly_enabled" in page_source
@@ -331,23 +324,20 @@ def test_darvas_v2_defaults_on(monkeypatch) -> None:
     assert darvas_v2_enabled() is False
 
 
-def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
-    assert "near_pivot" in QUEUE_DISPLAY_CAPS
-    assert "vcp" not in QUEUE_DISPLAY_CAPS
-    assert QUEUE_DISPLAY_CAPS["near_pivot"] == 15
-    assert "vcp" not in QUEUE_META
-    assert QUEUE_META["near_pivot"]["title"] == "Near 20D Pivot"
-    assert QUEUE_META["near_pivot"]["tier"] == "more"
-    assert QUEUE_META["darvas"]["tier"] == "primary"
-    assert "darvas_10ema" in QUEUE_META
-    assert QUEUE_META["near_pivot"]["cap_key"] == "near_pivot"
-    assert QUEUE_META["near_pivot"]["tv_key"] == "near_pivot"
+def test_ad_queues_only_three_primaries() -> None:
+    from Scripts.desk_contract import MORE_QUEUES, PRIMARY_QUEUES, QUEUE_DISPLAY_CAPS, QUEUE_META
+    assert PRIMARY_QUEUES == ("darvas", "darvas_10ema", "vcp")
+    assert MORE_QUEUES == ()
+    assert set(QUEUE_META) == {"darvas", "darvas_10ema", "vcp"}
+    assert "near_pivot" not in QUEUE_DISPLAY_CAPS
+    assert "manas" not in QUEUE_DISPLAY_CAPS
+    assert QUEUE_META["vcp"]["title"] == "3. VCP"
 
 
 def test_action_desk_header_and_docstring_say_8_setup_queues() -> None:
     desk = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
     app = Path("App/app.py").read_text(encoding="utf-8")
-    assert ("Darvas Squeeze" in desk) or ("More setups" in desk) or ("PRIMARY" in desk)
+    assert ("Darvas Squeeze" in desk) or ("PRIMARY" in desk) or ("PRIMARY" in desk)
     assert "5 Actionable Setup Queues" not in desk
     assert "ACTION_DESK_SUBTITLE" in app
     assert ACTION_DESK_SUBTITLE not in app

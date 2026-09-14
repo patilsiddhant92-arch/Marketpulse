@@ -31,16 +31,9 @@ def flag_on(name: str, *, default: bool = False) -> bool:
 POOL = dict(min_mcap=1000.0, min_adv_cr=3.0, min_band=5.0)
 
 QUEUE_DISPLAY_CAPS = dict(
-    near_pivot=15,
-    pullback=15,
-    episodic=15,
-    high52=15,
-    darvas=40,  # display window; button shows unclipped count (wired in PR 5)
+    darvas=40,  # display window; button shows unclipped count
     darvas_10ema=40,
-    manas=40,
-    silent_coil=25,
-    stair_step=25,
-    spike_pause=25,
+    vcp=40,
 )
 
 # Single source of truth for Darvas/squeeze knobs. Imported by Scripts.darvas_squeeze.
@@ -62,16 +55,17 @@ SECTOR_DEFAULT_SORT = "turnover_share_delta_5d"  # DESC
 SECTOR_DEFAULT_LEVEL = "Broad Industry"  # board only; query_sector_rotation_overview default stays "Sector"
 
 ACTION_DESK_SUBTITLE = (
-    "Executive swing trading command center: Exposure gate, leading themes, Darvas Squeeze + Darvas 10 EMA + Manas Focus primary; other setups under More."
+    "Executive swing trading command center: Exposure gate, leading themes, "
+    "Darvas Squeeze + Darvas 10 EMA + VCP only."
 )
 
-# Queue key matches the setup: near_pivot (never "vcp" — that lied about the engine).
+# AD exposes exactly three queues. Retired screeners are deleted, not demoted.
 QUEUE_META = {
     "darvas": {
         "title": "1. Darvas Squeeze",
         "short_title": "1. Darvas Squeeze",
         "desc": (
-            "Dry coil under TopBox into a rising 10 EMA (tightening Top↔EMA, rvol ≤ 1.0). "
+            "Dry coil under TopBox into a rising 10 EMA (tightening Top-EMA, rvol <= 1.0). "
             "Approach A primary."
         ),
         "tv_key": "darvas",
@@ -89,88 +83,22 @@ QUEUE_META = {
         "cap_key": "darvas_10ema",
         "tier": "primary",
     },
-        "manas": {
-        "title": "3. Manas Focus",
-        "short_title": "3. Manas Focus",
+    "vcp": {
+        "title": "3. VCP",
+        "short_title": "3. VCP",
         "desc": (
             "EMA shakeout reclaim with 3M force (>=+30%) and purple density "
-            "(>=3 days |ret|>=5% on vol>=1M). Focus-list ready — not Strong Start."
+            "(>=3 days |ret|>=5% on vol>=1M). Desk VCP v1 — fine-tune later."
         ),
-        "tv_key": "manas",
-        "cap_key": "manas",
+        "tv_key": "vcp",
+        "cap_key": "vcp",
         "tier": "primary",
-    },
-"near_pivot": {
-        "title": "Near 20D Pivot",
-        "short_title": "Near 20D Pivot",
-        "desc": (
-            "RS ≥ 70 names coiled within 3.5% of the 20-day high. "
-            "Near-pivot scan — not a successive-contraction VCP engine. Lab / More setups."
-        ),
-        "tv_key": "near_pivot",
-        "cap_key": "near_pivot",
-        "tier": "more",
-    },
-    "pullback": {
-        "title": "10/20 EMA Pullbacks",
-        "short_title": "EMA Pullbacks",
-        "desc": "High-RS trend leaders resting orderly on 10/20 EMA support with dry pullback volume. Lab / More setups.",
-        "tv_key": "pullback",
-        "cap_key": "pullback",
-        "tier": "more",
-    },
-    "episodic": {
-        "title": "Episodic Pivots (High RVOL)",
-        "short_title": "Episodic Pivots",
-        "desc": "Explosive 2x+ RVOL surges out of base with tight day-low stop invalidation. Lab / More setups.",
-        "tv_key": "episodic",
-        "cap_key": "episodic",
-        "tier": "more",
-    },
-    "high52": {
-        "title": "52W High Breakouts",
-        "short_title": "52W Breakouts",
-        "desc": "Market leaders printing or testing fresh 52-week highs with volume thrust. Lab / More setups.",
-        "tv_key": "high52",
-        "cap_key": "high52",
-        "tier": "more",
-    },
-    "silent_coil": {
-        "title": "Silent Coil (VDU at 10/20 EMA)",
-        "short_title": "Silent Coil",
-        "desc": "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA. Lab / More setups.",
-        "tv_key": "silent_coil",
-        "cap_key": "silent_coil",
-        "tier": "more",
-    },
-    "stair_step": {
-        "title": "Volume Stair-Step (RVOL Escalation)",
-        "short_title": "Stair-Step",
-        "desc": "RVOL expanding day-over-day at 10/20 EMA support before the breakout. Lab / More setups.",
-        "tv_key": "stair_step",
-        "cap_key": "stair_step",
-        "tier": "more",
-    },
-    "spike_pause": {
-        "title": "Spike-Pause (Pre-Blast Consolidation)",
-        "short_title": "Spike-Pause",
-        "desc": "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause on 10/20 EMA. Lab / More setups.",
-        "tv_key": "spike_pause",
-        "cap_key": "spike_pause",
-        "tier": "more",
     },
 }
 
-PRIMARY_QUEUES = ("darvas", "darvas_10ema", "manas")
-MORE_QUEUES = (
-    "near_pivot",
-    "pullback",
-    "episodic",
-    "high52",
-    "silent_coil",
-    "stair_step",
-    "spike_pause",
-)
+PRIMARY_QUEUES = ("darvas", "darvas_10ema", "vcp")
+MORE_QUEUES = ()  # retired — kept empty so UI loops stay safe
+
 
 
 
@@ -539,8 +467,8 @@ ROUTINE_STEPS = [
     ),
     (
         "Minute 6-10",
-        "Scan Silent Coil & Stair-Step",
-        "Look down the center matrix for rows displaying the '🏛️' ticket expansion badge and '10% ⚡' band.",
+        "Scan Darvas Squeeze, 10 EMA, and VCP",
+        "Work the three primary queues. Look for rows displaying the '🏛️' ticket expansion badge and '10% ⚡' band.",
     ),
     (
         "Minute 11-13",
@@ -555,37 +483,18 @@ ROUTINE_STEPS = [
 ]
 
 FIELD_GUIDE_TIPS = {
-    "silent_coil": (
-        "🤫 Silent Coil Field Guide: Look for TICKET 🏛️ >= 1.2x and 10 EMA % within [-1.5%, +1.5%]. "
-        "High delivery (>=50%) with dry volume (RVOL <= 0.70x) indicates smart money accumulation before the move."
-    ),
-    "stair_step": (
-        "📈 Volume Stair-Step Field Guide: RVOL expanding day-over-day at 10/20 EMA support. "
-        "Look for large TICKET 🏛️ expansion (block buyers entering before the breakout)."
-    ),
-    "spike_pause": (
-        "⚡ Spike-Pause Field Guide: High-Tight Flag setup. Stock already made a 10%+ thrust or 2x RVOL surge, "
-        "now resting 2-4 days along 10 EMA on low volume. Buy the pause for the second leg."
-    ),
     "darvas": (
-        f"📦 Darvas Squeeze Field Guide: Price is compressed inside the top {DARVAS['max_squeeze_pct']:.1f}% "
+        f"Darvas Squeeze Field Guide: Price is compressed inside the top {DARVAS['max_squeeze_pct']:.1f}% "
         f"of the Darvas box with rising 10/20 EMA support. Look for squeeze_pct <= {DARVAS['max_squeeze_pct']:.1f}% "
         f"and candle range <= {DARVAS['max_range_pct']:.1f}%."
     ),
-    "near_pivot": (
-        "💎 Near 20D Pivot Field Guide: Stage 2 names within 3.5% of the 20-day high. "
-        "Enter as price breaks the 20-day high with expanding volume. Not a Minervini VCP engine."
+    "darvas_10ema": (
+        "Darvas 10 EMA Field Guide: Post-thrust dry Pullback (price to rising 10 EMA) or Catch-up "
+        "(10 EMA rises into held highs). Wick tests OK if close stays constructive."
     ),
-    "pullback": (
-        "🎯 EMA Pullback Field Guide: High-RS trend leader pulling back to test the rising 10 or 20 EMA "
-        "on low volume in an established uptrend."
-    ),
-    "episodic": (
-        "💥 Episodic Pivot Field Guide: Explosive 2x+ RVOL surge out of base, typically on earnings or macro catalysts. "
-        "Invalidation is the low of the blast day."
-    ),
-    "high52": (
-        "🏆 52W Breakout Field Guide: Printing or testing fresh 52-week highs with leadership relative strength (RS >= 70)."
+    "vcp": (
+        "VCP Field Guide (v1): EMA shakeout reclaim + raw 3M >= +30% + purple density "
+        "(>=3 days |ret|>=5% on vol>=1M). Fine-tune contraction geometry later."
     ),
 }
 

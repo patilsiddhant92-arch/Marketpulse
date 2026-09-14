@@ -3,7 +3,7 @@ Action Desk: Executive Swing Trading Command Center.
 Provides a 3-step actionable workflow:
 1. Market Exposure Gate (Recommended Exposure % and Stop Discipline)
 2. Leading Sector Themes (Institutional Money Flow)
-3. Primary setups: Darvas Squeeze + Darvas 10 EMA (Pullback/Catch-up); other queues under More setups
+3. Primary setups only: Darvas Squeeze + Darvas 10 EMA + VCP (retired queues deleted)
 """
 from __future__ import annotations
 
@@ -64,9 +64,9 @@ except ModuleNotFoundError:
     from desk_contract import DARVAS, MORE_QUEUES, POOL, PRIMARY_QUEUES, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
 try:
-    from Scripts.manas_focus import MANAS, classify_manas_focus_frame
+    from Scripts.vcp import VCP, classify_vcp_frame
 except ModuleNotFoundError:
-    from manas_focus import MANAS, classify_manas_focus_frame  # type: ignore
+    from vcp import VCP, classify_vcp_frame  # type: ignore
 
 
 try:
@@ -411,85 +411,6 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
     # Classify the Setup Queues (No stop loss filter in screeners)
     # -------------------------------------------------------------
-    # Queue 1: Near 20D Pivot (not a successive-contraction VCP engine)
-    # -------------------------------------------------------------
-    vcp_df = setup_pool[
-        (setup_pool["rs_percentile"] >= 70.0)
-        & (setup_pool["away_52w_high_pct"] >= -25.0)
-        & (setup_pool["ema_200"].isna() | (setup_pool["cmp"] > setup_pool["ema_200"]))
-        & (setup_pool["ema_200"].isna() | (setup_pool["ema_50"] > setup_pool["ema_200"]))
-    ].copy() if not setup_pool.empty else pd.DataFrame()
-    if not vcp_df.empty:
-        vcp_df["trigger_price"] = vcp_df["high_20d"].round(2)
-        vcp_df["stop_loss"] = vcp_df[["ema_20", "low_10d"]].max(axis=1).round(2)
-        vcp_df["dist_to_trigger_pct"] = ((vcp_df["trigger_price"] / vcp_df["cmp"] - 1.0) * 100).round(2)
-        vcp_df["risk_pct"] = ((vcp_df["trigger_price"] / vcp_df["stop_loss"] - 1.0) * 100).round(2)
-        vcp_df = vcp_df[
-            vcp_df["dist_to_trigger_pct"].between(0.0, 3.5)
-        ].sort_values(["rs_percentile", "dist_to_trigger_pct"], ascending=[False, True]).head(
-            QUEUE_DISPLAY_CAPS["near_pivot"]
-        )
-        vcp_df["setup_type"] = "Near 20D Pivot"
-        vcp_df["is_vdu"] = vcp_df["rvol"] <= 0.70
-        vcp_df["why_now"] = np.where(
-            vcp_df["is_vdu"],
-            "Coiling <3.5% below pivot with confirmed Volume Dry-Up (VDU)",
-            "Coiling <3.5% below 20D pivot with orderly consolidation",
-        )
-
-    # -------------------------------------------------------------
-    # Queue 2: 10/20 EMA Pullback (Continuation)
-    # -------------------------------------------------------------
-    pb_df = setup_pool[
-        (setup_pool["rs_percentile"] >= 70.0)
-        & (setup_pool["away_52w_high_pct"].between(-25.0, -2.5))
-        & (setup_pool["ema_200"].isna() | (setup_pool["cmp"] > setup_pool["ema_200"]))
-    ].copy() if not setup_pool.empty else pd.DataFrame()
-    if not pb_df.empty:
-        pb_df["trigger_price"] = (pb_df["cmp"] * 1.01).round(2)
-        pb_df["stop_loss"] = (pb_df["ema_20"] * 0.985).round(2)
-        pb_df["risk_pct"] = ((pb_df["cmp"] / pb_df["stop_loss"] - 1.0) * 100).round(2)
-        pb_df = pb_df[
-            ((pb_df["away_10ema_pct"].abs() <= 2.2) | (pb_df["away_20ema_pct"].abs() <= 2.2))
-            & (pb_df["away_52w_high_pct"].between(-18.0, -2.5))
-        ].sort_values("rs_percentile", ascending=False).head(QUEUE_DISPLAY_CAPS["pullback"])
-        pb_df["setup_type"] = "EMA Pullback"
-        pb_df["why_now"] = "Orderly rest on 10/20 EMA support in confirmed uptrend"
-
-    # -------------------------------------------------------------
-    # Queue 3: High RVOL Episodic Pivot
-    # -------------------------------------------------------------
-    ep_df = setup_pool.copy()
-    if not ep_df.empty:
-        ep_df["trigger_price"] = ep_df["high_price"].round(2)
-        ep_df["stop_loss"] = ep_df["low_price"].round(2)
-        ep_df["risk_pct"] = ((ep_df["cmp"] / ep_df["stop_loss"] - 1.0) * 100).round(2)
-        ep_df = ep_df[
-            (ep_df["rvol"] >= 2.0)
-            & (ep_df["day_pct"] >= 2.5)
-        ].sort_values(["rvol", "day_pct"], ascending=[False, False]).head(QUEUE_DISPLAY_CAPS["episodic"])
-        ep_df["setup_type"] = "Episodic Pivot"
-        ep_df["why_now"] = "Explosive 2x+ RVOL surge out of base"
-
-    # -------------------------------------------------------------
-    # Queue 4: 52-Week High Breakout
-    # -------------------------------------------------------------
-    h52_df = setup_pool[
-        (setup_pool["rs_percentile"] >= 70.0)
-        & (setup_pool["away_52w_high_pct"] >= -2.0)
-    ].copy() if not setup_pool.empty else pd.DataFrame()
-    if not h52_df.empty:
-        h52_df["trigger_price"] = (h52_df["cmp"] * 1.005).round(2)
-        h52_df["stop_loss"] = h52_df[["ema_20", "low_10d"]].max(axis=1).round(2)
-        h52_df["risk_pct"] = ((h52_df["cmp"] / h52_df["stop_loss"] - 1.0) * 100).round(2)
-        h52_df = h52_df[
-            (h52_df["away_52w_high_pct"] >= -2.0)
-            & (h52_df["rvol"] >= 1.2)
-        ].sort_values(["rs_percentile", "rvol"], ascending=[False, False]).head(QUEUE_DISPLAY_CAPS["high52"])
-        h52_df["setup_type"] = "52W High Breakout"
-        h52_df["why_now"] = "Printing fresh 52-week high with volume thrust and leadership RS"
-
-    # -------------------------------------------------------------
     # Queue 5: Darvas Box & 10/20 EMA Squeeze (Decoupled from RS)
     # Squeeze into top box and 10 EMA / 20 EMA. No stop-loss filter.
     # Weekly path is behind MP_DARVAS_WEEKLY (completed weeks only).
@@ -629,51 +550,51 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
 
     # -------------------------------------------------------------
-    # Queue: Manas Focus (EMA shakeout + 3M force + purple density)
+    # Queue: VCP (EMA shakeout + 3M force + purple density)
     # -------------------------------------------------------------
-    manas_df = pd.DataFrame()
+    vcp_df = pd.DataFrame()
     if not darvas_hist_daily.empty and not setup_pool.empty:
-        manas_hist = darvas_hist_daily
+        vcp_hist = darvas_hist_daily
         # Prefer full lookback for purple/3M (darvas_hist already 252 when v2)
         if not darvas_hist.empty and len(darvas_hist) >= len(darvas_hist_daily):
-            manas_hist = darvas_hist
-        flav = classify_manas_focus_frame(manas_hist)
+            vcp_hist = darvas_hist
+        flav = classify_vcp_frame(vcp_hist)
         if not flav.empty:
-            manas_slim = flav[["symbol", "purple_n", "ret_3m_pct", "close_location_pct", "ema_rising", "avg_volume_20d"]].copy()
-            manas_df = setup_pool.merge(manas_slim, on="symbol", how="inner")
-            if not manas_df.empty:
+            vcp_slim = flav[["symbol", "purple_n", "ret_3m_pct", "close_location_pct", "ema_rising", "avg_volume_20d"]].copy()
+            vcp_df = setup_pool.merge(vcp_slim, on="symbol", how="inner")
+            if not vcp_df.empty:
                 # Liquidity reinforce: avg_volume_20d >= 200k when column present
-                if "avg_volume_20d" in manas_df.columns:
-                    manas_df = manas_df[
-                        manas_df["avg_volume_20d"].isna()
-                        | (manas_df["avg_volume_20d"] >= float(MANAS.get("min_avg_volume_20d", 200_000)))
+                if "avg_volume_20d" in vcp_df.columns:
+                    vcp_df = vcp_df[
+                        vcp_df["avg_volume_20d"].isna()
+                        | (vcp_df["avg_volume_20d"] >= float(VCP.get("min_avg_volume_20d", 200_000)))
                     ].copy()
-                if "cmp" in manas_df.columns:
-                    manas_df = manas_df[manas_df["cmp"] >= float(MANAS.get("min_close_price", 30.0))].copy()
-                if not manas_df.empty:
-                    manas_df["trigger_price"] = (manas_df["cmp"] * 1.005).round(2)
-                    stop_base = manas_df["ema_20"] if "ema_20" in manas_df.columns else manas_df["ema_10"]
-                    manas_df["stop_loss"] = (stop_base * 0.985).round(2)
-                    manas_df["risk_pct"] = (
-                        (manas_df["trigger_price"] / manas_df["stop_loss"] - 1.0) * 100.0
+                if "cmp" in vcp_df.columns:
+                    vcp_df = vcp_df[vcp_df["cmp"] >= float(VCP.get("min_close_price", 30.0))].copy()
+                if not vcp_df.empty:
+                    vcp_df["trigger_price"] = (vcp_df["cmp"] * 1.005).round(2)
+                    stop_base = vcp_df["ema_20"] if "ema_20" in vcp_df.columns else vcp_df["ema_10"]
+                    vcp_df["stop_loss"] = (stop_base * 0.985).round(2)
+                    vcp_df["risk_pct"] = (
+                        (vcp_df["trigger_price"] / vcp_df["stop_loss"] - 1.0) * 100.0
                     ).round(2)
-                    manas_df["setup_type"] = "Manas Focus"
-                    manas_df["why_now"] = [
-                        f"Shakeout reclaim | purple {int(pn)}/{int(MANAS.get('purple_lookback', 63))} | 3M {r3:+.0f}% | close loc {cl:.0f}%"
+                    vcp_df["setup_type"] = "VCP"
+                    vcp_df["why_now"] = [
+                        f"Shakeout reclaim | purple {int(pn)}/{int(VCP.get('purple_lookback', 63))} | 3M {r3:+.0f}% | close loc {cl:.0f}%"
                         for pn, r3, cl in zip(
-                            manas_df["purple_n"],
-                            manas_df["ret_3m_pct"],
-                            manas_df["close_location_pct"].fillna(0),
+                            vcp_df["purple_n"],
+                            vcp_df["ret_3m_pct"],
+                            vcp_df["close_location_pct"].fillna(0),
                         )
                     ]
                     # Soft rank already from classifier; break ties with less extension
                     sort_cols = ["ema_rising", "purple_n", "ret_3m_pct"]
                     ascending = [False, False, False]
-                    if "away_52w_high_pct" in manas_df.columns:
+                    if "away_52w_high_pct" in vcp_df.columns:
                         sort_cols.append("away_52w_high_pct")
                         ascending.append(True)
-                    manas_df = manas_df.sort_values(sort_cols, ascending=ascending).head(
-                        QUEUE_DISPLAY_CAPS.get("manas", 40)
+                    vcp_df = vcp_df.sort_values(sort_cols, ascending=ascending).head(
+                        QUEUE_DISPLAY_CAPS.get("vcp", 40)
                     )
 
     darvas_weekly_df = pd.DataFrame()
@@ -693,104 +614,6 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             return False
 
     # -------------------------------------------------------------
-    # Queue 6: Silent Coil (VDU at 10/20 EMA)
-    # -------------------------------------------------------------
-    sc_candidates = []
-    if not setup_pool.empty:
-        for _, r in setup_pool.iterrows():
-            raw_rvol = r.get("rvol_arr")
-            arr = [float(x) for x in raw_rvol if _is_num(x)] if isinstance(raw_rvol, (list, np.ndarray)) else []
-            if len(arr) < 3:
-                continue
-            near_ema = abs(r["away_10ema_pct"]) <= 2.5 or abs(r["away_20ema_pct"]) <= 2.5
-            vdu = r["rvol"] <= 0.70
-            raw_day = r.get("day_pct_arr")
-            d_arr = [float(x) for x in raw_day if _is_num(x)] if isinstance(raw_day, (list, np.ndarray)) else []
-            tight_days = sum(1 for d in d_arr if abs(d) < 2.0)
-            raw_del = r.get("deliv_arr")
-            deliv_valid = [float(x) for x in raw_del if _is_num(x)] if isinstance(raw_del, (list, np.ndarray)) else []
-            deliv_good = (r["delivery_pct"] >= 50.0 if _is_num(r.get("delivery_pct")) else False) or (max(deliv_valid) >= 55.0 if deliv_valid else False)
-            unextended = abs(r["return_5d_pct"]) <= 3.5 if _is_num(r.get("return_5d_pct")) else True
-            if near_ema and vdu and (tight_days >= 3 or unextended) and deliv_good:
-                sc_candidates.append(r)
-    sc_df = pd.DataFrame(sc_candidates) if sc_candidates else pd.DataFrame()
-    if not sc_df.empty:
-        sc_df["trigger_price"] = (sc_df["cmp"] * 1.005).round(2)
-        sc_df["stop_loss"] = (sc_df["ema_20"] * 0.985).round(2)
-        sc_df["risk_pct"] = ((sc_df["cmp"] / sc_df["stop_loss"] - 1.0) * 100).round(2)
-        sc_df["setup_type"] = "Silent Coil"
-        sc_df["why_now"] = "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with delivery accumulation"
-        sort_col = "ticket_ratio" if "ticket_ratio" in sc_df.columns else "delivery_pct"
-        sc_df = sc_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(
-            QUEUE_DISPLAY_CAPS["silent_coil"]
-        )
-
-    # -------------------------------------------------------------
-    # Queue 7: Volume Stair-Step (RVOL Escalation)
-    # -------------------------------------------------------------
-    vss_candidates = []
-    if not setup_pool.empty:
-        for _, r in setup_pool.iterrows():
-            raw_rvol = r.get("rvol_arr")
-            arr = [float(x) for x in raw_rvol if _is_num(x)] if isinstance(raw_rvol, (list, np.ndarray)) else []
-            if len(arr) < 3:
-                continue
-            near_ema = abs(r["away_10ema_pct"]) <= 3.0 or abs(r["away_20ema_pct"]) <= 3.0
-            rising_3d = (len(arr) >= 3) and (arr[-1] > arr[-2] > arr[-3])
-            prev_slice = arr[-4:-1]
-            prev_min = min(prev_slice) if len(prev_slice) > 0 else 99.0
-            jump_from_dry = arr[-1] >= 1.3 and prev_min <= 0.65
-            unextended = r["day_pct"] <= 4.0 and (not _is_num(r.get("return_5d_pct")) or r["return_5d_pct"] <= 5.0)
-            if near_ema and (rising_3d or jump_from_dry) and unextended:
-                vss_candidates.append(r)
-    vss_df = pd.DataFrame(vss_candidates) if vss_candidates else pd.DataFrame()
-    if not vss_df.empty:
-        vss_df["trigger_price"] = (vss_df["cmp"] * 1.005).round(2)
-        vss_df["stop_loss"] = (vss_df["ema_20"] * 0.985).round(2)
-        vss_df["risk_pct"] = ((vss_df["cmp"] / vss_df["stop_loss"] - 1.0) * 100).round(2)
-        vss_df["setup_type"] = "Volume Stair-Step"
-        vss_df["why_now"] = "RVOL expanding day-over-day at 10/20 EMA support before the breakout"
-        sort_col = "ticket_ratio" if "ticket_ratio" in vss_df.columns else "rvol"
-        vss_df = vss_df.sort_values([sort_col, "rvol"], ascending=[False, False]).head(
-            QUEUE_DISPLAY_CAPS["stair_step"]
-        )
-
-    # -------------------------------------------------------------
-    # Queue 8: Spike-Pause (Pre-Blast Consolidation)
-    # -------------------------------------------------------------
-    sp_candidates = []
-    if not setup_pool.empty:
-        for _, r in setup_pool.iterrows():
-            raw_rvol = r.get("rvol_arr")
-            arr = [float(x) for x in raw_rvol if _is_num(x)] if isinstance(raw_rvol, (list, np.ndarray)) else []
-            if len(arr) < 3:
-                continue
-            prev_slice = arr[:-1]
-            had_spike = max(prev_slice) >= 2.0 if len(prev_slice) > 0 else False
-            raw_day = r.get("day_pct_arr")
-            d_arr = [float(x) for x in raw_day if _is_num(x)] if isinstance(raw_day, (list, np.ndarray)) else []
-            prev_days = d_arr[:-1]
-            had_blast = max(prev_days) >= 9.5 if len(prev_days) > 0 else False
-            pausing = (abs(r["day_pct"]) <= 3.5) and (r["rvol"] <= 0.85)
-            near_ema = abs(r["away_10ema_pct"]) <= 4.0 or abs(r["away_20ema_pct"]) <= 4.0
-            if (had_spike or had_blast) and pausing and near_ema:
-                sp_candidates.append(r)
-    sp_df = pd.DataFrame(sp_candidates) if sp_candidates else pd.DataFrame()
-    if not sp_df.empty:
-        sp_df["trigger_price"] = (sp_df["cmp"] * 1.005).round(2)
-        sp_df["stop_loss"] = (sp_df["ema_20"] * 0.985).round(2)
-        sp_df["risk_pct"] = ((sp_df["cmp"] / sp_df["stop_loss"] - 1.0) * 100).round(2)
-        sp_df["setup_type"] = "Spike-Pause"
-        sp_df["why_now"] = "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA"
-        sort_col = "ticket_ratio" if "ticket_ratio" in sp_df.columns else "delivery_pct"
-        sp_df = sp_df.sort_values([sort_col, "delivery_pct"], ascending=[False, False]).head(
-            QUEUE_DISPLAY_CAPS["spike_pause"]
-        )
-
-
-
-
-
     macro_pulse = get_macro_pulse(Path(db_path))
     data = {
         "ready": True,
@@ -822,45 +645,24 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         "darvas_count_weekly": darvas_count_weekly,
         "darvas_weekly_enabled": use_weekly,
         "queues": {
-            "near_pivot": vcp_df,
-            "pullback": pb_df,
-            "episodic": ep_df,
-            "high52": h52_df,
             "darvas": darvas_df,
             "darvas_10ema": darvas_10ema_df,
-            "manas": manas_df,
-            "darvas_weekly": darvas_weekly_df,
-            "silent_coil": sc_df,
-            "stair_step": vss_df,
-            "spike_pause": sp_df,
+            "vcp": vcp_df,
+            "darvas_weekly": darvas_weekly_df,  # optional weekly Darvas variant (flag), not a 4th primary
         },
         "tv_lists": {
-            "near_pivot": to_tv_list(vcp_df["symbol"].tolist()) if not vcp_df.empty else "",
-            "pullback": to_tv_list(pb_df["symbol"].tolist()) if not pb_df.empty else "",
-            "episodic": to_tv_list(ep_df["symbol"].tolist()) if not ep_df.empty else "",
-            "high52": to_tv_list(h52_df["symbol"].tolist()) if not h52_df.empty else "",
             "darvas": to_tv_list(darvas_df["symbol"].tolist()) if not darvas_df.empty else "",
             "darvas_10ema": to_tv_list(darvas_10ema_df["symbol"].tolist()) if not darvas_10ema_df.empty else "",
-            "manas": to_tv_list(manas_df["symbol"].tolist()) if not manas_df.empty else "",
+            "vcp": to_tv_list(vcp_df["symbol"].tolist()) if not vcp_df.empty else "",
             "darvas_weekly": to_tv_list(darvas_weekly_df["symbol"].tolist()) if not darvas_weekly_df.empty else "",
-            "silent_coil": to_tv_list(sc_df["symbol"].tolist()) if not sc_df.empty else "",
-            "stair_step": to_tv_list(vss_df["symbol"].tolist()) if not vss_df.empty else "",
-            "spike_pause": to_tv_list(sp_df["symbol"].tolist()) if not sp_df.empty else "",
             "all_focus": to_tv_list(
                 list(dict.fromkeys(
-                    vcp_df["symbol"].tolist()
-                    + pb_df["symbol"].tolist()
-                    + ep_df["symbol"].tolist()
-                    + h52_df["symbol"].tolist()
-                    + darvas_df["symbol"].tolist()
+                    (darvas_df["symbol"].tolist() if not darvas_df.empty else [])
                     + (darvas_10ema_df["symbol"].tolist() if not darvas_10ema_df.empty else [])
-                    + (manas_df["symbol"].tolist() if not manas_df.empty else [])
-                    + (sc_df["symbol"].tolist() if not sc_df.empty else [])
-                    + (vss_df["symbol"].tolist() if not vss_df.empty else [])
-                    + (sp_df["symbol"].tolist() if not sp_df.empty else [])
+                    + (vcp_df["symbol"].tolist() if not vcp_df.empty else [])
                 ))
             ),
-        }
+        },
 
     }
 
@@ -1115,7 +917,7 @@ def build_action_desk_page(
     # Initial selection
     initial_queue = "darvas"
     initial_sym = ""
-    for q_key in list(PRIMARY_QUEUES) + list(MORE_QUEUES):
+    for q_key in list(PRIMARY_QUEUES):
         q_df = queues.get(q_key, pd.DataFrame())
         if not q_df.empty and "symbol" in q_df.columns:
             if not initial_sym:
@@ -1260,17 +1062,12 @@ def build_action_desk_page(
                 for q_key in PRIMARY_QUEUES:
                     if q_key in queue_meta:
                         _queue_btn(q_key)
-                ui.label("MORE SETUPS").classes("text-[9px] font-bold tracking-wider text-[var(--mp-muted)] mt-2")
-                for q_key in MORE_QUEUES:
-                    if q_key in queue_meta:
-                        _queue_btn(q_key)
-
     def render_matrix() -> None:
         with matrix_host:
             matrix_host.clear()
 
             q_key = state["active_queue"]
-            q_info = queue_meta.get(q_key, queue_meta["near_pivot"])
+            q_info = queue_meta.get(q_key, queue_meta["darvas"])
             q_df = _queue_frame(q_key)
             if state.get("real_inst_flow_only") and not q_df.empty and "deal_flow" in q_df.columns:
                 q_df = q_df[q_df["deal_flow"].astype(str).str.strip().ne("—")]
@@ -1307,7 +1104,7 @@ def build_action_desk_page(
                             ).classes("mp-button text-xs").props("dense outline")
 
                 # Quality Filter Strip
-                is_classic_rs = q_key in ("near_pivot", "pullback", "high52")
+                is_classic_rs = False  # classic RS queues retired
                 rules_txt = (
                     "Rules: MCap > ₹1000Cr · Circuit > 5% · Stage 2 Uptrend · Within 25% 52W · RS >= 70"
                     if is_classic_rs else

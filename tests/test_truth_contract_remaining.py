@@ -8,21 +8,20 @@ import pandas as pd
 from Scripts.desk_contract import QUEUE_DISPLAY_CAPS, QUEUE_META
 
 
-def test_queue_key_is_near_pivot_not_vcp():
-    assert "near_pivot" in QUEUE_META
-    assert "vcp" not in QUEUE_META
-    assert QUEUE_META["near_pivot"]["tv_key"] == "near_pivot"
-    assert "vcp" not in QUEUE_DISPLAY_CAPS
+def test_queue_key_vcp_is_primary_not_near_pivot() -> None:
+    from Scripts.desk_contract import QUEUE_META
+    assert "vcp" in QUEUE_META
+    assert "near_pivot" not in QUEUE_META
+    assert QUEUE_META["vcp"]["tv_key"] == "vcp"
+    assert QUEUE_META["vcp"]["tier"] == "primary"
 
 
-def test_action_desk_queue_dict_uses_near_pivot():
+def test_action_desk_queue_dict_only_three() -> None:
+    from pathlib import Path
     src = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
-    assert '"near_pivot": vcp_df' in src
-    assert '"vcp": vcp_df' not in src
-    assert 'initial_queue = "darvas"' in src
-    assert "darvas_10ema" in src
-    assert ("MORE SETUPS" in src) or ("MORE_QUEUES" in src)
-    assert '"uc_flag"' in src
+    assert '"vcp": vcp_df' in src or '"vcp":' in src
+    assert '"near_pivot": vcp_df' not in src
+    assert "MORE SETUPS" not in src
 
 
 def test_rotation_board_filter_stats_shape(tmp_path):

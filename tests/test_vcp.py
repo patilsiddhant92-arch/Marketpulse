@@ -1,11 +1,11 @@
-"""Manas Focus primary queue gates."""
+"""VCP primary queue gates (former Manas Focus)."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from Scripts.manas_focus import MANAS, classify_manas_focus_frame, purple_density, ret_3m_pct
-from Scripts.desk_contract import PRIMARY_QUEUES, QUEUE_META
+from Scripts.vcp import VCP, classify_vcp_frame, purple_density, ret_3m_pct
+from Scripts.desk_contract import MORE_QUEUES, PRIMARY_QUEUES, QUEUE_META
 
 
 def _frame(*, shakeout=True, force=True, purple=True, close=100.0):
@@ -14,7 +14,6 @@ def _frame(*, shakeout=True, force=True, purple=True, close=100.0):
     c = 70.0
     for i, d in enumerate(dates):
         if force:
-            # drift up strongly over 63 sessions
             c = c * 1.008
         else:
             c = c * 1.001
@@ -24,7 +23,7 @@ def _frame(*, shakeout=True, force=True, purple=True, close=100.0):
             vol = 2_000_000.0
         elif purple is False and i in (15, 25, 35):
             c = c * 1.06
-            vol = 100_000.0  # big move but thin — not purple
+            vol = 100_000.0
         rows.append(
             {
                 "symbol": "DEMO",
@@ -43,18 +42,23 @@ def _frame(*, shakeout=True, force=True, purple=True, close=100.0):
     return pd.DataFrame(rows)
 
 
-def test_primary_queues_include_manas():
-    assert PRIMARY_QUEUES[-1] == "manas"
-    assert QUEUE_META["manas"]["tv_key"] == "manas"
-    assert QUEUE_META["manas"]["tier"] == "primary"
-    assert QUEUE_META["manas"]["title"] == "3. Manas Focus"
+def test_primary_queues_only_three():
+    assert PRIMARY_QUEUES == ("darvas", "darvas_10ema", "vcp")
+    assert MORE_QUEUES == ()
+    assert set(QUEUE_META) == {"darvas", "darvas_10ema", "vcp"}
+    assert QUEUE_META["vcp"]["tv_key"] == "vcp"
+    assert QUEUE_META["vcp"]["tier"] == "primary"
+    assert QUEUE_META["vcp"]["title"] == "3. VCP"
+    assert "manas" not in QUEUE_META
+    assert "near_pivot" not in QUEUE_META
 
 
 def test_purple_density_counts_1m_days():
-    # Isolated purple days: move then flat so the next bar is not another |ret|>=5%
-    close = np.array([100.0, 100.0, 100.0, 106.0, 106.0, 106.0, 100.0, 100.0, 100.0, 100.0], dtype=float)
+    close = np.array(
+        [100.0, 100.0, 100.0, 106.0, 106.0, 106.0, 100.0, 100.0, 100.0, 100.0],
+        dtype=float,
+    )
     vol = np.array([2e6] * 10, dtype=float)
-    # day3: +6%, day6: -5.66% → 2 purple days
     assert purple_density(vol, close, lookback=10) == 2
 
 
@@ -63,24 +67,19 @@ def test_ret_3m_fail_closed_when_short():
 
 
 def test_classify_passes_shakeout_force_purple():
-    df = _frame(shakeout=True, force=True, purple=True, close=120.0)
-    # ensure 3M >= 30
-    out = classify_manas_focus_frame(df)
+    out = classify_vcp_frame(_frame(shakeout=True, force=True, purple=True, close=120.0))
     assert not out.empty
     assert bool(out.iloc[0]["qualifies"])
-    assert out.iloc[0]["purple_n"] >= MANAS["purple_min_count"]
+    assert out.iloc[0]["purple_n"] >= VCP["purple_min_count"]
 
 
 def test_no_shakeout_rejects():
-    out = classify_manas_focus_frame(_frame(shakeout=False))
-    assert out.empty
+    assert classify_vcp_frame(_frame(shakeout=False)).empty
 
 
 def test_close_under_30_rejects():
-    out = classify_manas_focus_frame(_frame(close=25.0))
-    assert out.empty
+    assert classify_vcp_frame(_frame(close=25.0)).empty
 
 
 def test_thin_purple_rejects():
-    out = classify_manas_focus_frame(_frame(purple=False))
-    assert out.empty
+    assert classify_vcp_frame(_frame(purple=False)).empty
