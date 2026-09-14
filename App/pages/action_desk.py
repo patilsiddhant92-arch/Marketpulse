@@ -659,7 +659,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     ).round(2)
                     manas_df["setup_type"] = "Manas Focus"
                     manas_df["why_now"] = [
-                        f"Shakeout reclaim · purple {int(pn)}/{int(MANAS.get('purple_lookback', 63))} · 3M {r3:+.0f}% · close loc {cl:.0f}%"
+                        f"Shakeout reclaim | purple {int(pn)}/{int(MANAS.get('purple_lookback', 63))} | 3M {r3:+.0f}% | close loc {cl:.0f}%"
                         for pn, r3, cl in zip(
                             manas_df["purple_n"],
                             manas_df["ret_3m_pct"],
