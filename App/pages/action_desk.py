@@ -64,6 +64,12 @@ except ModuleNotFoundError:
     from desk_contract import DARVAS, MORE_QUEUES, POOL, PRIMARY_QUEUES, QUEUE_DISPLAY_CAPS, QUEUE_META, match_exposure  # type: ignore
 
 try:
+    from Scripts.manas_focus import MANAS, classify_manas_focus_frame
+except ModuleNotFoundError:
+    from manas_focus import MANAS, classify_manas_focus_frame  # type: ignore
+
+
+try:
     from App.ui.market_health import load_exposure_gate_args, load_exposure_inputs, render_market_health_strip, resolve_india_vix as _mh_resolve_india_vix
     from App.ui.desk_chrome import peer_chip_label, rotation_badge_class, signed_pct_class
 except ModuleNotFoundError:
@@ -395,7 +401,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     ORDER BY trade_date DESC 
                     LIMIT {int(fetch_lookback)}
                 )
-                SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20, i.rvol
+                SELECT i.symbol, i.trade_date, i.open_price, i.high_price, i.low_price, i.close_price, i.ema_10, i.ema_20, i.rvol, i.volume, i.ema_shakeout, i.close_location_pct, i.avg_volume_20d
                 FROM indicators_daily i
                 JOIN pool_syms_tbl p ON i.symbol = p.symbol
                 JOIN dates d ON i.trade_date = d.trade_date
@@ -621,6 +627,55 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 ).head(QUEUE_DISPLAY_CAPS.get("darvas_10ema", 40))
 
 
+
+    # -------------------------------------------------------------
+    # Queue: Manas Focus (EMA shakeout + 3M force + purple density)
+    # -------------------------------------------------------------
+    manas_df = pd.DataFrame()
+    if not darvas_hist_daily.empty and not setup_pool.empty:
+        manas_hist = darvas_hist_daily
+        # Prefer full lookback for purple/3M (darvas_hist already 252 when v2)
+        if not darvas_hist.empty and len(darvas_hist) >= len(darvas_hist_daily):
+            manas_hist = darvas_hist
+        flav = classify_manas_focus_frame(manas_hist)
+        if not flav.empty:
+            manas_slim = flav[["symbol", "purple_n", "ret_3m_pct", "close_location_pct", "ema_rising", "avg_volume_20d"]].copy()
+            manas_df = setup_pool.merge(manas_slim, on="symbol", how="inner")
+            if not manas_df.empty:
+                # Liquidity reinforce: avg_volume_20d >= 200k when column present
+                if "avg_volume_20d" in manas_df.columns:
+                    manas_df = manas_df[
+                        manas_df["avg_volume_20d"].isna()
+                        | (manas_df["avg_volume_20d"] >= float(MANAS.get("min_avg_volume_20d", 200_000)))
+                    ].copy()
+                if "cmp" in manas_df.columns:
+                    manas_df = manas_df[manas_df["cmp"] >= float(MANAS.get("min_close_price", 30.0))].copy()
+                if not manas_df.empty:
+                    manas_df["trigger_price"] = (manas_df["cmp"] * 1.005).round(2)
+                    stop_base = manas_df["ema_20"] if "ema_20" in manas_df.columns else manas_df["ema_10"]
+                    manas_df["stop_loss"] = (stop_base * 0.985).round(2)
+                    manas_df["risk_pct"] = (
+                        (manas_df["trigger_price"] / manas_df["stop_loss"] - 1.0) * 100.0
+                    ).round(2)
+                    manas_df["setup_type"] = "Manas Focus"
+                    manas_df["why_now"] = [
+                        f"Shakeout reclaim · purple {int(pn)}/{int(MANAS.get('purple_lookback', 63))} · 3M {r3:+.0f}% · close loc {cl:.0f}%"
+                        for pn, r3, cl in zip(
+                            manas_df["purple_n"],
+                            manas_df["ret_3m_pct"],
+                            manas_df["close_location_pct"].fillna(0),
+                        )
+                    ]
+                    # Soft rank already from classifier; break ties with less extension
+                    sort_cols = ["ema_rising", "purple_n", "ret_3m_pct"]
+                    ascending = [False, False, False]
+                    if "away_52w_high_pct" in manas_df.columns:
+                        sort_cols.append("away_52w_high_pct")
+                        ascending.append(True)
+                    manas_df = manas_df.sort_values(sort_cols, ascending=ascending).head(
+                        QUEUE_DISPLAY_CAPS.get("manas", 40)
+                    )
+
     darvas_weekly_df = pd.DataFrame()
     darvas_count_weekly = 0
     if use_weekly and not darvas_hist.empty:
@@ -773,6 +828,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "high52": h52_df,
             "darvas": darvas_df,
             "darvas_10ema": darvas_10ema_df,
+            "manas": manas_df,
             "darvas_weekly": darvas_weekly_df,
             "silent_coil": sc_df,
             "stair_step": vss_df,
@@ -785,6 +841,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "high52": to_tv_list(h52_df["symbol"].tolist()) if not h52_df.empty else "",
             "darvas": to_tv_list(darvas_df["symbol"].tolist()) if not darvas_df.empty else "",
             "darvas_10ema": to_tv_list(darvas_10ema_df["symbol"].tolist()) if not darvas_10ema_df.empty else "",
+            "manas": to_tv_list(manas_df["symbol"].tolist()) if not manas_df.empty else "",
             "darvas_weekly": to_tv_list(darvas_weekly_df["symbol"].tolist()) if not darvas_weekly_df.empty else "",
             "silent_coil": to_tv_list(sc_df["symbol"].tolist()) if not sc_df.empty else "",
             "stair_step": to_tv_list(vss_df["symbol"].tolist()) if not vss_df.empty else "",
@@ -797,6 +854,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     + h52_df["symbol"].tolist()
                     + darvas_df["symbol"].tolist()
                     + (darvas_10ema_df["symbol"].tolist() if not darvas_10ema_df.empty else [])
+                    + (manas_df["symbol"].tolist() if not manas_df.empty else [])
                     + (sc_df["symbol"].tolist() if not sc_df.empty else [])
                     + (vss_df["symbol"].tolist() if not vss_df.empty else [])
                     + (sp_df["symbol"].tolist() if not sp_df.empty else [])
@@ -1076,7 +1134,7 @@ def build_action_desk_page(
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "flavor", "peer", "uc_flag", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
+        "symbol", "flavor", "purple_n", "ret_3m_pct", "close_location_pct", "peer", "uc_flag", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
         "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
     ]
 

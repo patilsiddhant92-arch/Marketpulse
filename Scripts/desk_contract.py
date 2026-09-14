@@ -37,6 +37,7 @@ QUEUE_DISPLAY_CAPS = dict(
     high52=15,
     darvas=40,  # display window; button shows unclipped count (wired in PR 5)
     darvas_10ema=40,
+    manas=40,
     silent_coil=25,
     stair_step=25,
     spike_pause=25,
@@ -61,7 +62,7 @@ SECTOR_DEFAULT_SORT = "turnover_share_delta_5d"  # DESC
 SECTOR_DEFAULT_LEVEL = "Broad Industry"  # board only; query_sector_rotation_overview default stays "Sector"
 
 ACTION_DESK_SUBTITLE = (
-    "Executive swing trading command center: Exposure gate, leading themes, Darvas Squeeze + Darvas 10 EMA primary; other setups under More."
+    "Executive swing trading command center: Exposure gate, leading themes, Darvas Squeeze + Darvas 10 EMA + Manas Focus primary; other setups under More."
 )
 
 # Queue key matches the setup: near_pivot (never "vcp" — that lied about the engine).
@@ -88,7 +89,18 @@ QUEUE_META = {
         "cap_key": "darvas_10ema",
         "tier": "primary",
     },
-    "near_pivot": {
+        "manas": {
+        "title": "3. Manas Focus",
+        "short_title": "3. Manas Focus",
+        "desc": (
+            "EMA shakeout reclaim with 3M force (>=+30%) and purple density "
+            "(>=3 days |ret|>=5% on vol>=1M). Focus-list ready — not Strong Start."
+        ),
+        "tv_key": "manas",
+        "cap_key": "manas",
+        "tier": "primary",
+    },
+"near_pivot": {
         "title": "Near 20D Pivot",
         "short_title": "Near 20D Pivot",
         "desc": (
@@ -149,7 +161,7 @@ QUEUE_META = {
     },
 }
 
-PRIMARY_QUEUES = ("darvas", "darvas_10ema")
+PRIMARY_QUEUES = ("darvas", "darvas_10ema", "manas")
 MORE_QUEUES = (
     "near_pivot",
     "pullback",
