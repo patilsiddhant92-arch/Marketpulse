@@ -1185,6 +1185,20 @@ def build_action_desk_page(
                     tbl.on("rowClick", on_table_click)
                     tbl.on("row-click", on_table_click)
                     tbl.on("update:pagination", on_pagination)
+                    # Belt-and-suspenders: matrix remounts often; keep 360 open wired.
+                    def _open_360_from_table(e):
+                        args = getattr(e, "args", None)
+                        if isinstance(args, str):
+                            sym360 = args
+                        elif isinstance(args, (list, tuple)) and args:
+                            sym360 = args[0] if not isinstance(args[0], dict) else (args[0].get("symbol") or "")
+                        elif isinstance(args, dict):
+                            sym360 = args.get("symbol") or args.get("value") or ""
+                        else:
+                            sym360 = ""
+                        open_stock_360_modal(Path(db_path), sym360, copy_text=copy_text)
+
+                    tbl.on("stock360", _open_360_from_table)
 
     def render_inspector() -> None:
         with inspector_host:

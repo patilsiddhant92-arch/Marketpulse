@@ -564,6 +564,21 @@ def get_sector_ranks_map(db_path: Path) -> dict[str, str]:
     return ranks
 
 
+def _table_event_symbol(event) -> str:
+    """Normalize NiceGUI/Quasar custom-slot emit args to a symbol string."""
+    args = getattr(event, "args", event)
+    if isinstance(args, str):
+        return args.strip().upper()
+    if isinstance(args, (list, tuple)) and args:
+        first = args[0]
+        if isinstance(first, dict):
+            return str(first.get("symbol") or first.get("value") or "").strip().upper()
+        return str(first or "").strip().upper()
+    if isinstance(args, dict):
+        return str(args.get("symbol") or args.get("value") or "").strip().upper()
+    return str(args or "").strip().upper()
+
+
 def _quick_watchlist_toggle(sym: str) -> None:
     sym = (sym or "").strip().upper()
     if not sym:
@@ -573,9 +588,10 @@ def _quick_watchlist_toggle(sym: str) -> None:
     except ModuleNotFoundError:
         from ui.stock_drawer import toggle_watchlist_symbol  # type: ignore
     try:
-        added = toggle_watchlist_symbol(DB_PATH, 1, sym)
+        # Watchlists live in the USER db — never the market DuckDB.
+        added = toggle_watchlist_symbol(USER_DB_PATH, 1, sym)
         if added:
-            ui.notify(f"★ Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
+            ui.notify(f"Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
         else:
             ui.notify(f"Removed {sym} from Watchlist (WL1)", type="info")
     except Exception as exc:
@@ -951,15 +967,13 @@ def table_from_df(
             "stock360",
             lambda event: open_stock_360_modal(
                 DB_PATH,
-                event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or ""),
+                _table_event_symbol(event),
                 copy_text=copy_text_to_clipboard,
             ),
         )
         table.on(
             "quick_wl",
-            lambda event: _quick_watchlist_toggle(
-                event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or "")
-            ),
+            lambda event: _quick_watchlist_toggle(_table_event_symbol(event)),
         )
     if "copy_symbols" in view.columns and "symbol_list" in view.columns:
         table.add_slot(
