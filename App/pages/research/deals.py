@@ -512,7 +512,7 @@ def build_deals_page(
                 ).classes("w-64")
                 side = ui.select(["BUY", "SELL", "BOTH"], value="BOTH", label="Side").classes("w-28")
                 min_value = ui.number("Min Activity Cr", value=5).classes("w-32")
-                days_back = ui.number("Lookback Days", value=10, min=1, max=60).classes("w-32")
+                days_back = ui.number("Lookback Days", value=20, min=1, max=60).classes("w-32")
                 client = ui.input("Institution contains", value="").classes("w-56")
                 run_btn = ui.button("Run research").classes("mp-primary").props("dense")
             adv_host = ui.column().classes("w-full mt-2")
@@ -603,6 +603,11 @@ def build_deals_page(
                             if c in stocks_df.columns
                         ]
                         table_from_df(stocks_df[scols], "Stock deals (window)", pagination=25)
+                        _hft = " · institutional (PROP/HFT hidden)" if hft_state.get("exclude_hft") else ""
+                        ui.label(
+                            f"{len(stocks_df)} stocks in window · {int(days_back.value or 20)}d · ≥₹900 Cr{_hft}. "
+                            f"Copy Symbols uses this filtered set — widen lookback or uncheck Institutional only for more."
+                        ).classes("text-xs text-[var(--mp-muted)] mt-1")
 
             run_btn.on_click(run_advanced)
             run_advanced()

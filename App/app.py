@@ -619,7 +619,8 @@ def table_from_df(
         with ui.row().classes("items-center gap-3 mt-4"):
             ui.label(title).classes("mp-section-title")
             if copy_symbols and "symbol" in df.columns and not df.empty:
-                copy_button("Copy Symbols", lambda: symbols_text(df, min_mcap_cr=None, require_above_ema200=False))
+                _n_sym = int(df["symbol"].nunique()) if "symbol" in df.columns else len(df)
+                copy_button(f"Copy Symbols ({_n_sym})", lambda d=df: symbols_text(d, min_mcap_cr=None, require_above_ema200=False))
             if pref_key:
                 # Column chooser — now auto-loads saved prefs and applies on render (reload not required after save)
                 all_cols = list(df.columns)

@@ -1196,7 +1196,7 @@ def build_action_desk_page(
                             sym360 = args.get("symbol") or args.get("value") or ""
                         else:
                             sym360 = ""
-                        open_stock_360_modal(Path(db_path), sym360, copy_text=copy_text)
+                        open_stock_360_modal(Path(db_path), str(sym360 or "").strip().upper(), copy_text=copy_text)
 
                     tbl.on("stock360", _open_360_from_table)
 

@@ -630,12 +630,14 @@ STYLES_HTML = """
             flex: 0 0 auto;
             background: none;
             border: none;
-            padding: 0 2px;
+            padding: 2px 6px;
             margin: 0;
             cursor: pointer;
             color: var(--mp-muted);
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1;
+            min-width: 22px;
+            min-height: 22px;
           }
           .mp-symbol-open:hover { color: var(--mp-primary); }
           .mp-table td.symbol-col,

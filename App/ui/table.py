@@ -272,9 +272,9 @@ SYMBOL_CELL_SLOT = """
        :href="'https://www.tradingview.com/chart/?symbol=NSE:' + String(props.row.symbol || props.value).replace('-', '_')"
        @click.stop
        :title="'Open ' + (props.row.symbol || props.value) + ' on TradingView'">{{ props.value }}</a>
-    <button type="button" class="mp-symbol-open"
-            @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)"
-            title="Open Stock 360">360</button>
+    <q-btn dense flat no-caps class="mp-symbol-open"
+           @click.stop="$parent.$emit('stock360', String(props.row.symbol || props.value || ''))"
+           title="Open Stock 360">↗</q-btn>
     <span v-if="props.row.peer" class="mp-mini-badge mp-sector-tag" title="Industry RS peer rank">{{ props.row.peer }}</span>
     <span v-else-if="props.row.sector_badge" class="mp-mini-badge mp-sector-tag" title="Sector rotation rank">{{ props.row.sector_badge }}</span>
     <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Lead</span>
