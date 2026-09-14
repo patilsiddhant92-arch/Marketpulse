@@ -49,7 +49,7 @@ def test_market_health_strip_accepts_expanded_kwarg():
 
 
 def test_nav_weight_p14_morning_cluster_and_demote_classes():
-    """P1.4: Morning tabs clustered; Overview/Watchlists demoted; Lab/Ops quieter CSS."""
+    """P1.4: Morning tabs clustered; Overview retired; Watchlists demoted; Lab/Ops quieter CSS."""
     app = Path(__file__).resolve().parents[1] / "App" / "app.py"
     styles = Path(__file__).resolve().parents[1] / "App" / "ui" / "styles.py"
     app_src = app.read_text(encoding="utf-8")
@@ -60,7 +60,6 @@ def test_nav_weight_p14_morning_cluster_and_demote_classes():
     names = []
     for label in (
         "Action Desk",
-        "Overview",
         "Sector Intel",
         "Market Trends",
         "Momentum",
@@ -71,12 +70,12 @@ def test_nav_weight_p14_morning_cluster_and_demote_classes():
     ):
         assert f'"{label}"' in block, label
         names.append((block.index(f'"{label}"'), label))
+    assert '"Overview"' not in block.split("MP_LEGACY_PAGES")[0]
     # Template retired from primary nav (legacy only)
     assert '"Template"' not in block or "sma-template" not in block.split("Watchlists")[0]
     ordered = [n for _, n in sorted(names)]
-    assert ordered[:3] == ["Action Desk", "Overview", "Sector Intel"]
+    assert ordered[:2] == ["Action Desk", "Sector Intel"]
     assert ordered.index("Watchlists") > ordered.index("Portfolio")
-    assert '"morning-secondary"' in block
     assert '"ops-demoted"' in block
     assert "mp-tab-demoted" in app_src and "mp-tab-demoted" in styles_src
     assert "mp-tab-group-start" in styles_src

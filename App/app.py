@@ -4910,8 +4910,8 @@ def main() -> None:
         return
     app_header()
 
-    # Active nav weight (P1.4): Morning loud (AD / Overview brief / Sector Intel),
-    # Lab+Ops quieter; Overview + Watchlists visually demoted. No hard Morning/Lab/Ops rename.
+    # Active nav weight (P1.4): Morning loud (AD / Sector Intel).
+    # Overview tab RETIRED (macro noise). Lab+Ops quieter; Watchlists demoted.
     # Momentum scanner logic is unchanged. Legacy pages remain behind MP_LEGACY_PAGES.
     def watchlist_page() -> None:
         with ui.column().classes("w-full mp-page-watchlists"):
@@ -4928,7 +4928,6 @@ def main() -> None:
     # weight: morning | morning-secondary | lab | ops | ops-demoted (P1.4 nav weight)
     tab_specs = [
         ("Action Desk", action_desk_page, "action-desk", "morning"),
-        ("Overview", overview_view, "overview", "morning-secondary"),
         ("Sector Intel", sector_intel_unified_page, "rotation", "morning"),
         ("Market Trends", market_trends_page, "market-trends", "lab"),
         ("Momentum", special_watchlist_page, "scanner", "lab"),
@@ -4943,6 +4942,7 @@ def main() -> None:
                 ("Today (legacy)", today_page, "today-legacy", "ops"),
                 ("Candidates (legacy)", candidates_page, "candidates-legacy", "ops"),
                 ("Template (legacy)", sma_template_page, "sma-template", "lab"),
+                ("Overview (legacy)", overview_view, "overview-legacy", "ops"),
             ]
         )
 
@@ -4966,7 +4966,7 @@ def main() -> None:
 
         pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
         pages["Health"] = info_page
-        pages["Desk"] = overview_view
+        pages["Desk"] = action_desk_page  # Overview retired
 
         # Persistent page containers: each tab is mounted once and toggled via visibility.
         # This provides instant 0ms tab switching without rebuilding DOM or re-executing queries.

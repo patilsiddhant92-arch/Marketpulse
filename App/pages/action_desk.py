@@ -96,7 +96,7 @@ def _exp_pct_tone(val: Any, threshold: float) -> str:
 
 
 def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[float | None, float]:
-    """Delegate to market_health so Overview/Brief share the same VIX source."""
+    """Delegate to market_health — single VIX source for the exposure gate."""
     return _mh_resolve_india_vix(con, trade_date)
 
 
@@ -614,7 +614,8 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             return False
 
     # -------------------------------------------------------------
-    macro_pulse = get_macro_pulse(Path(db_path))
+    # macro_pulse retired with Overview/macro noise
+    macro_pulse = {}
     data = {
         "ready": True,
         "trade_date": trade_date_str,
@@ -888,23 +889,11 @@ def build_action_desk_page(
     tv = data["tv_lists"]
 
     # =========================================================================
-    # MACRO PULSE: TODAY'S LEADING & LAGGING THEMES
-    # =========================================================================
-    pulse = data.get("macro_pulse", {})
-    top_themes = pulse.get("top", [])
-    bottom_themes = pulse.get("bottom", [])
-    with ui.row().classes("w-full items-center justify-between px-3 py-2 rounded bg-[var(--mp-surface-raised)] border border-[var(--mp-border)] mb-3 flex-wrap gap-2 text-xs"):
-        with ui.row().classes("items-center gap-2 flex-wrap"):
-            if top_themes:
-                ui.label("🔥 TOP THEMES:").classes("font-bold text-emerald-400 tracking-wider")
-                for item in top_themes[:3]:
-                    ui.label(f"{item['name']} ({item['return_1d']:+.2f}%)").classes("font-semibold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30")
-            if bottom_themes:
-                ui.label("❄️ LAGGING:").classes("font-bold text-rose-400 tracking-wider")
-                for item in bottom_themes[:2]:
-                    ui.label(f"{item['name']} ({item['return_1d']:+.2f}%)").classes("font-semibold text-rose-300 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-500/30")
-        with ui.row().classes("items-center gap-2 ml-auto"):
-            ui.button("📖 Trading Playbook & Field Guide", on_click=open_playbook_modal).classes("mp-button text-xs bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400").props("dense unelevated")
+    # Playbook access (macro pulse strip retired)
+    with ui.row().classes("w-full items-center justify-end mb-3"):
+        ui.button("Trading Playbook & Field Guide", on_click=open_playbook_modal).classes(
+            "mp-button text-xs bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
+        ).props("dense unelevated")
 
     queue_meta = dict(QUEUE_META)
     if darvas_v2_enabled():

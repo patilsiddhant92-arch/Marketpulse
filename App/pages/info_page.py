@@ -1,6 +1,5 @@
-"""Info Page: Plain-English Macro Intelligence, Chronological Event Ripple Effects,
-Real-World Case Studies, and System Data Health Diagnostics.
-"""
+"""Info Page: Swing Trading Playbook + System Data Health (macro essay modes retired)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -424,26 +423,20 @@ def build_info_page(
     table_from_df: Callable,
     compact_kpi: Callable,
 ) -> None:
-    """Build the comprehensive Info desk with Macro Playbook, Chronology, Case Studies, and Data Health."""
+    """Info desk: Swing Trading Playbook + System Data Health."""
     section_header(
-        "Market Info & Macro Intelligence",
-        "Plain-English macroeconomic transmission, chronological market ripple effects, real-world case studies, and pipeline health diagnostics.",
+        "Info",
+        "Swing trading playbook (desk contract) and system/data health. Macro essay modes retired.",
     )
 
-    current_tab = {"value": "playbook"}
+    current_tab = {"value": "trading_guide"}
 
     with ui.row().classes("gap-2 flex-wrap items-center mt-2 mb-4 mp-desk-action"):
-        btn_playbook = ui.button("🌍 Macro Playbook", on_click=lambda: _select_tab("playbook")).props("dense").classes("mp-button")
-        btn_trading_guide = ui.button("🎯 Swing Trading Playbook", on_click=lambda: _select_tab("trading_guide")).props("dense outline").classes("mp-button")
-        btn_chrono = ui.button("⏱ Chronology & Ripple Effects", on_click=lambda: _select_tab("chrono")).props("dense outline").classes("mp-button")
-        btn_cases = ui.button("💡 Real-World Case Studies", on_click=lambda: _select_tab("cases")).props("dense outline").classes("mp-button")
-        btn_health = ui.button("⚙️ System & Data Health", on_click=lambda: _select_tab("health")).props("dense outline").classes("mp-button")
+        btn_trading_guide = ui.button("Swing Trading Playbook", on_click=lambda: _select_tab("trading_guide")).props("dense").classes("mp-button")
+        btn_health = ui.button("System & Data Health", on_click=lambda: _select_tab("health")).props("dense outline").classes("mp-button")
 
     buttons = {
-        "playbook": btn_playbook,
         "trading_guide": btn_trading_guide,
-        "chrono": btn_chrono,
-        "cases": btn_cases,
         "health": btn_health,
     }
 
@@ -462,14 +455,8 @@ def build_info_page(
         content_host.clear()
         with content_host:
             active = current_tab["value"]
-            if active == "playbook":
-                _render_playbook()
-            elif active == "trading_guide":
+            if active == "trading_guide":
                 _render_trading_guide()
-            elif active == "chrono":
-                _render_chronology()
-            elif active == "cases":
-                _render_case_studies()
             elif active == "health":
                 _render_data_health()
 

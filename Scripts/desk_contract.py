@@ -234,7 +234,7 @@ def exposure_playbook_line(rule: Mapping[str, Any]) -> str:
 
 
 def brief_fields_from_gate(gate: Mapping[str, Any]) -> dict[str, Any]:
-    """Overview/Brief posture copy compiled from the Action Desk exposure gate.
+    """Brief posture copy compiled from the Action Desk exposure gate (Overview tab retired).
 
     Allocation band and stance are the gate's own pct/state — never a second formula.
     Cash stance is the complement of the exposure band for Brief display only.
