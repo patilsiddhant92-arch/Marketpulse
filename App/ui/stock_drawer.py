@@ -453,6 +453,20 @@ def query_stock_peer_comparison(
 
 
 
+
+def _bench_rs_chip(profile: dict, bench: str = "midsml") -> None:
+    """Show excess vs MidSml400 (default) or Nifty50; plus mapped sector index."""
+    if bench == "nifty50":
+        _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+        _true_rs_chip("vs N50 21d", profile.get("rs_vs_nifty50_21d"))
+    else:
+        _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
+        _true_rs_chip("vs MS400 21d", profile.get("rs_vs_midsml400_21d"))
+    sec = profile.get("sector_index_name")
+    if sec:
+        short = str(sec).replace("Nifty ", "").replace("NIFTY ", "")[:18]
+        _true_rs_chip(f"vs {short} 63d", profile.get("rs_vs_sector_index_63d"))
+
 def _true_rs_chip(label: str, value) -> None:
     """Optional excess-RS chip; skip when null."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -1260,11 +1274,20 @@ def open_stock_360_modal(
                         ui.label("RS Percentile").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(f"{float(rs):.0f}" if pd.notna(rs) else "—").classes("text-xl font-bold")
 
-                with ui.row().classes("gap-1 flex-wrap mt-1"):
-                    _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
-                    _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
-                    _true_rs_chip("vs N50 21d", profile.get("rs_vs_nifty50_21d"))
-                    _true_rs_chip("vs MS400 21d", profile.get("rs_vs_midsml400_21d"))
+                with ui.row().classes("gap-1 flex-wrap mt-1 items-center"):
+                    # Phase 2: MidSml400 default; Nifty50 selectable via toggle
+                    bench_state = {"bench": "midsml"}
+                    chip_row = ui.row().classes("gap-1 flex-wrap")
+                    def _render_bench_chips():
+                        chip_row.clear()
+                        with chip_row:
+                            _bench_rs_chip(profile, bench_state["bench"])
+                    def _set_bench(b: str):
+                        bench_state["bench"] = b
+                        _render_bench_chips()
+                    ui.button("MS400", on_click=lambda: _set_bench("midsml")).props("dense flat size=xs").classes("text-[10px]")
+                    ui.button("N50", on_click=lambda: _set_bench("nifty50")).props("dense flat size=xs").classes("text-[10px]")
+                    _render_bench_chips()
 
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("SMA template").classes("text-xs text-[var(--mp-muted)]")

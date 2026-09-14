@@ -30,6 +30,8 @@ from config import (
 )
 from index_history import build_index_features, load_all_market_activity_history
 from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
+from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
+from index_constituents import load_membership_csv, ensure_index_constituents
 from reference_history import asof_reference, load_reference_history
 try:
     from Scripts.indicators import (
@@ -761,6 +763,16 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         for _col in TRUE_RS_COLUMNS:
             if _col not in indicators.columns:
                 indicators[_col] = np.nan
+
+
+    print("  5c++/8: Computing stock vs mapped sector-index RS...", flush=True)
+    try:
+        _idx = load_all_market_activity_history(ROOT_DIR)
+        _mem = load_membership_csv()
+        _master = master if "master" in dir() else None
+        indicators = attach_sector_index_rs(indicators, _idx, _mem, _master)
+    except Exception as exc:
+        print(f"  Warning: sector-index RS skipped ({exc})", flush=True)
 
     # NOTE on RS: All are cross-sectional daily ranks (0-100). Higher = stronger relative performance vs other stocks that day.
     print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)
