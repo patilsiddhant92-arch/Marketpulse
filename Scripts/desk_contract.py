@@ -9,28 +9,38 @@ import os
 from typing import Any, Mapping
 
 
-def flag_on(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+def flag_on(name: str, *, default: bool = False) -> bool:
+    """Env truthy/falsey with an explicit default when unset/blank.
+
+    Truthy: 1/true/yes/on. Falsy: 0/false/no/off. Anything else falls back to default.
+    """
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
-# MP_SECTOR_V2, MP_DARVAS_V2, MP_DARVAS_WEEKLY default off. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
+# MP_SECTOR_V2 and MP_DARVAS_V2 default ON; MP_DARVAS_WEEKLY stays off.
+# Opt out with MP_SECTOR_V2=0 / MP_DARVAS_V2=0. No collision with MP_LEGACY_PAGES / MP_DEFAULT_TAB.
 
 POOL = dict(min_mcap=1000.0, min_adv_cr=3.0, min_band=5.0)
 
 QUEUE_DISPLAY_CAPS = dict(
-    near_pivot=15,
-    pullback=15,
-    episodic=15,
-    high52=15,
-    darvas=40,  # display window; button shows unclipped count (wired in PR 5)
-    silent_coil=25,
-    stair_step=25,
-    spike_pause=25,
+    darvas=40,  # display window; button shows unclipped count
+    darvas_10ema=40,
+    vcp=40,
 )
 
+# Single source of truth for Darvas/squeeze knobs. Imported by Scripts.darvas_squeeze.
 DARVAS = dict(
     max_squeeze_pct=5.0,
     max_range_pct=4.0,
+    max_rvol=1.0,  # Approach A: dry/shallow volume hard gate (kills MAXHEALTH-class wet coils)
     ceiling_tol=1.002,
     wick_floor_tol=0.995,
     close_floor_tol=0.998,
@@ -45,71 +55,51 @@ SECTOR_DEFAULT_SORT = "turnover_share_delta_5d"  # DESC
 SECTOR_DEFAULT_LEVEL = "Broad Industry"  # board only; query_sector_rotation_overview default stays "Sector"
 
 ACTION_DESK_SUBTITLE = (
-    "Executive swing trading command center: Exposure gate, leading themes, and 8 setup queues."
+    "Executive swing trading command center: Exposure gate, leading themes, "
+    "Darvas Squeeze + Darvas 10 EMA + VCP only."
 )
 
-# Internal queue key stays "vcp" (data / TV lists). Display name is Near 20D Pivot.
+# AD exposes exactly three queues. Retired screeners are deleted, not demoted.
 QUEUE_META = {
-    "vcp": {
-        "title": "1. Near 20D Pivot",
-        "short_title": "1. Near 20D Pivot",
-        "desc": (
-            "RS ≥ 70 names coiled within 3.5% of the 20-day high. "
-            "Near-pivot scan — not a successive-contraction VCP engine. No stop-loss filter."
-        ),
-        "tv_key": "vcp",
-        "cap_key": "near_pivot",
-    },
-    "pullback": {
-        "title": "2. 10/20 EMA Pullbacks",
-        "short_title": "2. EMA Pullbacks",
-        "desc": "High-RS trend leaders resting orderly on 10/20 EMA support with dry pullback volume.",
-        "tv_key": "pullback",
-        "cap_key": "pullback",
-    },
-    "episodic": {
-        "title": "3. Episodic Pivots (High RVOL)",
-        "short_title": "3. Episodic Pivots",
-        "desc": "Explosive 2x+ RVOL surges out of base with tight day-low stop invalidation.",
-        "tv_key": "episodic",
-        "cap_key": "episodic",
-    },
-    "high52": {
-        "title": "4. 52W High Breakouts",
-        "short_title": "4. 52W Breakouts",
-        "desc": "Market leaders printing or testing fresh 52-week highs with volume thrust.",
-        "tv_key": "high52",
-        "cap_key": "high52",
-    },
     "darvas": {
-        "title": "5. Darvas 10/20 EMA Squeeze",
-        "short_title": "5. Darvas Squeeze",
-        "desc": "OHLC strictly inside the box in near range, squeezed into Green Line (TopBox) and rising 10/20 EMA.",
+        "title": "1. Darvas Squeeze",
+        "short_title": "1. Darvas Squeeze",
+        "desc": (
+            "Dry coil under TopBox into a rising 10 EMA (tightening Top-EMA, rvol <= 1.0). "
+            "Approach A primary."
+        ),
         "tv_key": "darvas",
         "cap_key": "darvas",
+        "tier": "primary",
     },
-    "silent_coil": {
-        "title": "6. Silent Coil (VDU at 10/20 EMA)",
-        "short_title": "6. Silent Coil",
-        "desc": "Severe volume dry-up (RVOL ≤ 0.70x) + tight consolidation at 10/20 EMA with high delivery accumulation.",
-        "tv_key": "silent_coil",
-        "cap_key": "silent_coil",
+    "darvas_10ema": {
+        "title": "2. Darvas 10 EMA",
+        "short_title": "2. Darvas 10 EMA",
+        "desc": (
+            "Post-thrust dry setups: Pullback (price to rising 10 EMA) or Catch-up "
+            "(10 EMA rises into held highs). Approach A primary."
+        ),
+        "tv_key": "darvas_10ema",
+        "cap_key": "darvas_10ema",
+        "tier": "primary",
     },
-    "stair_step": {
-        "title": "7. Volume Stair-Step (RVOL Escalation)",
-        "short_title": "7. Stair-Step",
-        "desc": "RVOL expanding day-over-day at 10/20 EMA support before the breakout.",
-        "tv_key": "stair_step",
-        "cap_key": "stair_step",
-    },
-    "spike_pause": {
-        "title": "8. Spike-Pause (Pre-Blast Consolidation)",
-        "short_title": "8. Spike-Pause",
-        "desc": "Prior 2x+ RVOL surge or 10%+ blast followed by low-volume pause resting on 10/20 EMA (high-tight flag).",
-        "tv_key": "spike_pause",
-        "cap_key": "spike_pause",
+    "vcp": {
+        "title": "3. VCP",
+        "short_title": "3. VCP",
+        "desc": (
+            "EMA shakeout reclaim with 3M force (>=+30%) and purple density "
+            "(>=3 days |ret|>=5% on vol>=1M). Desk VCP v1 — fine-tune later."
+        ),
+        "tv_key": "vcp",
+        "cap_key": "vcp",
+        "tier": "primary",
     },
 }
+
+PRIMARY_QUEUES = ("darvas", "darvas_10ema", "vcp")
+MORE_QUEUES = ()  # retired — kept empty so UI loops stay safe
+
+
 
 
 def _when_aggressive(a: Mapping[str, Any]) -> bool:
@@ -240,6 +230,39 @@ def exposure_playbook_line(rule: Mapping[str, Any]) -> str:
     return (
         f"{prefix}{rule['pct']} ({rule['state']}): {rule['when_label']}. {rule['guidance']}"
     )
+
+
+
+def brief_fields_from_gate(gate: Mapping[str, Any]) -> dict[str, Any]:
+    """Brief posture copy compiled from the Action Desk exposure gate (Overview tab retired).
+
+    Allocation band and stance are the gate's own pct/state — never a second formula.
+    Cash stance is the complement of the exposure band for Brief display only.
+    """
+    gid = str(gate.get("id") or "risk_off")
+    cash_by_id = {
+        "aggressive": "0% – 25% Cash",
+        "constructive": "25% – 50% Cash",
+        "selective": "50% – 75% Cash",
+        "risk_off": "85% – 100% Cash",
+    }
+    tone_by_id = {
+        "aggressive": "positive",
+        "constructive": "info",
+        "selective": "warning",
+        "risk_off": "negative",
+    }
+    pct = str(gate.get("pct") or "")
+    state = str(gate.get("state") or gid)
+    return {
+        "exposure_id": gid,
+        "exposure_pct": pct,
+        "exposure_state": state,
+        "posture_title": f"{state} ({pct} Allocation)",
+        "cash_recommendation": cash_by_id.get(gid, "85% – 100% Cash"),
+        "posture_desc": str(gate.get("guidance") or ""),
+        "regime_tone": tone_by_id.get(gid, "negative"),
+    }
 
 
 def match_exposure(args: Mapping[str, Any]) -> dict[str, Any]:
@@ -444,8 +467,8 @@ ROUTINE_STEPS = [
     ),
     (
         "Minute 6-10",
-        "Scan Silent Coil & Stair-Step",
-        "Look down the center matrix for rows displaying the '🏛️' ticket expansion badge and '10% ⚡' band.",
+        "Scan Darvas Squeeze, 10 EMA, and VCP",
+        "Work the three primary queues. Look for rows displaying the '🏛️' ticket expansion badge and '10% ⚡' band.",
     ),
     (
         "Minute 11-13",
@@ -460,37 +483,18 @@ ROUTINE_STEPS = [
 ]
 
 FIELD_GUIDE_TIPS = {
-    "silent_coil": (
-        "🤫 Silent Coil Field Guide: Look for TICKET 🏛️ >= 1.2x and 10 EMA % within [-1.5%, +1.5%]. "
-        "High delivery (>=50%) with dry volume (RVOL <= 0.70x) indicates smart money accumulation before the move."
-    ),
-    "stair_step": (
-        "📈 Volume Stair-Step Field Guide: RVOL expanding day-over-day at 10/20 EMA support. "
-        "Look for large TICKET 🏛️ expansion (block buyers entering before the breakout)."
-    ),
-    "spike_pause": (
-        "⚡ Spike-Pause Field Guide: High-Tight Flag setup. Stock already made a 10%+ thrust or 2x RVOL surge, "
-        "now resting 2-4 days along 10 EMA on low volume. Buy the pause for the second leg."
-    ),
     "darvas": (
-        f"📦 Darvas Squeeze Field Guide: Price is compressed inside the top {DARVAS['max_squeeze_pct']:.1f}% "
+        f"Darvas Squeeze Field Guide: Price is compressed inside the top {DARVAS['max_squeeze_pct']:.1f}% "
         f"of the Darvas box with rising 10/20 EMA support. Look for squeeze_pct <= {DARVAS['max_squeeze_pct']:.1f}% "
         f"and candle range <= {DARVAS['max_range_pct']:.1f}%."
     ),
+    "darvas_10ema": (
+        "Darvas 10 EMA Field Guide: Post-thrust dry Pullback (price to rising 10 EMA) or Catch-up "
+        "(10 EMA rises into held highs). Wick tests OK if close stays constructive."
+    ),
     "vcp": (
-        "💎 Near 20D Pivot Field Guide: Stage 2 names within 3.5% of the 20-day high. "
-        "Enter as price breaks the 20-day high with expanding volume. Not a Minervini VCP engine."
-    ),
-    "pullback": (
-        "🎯 EMA Pullback Field Guide: High-RS trend leader pulling back to test the rising 10 or 20 EMA "
-        "on low volume in an established uptrend."
-    ),
-    "episodic": (
-        "💥 Episodic Pivot Field Guide: Explosive 2x+ RVOL surge out of base, typically on earnings or macro catalysts. "
-        "Invalidation is the low of the blast day."
-    ),
-    "high52": (
-        "🏆 52W Breakout Field Guide: Printing or testing fresh 52-week highs with leadership relative strength (RS >= 70)."
+        "VCP Field Guide (v1): EMA shakeout reclaim + raw 3M >= +30% + purple density "
+        "(>=3 days |ret|>=5% on vol>=1M). Fine-tune contraction geometry later."
     ),
 }
 
@@ -544,6 +548,8 @@ __all__ = [
     "SECTOR_DEFAULT_LEVEL",
     "ACTION_DESK_SUBTITLE",
     "QUEUE_META",
+    "PRIMARY_QUEUES",
+    "MORE_QUEUES",
     "EXPOSURE_RULES",
     "match_exposure",
     "format_exposure_guidance",

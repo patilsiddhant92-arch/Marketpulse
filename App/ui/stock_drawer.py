@@ -133,6 +133,7 @@ def query_stock_candlestick_data(
     if cached is not None:
         return cached
 
+    box_lookback = int(DARVAS["box_lookback_sessions"])
     with duckdb.connect(str(db_path), read_only=True) as db:
         df = db.execute(
             """
@@ -141,9 +142,9 @@ def query_stock_candlestick_data(
             FROM indicators_daily
             WHERE symbol = ?
             ORDER BY trade_date DESC
-            LIMIT 400
+            LIMIT ?
             """,
-            [sym],
+            [sym, box_lookback],
         ).fetchdf()
 
     if df.empty:
@@ -151,7 +152,7 @@ def query_stock_candlestick_data(
 
     df = df.iloc[::-1].reset_index(drop=True)
 
-    # Darvas box on the trailing 400 sessions, then tail to the display window
+    # Darvas box on DARVAS box_lookback_sessions, then tail to the display window
     top_box, bottom_box = calculate_darvas_box(
         df["high_price"].values, df["low_price"].values, boxp=5
     )
@@ -204,6 +205,7 @@ def query_stock_candlestick_data(
             cfg=cfg,
         )
     else:
+        # Legacy path kept for MP_DARVAS_V2=0, but knobs match desk/DARVAS (no 3.5/3.5 split).
         is_squeeze = is_darvas_10ema_squeeze_legacy(
             last_close,
             last_top,
@@ -212,15 +214,16 @@ def query_stock_candlestick_data(
             high=last_high,
             low=last_low,
             open_price=last_open,
-            max_squeeze_pct=3.5,
-            max_candle_range_pct=3.5,
+            max_squeeze_pct=float(DARVAS["max_squeeze_pct"]),
+            max_candle_range_pct=float(DARVAS["max_range_pct"]),
             require_ohlc_inside=True,
         )
+    # Near-miss evidence: always report spreads when computable, even if badge is false.
     squeeze_pct = (
-        round(((last_top - last_ema10) / last_top) * 100.0, 2) if is_squeeze and last_top > 0 else None
+        round(((last_top - last_ema10) / last_top) * 100.0, 2) if last_top > 0 and last_ema10 > 0 else None
     )
     candle_range_pct = (
-        round(((last_high - last_low) / last_close) * 100.0, 2) if is_squeeze and last_close > 0 else None
+        round(((last_high - last_low) / last_close) * 100.0, 2) if last_close > 0 else None
     )
 
     res = {
@@ -449,6 +452,32 @@ def query_stock_peer_comparison(
     return res
 
 
+
+
+def _bench_rs_chip(profile: dict, bench: str = "midsml") -> None:
+    """Show excess vs MidSml400 (default) or Nifty50; plus mapped sector index."""
+    if bench == "nifty50":
+        _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+        _true_rs_chip("vs N50 21d", profile.get("rs_vs_nifty50_21d"))
+    else:
+        _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
+        _true_rs_chip("vs MS400 21d", profile.get("rs_vs_midsml400_21d"))
+    sec = profile.get("sector_index_name")
+    if sec:
+        short = str(sec).replace("Nifty ", "").replace("NIFTY ", "")[:18]
+        _true_rs_chip(f"vs {short} 63d", profile.get("rs_vs_sector_index_63d"))
+
+def _true_rs_chip(label: str, value) -> None:
+    """Optional excess-RS chip; skip when null."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return
+    tone = "mp-good" if v >= 0 else "mp-warn"
+    ui.label(f"{label} {v:+.1f}").classes(f"mp-badge {tone} text-[10px] font-semibold")
+
 def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
     """Fetch complete multi-dimensional data for a symbol in a single query transaction."""
     sym = str(symbol).strip().upper()
@@ -657,6 +686,19 @@ def _clean_symbol_param(sym: Any) -> str:
     if (s.startswith("['") and s.endswith("']")) or (s.startswith('["') and s.endswith('"]')):
         s = s[2:-2].strip()
     return s.upper()
+
+
+
+def _uc_chip_for_symbol(db_path: Path, symbol: str) -> str | None:
+    """Lab UC heuristic badge for Stock 360 — not a graduated predictor."""
+    try:
+        from App.indicators.uc_thrust import uc_flag_label, uc_score_map
+    except ModuleNotFoundError:
+        from indicators.uc_thrust import uc_flag_label, uc_score_map  # type: ignore
+    score = uc_score_map(db_path, limit=200).get(str(symbol or "").strip().upper())
+    if score is None:
+        return None
+    return uc_flag_label(score)
 
 
 def open_stock_360_modal(
@@ -1044,6 +1086,12 @@ def open_stock_360_modal(
                                     on_click=lambda *_, t=tv_copy_str, g=grp_lbl: copy_text(f"{g} Peers", t)
                                 ).props("dense outline size=sm color=primary").classes("text-xs font-mono")
 
+                    uc_chip = _uc_chip_for_symbol(db_path, clean_sym)
+                    if uc_chip:
+                        ui.label(
+                            f"{uc_chip} · lab heuristic (not a graduated UC predictor)"
+                        ).classes("text-xs text-amber-400 font-mono mb-2")
+
                     # Better Options in this Industry
                     if peer_comp and peer_comp.get("better_options"):
                         better_opts = peer_comp["better_options"]
@@ -1225,6 +1273,22 @@ def open_stock_360_modal(
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("RS Percentile").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(f"{float(rs):.0f}" if pd.notna(rs) else "—").classes("text-xl font-bold")
+
+                with ui.row().classes("gap-1 flex-wrap mt-1 items-center"):
+                    # Phase 2: MidSml400 default; Nifty50 selectable via toggle
+                    bench_state = {"bench": "midsml"}
+                    chip_row = ui.row().classes("gap-1 flex-wrap")
+                    def _render_bench_chips():
+                        chip_row.clear()
+                        with chip_row:
+                            _bench_rs_chip(profile, bench_state["bench"])
+                    def _set_bench(b: str):
+                        bench_state["bench"] = b
+                        _render_bench_chips()
+                    ui.button("MS400", on_click=lambda: _set_bench("midsml")).props("dense flat size=xs").classes("text-[10px]")
+                    ui.button("N50", on_click=lambda: _set_bench("nifty50")).props("dense flat size=xs").classes("text-[10px]")
+                    _render_bench_chips()
+
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("SMA template").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(geo["template"]["label"]).classes("text-xl font-bold")
@@ -1452,6 +1516,8 @@ def render_stock_inspector_panel(
                     ui.label(sym).classes("text-xl font-bold tracking-tight text-[var(--mp-text)] font-mono")
                     if rs and pd.notna(rs):
                         ui.label(f"RS {float(rs):.0f}").classes("mp-badge mp-good text-[11px]")
+                    _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+                    _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
                     if vcp_state and vcp_state != "None":
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone} text-[10px]")

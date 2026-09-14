@@ -130,6 +130,16 @@ def build_watchlist_page(
 
             df = fetch_watchlist_table_data(db_path, symbols)
             if not df.empty:
+                with ui.row().classes("w-full gap-1 flex-wrap mb-2"):
+                    ui.label("Remove:").classes("text-[10px] text-[var(--mp-muted)] self-center")
+                    for sym in symbols:
+                        ui.button(
+                            f"✕ {sym}",
+                            on_click=lambda s=sym: (
+                                toggle_watchlist_symbol(user_db_path, active_wl["num"], s),
+                                render_content(),
+                            ),
+                        ).props("dense flat size=xs").classes("text-[10px] font-mono text-rose-300")
                 table_from_df(df, "", pagination=25)
 
     def on_tab_change(num: int) -> None:

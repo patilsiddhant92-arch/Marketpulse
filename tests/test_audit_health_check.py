@@ -170,7 +170,7 @@ def test_action_desk_pre_move_turnarounds_and_no_stop_filters() -> None:
     queues = data["queues"]
 
     # Pre-move queues
-    pre_move_keys = ["darvas", "silent_coil", "stair_step", "spike_pause"]
+    pre_move_keys = ["darvas", "darvas_10ema", "vcp"]
     for qk in pre_move_keys:
         q_df = queues.get(qk, pd.DataFrame())
         assert not q_df.empty, f"Queue {qk} is empty"
@@ -198,7 +198,7 @@ def test_action_desk_pre_move_turnarounds_and_no_stop_filters() -> None:
 def test_playbook_modal_and_field_guide_render_cleanly() -> None:
     """Verify playbook modal and per-queue field guide banners render cleanly without exceptions."""
     open_playbook_modal()
-    for q in ["vcp", "pullback", "episodic", "high52", "darvas", "silent_coil", "stair_step", "spike_pause"]:
+    for q in ["darvas", "darvas_10ema", "vcp"]:
         render_inline_field_guide_banner(q)
 
 

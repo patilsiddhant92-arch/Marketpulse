@@ -154,7 +154,7 @@ def build_deals_page(
     if not deals_status.actionable:
         ui.label(non_actionable_message(deals_status)).classes("mp-badge mp-bad w-full mt-2")
 
-    hft_state = {"exclude_hft": False}
+    hft_state = {"exclude_hft": True}
     confluence_state = {"active": False}
     hub_state = {"lookback_days": 20, "setup_filter": "ALL"}
 
@@ -314,7 +314,7 @@ def build_deals_page(
                                 "fund_house": r_df["fund_house"],
                                 "tier": r_df["fund_tier"],
                                 "win_rate": r_df["fund_win_rate"].map(lambda w: f"{w:.1f}%" if pd.notna(w) else "—"),
-                                "deal_date": r_df["deal_date"],
+                                "deal_date": pd.to_datetime(r_df["deal_date"], errors="coerce").dt.strftime("%d %b").fillna("—"),
                                 "deal_price": r_df["deal_price"].map(lambda p: f"₹{p:,.2f}"),
                                 "cmp": r_df["cmp"].map(lambda p: f"₹{p:,.2f}"),
                                 "gain_pct": r_df["ret_current"].map(lambda g: f"{g:+.1f}%"),
@@ -414,7 +414,7 @@ def build_deals_page(
 
                     with ui.row().classes("items-center gap-3"):
                         hft_chk = ui.checkbox(
-                            "Exclude PROP",
+                            "Institutional only (hide PROP/HFT)",
                             value=hft_state["exclude_hft"],
                             on_change=lambda e: _toggle_hft(e.value),
                         ).props("dense")
@@ -512,7 +512,7 @@ def build_deals_page(
                 ).classes("w-64")
                 side = ui.select(["BUY", "SELL", "BOTH"], value="BOTH", label="Side").classes("w-28")
                 min_value = ui.number("Min Activity Cr", value=5).classes("w-32")
-                days_back = ui.number("Lookback Days", value=10, min=1, max=60).classes("w-32")
+                days_back = ui.number("Lookback Days", value=20, min=1, max=60).classes("w-32")
                 client = ui.input("Institution contains", value="").classes("w-56")
                 run_btn = ui.button("Run research").classes("mp-primary").props("dense")
             adv_host = ui.column().classes("w-full mt-2")
@@ -603,6 +603,11 @@ def build_deals_page(
                             if c in stocks_df.columns
                         ]
                         table_from_df(stocks_df[scols], "Stock deals (window)", pagination=25)
+                        _hft = " · institutional (PROP/HFT hidden)" if hft_state.get("exclude_hft") else ""
+                        ui.label(
+                            f"{len(stocks_df)} stocks in window · {int(days_back.value or 20)}d · ≥₹900 Cr{_hft}. "
+                            f"Copy Symbols uses this filtered set — widen lookback or uncheck Institutional only for more."
+                        ).classes("text-xs text-[var(--mp-muted)] mt-1")
 
             run_btn.on_click(run_advanced)
             run_advanced()

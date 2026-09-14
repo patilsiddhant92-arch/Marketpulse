@@ -564,6 +564,21 @@ def get_sector_ranks_map(db_path: Path) -> dict[str, str]:
     return ranks
 
 
+def _table_event_symbol(event) -> str:
+    """Normalize NiceGUI/Quasar custom-slot emit args to a symbol string."""
+    args = getattr(event, "args", event)
+    if isinstance(args, str):
+        return args.strip().upper()
+    if isinstance(args, (list, tuple)) and args:
+        first = args[0]
+        if isinstance(first, dict):
+            return str(first.get("symbol") or first.get("value") or "").strip().upper()
+        return str(first or "").strip().upper()
+    if isinstance(args, dict):
+        return str(args.get("symbol") or args.get("value") or "").strip().upper()
+    return str(args or "").strip().upper()
+
+
 def _quick_watchlist_toggle(sym: str) -> None:
     sym = (sym or "").strip().upper()
     if not sym:
@@ -573,9 +588,10 @@ def _quick_watchlist_toggle(sym: str) -> None:
     except ModuleNotFoundError:
         from ui.stock_drawer import toggle_watchlist_symbol  # type: ignore
     try:
-        added = toggle_watchlist_symbol(DB_PATH, 1, sym)
+        # Watchlists live in the USER db — never the market DuckDB.
+        added = toggle_watchlist_symbol(USER_DB_PATH, 1, sym)
         if added:
-            ui.notify(f"★ Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
+            ui.notify(f"Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
         else:
             ui.notify(f"Removed {sym} from Watchlist (WL1)", type="info")
     except Exception as exc:
@@ -585,7 +601,7 @@ def _quick_watchlist_toggle(sym: str) -> None:
 def table_from_df(
     df: pd.DataFrame,
     title: str = "",
-    pagination: int = 25,
+    pagination: int | dict | bool = 25,
     copy_symbols: bool = True,
     hidden_cols=None,
     page_key=None,
@@ -603,7 +619,8 @@ def table_from_df(
         with ui.row().classes("items-center gap-3 mt-4"):
             ui.label(title).classes("mp-section-title")
             if copy_symbols and "symbol" in df.columns and not df.empty:
-                copy_button("Copy Symbols", lambda: symbols_text(df, min_mcap_cr=None, require_above_ema200=False))
+                _n_sym = int(df["symbol"].nunique()) if "symbol" in df.columns else len(df)
+                copy_button(f"Copy Symbols ({_n_sym})", lambda d=df: symbols_text(d, min_mcap_cr=None, require_above_ema200=False))
             if pref_key:
                 # Column chooser — now auto-loads saved prefs and applies on render (reload not required after save)
                 all_cols = list(df.columns)
@@ -633,7 +650,10 @@ def table_from_df(
         # On reload the localStorage is authoritative; we still respect the passed hidden_cols as default
         pass
     view = df.copy()
-    if "sector" in view.columns and "sector_badge" not in view.columns:
+    # Prefer explicit peer chip (industry RS rank). Sector rotation badge is a fallback only.
+    if "peer" in view.columns:
+        view["sector_badge"] = ""
+    elif "sector" in view.columns and "sector_badge" not in view.columns:
         smap = get_sector_ranks_map(DB_PATH)
         view["sector_badge"] = view["sector"].map(smap).fillna("")
     # Long rationale belongs in the stock drawer, never in a comparison table.
@@ -641,8 +661,17 @@ def table_from_df(
     formatted_cols: list[str] = []
     compact_kinds = {"signed_return", "level_pct", "distance", "rvol", "signed_delta"}
     for col in list(view.columns):
-        if pd.api.types.is_datetime64_any_dtype(view[col]):
-            view[col] = view[col].dt.strftime("%Y-%m-%d")
+        if pd.api.types.is_datetime64_any_dtype(view[col]) or col in {
+            "latest_deal_date", "trade_date", "deal_date", "buy_date", "sell_date", "last_deal"
+        }:
+            parsed = pd.to_datetime(view[col], errors="coerce")
+            # Trader-friendly short dates: 12 Sep (keeps year only when not current)
+            def _fmt_d(ts):
+                if pd.isna(ts):
+                    return "—"
+                ts = pd.Timestamp(ts)
+                return ts.strftime("%d %b")
+            view[col] = parsed.map(_fmt_d)
             continue
         kind = classify_column(col)
         raw = df[col] if col in df.columns else view[col]
@@ -755,8 +784,8 @@ def table_from_df(
             width, wrap = (72, False)
         elif col in {"why", "risks", "why_focus", "current_setup", "what_matched", "notes"}:
             width, wrap = (320, True)
-        elif col in {"deal_when", "trade_date", "latest_deal_date"}:
-            width, wrap = (115, False)
+        elif col in {"deal_when", "trade_date", "latest_deal_date", "deal_date", "last_deal"}:
+            width, wrap = (128, False)
         elif kind == "distance":
             width, wrap = (88, False)
         elif is_num:
@@ -915,6 +944,17 @@ def table_from_df(
         )
     if "rs_5d_trail" in view.columns:
         table.add_slot(
+            "body-cell-away_52w_high_pct",
+            """
+            <q-td :props="props" class="numeric">
+              <span :class="(Number(props.value) <= 0 && Number(props.value) >= -25) || Number(props.value) > 0 ? 'mp-pos' : 'mp-neg'">
+                {{ props.value == null ? '—' : Number(props.value).toFixed(1) + '%' }}
+              </span>
+            </q-td>
+            """,
+        )
+
+        table.add_slot(
             "body-cell-rs_5d_trail",
             """
             <q-td :props="props" class="text-center font-mono text-xs whitespace-nowrap" style="min-width: 155px;">
@@ -928,15 +968,13 @@ def table_from_df(
             "stock360",
             lambda event: open_stock_360_modal(
                 DB_PATH,
-                event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or ""),
+                _table_event_symbol(event),
                 copy_text=copy_text_to_clipboard,
             ),
         )
         table.on(
             "quick_wl",
-            lambda event: _quick_watchlist_toggle(
-                event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or "")
-            ),
+            lambda event: _quick_watchlist_toggle(_table_event_symbol(event)),
         )
     if "copy_symbols" in view.columns and "symbol_list" in view.columns:
         table.add_slot(
@@ -1539,9 +1577,54 @@ def sector_tree_page() -> None:
 
 
 def sector_rotation_page() -> None:
-    """Sector tape: turnover and trend. Taxonomy tree is not the default."""
-    with ui.column().classes("w-full mp-page-research"):
-        build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
+    """Legacy alias — Sector Intel unified desk."""
+    sector_intel_unified_page()
+
+
+def sector_intel_unified_page() -> None:
+    """Sector Intel desk: Δ SHARE / money-flow home + Intel secondary views.
+
+    Default = sector_board v2 (Δ SHARE). Secondary tabs harvest sector_intel views
+    (RRG, Turnover, 52W highs, Breadth divergence). Taxonomy tree is not primary.
+    """
+    with ui.column().classes("w-full mp-page-research gap-2"):
+        with ui.row().classes("w-full items-end justify-between flex-wrap gap-2"):
+            with ui.column().classes("gap-0.5"):
+                ui.label("Sector Intel").classes("text-xl font-bold text-[var(--mp-text)]")
+                ui.label(
+                    "Money-flow / Δ SHARE home · RRG · Turnover · 52W highs · Breadth. "
+                    "Same read-model feeds Action Desk STEP 2."
+                ).classes("text-xs text-[var(--mp-muted)]")
+        tabs = ui.tabs().classes("w-full")
+        with tabs:
+            tab_flow = ui.tab("Δ SHARE / Money Flow")
+            tab_rrg = ui.tab("RRG Matrix")
+            tab_turn = ui.tab("Turnover")
+            tab_52 = ui.tab("52W Highs")
+            tab_div = ui.tab("Breadth Divergence")
+        panels = ui.tab_panels(tabs, value=tab_flow).classes("w-full")
+        with panels:
+            with ui.tab_panel(tab_flow):
+                build_sector_board_page(DB_PATH, copy_text=copy_text_to_clipboard, table_from_df=table_from_df)
+            with ui.tab_panel(tab_rrg):
+                _sector_intel_view("rrg")
+            with ui.tab_panel(tab_turn):
+                _sector_intel_view("turnover")
+            with ui.tab_panel(tab_52):
+                _sector_intel_view("highs52")
+            with ui.tab_panel(tab_div):
+                _sector_intel_view("divergence")
+
+
+def _sector_intel_view(view_key: str) -> None:
+    """Render one Sector Intel secondary view via build_sector_intel_page when possible."""
+    # Prefer calling the legacy intel page which owns all views; it renders its own tab strip.
+    # For a single-view focus we still mount the full intel page (includes all VIEW_TABS)
+    # behind the unified shell — secondary panels may show the full intel UI until split.
+    try:
+        build_sector_intel_page(DB_PATH, copy_text=copy_text_to_clipboard)
+    except TypeError:
+        build_sector_intel_page(DB_PATH)
 
 
 def strong_groups_page() -> None:
@@ -2299,7 +2382,7 @@ def special_watchlist_page() -> None:
             "Tighter trend template: near highs, bullish stack, liquid names. Use for chart prep — not a census.",
         )
         if render_market_health_strip:
-            render_market_health_strip(DB_PATH)
+            render_market_health_strip(DB_PATH, expanded=False)
         momentum_status = load_market_status(DB_PATH, STATUS_PATH)
     if not momentum_status.actionable:
         ui.label(non_actionable_message(momentum_status)).classes("mp-badge mp-bad w-full mt-2")
@@ -2325,19 +2408,72 @@ def special_watchlist_page() -> None:
         ui.label("OHLC vs EMA:").classes("text-xs text-[var(--mp-muted)]")
         ohlc_gt_10 = ui.checkbox("OHLC > 10 EMA", value=False)
         ohlc_gt_20 = ui.checkbox("OHLC > 20 EMA", value=False)
+    # Master: EMA stack XOR SMA stack (one family active at a time)
     with ui.row().classes("gap-3 items-center flex-wrap"):
+        ui.label("Stack family:").classes("text-xs text-[var(--mp-muted)]")
+        stack_ema_master = ui.checkbox("Use EMA Stack", value=True)
+        stack_sma_master = ui.checkbox("Use SMA Stack", value=False)
+
+    with ui.row().classes("gap-3 items-center flex-wrap") as ema_stack_row:
         ui.label("EMA Stack (bullish):").classes("text-xs text-[var(--mp-muted)]")
         ema10_gt_20 = ui.checkbox("10 > 20", value=True)
         ema20_gt_50 = ui.checkbox("20 > 50", value=True)
         ema50_gt_100 = ui.checkbox("50 > 100", value=True)
         ema100_gt_200 = ui.checkbox("100 > 200", value=True)
-    with ui.row().classes("gap-3 items-center flex-wrap"):
+    with ui.row().classes("gap-3 items-center flex-wrap") as sma_stack_row:
         ui.label("SMA Stack (Template):").classes("text-xs text-[var(--mp-muted)]")
         sma50_gt_150 = ui.checkbox("50 > 150", value=False)
         sma150_gt_200 = ui.checkbox("150 > 200", value=False)
         sma_cmp_gt_50 = ui.checkbox("CMP > 50 SMA", value=False)
         sma_cmp_gt_150_200 = ui.checkbox("CMP > 150 & 200 SMA", value=False)
         sma200_rising = ui.checkbox("200 SMA rising", value=False)
+
+    def _clear_ema_stack():
+        for box in (ema10_gt_20, ema20_gt_50, ema50_gt_100, ema100_gt_200):
+            box.set_value(False)
+
+    def _clear_sma_stack():
+        for box in (sma50_gt_150, sma150_gt_200, sma_cmp_gt_50, sma_cmp_gt_150_200, sma200_rising):
+            box.set_value(False)
+
+    def _set_ema_defaults():
+        for box in (ema10_gt_20, ema20_gt_50, ema50_gt_100, ema100_gt_200):
+            box.set_value(True)
+
+    def _set_sma_defaults():
+        for box in (sma50_gt_150, sma150_gt_200, sma_cmp_gt_50, sma_cmp_gt_150_200, sma200_rising):
+            box.set_value(True)
+
+    def _on_ema_master(e=None):
+        if stack_ema_master.value:
+            stack_sma_master.set_value(False)
+            _clear_sma_stack()
+            if not any(b.value for b in (ema10_gt_20, ema20_gt_50, ema50_gt_100, ema100_gt_200)):
+                _set_ema_defaults()
+            sma_stack_row.set_visibility(False)
+            ema_stack_row.set_visibility(True)
+        else:
+            _clear_ema_stack()
+            if not stack_sma_master.value:
+                # keep one family on
+                stack_sma_master.set_value(True)
+
+    def _on_sma_master(e=None):
+        if stack_sma_master.value:
+            stack_ema_master.set_value(False)
+            _clear_ema_stack()
+            if not any(b.value for b in (sma50_gt_150, sma150_gt_200, sma_cmp_gt_50, sma_cmp_gt_150_200, sma200_rising)):
+                _set_sma_defaults()
+            ema_stack_row.set_visibility(False)
+            sma_stack_row.set_visibility(True)
+        else:
+            _clear_sma_stack()
+            if not stack_ema_master.value:
+                stack_ema_master.set_value(True)
+
+    stack_ema_master.on_value_change(_on_ema_master)
+    stack_sma_master.on_value_change(_on_sma_master)
+    sma_stack_row.set_visibility(False)
     with ui.row().classes("gap-3 items-center flex-wrap"):
         ui.label("Advanced Indicators:").classes("text-xs text-[var(--mp-muted)]")
         check_delivery = ui.checkbox("Delivery Thrust", value=False)
@@ -2999,16 +3135,11 @@ def special_watchlist_page() -> None:
 
             # Dedicated Darvas Box & 10/20 EMA Squeeze Section
             try:
+                # Darvas preview reuses Action Desk queue (single owner). Pre-move coils live only on Action Desk.
                 ad_data = fetch_action_desk_data(DB_PATH)
                 darvas_df = ad_data.get("queues", {}).get("darvas", pd.DataFrame())
-                sc_df = ad_data.get("queues", {}).get("silent_coil", pd.DataFrame())
-                vss_df = ad_data.get("queues", {}).get("stair_step", pd.DataFrame())
-                sp_df = ad_data.get("queues", {}).get("spike_pause", pd.DataFrame())
             except Exception:
                 darvas_df = pd.DataFrame()
-                sc_df = pd.DataFrame()
-                vss_df = pd.DataFrame()
-                sp_df = pd.DataFrame()
 
             try:
                 from App.indicators.uc_thrust import calculate_uc_thrust_candidates
@@ -3022,7 +3153,7 @@ def special_watchlist_page() -> None:
                         with ui.row().classes("items-center gap-2"):
                             ui.label("📦 Darvas Box & 10/20 EMA Squeeze Candidates").classes("text-sm font-bold tracking-wider text-[var(--mp-primary)] uppercase")
                             ui.label(f"{len(darvas_df)} Leaders").classes("mp-badge mp-good text-xs font-bold")
-                        ui.label("Stocks consolidating strictly inside a 45-day Darvas Box within ≤5.0% of Green Line pivot with rising 10/20 EMA support (Nicolas Darvas Box Theory). Unfiltered by RS or Stop Loss.").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label("Same Action Desk Darvas queue (252-session box, ≤5.0% squeeze / ≤4.0% range). Preview only — Action Desk remains the owner.").classes("text-xs text-[var(--mp-muted)]")
 
                     if not darvas_df.empty:
                         darvas_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in darvas_df["symbol"].dropna().unique())
@@ -3044,70 +3175,37 @@ def special_watchlist_page() -> None:
                     d_show = darvas_df[[c for c in d_cols if c in darvas_df.columns]].copy()
                     table_from_df(d_show, "Darvas Squeeze Leaders", copy_symbols=True)
 
-            # Dedicated Pre-Move Detection Section (Evidence-Based 10-20% Pre-Move Archetypes)
+            # Lab-only UC Thrust. Silent Coil / Stair-Step / Spike-Pause: Action Desk queues 6–8 only.
             with ui.card().classes("w-full mp-card p-4 mt-4 border border-[var(--mp-border)] bg-[var(--mp-surface-raised)]"):
                 with ui.row().classes("w-full justify-between items-center flex-wrap gap-2 mb-2"):
                     with ui.column().classes("gap-0.5"):
                         with ui.row().classes("items-center gap-2"):
-                            ui.label("🔥 Pre-Move Detection Radar (Evidence-Based Footprints)").classes("text-sm font-bold tracking-wider text-amber-400 uppercase")
-                            total_pre_move = len(sc_df) + len(vss_df) + len(sp_df) + len(uc_df)
-                            ui.label(f"{total_pre_move} Setups").classes("mp-badge mp-good text-xs font-bold")
-                        ui.label("Empirically backtested pre-move signatures preceding 10%+ daily and 20% Upper Circuit breakouts: UC Thrust Radar, Silent Coil, Volume Stair-Step, and Spike-Pause.").classes("text-xs text-[var(--mp-muted)]")
+                            ui.label("🔥 UC Thrust (lab heuristic)").classes("text-sm font-bold tracking-wider text-amber-400 uppercase")
+                            ui.label(f"{len(uc_df)} names").classes("mp-badge mp-warn text-xs font-bold")
+                        ui.label(
+                            "Not a graduated UC predictor (Circuit Desk: no production pre-limit screener). "
+                            "Silent Coil, Volume Stair-Step, and Spike-Pause live only on Action Desk (queues 6–8) — not duplicated here."
+                        ).classes("text-xs text-[var(--mp-muted)]")
 
-                pre_move_cols = [
-                    "symbol", "cmp", "rvol", "rvol_trail", "delivery_pct", "away_10ema_pct", "away_20ema_pct",
-                    "day_pct", "return_5d_pct", "away_52w_high_pct", "rs_percentile", "sector", "deal_flow", "why_now"
-                ]
-
-                with ui.tabs().classes("w-full text-xs font-semibold") as pm_tabs:
-                    pm_t4 = ui.tab(f"⚡ UC Thrust Radar ({len(uc_df)})")
-                    pm_t1 = ui.tab(f"🤫 Silent Coil ({len(sc_df)})")
-                    pm_t2 = ui.tab(f"📈 Volume Stair-Step ({len(vss_df)})")
-                    pm_t3 = ui.tab(f"⚡ Spike-Pause ({len(sp_df)})")
-
-                with ui.tab_panels(pm_tabs, value=pm_t4).classes("w-full bg-transparent p-0 mt-2"):
-                    with ui.tab_panel(pm_t4).classes("p-0"):
-                        if not uc_df.empty:
-                            uc_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in uc_df["symbol"].dropna().unique())
-                            with ui.row().classes("w-full justify-between items-center mb-2"):
-                                ui.label("Statistical precursors of 10% and 20% Upper Circuit locks: Delivery Spike + Leading Sector + 10 EMA support (ranked by UC Score).").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy UC Thrust ({len(uc_df)} TV)", icon="content_copy", on_click=lambda *_, t=uc_tv: copy_text_to_clipboard("UC Thrust Radar", t)).classes("mp-button text-xs font-bold")
-                            uc_cols = [
-                                "symbol", "uc_score", "cmp", "rvol", "delivery_pct", "away_10ema_pct",
-                                "day_pct", "away_52w_high_pct", "rs_percentile", "sector", "industry", "deal_flow", "why_now"
-                            ]
-                            table_from_df(uc_df[[c for c in uc_cols if c in uc_df.columns]], "UC Thrust Radar Candidates", copy_symbols=True)
-                        else:
-                            ui.label("No stocks currently in high-probability Upper Circuit precursor consolidation.").classes("text-xs text-[var(--mp-muted)] py-3")
-                    with ui.tab_panel(pm_t1).classes("p-0"):
-                        if not sc_df.empty:
-                            sc_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in sc_df["symbol"].dropna().unique())
-                            with ui.row().classes("w-full justify-between items-center mb-2"):
-                                ui.label("Volume drying up (RVOL ≤ 0.70x) + price coiling tightly at 10/20 EMA with delivery accumulation.").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy Silent Coil ({len(sc_df)} TV)", icon="content_copy", on_click=lambda *_, t=sc_tv: copy_text_to_clipboard("Silent Coil", t)).classes("mp-button text-xs")
-                            table_from_df(sc_df[[c for c in pre_move_cols if c in sc_df.columns]], "Silent Coil Candidates", copy_symbols=True)
-                        else:
-                            ui.label("No stocks currently in Silent Coil consolidation.").classes("text-xs text-[var(--mp-muted)] py-3")
-
-                    with ui.tab_panel(pm_t2).classes("p-0"):
-                        if not vss_df.empty:
-                            vss_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in vss_df["symbol"].dropna().unique())
-                            with ui.row().classes("w-full justify-between items-center mb-2"):
-                                ui.label("RVOL quietly expanding 3 consecutive days at 10/20 EMA support before explosion.").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy Stair-Step ({len(vss_df)} TV)", icon="content_copy", on_click=lambda *_, t=vss_tv: copy_text_to_clipboard("Stair-Step", t)).classes("mp-button text-xs")
-                            table_from_df(vss_df[[c for c in pre_move_cols if c in vss_df.columns]], "Volume Stair-Step Candidates", copy_symbols=True)
-                        else:
-                            ui.label("No stocks currently exhibiting Volume Stair-Step accumulation.").classes("text-xs text-[var(--mp-muted)] py-3")
-
-                    with ui.tab_panel(pm_t3).classes("p-0"):
-                        if not sp_df.empty:
-                            sp_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in sp_df["symbol"].dropna().unique())
-                            with ui.row().classes("w-full justify-between items-center mb-2"):
-                                ui.label("Prior 2x+ RVOL surge followed by low-volume pause resting on 10/20 EMA (MVGJL/XTRANET pre-move pattern).").classes("text-xs text-[var(--mp-muted)]")
-                                ui.button(f"Copy Spike-Pause ({len(sp_df)} TV)", icon="content_copy", on_click=lambda *_, t=sp_tv: copy_text_to_clipboard("Spike-Pause", t)).classes("mp-button text-xs")
-                            table_from_df(sp_df[[c for c in pre_move_cols if c in sp_df.columns]], "Spike-Pause Candidates", copy_symbols=True)
-                        else:
-                            ui.label("No stocks currently in Spike-Pause consolidation.").classes("text-xs text-[var(--mp-muted)] py-3")
+                if not uc_df.empty:
+                    uc_tv = ",".join(f"NSE:{tradingview_symbol(s)}" for s in uc_df["symbol"].dropna().unique())
+                    with ui.row().classes("w-full justify-between items-center mb-2"):
+                        ui.label(
+                            "Heuristic score (delivery spike, sector state, 10 EMA coil, RVOL band). "
+                            "Research clue only — expanded range + RVOL had lift; FP rate still ~2.5%."
+                        ).classes("text-xs text-[var(--mp-muted)]")
+                        ui.button(
+                            f"Copy UC Thrust ({len(uc_df)} TV)",
+                            icon="content_copy",
+                            on_click=lambda *_, t=uc_tv: copy_text_to_clipboard("UC Thrust Radar", t),
+                        ).classes("mp-button text-xs font-bold")
+                    uc_cols = [
+                        "symbol", "uc_score", "cmp", "rvol", "delivery_pct", "away_10ema_pct",
+                        "day_pct", "away_52w_high_pct", "rs_percentile", "sector", "industry", "deal_flow", "why_now"
+                    ]
+                    table_from_df(uc_df[[c for c in uc_cols if c in uc_df.columns]], "UC Thrust Radar Candidates", copy_symbols=True)
+                else:
+                    ui.label("No names currently match the UC Thrust heuristic filters.").classes("text-xs text-[var(--mp-muted)] py-3")
 
 
             # Sector / industry summary — symbols column is short preview only
@@ -4136,6 +4234,9 @@ def portfolio_enrich(status: str) -> pd.DataFrame:
         out["weight_pct"] = (mv / total_mv * 100.0).round(1)
     else:
         out["weight_pct"] = pd.NA
+    # Default trader scan order: alphabetical by symbol
+    if "symbol" in out.columns:
+        out = out.sort_values("symbol", ascending=True, kind="mergesort").reset_index(drop=True)
     return out
 
 
@@ -4824,7 +4925,8 @@ def main() -> None:
         return
     app_header()
 
-    # Active nav: Desk | Momentum | Sectors | Deals | Portfolio | Info.
+    # Active nav weight (P1.4): Morning loud (AD / Sector Intel).
+    # Overview tab RETIRED (macro noise). Lab+Ops quieter; Watchlists demoted.
     # Momentum scanner logic is unchanged. Legacy pages remain behind MP_LEGACY_PAGES.
     def watchlist_page() -> None:
         with ui.column().classes("w-full mp-page-watchlists"):
@@ -4838,34 +4940,48 @@ def main() -> None:
             overview_page(show_page)
 
     # ("Desk", desk_page, "desk", True)  # mp-page-desk contract compatibility
+    # weight: morning | morning-secondary | lab | ops | ops-demoted (P1.4 nav weight)
     tab_specs = [
-        ("Action Desk", action_desk_page, "action-desk", True),
-        ("Overview", overview_view, "overview", True),
-        ("Market Trends", market_trends_page, "market-trends", False),
-        ("Momentum", special_watchlist_page, "scanner", False),
-        ("Template", sma_template_page, "sma-template", False),
-        ("Sectors", sector_rotation_page, "rotation", False),
-        ("Deals", deals_page, "deals", False),
-        ("Watchlists", watchlist_page, "watchlists", False),
-        ("Portfolio", portfolio_page, "portfolio", False),
-        ("Info", info_page, "info", False),
+        ("Action Desk", action_desk_page, "action-desk", "morning"),
+        ("Sector Intel", sector_intel_unified_page, "rotation", "morning"),
+        ("Market Trends", market_trends_page, "market-trends", "lab"),
+        ("Momentum", special_watchlist_page, "scanner", "lab"),
+        ("Deals", deals_page, "deals", "ops"),
+        ("Portfolio", portfolio_page, "portfolio", "ops"),
+        ("Watchlists", watchlist_page, "watchlists", "ops-demoted"),
+        ("Info", info_page, "info", "ops"),
     ]
     if os.environ.get("MP_LEGACY_PAGES", "").strip().lower() in {"1", "true", "yes", "on"}:
         tab_specs.extend(
             [
-                ("Today (legacy)", today_page, "today-legacy", False),
-                ("Candidates (legacy)", candidates_page, "candidates-legacy", False),
+                ("Today (legacy)", today_page, "today-legacy", "ops"),
+                ("Candidates (legacy)", candidates_page, "candidates-legacy", "ops"),
+                ("Template (legacy)", sma_template_page, "sma-template", "lab"),
+                ("Overview (legacy)", overview_view, "overview-legacy", "ops"),
             ]
         )
 
     with ui.column().classes("w-full mp-app-shell"):
         with ui.element("div").classes("mp-sticky-nav").props('aria-label="Primary navigation"'):
             with ui.tabs().classes("w-full mp-tabs") as tabs:
-                tab_els = {name: ui.tab(name) for name, _, _, _ in tab_specs}
+                _TAB_WEIGHT_CLASS = {
+                    "morning": "mp-tab-morning",
+                    "morning-secondary": "mp-tab-morning mp-tab-secondary",
+                    "lab": "mp-tab-lab",
+                    "ops": "mp-tab-ops",
+                    "ops-demoted": "mp-tab-ops mp-tab-demoted",
+                }
+                _TAB_GROUP_START = {"Market Trends", "Deals"}
+                tab_els = {}
+                for name, _, _, weight in tab_specs:
+                    classes = _TAB_WEIGHT_CLASS.get(str(weight), "mp-tab-ops")
+                    if name in _TAB_GROUP_START:
+                        classes = f"{classes} mp-tab-group-start"
+                    tab_els[name] = ui.tab(name).classes(classes)
 
         pages = {name: build_fn for name, build_fn, _, _ in tab_specs}
         pages["Health"] = info_page
-        pages["Desk"] = overview_view
+        pages["Desk"] = action_desk_page  # Overview retired
 
         # Persistent page containers: each tab is mounted once and toggled via visibility.
         # This provides instant 0ms tab switching without rebuilding DOM or re-executing queries.

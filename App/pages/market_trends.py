@@ -18,7 +18,39 @@ from nicegui import ui
 
 from App.cache_manager import cache_key, get_cached, set_cached
 from App.market_status import load_market_status, non_actionable_message
-from App.ui.stock_drawer import open_stock_360_modal
+from App.ui.stock_drawer import open_stock_360_modal, tradingview_url
+from App.ui.desk_chrome import rotation_badge_class, signed_pct_class
+
+
+def rotation_badge_class(state: str) -> str:
+    s = (state or "Neutral").strip()
+    return {
+        "Leading": "mp-badge mp-state-leading",
+        "Emerging": "mp-badge mp-state-emerging",
+        "Improving": "mp-badge mp-state-improving",
+        "Weakening": "mp-badge mp-state-weakening",
+        "Lagging": "mp-badge mp-state-lagging",
+        "Neutral": "mp-badge mp-neutral",
+    }.get(s, "mp-badge mp-neutral")
+
+
+def _open_symbol_tv_and_360(db_path: Path, symbol: str, *, copy_text=None, on_select_symbol=None) -> None:
+    """Trader default: open TradingView chart, then Stock 360 for desk context."""
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        ui.notify("No symbol", type="warning")
+        return
+    try:
+        ui.navigate.to(tradingview_url(sym), new_tab=True)
+    except Exception:
+        # Fallback for older NiceGUI
+        ui.open(tradingview_url(sym))
+    if on_select_symbol:
+        on_select_symbol(sym)
+    else:
+        open_stock_360_modal(db_path, sym, copy_text=copy_text)
+
+
 
 
 def query_historical_breadth(db_path: Path, days: int = 180) -> pd.DataFrame:
@@ -515,11 +547,7 @@ def build_market_trends_page(
                                         with ui.row().classes("w-full items-center gap-1 mt-1 pt-1 border-t border-slate-800"):
                                             ui.label("Leaders:").classes("text-[9px] text-[var(--mp-muted)]")
                                             for sym in top_lead:
-                                                def make_open(s=sym):
-                                                    if on_select_symbol:
-                                                        return lambda: on_select_symbol(s)
-                                                    return lambda: open_stock_360_modal(db_path, s, copy_text=copy_text)
-                                                ui.button(sym, on_click=make_open(sym)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
+                                                ui.button(sym, on_click=lambda s=sym: _open_symbol_tv_and_360(db_path, s, copy_text=copy_text, on_select_symbol=on_select_symbol)).props("dense flat size=xs").classes("font-mono text-[9px] text-sky-400 p-0 hover:underline")
 
             # =================================================================
             # TAB 5: NEW MONEY & ROTATION RADAR
@@ -553,20 +581,19 @@ def build_market_trends_page(
                                 with ui.card().classes("p-3 mp-card border border-[var(--mp-border)] bg-[var(--mp-surface-raised)] flex flex-col gap-1"):
                                     with ui.row().classes("w-full items-center justify-between"):
                                         ui.label(grp).classes("text-sm font-bold text-[var(--mp-text)]")
-                                        ui.label(st_name).classes(
-                                            "mp-badge text-[10px] " + ("mp-good" if st_name == "Leading" else "mp-info" if st_name == "Emerging" else "mp-neutral")
-                                        )
+                                        ui.label(st_name).classes(rotation_badge_class(st_name) + " text-[10px]")
 
                                     with ui.row().classes("w-full items-center justify-between text-xs font-mono"):
-                                        ui.label(f"5D Share Expansion: {d5:+.2f} pp").classes("text-emerald-400 font-bold")
+                                        ui.label(f"5D Share Expansion: {d5:+.2f} pp").classes(signed_pct_class(d5))
                                         if net_inst > 0:
                                             ui.label(f"Inst Deals: +₹{net_inst:,.0f}Cr").classes("text-amber-400 font-bold")
 
                                     with ui.row().classes("w-full items-center gap-1 mt-2 pt-1 border-t border-slate-800"):
                                         ui.label("Breakout Candidates:").classes("text-[10px] text-[var(--mp-muted)]")
                                         for sym in leads:
-                                            def make_clk(s=sym):
-                                                if on_select_symbol:
-                                                    return lambda: on_select_symbol(s)
-                                                return lambda: open_stock_360_modal(db_path, s, copy_text=copy_text)
-                                            ui.button(f"⚡ {sym}", on_click=make_clk(sym)).props("dense outline size=xs").classes("mp-button font-mono text-[10px]")
+                                            ui.button(
+                                                f"⚡ {sym}",
+                                                on_click=lambda s=sym: _open_symbol_tv_and_360(
+                                                    db_path, s, copy_text=copy_text, on_select_symbol=on_select_symbol
+                                                ),
+                                            ).props("dense outline size=xs").classes("mp-button font-mono text-[10px]")

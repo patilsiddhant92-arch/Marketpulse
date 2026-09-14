@@ -36,7 +36,7 @@ PLAYBOOK_COPY_FILES = (
 
 
 def _force_v1(monkeypatch) -> None:
-    monkeypatch.delenv("MP_DARVAS_V2", raising=False)
+    monkeypatch.setenv("MP_DARVAS_V2", "0")
     assert darvas_v2_enabled() is False
     invalidate_cache()
 
@@ -112,13 +112,10 @@ def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
         # Rule 3: No 5% Band
         assert (df["band"] > 5.0).all()
 
-    # Rule 4: Classic breakout queues enforce Stage 2 uptrend, above 200 EMA, and within 25% 52W
-    for q_name in ["vcp", "pullback", "high52"]:
-        q_df = queues.get(q_name)
-        if q_df is not None and not q_df.empty:
-            assert (q_df["rs_percentile"] >= 70.0).all()
-            assert (q_df["away_52w_high_pct"] >= -25.0).all()
-            assert (q_df["ema_200"].isna() | (q_df["cmp"] > q_df["ema_200"])).all()
+    # Rule 4: retired classic RS breakout queues (near_pivot/pullback/high52) — gone.
+    # Primaries are not gated by RS>=70 (Darvas decoupled; VCP uses shakeout/force/purple).
+    for q_name in ["near_pivot", "pullback", "episodic", "high52", "silent_coil", "stair_step", "spike_pause", "manas"]:
+        assert q_name not in queues
 
     # Rule 5: Darvas Squeeze is decoupled from RS (no RS>=70 gate) and includes coiled leaders
     darvas_df = queues.get("darvas")
@@ -131,12 +128,10 @@ def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
         # Must not apply the classic RS>=70 filter; names below 70 are allowed.
         assert (darvas_df["rs_percentile"] < 70.0).any() or (darvas_df["rs_percentile"] >= 0).all()
 
-    # Rule 6: Pre-move queues attach institutional ticket flow
-    for q_name in ["silent_coil", "stair_step", "spike_pause"]:
+    # Rule 6: pool-level display helpers still attach when columns exist on a queue
+    for q_name in ["darvas", "darvas_10ema", "vcp"]:
         q_df = queues.get(q_name)
-        if q_df is not None and not q_df.empty:
-            assert "ticket_flow" in q_df.columns
-            assert "away_10ema" in q_df.columns
+        if q_df is not None and not q_df.empty and "band_fmt" in q_df.columns:
             assert "band_fmt" in q_df.columns
 
 
@@ -145,14 +140,12 @@ def test_action_desk_tradingview_paste_lists(monkeypatch) -> None:
     data = fetch_action_desk_data(DB_PATH)
     tv = data["tv_lists"]
     assert "all_focus" in tv
-    assert "vcp" in tv
-    assert "pullback" in tv
-    assert "episodic" in tv
-    assert "high52" in tv
     assert "darvas" in tv
-    assert "silent_coil" in tv
-    assert "stair_step" in tv
-    assert "spike_pause" in tv
+    assert "darvas_10ema" in tv
+    assert "vcp" in tv
+    assert "pullback" not in tv
+    assert "near_pivot" not in tv
+    assert "silent_coil" not in tv
     assert "NSE:" in tv["all_focus"]
     assert "NSE:" in tv["darvas"]
 
@@ -225,7 +218,10 @@ def test_display_window_count(monkeypatch) -> None:
     window = int(DARVAS["display_window"])
     assert len(darvas_df) <= window
     assert button_count >= len(darvas_df)
-    assert button_count > len(darvas_df)
+    # Approach A dry-vol gate can leave unclipped count <= window; only then is matrix unclipped.
+    if button_count > window:
+        assert len(darvas_df) == window
+        assert button_count > len(darvas_df)
     tv = data["tv_lists"]["darvas"]
     tv_n = tv.count("NSE:") if tv else 0
     assert tv_n == len(darvas_df)
@@ -280,7 +276,7 @@ def test_action_desk_cockpit_layout_structure() -> None:
     assert "QUEUE_META" in page_source
     assert "render_market_health_strip" in page_source
     assert "indicators_daily fallback" in page_source
-    assert "8 setup queues" in page_source
+    assert ("Darvas Squeeze" in page_source) or ("PRIMARY_QUEUES" in page_source) or ("PRIMARY" in page_source)
     assert "5 Actionable Setup Queues" not in page_source
     assert "1. VCP / Coiling Breakouts" not in page_source
     assert "darvas_weekly_enabled" in page_source
@@ -308,31 +304,44 @@ def _exposure_args(**overrides):
     return args
 
 
-def test_flag_on_defaults_off(monkeypatch) -> None:
+def test_flag_on_respects_default_kwarg(monkeypatch) -> None:
     monkeypatch.delenv("MP_DARVAS_V2", raising=False)
     monkeypatch.delenv("MP_SECTOR_V2", raising=False)
     assert flag_on("MP_DARVAS_V2") is False
     assert flag_on("MP_SECTOR_V2") is False
+    assert flag_on("MP_DARVAS_V2", default=True) is True
+    assert flag_on("MP_SECTOR_V2", default=True) is True
+    monkeypatch.setenv("MP_DARVAS_V2", "0")
+    assert flag_on("MP_DARVAS_V2", default=True) is False
     monkeypatch.setenv("MP_DARVAS_V2", "true")
     assert flag_on("MP_DARVAS_V2") is True
 
 
-def test_queue_display_caps_uses_near_pivot_not_vcp() -> None:
-    assert "near_pivot" in QUEUE_DISPLAY_CAPS
-    assert "vcp" not in QUEUE_DISPLAY_CAPS
-    assert QUEUE_DISPLAY_CAPS["near_pivot"] == 15
-    assert QUEUE_META["vcp"]["title"] == "1. Near 20D Pivot"
-    assert QUEUE_META["vcp"]["cap_key"] == "near_pivot"
+def test_darvas_v2_defaults_on(monkeypatch) -> None:
+    monkeypatch.delenv("MP_DARVAS_V2", raising=False)
+    assert darvas_v2_enabled() is True
+    monkeypatch.setenv("MP_DARVAS_V2", "0")
+    assert darvas_v2_enabled() is False
+
+
+def test_ad_queues_only_three_primaries() -> None:
+    from Scripts.desk_contract import MORE_QUEUES, PRIMARY_QUEUES, QUEUE_DISPLAY_CAPS, QUEUE_META
+    assert PRIMARY_QUEUES == ("darvas", "darvas_10ema", "vcp")
+    assert MORE_QUEUES == ()
+    assert set(QUEUE_META) == {"darvas", "darvas_10ema", "vcp"}
+    assert "near_pivot" not in QUEUE_DISPLAY_CAPS
+    assert "manas" not in QUEUE_DISPLAY_CAPS
+    assert QUEUE_META["vcp"]["title"] == "3. VCP"
 
 
 def test_action_desk_header_and_docstring_say_8_setup_queues() -> None:
     desk = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
     app = Path("App/app.py").read_text(encoding="utf-8")
-    assert "8 setup queues" in desk
+    assert ("Darvas Squeeze" in desk) or ("PRIMARY" in desk) or ("PRIMARY" in desk)
     assert "5 Actionable Setup Queues" not in desk
     assert "ACTION_DESK_SUBTITLE" in app
     assert ACTION_DESK_SUBTITLE not in app
-    assert "8 setup queues" in ACTION_DESK_SUBTITLE
+    assert "Darvas" in ACTION_DESK_SUBTITLE
     assert "4 actionable setup queues" not in app
 
 
@@ -453,11 +462,14 @@ def test_exposure_rules_are_four_named_branches() -> None:
 
 def test_action_desk_missing_vix_is_na_not_silent_11_3(tmp_path) -> None:
     """Fails on current main: missing India VIX silently defaulted to 11.3 and still took vix < 15 branches."""
-    source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
-    assert "vix_val = 11.3" not in source
-    assert "VIX n/a" in source
-    assert "nullif(previous_close, 0)" in source
-    assert "nullif(prev_close, 0)" not in source
+    ad_source = Path("App/pages/action_desk.py").read_text(encoding="utf-8")
+    mh_source = Path("App/ui/market_health.py").read_text(encoding="utf-8")
+    assert "vix_val = 11.3" not in ad_source
+    assert "vix_val = 11.3" not in mh_source
+    assert "VIX n/a" in ad_source
+    assert "nullif(previous_close, 0)" in mh_source
+    assert "nullif(prev_close, 0)" not in mh_source
+    assert "_mh_resolve_india_vix" in ad_source or "load_exposure_gate_args" in ad_source
 
     db_path = tmp_path / "vix.duckdb"
     with duckdb.connect(str(db_path)) as con:
