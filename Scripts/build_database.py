@@ -29,6 +29,7 @@ from config import (
     WATCHLIST_BUCKETS,
 )
 from index_history import build_index_features, load_all_market_activity_history
+from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
 from reference_history import asof_reference, load_reference_history
 try:
     from Scripts.indicators import (
@@ -744,6 +745,22 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     # Simple recent strength (63d) percentile for quick views.
     rs_3m = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
     indicators["rs_3m_percentile"] = rs_3m.groupby(indicators["trade_date"]).rank(pct=True) * 100
+
+    # True RS vs Nifty 50 / MidSml 400 (excess return, fail-closed). Peer rs_percentile stays primary.
+    print("  5c+/8: Computing true RS vs index benches...", flush=True)
+    try:
+        index_raw = load_all_market_activity_history(ROOT_DIR)
+        if index_raw is not None and not index_raw.empty:
+            indicators = attach_true_rs_columns(indicators, index_raw)
+        else:
+            for _col in TRUE_RS_COLUMNS:
+                if _col not in indicators.columns:
+                    indicators[_col] = np.nan
+    except Exception as exc:
+        print(f"  Warning: true RS skipped ({exc})", flush=True)
+        for _col in TRUE_RS_COLUMNS:
+            if _col not in indicators.columns:
+                indicators[_col] = np.nan
 
     # NOTE on RS: All are cross-sectional daily ranks (0-100). Higher = stronger relative performance vs other stocks that day.
     print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)

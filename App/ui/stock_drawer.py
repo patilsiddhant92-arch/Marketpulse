@@ -452,6 +452,18 @@ def query_stock_peer_comparison(
     return res
 
 
+
+def _true_rs_chip(label: str, value) -> None:
+    """Optional excess-RS chip; skip when null."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return
+    tone = "mp-good" if v >= 0 else "mp-warn"
+    ui.label(f"{label} {v:+.1f}").classes(f"mp-badge {tone} text-[10px] font-semibold")
+
 def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
     """Fetch complete multi-dimensional data for a symbol in a single query transaction."""
     sym = str(symbol).strip().upper()
@@ -1247,6 +1259,13 @@ def open_stock_360_modal(
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("RS Percentile").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(f"{float(rs):.0f}" if pd.notna(rs) else "—").classes("text-xl font-bold")
+
+                with ui.row().classes("gap-1 flex-wrap mt-1"):
+                    _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+                    _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
+                    _true_rs_chip("vs N50 21d", profile.get("rs_vs_nifty50_21d"))
+                    _true_rs_chip("vs MS400 21d", profile.get("rs_vs_midsml400_21d"))
+
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("SMA template").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(geo["template"]["label"]).classes("text-xl font-bold")
@@ -1474,6 +1493,8 @@ def render_stock_inspector_panel(
                     ui.label(sym).classes("text-xl font-bold tracking-tight text-[var(--mp-text)] font-mono")
                     if rs and pd.notna(rs):
                         ui.label(f"RS {float(rs):.0f}").classes("mp-badge mp-good text-[11px]")
+                    _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+                    _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
                     if vcp_state and vcp_state != "None":
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone} text-[10px]")
