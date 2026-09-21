@@ -146,10 +146,13 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
     breadth_daily = build_breadth_daily(indicators)
     sector_rotation = build_sector_rotation(indicators, master)
-    try:
-        reference_for_metrics = _load_table("security_reference_daily")
-    except Exception:
+    if not reference_history.empty:
         reference_for_metrics = reference_history
+    else:
+        try:
+            reference_for_metrics = _load_table("security_reference_daily")
+        except Exception:
+            reference_for_metrics = pd.DataFrame()
     try:
         index_for_metrics = _load_table("index_daily")
     except Exception:
@@ -159,7 +162,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
 
     backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
     shutil.copy2(DB_PATH, backup)
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history)
     new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
     msg = f"Append update complete through {new_max}. Backup: {backup.name}"
     print(msg)

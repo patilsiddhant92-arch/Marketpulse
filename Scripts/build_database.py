@@ -115,10 +115,25 @@ def latest_file(folder: Path, pattern: str) -> Path | None:
 
 
 def read_equity_symbols() -> pd.DataFrame:
-    df = pd.read_csv(EQUITY_LIST_FILE, usecols=[0], dtype=str)
-    df.columns = ["symbol"]
+    df = pd.read_csv(EQUITY_LIST_FILE, dtype=str)
+    df.columns = [str(c).strip() for c in df.columns]
+    renames = {"SYMBOL": "symbol"}
+    for c in df.columns:
+        if c.upper() == "DATE OF LISTING":
+            renames[c] = "date_of_listing"
+        elif c.upper() == "ISIN NUMBER":
+            renames[c] = "isin"
+        elif c.upper() == "NAME OF COMPANY":
+            renames[c] = "security_name"
+    df = df.rename(columns=renames)
     df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-    df = df[(df["symbol"] != "") & (df["symbol"].str.lower() != "nan")]
+    df = df[(df["symbol"] != "") & (df["symbol"].str.lower() != "nan")].copy()
+    if "date_of_listing" in df.columns:
+        df["listing_date"] = pd.to_datetime(df["date_of_listing"], format="%d-%b-%Y", errors="coerce").dt.date
+    else:
+        df["listing_date"] = None
+    if "isin" in df.columns:
+        df["isin"] = df["isin"].astype(str).str.strip()
     return df.drop_duplicates("symbol")
 
 
@@ -209,16 +224,21 @@ def build_prices(universe: set[str]) -> pd.DataFrame:
 def read_market_cap() -> pd.DataFrame:
     path = latest_file(DAILY_DIR, "mcap*.csv")
     if not path:
-        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date"])
+        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"])
     df = clean_columns(pd.read_csv(path, dtype=str, skipinitialspace=True))
     market_cap_col = next((c for c in df.columns if c.startswith("market_cap")), None)
     if not market_cap_col:
-        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date"])
+        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"])
     out = pd.DataFrame()
     out["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
     out["security_name"] = df.get("security_name", "").astype(str).str.strip()
     out["market_cap_cr"] = to_number(df[market_cap_col]) / 10_000_000
     out["market_cap_date"] = pd.to_datetime(df.get("trade_date", ""), format="%d %b %Y", errors="coerce")
+    issue_size_col = next((c for c in df.columns if c.startswith("issue_size")), None)
+    if issue_size_col:
+        out["issue_size"] = to_number(df[issue_size_col])
+    else:
+        out["issue_size"] = np.nan
     return out.drop_duplicates("symbol", keep="last")
 
 
@@ -856,6 +876,12 @@ def build_master(equity: pd.DataFrame, sector: pd.DataFrame, prices: pd.DataFram
     master = master.merge(mcap, on="symbol", how="left")
     master = master.merge(bands, on="symbol", how="left")
     master = master.merge(pe, on="symbol", how="left")
+    if "listing_date" in master.columns and "latest_price_date" in master.columns:
+        l_dt = pd.to_datetime(master["listing_date"], errors="coerce")
+        p_dt = pd.to_datetime(master["latest_price_date"], errors="coerce")
+        master["ipo_age_days"] = (p_dt - l_dt).dt.days
+    else:
+        master["ipo_age_days"] = np.nan
     return master
 
 
@@ -1129,6 +1155,7 @@ def write_database(
     sector_rotation: pd.DataFrame,
     screener_results: pd.DataFrame,
     sector_metrics_daily: pd.DataFrame | None = None,
+    reference_history: pd.DataFrame | None = None,
 ) -> None:
     if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
         sector_metrics_daily = pd.DataFrame(
@@ -1180,13 +1207,16 @@ def write_database(
     PRESERVED_TABLES = (
         "trade_journal",
         "watchlist_candidates",
-        "portfolio_positions",
-        "portfolio_events",
         "security_events",
         "corporate_actions",
         "security_risk_daily",
         "top_value_daily",
         "security_reference_daily",
+        "ingested_reports",
+        "ingestion_batches",
+        "candidate_daily",
+        "signal_ledger",
+        "signal_outcomes",
     )
     if DB_PATH.exists():
         try:
@@ -1199,12 +1229,35 @@ def write_database(
                 if not exists:
                     continue
                 user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
+                if user_table == "security_reference_daily" and reference_history is not None and not reference_history.empty:
+                    if not user_rows.empty:
+                        user_rows = pd.concat([user_rows, reference_history], ignore_index=True)
+                        if "symbol" in user_rows.columns and "effective_date" in user_rows.columns:
+                            user_rows = user_rows.drop_duplicates(subset=["symbol", "effective_date"], keep="last")
+                    else:
+                        user_rows = reference_history
                 con.register(f"{user_table}_df", user_rows)
                 con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
+                if user_table == "security_reference_daily":
+                    con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
                 print(f"Preserved table {user_table}: {len(user_rows):,} rows")
             old_con.close()
         except Exception as exc:
             print(f"Warning: could not preserve tables ({PRESERVED_TABLES}): {exc}")
+
+    # If security_reference_daily wasn't preserved, create directly from reference_history
+    has_ref = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'security_reference_daily'").fetchone()[0]
+    if not has_ref:
+        if reference_history is None or reference_history.empty:
+            try:
+                reference_history = load_reference_history(ROOT_DIR)
+            except Exception:
+                reference_history = pd.DataFrame()
+        if reference_history is not None and not reference_history.empty:
+            con.register("security_reference_daily_df", reference_history)
+            con.execute("CREATE TABLE security_reference_daily AS SELECT * FROM security_reference_daily_df")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
+            print(f"Created table security_reference_daily: {len(reference_history):,} rows")
 
     con.close()
     if DB_PATH.exists():
@@ -1286,7 +1339,7 @@ def main() -> None:
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
     if not args.quiet:
         print("8/8: Writing database file...")
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history)
     if not args.quiet:
         print("MarketPulse database built successfully (FULL history rebuild).")
         print(f"Database: {DB_PATH}")

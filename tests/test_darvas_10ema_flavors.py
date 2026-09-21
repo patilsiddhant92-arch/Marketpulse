@@ -115,3 +115,39 @@ def test_open_under_ema_after_thrust_rejects():
     df.loc[df.index[-1], "open_price"] = float(df.loc[df.index[-1], "ema_10"]) * 0.98
     out = classify_darvas_10ema_frame(df)
     assert out.empty
+
+
+def test_weekly_and_monthly_darvas_10ema_resampling():
+    # Construct 120 daily bars spanning multiple months
+    dates = pd.bdate_range("2026-01-01", periods=120)
+    rows = []
+    c = 100.0
+    for i, d in enumerate(dates):
+        if i == 80:
+            c = c * 1.15  # major thrust
+        elif i > 80:
+            c = c * 1.002
+        else:
+            c = c * 1.001
+        rows.append({
+            "symbol": "MULTI",
+            "trade_date": d,
+            "open_price": c * 0.999,
+            "high_price": c * 1.01,
+            "low_price": c * 0.995,
+            "close_price": c,
+            "volume": 500_000.0,
+        })
+    df = pd.DataFrame(rows)
+
+    # Weekly classification
+    out_w = classify_darvas_10ema_frame(df, timeframe="W")
+    assert isinstance(out_w, pd.DataFrame)
+    assert "flavor" in out_w.columns
+    assert "away_10ema_pct" in out_w.columns
+
+    # Monthly classification
+    out_m = classify_darvas_10ema_frame(df, timeframe="M")
+    assert isinstance(out_m, pd.DataFrame)
+    assert "flavor" in out_m.columns
+

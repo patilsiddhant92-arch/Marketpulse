@@ -36,7 +36,9 @@ try:
     from App.thematic_engine import build_thematic_leaderboard, get_index_constituents
     from App.ui.columns import get_quasar_column_def
     from App.ui.market_health import render_market_health_strip
+    from App.ui.number_format import format_cell
     from App.ui.stock_drawer import open_stock_360_modal
+    from App.ui.table import _table_event_symbol
     from App.ui.widgets import chart_panel, grouped_line_chart, return_heatmap
 except ModuleNotFoundError:
     from market_status import load_market_status, non_actionable_message  # type: ignore
@@ -56,7 +58,9 @@ except ModuleNotFoundError:
     from thematic_engine import build_thematic_leaderboard, get_index_constituents  # type: ignore
     from ui.columns import get_quasar_column_def  # type: ignore
     from ui.market_health import render_market_health_strip  # type: ignore
+    from ui.number_format import format_cell  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
+    from ui.table import _table_event_symbol  # type: ignore
     from ui.widgets import chart_panel, grouped_line_chart, return_heatmap  # type: ignore
 
 try:
@@ -120,16 +124,35 @@ def _sort_taxonomy_by_state(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def _extract_event_arg(val: Any) -> str:
     """Safely extract clean string identifier from NiceGUI/Quasar event arguments."""
-    if val is None:
+    args = getattr(val, "args", val)
+    if args is None:
         return ""
-    if isinstance(val, (list, tuple)):
-        val = val[0] if val else ""
-    if isinstance(val, dict):
-        val = val.get("symbol") or val.get("value") or val.get("group") or val.get("index_name") or ""
-    s = str(val or "").strip()
+    if isinstance(args, (list, tuple)):
+        args = args[0] if args else ""
+    if isinstance(args, dict):
+        args = args.get("symbol") or args.get("value") or args.get("group") or args.get("index_name") or ""
+    s = str(args or "").strip()
     if (s.startswith("['") and s.endswith("']")) or (s.startswith('["') and s.endswith('"]')):
         s = s[2:-2].strip()
     return s
+
+
+def _quick_toggle_wl_symbol(db_path: Path, sym: str) -> None:
+    sym = (sym or "").strip().upper()
+    if not sym:
+        return
+    try:
+        from App.ui.stock_drawer import toggle_watchlist_symbol
+    except ModuleNotFoundError:
+        from ui.stock_drawer import toggle_watchlist_symbol  # type: ignore
+    try:
+        added = toggle_watchlist_symbol(db_path, 1, sym)
+        if added:
+            ui.notify(f"★ Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
+        else:
+            ui.notify(f"Removed {sym} from Watchlist (WL1)", type="info")
+    except Exception as exc:
+        ui.notify(f"Watchlist error: {exc}", type="negative")
 
 
 def sector_v2_enabled() -> bool:
@@ -495,34 +518,44 @@ def _build_sector_v2_page(
                     ).props("dense unelevated no-caps").classes("mp-primary text-xs mb-2")
                 display_cols = [c for c in ["symbol", "close_price", "return_1d_pct", "return_5d_pct", "rs_percentile", "rvol", "away_52w_high_pct", "turnover_cr", "market_cap_cr"] if c in members.columns]
                 table_data = members[display_cols].copy()
-                if "close_price" in table_data.columns:
-                    table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
-                if "return_1d_pct" in table_data.columns:
-                    table_data["return_1d_pct"] = table_data["return_1d_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
-                if "return_5d_pct" in table_data.columns:
-                    table_data["return_5d_pct"] = table_data["return_5d_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                if "turnover_cr" in table_data.columns:
-                    table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
-                if "away_52w_high_pct" in table_data.columns:
-                    table_data["away_52w_high_pct"] = table_data["away_52w_high_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                if "rvol" in table_data.columns:
-                    table_data["rvol"] = table_data["rvol"].map(lambda x: f"{x:.2f}x" if pd.notna(x) else "—")
-                if "rs_percentile" in table_data.columns:
-                    table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
-                if "market_cap_cr" in table_data.columns:
-                    table_data["market_cap_cr"] = table_data["market_cap_cr"].map(lambda x: f"₹{x:,.0f} Cr" if pd.notna(x) else "—")
+                formatted_cols: list[str] = []
+                for c in display_cols:
+                    if c != "symbol":
+                        table_data[f"{c}__fmt"] = [format_cell(c, v)[0] for v in table_data[c]]
+                        table_data[f"{c}__k"] = [format_cell(c, v)[1] for v in table_data[c]]
+                        table_data[c] = pd.to_numeric(table_data[c], errors="coerce").astype(object).where(pd.notna(table_data[c]), None)
+                        formatted_cols.append(c)
                 cols_def = [get_quasar_column_def(c) for c in display_cols]
+                rows = table_data.astype(object).where(pd.notna(table_data), None).to_dict("records")
                 with ui.element("div").classes("w-full mp-table-scroll"):
-                    with ui.table(columns=cols_def, rows=table_data.to_dict("records"), pagination=15).classes("w-full mp-table") as t:
+                    with ui.table(columns=cols_def, rows=rows, pagination=15).classes("w-full mp-table") as t:
                         t.add_slot(
                             "body-cell-symbol",
                             """
                             <q-td :props="props" class="symbol-col mp-sticky-col">
-                                <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('open_stock', props.value)" />
+                                <div class="mp-symbol-cell">
+                                    <button type="button" class="mp-symbol-star" @click.stop="$parent.$emit('quick_wl', props.value)" title="Quick add/remove from Watchlist (WL1)">★</button>
+                                    <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('stock360', props.value)" />
+                                    <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('stock360', props.value)" title="Open Stock 360">↗</q-btn>
+                                </div>
                             </q-td>
                             """,
                         )
-                        t.on("open_stock", lambda e: open_stock_360_modal(db_path, _extract_event_arg(e.args), copy_text=copy_text))
+                        for fc in formatted_cols:
+                            t.add_slot(
+                                f"body-cell-{fc}",
+                                f"""
+                                <q-td :props="props" class="numeric">
+                                    <span :class="props.row['{fc}__k'] || ''">
+                                        {{{{ props.row['{fc}__fmt'] !== undefined ? props.row['{fc}__fmt'] : (props.value !== null && props.value !== undefined ? props.value : '—') }}}}
+                                    </span>
+                                </q-td>
+                                """,
+                            )
+                        _open_360_handler = lambda e: open_stock_360_modal(db_path, _table_event_symbol(e), copy_text=copy_text)
+                        t.on("stock360", _open_360_handler)
+                        t.on("open_stock", _open_360_handler)
+                        t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(db_path, _table_event_symbol(e)))
 
         def select_group(group_name: str, *, from_parent: bool = False) -> None:
             if from_parent:
@@ -787,20 +820,21 @@ def build_sector_board_page(
             state["selected_group"] = ""
             render_drilldown()
 
-        def _quick_toggle_wl_symbol(sym: str) -> None:
-            sym = (sym or "").strip().upper()
-            if not sym:
+        def _quick_toggle_wl_symbol(sym: Any = None, *extra: Any) -> None:
+            raw_sym = extra[-1] if extra else sym
+            target = (str(raw_sym) if raw_sym else "").strip().upper()
+            if not target:
                 return
             try:
                 from App.ui.stock_drawer import toggle_watchlist_symbol
             except ModuleNotFoundError:
                 from ui.stock_drawer import toggle_watchlist_symbol  # type: ignore
             try:
-                added = toggle_watchlist_symbol(db_path, 1, sym)
+                added = toggle_watchlist_symbol(db_path, 1, target)
                 if added:
-                    ui.notify(f"★ Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
+                    ui.notify(f"★ Added {target} to Watchlist (WL1)", type="positive", color="amber-9")
                 else:
-                    ui.notify(f"Removed {sym} from Watchlist (WL1)", type="info")
+                    ui.notify(f"Removed {target} from Watchlist (WL1)", type="info")
             except Exception as exc:
                 ui.notify(f"Watchlist error: {exc}", type="negative")
 
@@ -825,28 +859,45 @@ def build_sector_board_page(
                     else:
                         display_cols = [c for c in ["symbol", "company_name", "close_price", "day_pct", "rs_percentile", "turnover_cr", "theme"] if c in sub.columns]
                         table_data = sub[display_cols].copy()
-                        table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
-                        table_data["day_pct"] = table_data["day_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
-                        table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
-                        table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
+                        formatted_cols: list[str] = []
+                        for c in display_cols:
+                            if c not in {"symbol", "company_name", "theme"}:
+                                table_data[f"{c}__fmt"] = [format_cell(c, v)[0] for v in table_data[c]]
+                                table_data[f"{c}__k"] = [format_cell(c, v)[1] for v in table_data[c]]
+                                table_data[c] = pd.to_numeric(table_data[c], errors="coerce").astype(object).where(pd.notna(table_data[c]), None)
+                                formatted_cols.append(c)
 
                         cols_def = [get_quasar_column_def(c) for c in display_cols]
+                        rows = table_data.astype(object).where(pd.notna(table_data), None).to_dict("records")
                         with ui.element("div").classes("w-full mp-table-scroll"):
-                            with ui.table(columns=cols_def, rows=table_data.to_dict("records"), pagination=15).classes("w-full mp-table") as t:
+                            with ui.table(columns=cols_def, rows=rows, pagination=15).classes("w-full mp-table") as t:
                                 t.add_slot(
                                     "body-cell-symbol",
                                     """
                                     <q-td :props="props" class="symbol-col mp-sticky-col">
                                         <div class="mp-symbol-cell">
                                             <button type="button" class="mp-symbol-star" @click.stop="$parent.$emit('quick_wl', props.value)" title="Quick add/remove from Watchlist (WL1)">★</button>
-                                            <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('open_stock', props.value)" />
-                                            <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('open_stock', props.value)" title="Open stock box">↗</q-btn>
+                                            <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('stock360', props.value)" />
+                                            <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('stock360', props.value)" title="Open Stock 360">↗</q-btn>
                                         </div>
                                     </q-td>
-                                    """
+                                    """,
                                 )
-                                t.on("open_stock", lambda e: open_stock_360_modal(db_path, _extract_event_arg(e.args), copy_text=copy_text))
-                                t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(_extract_event_arg(e.args)))
+                                for fc in formatted_cols:
+                                    t.add_slot(
+                                        f"body-cell-{fc}",
+                                        f"""
+                                        <q-td :props="props" class="numeric">
+                                            <span :class="props.row['{fc}__k'] || ''">
+                                                {{{{ props.row['{fc}__fmt'] !== undefined ? props.row['{fc}__fmt'] : (props.value !== null && props.value !== undefined ? props.value : '—') }}}}
+                                            </span>
+                                        </q-td>
+                                        """,
+                                    )
+                                _open_360_handler = lambda e: open_stock_360_modal(db_path, _table_event_symbol(e), copy_text=copy_text)
+                                t.on("stock360", _open_360_handler)
+                                t.on("open_stock", _open_360_handler)
+                                t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(db_path, _table_event_symbol(e)))
                 return
 
             grp = state["selected_group"]
@@ -872,14 +923,13 @@ def build_sector_board_page(
                         sub["week_pct"] = sub["return_5d_pct"]
                     display_cols = [c for c in ["symbol", "close_price", "day_pct", "week_pct", "turnover_cr", "away_52w_high_pct", "rvol", "rs_percentile", "market_cap_cr"] if c in sub.columns]
                     table_data = sub[display_cols].copy()
-                    table_data["close_price"] = table_data["close_price"].map(lambda x: f"₹{x:,.2f}" if pd.notna(x) else "—")
-                    table_data["day_pct"] = table_data["day_pct"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "—")
-                    table_data["week_pct"] = table_data["week_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                    table_data["turnover_cr"] = table_data["turnover_cr"].map(lambda x: f"₹{x:,.1f} Cr" if pd.notna(x) else "—")
-                    table_data["away_52w_high_pct"] = table_data["away_52w_high_pct"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                    table_data["rvol"] = table_data["rvol"].map(lambda x: f"{x:.2f}x" if pd.notna(x) else "—")
-                    table_data["rs_percentile"] = table_data["rs_percentile"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
-                    table_data["market_cap_cr"] = table_data["market_cap_cr"].map(lambda x: f"₹{x:,.0f} Cr" if pd.notna(x) else "—")
+                    formatted_cols: list[str] = []
+                    for c in display_cols:
+                        if c != "symbol":
+                            table_data[f"{c}__fmt"] = [format_cell(c, v)[0] for v in table_data[c]]
+                            table_data[f"{c}__k"] = [format_cell(c, v)[1] for v in table_data[c]]
+                            table_data[c] = pd.to_numeric(table_data[c], errors="coerce").astype(object).where(pd.notna(table_data[c]), None)
+                            formatted_cols.append(c)
                     if copy_text:
                         ui.button(
                             f"Copy {len(sub)} symbols (TV)",
@@ -888,22 +938,36 @@ def build_sector_board_page(
                         ).props("dense unelevated no-caps").classes("mp-primary text-xs mb-2")
 
                     cols_def = [get_quasar_column_def(c) for c in display_cols]
+                    rows = table_data.astype(object).where(pd.notna(table_data), None).to_dict("records")
                     with ui.element("div").classes("w-full mp-table-scroll"):
-                        with ui.table(columns=cols_def, rows=table_data.to_dict("records"), pagination=15).classes("w-full mp-table") as t:
+                        with ui.table(columns=cols_def, rows=rows, pagination=15).classes("w-full mp-table") as t:
                             t.add_slot(
                                 "body-cell-symbol",
                                 """
                                 <q-td :props="props" class="symbol-col mp-sticky-col">
                                     <div class="mp-symbol-cell">
                                         <button type="button" class="mp-symbol-star" @click.stop="$parent.$emit('quick_wl', props.value)" title="Quick add/remove from Watchlist (WL1)">★</button>
-                                        <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('open_stock', props.value)" />
-                                        <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('open_stock', props.value)" title="Open stock box">↗</q-btn>
+                                        <q-btn flat dense no-caps size="sm" color="primary" class="mp-symbol" :label="props.value" @click="$parent.$emit('stock360', props.value)" />
+                                        <q-btn dense flat no-caps class="mp-symbol-open" @click.stop="$parent.$emit('stock360', props.value)" title="Open Stock 360">↗</q-btn>
                                     </div>
                                 </q-td>
-                                """
+                                """,
                             )
-                            t.on("open_stock", lambda e: open_stock_360_modal(db_path, _extract_event_arg(e.args), copy_text=copy_text))
-                            t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(_extract_event_arg(e.args)))
+                            for fc in formatted_cols:
+                                t.add_slot(
+                                    f"body-cell-{fc}",
+                                    f"""
+                                    <q-td :props="props" class="numeric">
+                                        <span :class="props.row['{fc}__k'] || ''">
+                                            {{{{ props.row['{fc}__fmt'] !== undefined ? props.row['{fc}__fmt'] : (props.value !== null && props.value !== undefined ? props.value : '—') }}}}
+                                        </span>
+                                    </q-td>
+                                    """,
+                                )
+                            _open_360_handler = lambda e: open_stock_360_modal(db_path, _table_event_symbol(e), copy_text=copy_text)
+                            t.on("stock360", _open_360_handler)
+                            t.on("open_stock", _open_360_handler)
+                            t.on("quick_wl", lambda e: _quick_toggle_wl_symbol(db_path, _table_event_symbol(e)))
 
         def render_section() -> None:
             content_host.clear()
@@ -980,6 +1044,7 @@ def build_sector_board_page(
                         get_quasar_column_def("turnover_share_delta_5d", label_override="★ Δ SHARE 5D"),
                         get_quasar_column_def("group_name", width_override=200),
                         get_quasar_column_def("rotation_state"),
+                        get_quasar_column_def("deal_net_10s_cr", label_override="INST NET 10D"),
                         get_quasar_column_def("turnover_1d_cr", label_override="TURNOVER"),
                         get_quasar_column_def("turnover_share_pct", label_override="T/O SHARE"),
                         get_quasar_column_def("adv_pct", label_override="ADV %"),
@@ -1312,7 +1377,7 @@ def build_sector_board_page(
                             get_quasar_column_def("clean_name", label_override="INDEX"),
                             get_quasar_column_def("close_price", label_override="CMP"),
                             get_quasar_column_def("return_1d_pct", label_override="1D %"),
-                            get_quasar_column_def("rsi_14", label_override="RS"),
+                            get_quasar_column_def("rsi_14"),
                             get_quasar_column_def("ema_stack", label_override="EMA STACK"),
                             get_quasar_column_def("distance_ema_20_pct", label_override="VS 20EMA"),
                             get_quasar_column_def("return_5d_pct", label_override="5D %"),

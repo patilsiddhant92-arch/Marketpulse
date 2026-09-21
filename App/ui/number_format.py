@@ -34,6 +34,10 @@ SIGNED_RETURN = frozenset(
         "forward_return_pct",
         "cmp_vs_inst_entry_pct",
         "deal_price_vs_close_pct",
+        "pct_change",
+        "rs_vs_nifty_21d",
+        "rs_vs_nifty_63d",
+        "delivery_delta",
     }
 )
 LEVEL_PCT = frozenset(
@@ -58,6 +62,11 @@ LEVEL_PCT = frozenset(
         "range_5d_pct",
         "range_10d_pct",
         "range_20d_pct",
+        "roe",
+        "revenue_cagr_3y",
+        "squeeze_pct",
+        "candle_range_pct",
+        "darvas_squeeze_pct",
     }
 )
 DISTANCE = frozenset(
@@ -101,6 +110,64 @@ SCORES = frozenset(
         "pivot_proximity_score",
         "focus_score",
         "rotation_score",
+        "rsi_14",
+        "rsi",
+        "total_score",
+        "quality_score",
+    }
+)
+PRICE = frozenset(
+    {
+        "close_price",
+        "cmp",
+        "sell_price",
+        "avg_buy_price",
+        "inst_vwap",
+        "exit_price",
+        "trigger_price",
+        "invalidation_price",
+        "stop_loss",
+        "first_resistance",
+        "pivot",
+        "low",
+        "high",
+        "entry_price",
+        "target_price",
+        "box_top",
+        "box_bottom",
+        "darvas_top",
+        "darvas_bottom",
+    }
+)
+MULTIPLES = frozenset(
+    {
+        "pe",
+        "adjusted_pe",
+        "debt_to_equity",
+        "reward_to_risk",
+    }
+)
+COUNTS = frozenset(
+    {
+        "rank",
+        "rotation_rank",
+        "stocks",
+        "total_stocks",
+        "near_52w_highs",
+        "vcp_candidates",
+        "new_20d_highs",
+        "deal_count",
+        "client_count",
+        "inst_count",
+        "institutions_count",
+        "active_days",
+        "qty",
+        "days_held",
+        "squeeze_age",
+        "volume",
+        "vol_20d_avg",
+        "avg_volume_20d",
+        "delivery_qty",
     }
 )
 MONEY_HINTS = ("_cr", "mcap", "turnover", "value_cr", "t_o_")
@@ -116,6 +183,8 @@ NUMERIC_KINDS = frozenset(
         "buy_money",
         "sell_money",
         "money",
+        "price",
+        "multiple",
         "rvol",
         "score",
         "signed_delta",
@@ -148,6 +217,12 @@ def classify_column(col: str) -> str:
         return "score"
     if any(h in name for h in MONEY_HINTS) or name.endswith("_inr"):
         return "money"
+    if name in PRICE or name.endswith("_price") or name.endswith("_vwap") or name.endswith("_loss") or name.endswith("_target"):
+        return "price"
+    if name in MULTIPLES:
+        return "multiple"
+    if name in COUNTS or name.endswith("_count") or name.endswith("_qty") or name.endswith("_days") or name.endswith("_stocks"):
+        return "number"
     return "other"
 
 
@@ -170,6 +245,16 @@ def format_cell(col: str, value: Any) -> tuple[str, str]:
     except (TypeError, ValueError):
         return str(value), ""
     name = str(col).lower()
+    if kind == "price":
+        return f"{number:,.2f}", ""
+    if kind == "multiple":
+        if name in ("pe", "adjusted_pe"):
+            return f"{number:.1f}", ""
+        elif name == "debt_to_equity":
+            return f"{number:.2f}", ""
+        elif name == "reward_to_risk":
+            return f"{number:.1f}", ""
+        return f"{number:.2f}", ""
     if kind == "signed_return":
         return f"{number:+.2f}%", _signed_tone(number)
     if kind == "level_pct":
@@ -178,12 +263,20 @@ def format_cell(col: str, value: Any) -> tuple[str, str]:
         tone = _distance_tone(name, number)
         return _format_distance(name, number), tone
     if kind == "signed_money":
+        if abs(number) < 0.05:
+            number = 0.0
         return _format_money(number, signed=True, is_inr=name.endswith("_inr")), _signed_tone(number)
     if kind == "buy_money":
+        if abs(number) < 0.05:
+            number = 0.0
         return _format_money(number, signed=False, is_inr=name.endswith("_inr")), TONE_UP if number > 0 else ""
     if kind == "sell_money":
+        if abs(number) < 0.05:
+            number = 0.0
         return _format_money(number, signed=False, is_inr=name.endswith("_inr")), TONE_DOWN if number > 0 else ""
     if kind == "money":
+        if abs(number) < 0.05:
+            number = 0.0
         return _format_money(number, signed=False, is_inr=name.endswith("_inr")), ""
     if kind == "rvol":
         return f"{number:.2f}x", ""
@@ -194,13 +287,15 @@ def format_cell(col: str, value: Any) -> tuple[str, str]:
             return "0", ""
         return f"{number:+.0f}", _signed_tone(number)
     if kind == "number" or isinstance(value, (int, float)) and not isinstance(value, bool):
-        if abs(number - round(number)) < 1e-9 and abs(number) >= 1:
+        if abs(number - round(number)) < 1e-9:
             return f"{number:,.0f}", ""
         return f"{number:,.2f}", ""
     return str(value), ""
 
 
 def _signed_tone(number: float) -> str:
+    if abs(number) < 0.05:
+        return ""
     if number > 0:
         return TONE_UP
     if number < 0:
@@ -225,6 +320,9 @@ def _distance_tone(name: str, number: float) -> str:
 
 
 def _format_money(number: float, *, signed: bool, is_inr: bool = False) -> str:
+    # GEMINI.md Invariant 4: Near-zero deadband < 0.05 => 0.0, sign = '+'
+    if abs(number) < 0.05:
+        number = 0.0
     sym = "₹" if is_inr else ""
     if is_inr:
         body = f"{abs(number):,.0f}"
@@ -235,7 +333,7 @@ def _format_money(number: float, *, signed: bool, is_inr: bool = False) -> str:
             return f"+{sym}{body}"
         if number < 0:
             return f"-{sym}{body}"
-        return f"{sym}0" if is_inr else body
+        return f"+{sym}{body}" if not is_inr else f"+{sym}0"
     return f"{sym}{body}" if number >= 0 else f"-{sym}{body}"
 
 

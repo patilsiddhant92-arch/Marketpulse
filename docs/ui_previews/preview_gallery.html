@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MarketPulse 3.0 Live Terminal Previews</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: #080c14;
+      color: #f1f4f8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+    }
+    .tab-btn.active {
+      background: #f0be58 !important;
+      color: #080c14 !important;
+      font-weight: 700;
+    }
+    .preview-card {
+      background: #0d131d;
+      border: 1px solid #1c2837;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+    }
+  </style>
+</head>
+<body class="antialiased">
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-[#1c2837] flex-wrap gap-2">
+      <div>
+        <h1 class="text-xl font-bold text-[#f1f4f8] flex items-center gap-2">
+          <span class="text-[#f0be58]">⚡ MarketPulse 3.0 Terminal</span> Live Application Previews
+        </h1>
+        <p class="text-xs text-[#98a7ba]">Real-Time Screenshots Running Against DuckDB • React 19 • Tailwind v4 • TradingView Lightweight Charts</p>
+      </div>
+      <div class="flex gap-1.5 flex-wrap">
+        <button onclick="showTab(1)" id="tab-1" class="tab-btn active px-3 py-1.5 text-xs rounded-md bg-[#131b26] text-[#f1f4f8] border border-[#1c2837] hover:border-[#f0be58] transition">
+          1. Cockpit (Desk)
+        </button>
+        <button onclick="showTab(2)" id="tab-2" class="tab-btn px-3 py-1.5 text-xs rounded-md bg-[#131b26] text-[#f1f4f8] border border-[#1c2837] hover:border-[#f0be58] transition">
+          2. Momentum Screener
+        </button>
+        <button onclick="showTab(3)" id="tab-3" class="tab-btn px-3 py-1.5 text-xs rounded-md bg-[#131b26] text-[#f1f4f8] border border-[#1c2837] hover:border-[#f0be58] transition">
+          3. Better Deals Tab
+        </button>
+        <button onclick="showTab(4)" id="tab-4" class="tab-btn px-3 py-1.5 text-xs rounded-md bg-[#131b26] text-[#f1f4f8] border border-[#1c2837] hover:border-[#f0be58] transition">
+          4. Manas VCP & Darvas
+        </button>
+        <button onclick="showTab(5)" id="tab-5" class="tab-btn px-3 py-1.5 text-xs rounded-md bg-[#131b26] text-[#f1f4f8] border border-[#1c2837] hover:border-[#f0be58] transition">
+          5. Sector & Rotation
+        </button>
+      </div>
+    </div>
+
+    <!-- Preview 1 -->
+    <div id="content-1" class="preview-card">
+      <div class="p-3 bg-[#131b26] border-b border-[#1c2837] flex justify-between items-center">
+        <div>
+          <span class="text-xs font-semibold text-[#f0be58] uppercase tracking-wider">Morning Command Center</span>
+          <h2 class="text-sm font-medium text-white">Unified Action Cockpit with Live 360° Inspector Sidecar</h2>
+        </div>
+        <span class="text-[11px] text-[#45d483] bg-[#163526] px-2 py-0.5 rounded border border-[#235338]">Real-Time Live UI</span>
+      </div>
+      <div class="p-2 bg-[#080c14]">
+        <img src="real_01_cockpit.png" alt="MarketPulse Cockpit UI" class="w-full h-auto rounded border border-[#1c2837]" />
+      </div>
+      <div class="p-3 text-xs text-[#98a7ba] border-t border-[#1c2837] bg-[#0c131d]">
+        <strong class="text-white">Highlights:</strong> Persistent Top Bar (Exposure Gate, India VIX, Market Breadth &gt;50 EMA, Dynamic Sector Themes) • Action Desk Queue tabs (Primary, Manas VCP, Darvas 10 EMA, Darvas Squeeze) • Right-docked 360° Inspector with TradingView Lightweight Charts &amp; Darvas Box Geometry.
+      </div>
+    </div>
+
+    <!-- Preview 2 -->
+    <div id="content-2" class="preview-card hidden">
+      <div class="p-3 bg-[#131b26] border-b border-[#1c2837] flex justify-between items-center">
+        <div>
+          <span class="text-xs font-semibold text-[#38bdf8] uppercase tracking-wider">Growth &amp; Trend Engine</span>
+          <h2 class="text-sm font-medium text-white">Momentum Screener with 1-Click Institutional Presets</h2>
+        </div>
+        <span class="text-[11px] text-[#38bdf8] bg-[#142938] px-2 py-0.5 rounded border border-[#1e445e]">Real-Time Live UI</span>
+      </div>
+      <div class="p-2 bg-[#080c14]">
+        <img src="real_02_momentum.png" alt="MarketPulse Momentum Screener" class="w-full h-auto rounded border border-[#1c2837]" />
+      </div>
+      <div class="p-3 text-xs text-[#98a7ba] border-t border-[#1c2837] bg-[#0c131d]">
+        <strong class="text-white">Highlights:</strong> Minervini Stage 2 Template filter • 52-Week High Proximity filter • RS Percentile Ratings (e.g. 100.0, 99.9) • 1-Click "Copy All to TV" (respecting Rule 1: 0% truncation) • Keyboard shortcut navigation.
+      </div>
+    </div>
+
+    <!-- Preview 3 -->
+    <div id="content-3" class="preview-card hidden">
+      <div class="p-3 bg-[#131b26] border-b border-[#1c2837] flex justify-between items-center">
+        <div>
+          <span class="text-xs font-semibold text-[#a855f7] uppercase tracking-wider">Institutional Flow Intelligence</span>
+          <h2 class="text-sm font-medium text-white">Better Deals Tab with Prop Desk Segregation &amp; Star Fund Radar</h2>
+        </div>
+        <span class="text-[11px] text-[#a855f7] bg-[#291738] px-2 py-0.5 rounded border border-[#431f60]">Real-Time Live UI</span>
+      </div>
+      <div class="p-2 bg-[#080c14]">
+        <img src="real_03_deals.png" alt="MarketPulse Better Deals Tab" class="w-full h-auto rounded border border-[#1c2837]" />
+      </div>
+      <div class="p-3 text-xs text-[#98a7ba] border-t border-[#1c2837] bg-[#0c131d]">
+        <strong class="text-white">Highlights:</strong> Prop Desk Toggle ("Include/Exclude HFT/Arbitrage") • Smart Money Star Fund Radar (Ashish Kacholia, Graviton, Quant MF, Morgan Stanley) • Buy/Sell net institutional flow meter • Rule 4 zero-float sign safeguards.
+      </div>
+    </div>
+
+    <!-- Preview 4 -->
+    <div id="content-4" class="preview-card hidden">
+      <div class="p-3 bg-[#131b26] border-b border-[#1c2837] flex justify-between items-center">
+        <div>
+          <span class="text-xs font-semibold text-[#f0be58] uppercase tracking-wider">Execution Setup Workbench</span>
+          <h2 class="text-sm font-medium text-white">Manas Arora VCP &amp; Darvas Box Execution Workbench</h2>
+        </div>
+        <span class="text-[11px] text-[#f0be58] bg-[#33240e] px-2 py-0.5 rounded border border-[#523d1d]">Real-Time Live UI</span>
+      </div>
+      <div class="p-2 bg-[#080c14]">
+        <img src="real_04_vcp_workbench.png" alt="MarketPulse Manas VCP Workbench" class="w-full h-auto rounded border border-[#1c2837]" />
+      </div>
+      <div class="p-3 text-xs text-[#98a7ba] border-t border-[#1c2837] bg-[#0c131d]">
+        <strong class="text-white">Highlights:</strong> Contraction wave depth sequence (e.g. 3T VCP 5.5% &rarr; 5.0% &rarr; 4.9%) • Volume Dry-Up histogram (0.65 VDU &#10003;) • Controlled 3%&ndash;5% trade risk sizing engine with account risk budget pills (&#8377;10k, &#8377;25k, &#8377;50k) • Live candlestick chart with institutional footprint deal markers.
+      </div>
+    </div>
+
+    <!-- Preview 5 -->
+    <div id="content-5" class="preview-card hidden">
+      <div class="p-3 bg-[#131b26] border-b border-[#1c2837] flex justify-between items-center">
+        <div>
+          <span class="text-xs font-semibold text-[#45d483] uppercase tracking-wider">Top-Down Rotation</span>
+          <h2 class="text-sm font-medium text-white">Sector Relative Strength &amp; Breadth Matrix</h2>
+        </div>
+        <span class="text-[11px] text-[#45d483] bg-[#163526] px-2 py-0.5 rounded border border-[#235338]">Real-Time Live UI</span>
+      </div>
+      <div class="p-2 bg-[#080c14]">
+        <img src="real_05_sector_matrix.png" alt="MarketPulse Sector Matrix" class="w-full h-auto rounded border border-[#1c2837]" />
+      </div>
+      <div class="p-3 text-xs text-[#98a7ba] border-t border-[#1c2837] bg-[#0c131d]">
+        <strong class="text-white">Highlights:</strong> Multi-timeframe Relative Strength (5D/20D/63D) • Rotation status classification (Emerging, Leading, Weakening, Lagging) • Advance/Decline breadth distribution • 1-click Top Leaders chips to preview charts.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showTab(tabIndex) {
+      for (let i = 1; i <= 5; i++) {
+        const content = document.getElementById('content-' + i);
+        const tab = document.getElementById('tab-' + i);
+        if (i === tabIndex) {
+          content.classList.remove('hidden');
+          tab.classList.add('active');
+        } else {
+          content.classList.add('hidden');
+          tab.classList.remove('active');
+        }
+      }
+    }
+  </script>
+</body>
+</html>

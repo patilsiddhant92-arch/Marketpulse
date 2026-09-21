@@ -361,6 +361,12 @@ def _build_why_focus(row: pd.Series | dict[str, Any]) -> str:
     turnover_exp = float(row.get("turnover_expansion") or 1.0)
     highs = int(row.get("near_52w_highs") or 0)
     vcps = int(row.get("vcp_candidates") or 0)
+    deal_net = float(row.get("deal_net_10s_cr") or 0.0)
+
+    if deal_net >= 50.0:
+        reasons.append(f"Inst Inflow +₹{deal_net:,.0f}Cr")
+    elif deal_net > 0.0:
+        reasons.append(f"Inst Inflow +₹{deal_net:.1f}Cr")
 
     if rank_chg >= 3:
         reasons.append(f"Surging Rank (+{int(rank_chg)} in 5D)")
@@ -726,6 +732,25 @@ def query_sector_rotation_overview(
         rot_df["top_leaders"] = ""
         rot_df["leader_symbols"] = ""
 
+    # Merge institutional deal flow from sector_metrics_daily if available
+    try:
+        deal_flow_df = db.execute(
+            """
+            SELECT group_name, deal_net_10s_cr, deal_prop_10s_cr
+            FROM sector_metrics_daily
+            WHERE level = ? AND trade_date = ?
+            """,
+            [level, latest_d],
+        ).fetchdf()
+        if not deal_flow_df.empty:
+            rot_df = rot_df.merge(deal_flow_df, on="group_name", how="left")
+    except Exception:
+        pass
+    if "deal_net_10s_cr" not in rot_df.columns:
+        rot_df["deal_net_10s_cr"] = 0.0
+    if "deal_prop_10s_cr" not in rot_df.columns:
+        rot_df["deal_prop_10s_cr"] = 0.0
+
     # Calculate turnover share %
     total_turnover = rot_df["turnover_1d_cr"].sum()
     if total_turnover > 0:
@@ -824,6 +849,8 @@ def query_sector_rotation_overview(
             "top_leaders": str(row.get("top_leaders") or ""),
             "leader_symbols": str(row.get("leader_symbols") or ""),
             "stocks_count": int(row.get("stocks") or 0),
+            "deal_net_10s_cr": float(row.get("deal_net_10s_cr") or 0.0),
+            "deal_prop_10s_cr": float(row.get("deal_prop_10s_cr") or 0.0),
             "why_focus": str(row.get("why_focus") or ""),
         }
 

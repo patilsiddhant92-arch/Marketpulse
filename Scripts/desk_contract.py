@@ -87,8 +87,8 @@ QUEUE_META = {
         "title": "3. VCP",
         "short_title": "3. VCP",
         "desc": (
-            "EMA shakeout reclaim with 3M force (>=+30%) and purple density "
-            "(>=3 days |ret|>=5% on vol>=1M). Desk VCP v1 — fine-tune later."
+            "Manas Arora Stage 2 Volatility Contraction Pattern (T1 > T2 > T3) with "
+            "Volume Dry-Up (VDU) supply exhaustion and pivot breakout trigger."
         ),
         "tv_key": "vcp",
         "cap_key": "vcp",

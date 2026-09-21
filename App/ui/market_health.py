@@ -17,6 +17,14 @@ try:
 except ModuleNotFoundError:
     from ui.widgets import chart_panel, line_chart  # type: ignore
 
+try:
+    from Scripts.midsml_breadth import query_midsml_breadth
+except ModuleNotFoundError:
+    try:
+        from midsml_breadth import query_midsml_breadth  # type: ignore
+    except ModuleNotFoundError:
+        query_midsml_breadth = None
+
 # Action Desk exposure keys share this breadth_daily row (PR 4 / Key Decision 15).
 BREADTH_EXPOSURE_MAP = {
     "adv_pct": "advance_pct",
@@ -26,9 +34,7 @@ BREADTH_EXPOSURE_MAP = {
 }
 
 _BREADTH_LATEST_SQL = """
-SELECT trade_date, stocks, advancers, decliners, unchanged,
-       advance_pct, above_20ema_pct, above_50ema_pct, above_200ema_pct,
-       near_52w_highs, vcp_candidates, breadth_state
+SELECT *
 FROM breadth_daily
 ORDER BY trade_date DESC
 LIMIT ?
@@ -305,99 +311,184 @@ def query_market_health_summary(db_path: Path) -> dict[str, Any]:
             rsi_60_pct = 0.0
             pivot_pct = 0.0
 
+        a50_5d_raw = today.get("above_50ema_5d_change")
+        a200_20d_raw = today.get("above_200ema_20d_change")
+        a50_5d_val = float(a50_5d_raw) if a50_5d_raw is not None and not pd.isna(a50_5d_raw) else None
+        a200_20d_val = float(a200_20d_raw) if a200_20d_raw is not None and not pd.isna(a200_20d_raw) else None
+
         near_52_pct = (float(today.get("near_52w_highs") or 0) / tot_stocks * 100.0) if tot_stocks > 0 else 0.0
         vcp_pct = (float(today.get("vcp_candidates") or 0) / tot_stocks * 100.0) if tot_stocks > 0 else 0.0
         exp_inputs = exposure_inputs_from_breadth_row(today)
+
+        midsml_data = {}
+        if query_midsml_breadth is not None:
+            try:
+                midsml_data = query_midsml_breadth(con=db, trade_date=str(today["trade_date"]))
+            except Exception:
+                midsml_data = {}
+
+        exchange_macro = {}
+        try:
+            from Scripts.index_history import parse_market_macro
+            from Scripts.config import DAILY_DIR, ARCHIVE_DIR
+            t_str = pd.to_datetime(today["trade_date"]).strftime("%d%m%y")
+            ma_file = Path(DAILY_DIR) / f"MA{t_str}.csv"
+            if not ma_file.exists():
+                ma_file = Path(ARCHIVE_DIR) / f"MA{t_str}.csv"
+            if not ma_file.exists():
+                import glob
+                cands = glob.glob(str(Path(DAILY_DIR) / "MA*.csv")) + glob.glob(str(Path(ARCHIVE_DIR) / "MA*.csv"))
+                if cands:
+                    ma_file = Path(cands[-1])
+            if ma_file.exists():
+                exchange_macro = parse_market_macro(ma_file, today["trade_date"])
+        except Exception:
+            exchange_macro = {}
+
+        cards = [
+            {
+                "key": "ad_net",
+                "title": "Advance / decline",
+                "value": f"{ad_net:+.1f}%",
+                "change": f"{ad_net_chg:+.1f} pts",
+                "tone": "good" if ad_net > 0 else "bad",
+                "context": f"{int(adv)} up · {int(dec)} down",
+                "column_series": "advance_pct",
+            },
+            {
+                "key": "above_20",
+                "title": "Above 20 EMA",
+                "value": f"{float(today.get('above_20ema_pct') or 0):.1f}%",
+                "change": f"{a20_chg:+.1f} (5D: {a50_5d_val:+.1f})" if a50_5d_val is not None else f"{a20_chg:+.1f} pts",
+                "change_5d": f"{a50_5d_val:+.1f} pts" if a50_5d_val is not None else None,
+                "tone": "good" if float(today.get("above_20ema_pct") or 0) >= 50 else "bad",
+                "context": f"5D: {a50_5d_val:+.1f} pts (50 EMA) · Short-term" if a50_5d_val is not None else "Short-term trend breadth",
+                "column_series": "above_20ema_pct",
+            },
+            {
+                "key": "above_200",
+                "title": "Above 200 EMA",
+                "value": f"{float(today.get('above_200ema_pct') or 0):.1f}%",
+                "change": f"{a200_chg:+.1f} (20D: {a200_20d_val:+.1f})" if a200_20d_val is not None else f"{a200_chg:+.1f} pts",
+                "change_20d": f"{a200_20d_val:+.1f} pts" if a200_20d_val is not None else None,
+                "tone": "good" if float(today.get("above_200ema_pct") or 0) >= 50 else "bad",
+                "context": f"20D: {a200_20d_val:+.1f} pts · Bull/bear regime" if a200_20d_val is not None else "Long-term bull/bear regime",
+                "column_series": "above_200ema_pct",
+            },
+            {
+                "key": "rsi_60",
+                "title": "RSI above 60",
+                "value": f"{rsi_60_pct:.1f}%",
+                "change": "—",
+                "tone": "good" if rsi_60_pct >= 25 else "neutral",
+                "context": "High-momentum participation",
+                "column_series": "rsi_60_pct",
+            },
+            {
+                "key": "pivot",
+                "title": "Above daily pivot",
+                "value": f"{pivot_pct:.1f}%",
+                "change": "—",
+                "tone": "good" if pivot_pct >= 50 else "neutral",
+                "context": "Short-term price location",
+                "column_series": "pivot_pct",
+            },
+            {
+                "key": "near_52w",
+                "title": "Near 52W high",
+                "value": f"{near_52_pct:.1f}%",
+                "change": f"{near52_chg:+.0f} names",
+                "tone": "good" if near_52_pct >= 20 else "neutral",
+                "context": f"{int(today.get('near_52w_highs') or 0)} stocks within 10%",
+                "column_series": "near_52w_highs",
+            },
+            {
+                "key": "breakout",
+                "title": "VCP heuristic",
+                "value": f"{vcp_pct:.1f}%",
+                "change": f"{vcp_chg:+.0f} names",
+                "tone": "good" if vcp_pct >= 15 else "neutral",
+                "context": f"{int(today.get('vcp_candidates') or 0)} heuristic names",
+                "column_series": "vcp_candidates",
+            },
+        ]
 
         return {
             "as_of": str(pd.to_datetime(today["trade_date"]).date()),
             "total_stocks": int(tot_stocks),
             "breadth_state": str(today.get("breadth_state") or "Unclassified"),
+            "midsml": midsml_data,
+            "exchange_macro": exchange_macro,
             "adv_pct": exp_inputs["adv_pct"],
             "ab20_pct": exp_inputs["ab20_pct"],
             "ab50_pct": exp_inputs["ab50_pct"],
             "ab200_pct": exp_inputs["ab200_pct"],
-            "cards": [
-                {
-                    "key": "ad_net",
-                    "title": "Advance / decline",
-                    "value": f"{ad_net:+.1f}%",
-                    "change": f"{ad_net_chg:+.1f} pts",
-                    "tone": "good" if ad_net > 0 else "bad",
-                    "context": f"{int(adv)} up · {int(dec)} down",
-                    "column_series": "advance_pct",
-                },
-                {
-                    "key": "above_20",
-                    "title": "Above 20 EMA",
-                    "value": f"{float(today.get('above_20ema_pct') or 0):.1f}%",
-                    "change": f"{a20_chg:+.1f} pts",
-                    "tone": "good" if float(today.get("above_20ema_pct") or 0) >= 50 else "bad",
-                    "context": "Short-term trend breadth",
-                    "column_series": "above_20ema_pct",
-                },
-                {
-                    "key": "above_200",
-                    "title": "Above 200 EMA",
-                    "value": f"{float(today.get('above_200ema_pct') or 0):.1f}%",
-                    "change": f"{a200_chg:+.1f} pts",
-                    "tone": "good" if float(today.get("above_200ema_pct") or 0) >= 50 else "bad",
-                    "context": "Long-term bull/bear regime",
-                    "column_series": "above_200ema_pct",
-                },
-                {
-                    "key": "rsi_60",
-                    "title": "RSI above 60",
-                    "value": f"{rsi_60_pct:.1f}%",
-                    "change": "—",
-                    "tone": "good" if rsi_60_pct >= 25 else "neutral",
-                    "context": "High-momentum participation",
-                    "column_series": None,
-                },
-                {
-                    "key": "pivot",
-                    "title": "Above daily pivot",
-                    "value": f"{pivot_pct:.1f}%",
-                    "change": "—",
-                    "tone": "good" if pivot_pct >= 50 else "neutral",
-                    "context": "Short-term price location",
-                    "column_series": None,
-                },
-                {
-                    "key": "near_52w",
-                    "title": "Near 52W high",
-                    "value": f"{near_52_pct:.1f}%",
-                    "change": f"{near52_chg:+.0f} names",
-                    "tone": "good" if near_52_pct >= 20 else "neutral",
-                    "context": f"{int(today.get('near_52w_highs') or 0)} stocks within 10%",
-                    "column_series": "near_52w_highs",
-                },
-                {
-                    "key": "breakout",
-                    "title": "VCP heuristic",
-                    "value": f"{vcp_pct:.1f}%",
-                    "change": f"{vcp_chg:+.0f} names",
-                    "tone": "good" if vcp_pct >= 15 else "neutral",
-                    "context": f"{int(today.get('vcp_candidates') or 0)} heuristic names",
-                    "column_series": "vcp_candidates",
-                },
-            ],
+            "cards": cards,
         }
 
 
 def open_breadth_history_modal(db_path: Path, title: str, column_series: str | None = None) -> None:
     """Open interactive modal with 90-session history for the clicked breadth metric."""
+    if not column_series:
+        return
+
     db_path = Path(db_path)
+    df = pd.DataFrame()
+    active_col: str | None = None
     with duckdb.connect(str(db_path), read_only=True) as db:
-        df = db.execute(
-            """
-            SELECT trade_date, advance_pct, above_10ema_pct, above_20ema_pct,
-                   above_50ema_pct, above_200ema_pct, new_20d_highs, near_52w_highs,
-                   vcp_candidates, breadth_state
-            FROM breadth_daily
-            ORDER BY trade_date ASC
-            """
-        ).fetchdf()
+        if column_series in ("rsi_60", "rsi_60_pct"):
+            try:
+                df = db.execute(
+                    """
+                    SELECT trade_date,
+                           count(CASE WHEN rsi_14 >= 60 THEN 1 END) * 100.0 / nullif(count(*), 0) AS rsi_60_pct
+                    FROM indicators_daily
+                    WHERE trade_date >= (SELECT min(trade_date) FROM (SELECT DISTINCT trade_date FROM indicators_daily ORDER BY trade_date DESC LIMIT 90))
+                    GROUP BY trade_date
+                    ORDER BY trade_date ASC
+                    """
+                ).fetchdf()
+                active_col = "rsi_60_pct"
+            except Exception:
+                df = pd.DataFrame()
+        elif column_series in ("pivot", "pivot_pct"):
+            try:
+                df = db.execute(
+                    """
+                    SELECT trade_date,
+                           count(CASE WHEN close_price >= (high_price + low_price + close_price) / 3.0 THEN 1 END) * 100.0 / nullif(count(*), 0) AS pivot_pct
+                    FROM indicators_daily
+                    WHERE trade_date >= (SELECT min(trade_date) FROM (SELECT DISTINCT trade_date FROM indicators_daily ORDER BY trade_date DESC LIMIT 90))
+                    GROUP BY trade_date
+                    ORDER BY trade_date ASC
+                    """
+                ).fetchdf()
+                active_col = "pivot_pct"
+            except Exception:
+                df = pd.DataFrame()
+        else:
+            try:
+                b_cols = {r[1] for r in db.execute("PRAGMA table_info(breadth_daily)").fetchall()}
+                if column_series in b_cols:
+                    df = db.execute(
+                        """
+                        SELECT *
+                        FROM (
+                            SELECT *
+                            FROM breadth_daily
+                            ORDER BY trade_date DESC
+                            LIMIT 90
+                        )
+                        ORDER BY trade_date ASC
+                        """
+                    ).fetchdf()
+                    active_col = column_series
+            except Exception:
+                df = pd.DataFrame()
+
+    if active_col is None or df.empty or active_col not in df.columns:
+        ui.notify(f"No historical trend series available for {title}.", type="info")
+        return
 
     dialog = ui.dialog().classes("mp-dialog")
     with dialog, ui.card().classes("mp-card p-6 w-[780px] max-w-full"):
@@ -407,17 +498,13 @@ def open_breadth_history_modal(db_path: Path, title: str, column_series: str | N
                 ui.label("Historical trend across the active universe (latest 90 sessions)").classes("text-xs text-[var(--mp-muted)]")
             ui.button(icon="close", on_click=dialog.close).props("flat round dense").classes("text-[var(--mp-muted)]")
 
-        if df.empty:
-            ui.label("No breadth history found.").classes("text-sm text-[var(--mp-muted)] py-4")
-        else:
-            active_col = column_series if (column_series and column_series in df.columns) else "advance_pct"
-            line_chart(
-                df,
-                date_col="trade_date",
-                series={title: active_col},
-                series_tones={title: "good" if "advance" in active_col or "high" in active_col else "info"},
-                area=True,
-            )
+        line_chart(
+            df,
+            date_col="trade_date",
+            series={title: active_col},
+            series_tones={title: "good" if ("advance" in active_col or "high" in active_col or "rsi" in active_col or "pivot" in active_col) else "info"},
+            area=True,
+        )
 
         with ui.row().classes("w-full justify-end mt-4"):
             ui.button("Close", on_click=dialog.close).props("outline dense").classes("mp-button")
@@ -438,6 +525,11 @@ def render_market_health_strip(db_path: Path, *, expanded: bool = True) -> None:
     as_of = data.get("as_of", "—")
     stocks_n = data.get("total_stocks", 0)
     posture = data.get("breadth_state", "Neutral")
+    midsml = data.get("midsml", {})
+    m_regime = midsml.get("regime", "")
+    m_stance = midsml.get("stance", "")
+    m_icon = midsml.get("regime_icon", "🧭")
+    m_metrics = midsml.get("metrics", {})
 
     container = ui.element("section").classes("mp-market-health-strip w-full mb-3")
     with container:
@@ -447,8 +539,28 @@ def render_market_health_strip(db_path: Path, *, expanded: bool = True) -> None:
                 ui.label(f"{as_of} · {stocks_n:,} stocks").classes("text-xs text-[var(--mp-muted)]")
                 state_tone = "mp-good" if "improv" in posture.lower() or "broad" in posture.lower() else "mp-bad" if "weak" in posture.lower() else "mp-neutral"
                 ui.label(posture).classes(f"mp-badge {state_tone} text-[10px]")
+                if m_regime:
+                    m_badge_tone = "mp-bad" if ("WASHOUT" in m_regime or "CORRECTION" in m_regime) else "mp-neutral" if "WARNING" in m_regime else "mp-good"
+                    ui.label(f"MidSml400: {m_regime}").classes(f"mp-badge {m_badge_tone} text-[10px] font-bold")
+
+                macro = data.get("exchange_macro", {})
+                if macro and macro.get("traded_value_cr"):
+                    ui.label(f"Cash Vol: ₹{macro['traded_value_cr']:,.0f}Cr").classes("mp-badge mp-info text-[10px] font-semibold")
+                if macro and macro.get("total_market_cap_cr"):
+                    ui.label(f"India MCap: ₹{macro['total_market_cap_cr']/100000:.1f}L Cr").classes("mp-badge mp-neutral text-[10px] font-mono")
 
             toggle_btn = ui.button("Hide market health").props("flat dense").classes("text-[11px] text-[var(--mp-muted)]")
+
+        if m_regime:
+            banner_bg = "bg-rose-950/30 border-rose-800/40 text-rose-300" if ("WASHOUT" in m_regime or "CORRECTION" in m_regime) else "bg-amber-950/30 border-amber-800/40 text-amber-300" if "WARNING" in m_regime else "bg-emerald-950/30 border-emerald-800/40 text-emerald-300"
+            with ui.row().classes(f"w-full items-center justify-between px-3 py-1.5 rounded border {banner_bg} mt-1 text-xs"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(f"{m_icon} NIFTY MIDSML 400 REGIME:").classes("font-bold")
+                    ui.label(m_regime).classes("font-extrabold underline")
+                    if m_metrics:
+                        ui.label(f"({m_metrics.get('adv_pct', 0):.1f}% Adv | >10 EMA: {m_metrics.get('abv_10ema', 0):.1f}% | >50 EMA: {m_metrics.get('abv_50ema', 0):.1f}%)").classes("opacity-90")
+                if m_stance:
+                    ui.label(m_stance).classes("font-medium")
 
         cards_row = ui.element("div").classes("grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 w-full mt-1 mp-health-grid")
         with cards_row:

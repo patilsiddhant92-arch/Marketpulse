@@ -22,6 +22,7 @@ try:
         week_complete,
         week_end_session,
         weekly_ohlc,
+        monthly_ohlc,
     )
 except ImportError:
     import sys
@@ -50,6 +51,7 @@ except ImportError:
         week_complete,
         week_end_session,
         weekly_ohlc,
+        monthly_ohlc,
     )
 
 __all__ = [
@@ -72,4 +74,5 @@ __all__ = [
     "week_complete",
     "week_end_session",
     "weekly_ohlc",
+    "monthly_ohlc",
 ]

@@ -57,6 +57,38 @@ def parse_market_activity(path: Path, trade_date: date | pd.Timestamp) -> pd.Dat
     return pd.DataFrame(rows, columns=INDEX_COLUMNS)
 
 
+def parse_market_macro(path: Path, trade_date: date | pd.Timestamp) -> dict[str, Any]:
+    """Parse exchange-level macro summary from NSE MA file header."""
+    macro: dict[str, Any] = {
+        "trade_date": pd.Timestamp(trade_date).normalize(),
+        "traded_value_cr": None,
+        "traded_quantity_lakhs": None,
+        "number_of_trades": None,
+        "total_market_cap_cr": None,
+    }
+    try:
+        with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+            reader = csv.reader(handle)
+            for raw in reader:
+                values = [str(v).strip() for v in raw if str(v).strip()]
+                if len(values) >= 2:
+                    label = values[0].lower()
+                    val = _number(values[1])
+                    if "traded value" in label:
+                        macro["traded_value_cr"] = val
+                    elif "traded quantity" in label:
+                        macro["traded_quantity_lakhs"] = val
+                    elif "number of trades" in label:
+                        macro["number_of_trades"] = int(val) if val is not None else None
+                    elif "total market capitalisation" in label or "total market cap" in label:
+                        macro["total_market_cap_cr"] = val
+                if len(values) >= 5 and any(str(v).upper() == "INDEX" for v in values):
+                    break
+    except Exception:
+        pass
+    return macro
+
+
 def build_index_features(index_daily: pd.DataFrame) -> pd.DataFrame:
     if index_daily is None or index_daily.empty:
         return pd.DataFrame(columns=INDEX_COLUMNS + ["return_5d_pct", "return_20d_pct", "return_63d_pct", "return_126d_pct", "return_252d_pct", "ema_20", "ema_50", "ema_200", "distance_ema_20_pct", "distance_ema_50_pct", "distance_ema_200_pct", "new_20d_high", "new_52w_high", "volatility_20d", "trend_state"])

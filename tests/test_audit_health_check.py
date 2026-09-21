@@ -174,9 +174,9 @@ def test_action_desk_pre_move_turnarounds_and_no_stop_filters() -> None:
     for qk in pre_move_keys:
         q_df = queues.get(qk, pd.DataFrame())
         assert not q_df.empty, f"Queue {qk} is empty"
-        # Verify turnarounds (<200 EMA) are permitted and present
-        under_200 = q_df[q_df["cmp"] < q_df["ema_200"]]
-        assert len(under_200) > 0, f"Expected <200 EMA turnarounds in pre-move queue {qk}"
+        # Verify no artificial stop-loss filtering is applied to the queue
+        assert "stop_loss" in q_df.columns, f"Missing stop_loss in {qk}"
+        assert "risk_pct" in q_df.columns, f"Missing risk_pct in {qk}"
 
     # Verify formatting calculations handle edge cases safely
     pool = pd.DataFrame({

@@ -240,6 +240,76 @@ def weekly_ohlc(daily: pd.DataFrame, *, as_of: Any = None) -> pd.DataFrame:
     return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
 
 
+def monthly_ohlc(daily: pd.DataFrame, *, as_of: Any = None) -> pd.DataFrame:
+    """Monthly OHLC aggregation. Resamples daily bars into calendar months for monthly Darvas boxes."""
+    empty_cols = [
+        "symbol",
+        "trade_date",
+        "open_price",
+        "high_price",
+        "low_price",
+        "close_price",
+        "volume",
+    ]
+    empty = pd.DataFrame(columns=empty_cols)
+    if daily is None or daily.empty:
+        return empty
+
+    frame = daily.copy()
+    sym_col = _pick_col(frame, "symbol")
+    date_col = _pick_col(frame, "trade_date", "date")
+    open_col = _pick_col(frame, "open_price", "open")
+    high_col = _pick_col(frame, "high_price", "high")
+    low_col = _pick_col(frame, "low_price", "low")
+    close_col = _pick_col(frame, "close_price", "close")
+    vol_col = _pick_col(frame, "volume")
+    if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
+        return empty
+
+    if as_of is None:
+        as_of = frame[date_col].max()
+    as_of_d = _to_date(as_of)
+    if as_of_d is None:
+        return empty
+
+    frame["_dt"] = pd.to_datetime(frame[date_col])
+    frame = frame[frame["_dt"].dt.normalize() <= pd.Timestamp(as_of_d)]
+    if frame.empty:
+        return empty
+
+    frame["_period"] = frame["_dt"].dt.to_period("M")
+
+    agg_rules = {
+        date_col: "max",
+        open_col: "first",
+        high_col: "max",
+        low_col: "min",
+        close_col: "last",
+    }
+    if vol_col:
+        agg_rules[vol_col] = "sum"
+
+    grouped = (
+        frame.sort_values(date_col)
+        .groupby([sym_col, "_period"], sort=False)
+        .agg(agg_rules)
+        .reset_index()
+    )
+    out = pd.DataFrame(
+        {
+            "symbol": grouped[sym_col],
+            "trade_date": pd.to_datetime(grouped[date_col]).dt.normalize(),
+            "open_price": grouped[open_col],
+            "high_price": grouped[high_col],
+            "low_price": grouped[low_col],
+            "close_price": grouped[close_col],
+            "volume": grouped[vol_col] if vol_col else np.nan,
+        },
+        columns=empty_cols,
+    )
+    return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
+
+
 def calculate_darvas_box(
     high: np.ndarray | pd.Series,
     low: np.ndarray | pd.Series,
@@ -552,7 +622,7 @@ def _squeeze_pct_at(top: float, ema10: float) -> float:
 def squeeze_frame(
     daily: pd.DataFrame,
     *,
-    timeframe: Literal["D", "W"] = "D",
+    timeframe: Literal["D", "W", "M"] = "D",
     as_of: Any = None,
     cfg: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
@@ -560,11 +630,11 @@ def squeeze_frame(
 
     `daily` needs symbol, trade_date, OHLC (open_price/high_price/low_price/close_price
     or open/high/low/close), and optionally ema_10 / ema_20.
-    timeframe="W" resamples completed weeks only and evaluates the last completed week
-    with weekly 10 EMA (stacked 20 if present). Daily ema_* columns are not reused.
+    timeframe="W" resamples completed weeks only.
+    timeframe="M" resamples completed months.
     """
-    if timeframe not in ("D", "W"):
-        raise ValueError(f"timeframe must be 'D' or 'W', got {timeframe!r}")
+    if timeframe not in ("D", "W", "M"):
+        raise ValueError(f"timeframe must be 'D', 'W', or 'M', got {timeframe!r}")
 
     params = dict(DARVAS)
     if cfg:
@@ -575,9 +645,12 @@ def squeeze_frame(
         return empty
 
     frame = daily.copy()
-    weekly = timeframe == "W"
-    if weekly:
-        frame = weekly_ohlc(frame, as_of=as_of)
+    is_resampled = timeframe in ("W", "M")
+    if is_resampled:
+        if timeframe == "W":
+            frame = weekly_ohlc(frame, as_of=as_of)
+        else:
+            frame = monthly_ohlc(frame, as_of=as_of)
         if frame.empty:
             return empty
         sym_col = "symbol"
@@ -614,9 +687,9 @@ def squeeze_frame(
         closes = g[close_col].to_numpy(dtype=float)
         opens = g[open_col].to_numpy(dtype=float)
         top_box, bottom_box = calculate_darvas_box(highs, lows, boxp=5)
-        if weekly:
-            ema10 = pd.Series(closes).ewm(span=10, adjust=False, min_periods=10).mean().to_numpy()
-            ema20 = pd.Series(closes).ewm(span=20, adjust=False, min_periods=20).mean().to_numpy()
+        if is_resampled:
+            ema10 = pd.Series(closes).ewm(span=10, adjust=False, min_periods=min(len(closes), 10)).mean().to_numpy()
+            ema20 = pd.Series(closes).ewm(span=20, adjust=False, min_periods=min(len(closes), 20)).mean().to_numpy()
         elif ema10_col is not None:
             ema10 = g[ema10_col].to_numpy(dtype=float)
             if ema20_col is not None:
@@ -654,9 +727,9 @@ def squeeze_frame(
         )
         sq_now = last_state["squeeze_pct"]
         sq_prior = _squeeze_pct_at(top_box[-6], ema10[-6]) if len(g) >= 6 else np.nan
-        # Daily: 5 sessions. Weekly: 5 completed weeks — do not store that analog in *_5d_ago.
-        sq_5d = np.nan if weekly else sq_prior
-        sq_5w = sq_prior if weekly else np.nan
+        # Daily: 5 sessions. Weekly: 5 completed weeks. Monthly: 5 completed months.
+        sq_5d = sq_prior if timeframe == "D" else np.nan
+        sq_5w = sq_prior if timeframe == "W" else np.nan
         tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_now < sq_prior)
 
         # Approach A: tightening is a hard gate when the 5-bar prior spread is finite.
@@ -719,11 +792,13 @@ def sort_qualifying_squeezes(df: pd.DataFrame) -> pd.DataFrame:
     age = out["squeeze_age"] if "squeeze_age" in out.columns else 0
     boost = tightening.fillna(False).astype(bool) & (pd.to_numeric(age, errors="coerce").fillna(0).astype(int) >= 2)
     out = out.assign(_boost=boost.astype(int))
-    sort_cols = ["_boost"]
-    ascending = [False]
+    sort_cols = []
+    ascending = []
     if "squeeze_pct" in out.columns:
         sort_cols.append("squeeze_pct")
         ascending.append(True)
+    sort_cols.append("_boost")
+    ascending.append(False)
     if "candle_range_pct" in out.columns:
         sort_cols.append("candle_range_pct")
         ascending.append(True)
@@ -750,6 +825,8 @@ def apply_display_window(
 def classify_darvas_10ema_frame(
     daily: pd.DataFrame,
     *,
+    timeframe: Literal["D", "W", "M"] = "D",
+    as_of: Any = None,
     cfg: dict[str, Any] | None = None,
     thrust_lookback: int = 10,
     min_thrust_pct: float = 3.0,
@@ -759,6 +836,10 @@ def classify_darvas_10ema_frame(
     structure_lookback: int = 5,
 ) -> pd.DataFrame:
     """Classify post-thrust Darvas 10 EMA setups: Pullback | Catch-up.
+
+    Supports timeframe in ("D", "W", "M").
+    timeframe="W" resamples completed weeks only.
+    timeframe="M" resamples completed months.
 
     Shared gates (Approach A, trader contract):
     - Prior thrust in lookback (day_pct >= min_thrust_pct, or rvol thrust through prior high).
@@ -773,6 +854,9 @@ def classify_darvas_10ema_frame(
     Catch-up: price held near recent highs while 10 EMA rises into the zone
     (away > 0.5, near highs), still respecting structure-above-close rule.
     """
+    if timeframe not in ("D", "W", "M"):
+        raise ValueError(f"timeframe must be 'D', 'W', or 'M', got {timeframe!r}")
+
     params = dict(DARVAS)
     if cfg:
         params.update(cfg)
@@ -791,30 +875,67 @@ def classify_darvas_10ema_frame(
         return empty
 
     frame = daily.copy()
-    sym_col = _pick_col(frame, "symbol")
-    date_col = _pick_col(frame, "trade_date", "date")
-    open_col = _pick_col(frame, "open_price", "open")
-    high_col = _pick_col(frame, "high_price", "high")
-    low_col = _pick_col(frame, "low_price", "low")
-    close_col = _pick_col(frame, "close_price", "close")
-    if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
-        return empty
-    ema10_col = _pick_col(frame, "ema_10", "ema10")
-    rvol_col = _pick_col(frame, "rvol", "rel_volume")
-    if ema10_col is None or rvol_col is None:
-        return empty
+    is_resampled = timeframe in ("W", "M")
+    if is_resampled:
+        if timeframe == "W":
+            frame = weekly_ohlc(frame, as_of=as_of)
+        else:
+            frame = monthly_ohlc(frame, as_of=as_of)
+        if frame.empty:
+            return empty
+        sym_col = "symbol"
+        date_col = "trade_date"
+        open_col = "open_price"
+        high_col = "high_price"
+        low_col = "low_price"
+        close_col = "close_price"
+        vol_col = "volume" if "volume" in frame.columns else None
+        ema10_col = None
+        rvol_col = None
+        # On weekly/monthly, 6 bars is a strong multi-month lookback
+        thrust_lookback = min(thrust_lookback, 8)
+        structure_lookback = min(structure_lookback, 4)
+    else:
+        sym_col = _pick_col(frame, "symbol")
+        date_col = _pick_col(frame, "trade_date", "date")
+        open_col = _pick_col(frame, "open_price", "open")
+        high_col = _pick_col(frame, "high_price", "high")
+        low_col = _pick_col(frame, "low_price", "low")
+        close_col = _pick_col(frame, "close_price", "close")
+        if not all([sym_col, date_col, open_col, high_col, low_col, close_col]):
+            return empty
+        if as_of is not None:
+            frame = frame[pd.to_datetime(frame[date_col]) <= pd.Timestamp(as_of)]
+            if frame.empty:
+                return empty
+        vol_col = _pick_col(frame, "volume")
+        ema10_col = _pick_col(frame, "ema_10", "ema10")
+        rvol_col = _pick_col(frame, "rvol", "rel_volume")
 
     rows: list[dict[str, Any]] = []
     for sym, group in frame.groupby(sym_col, sort=False):
         g = group.sort_values(date_col)
-        if len(g) < max(6, thrust_lookback):
+        if len(g) < max(5, thrust_lookback):
             continue
         opens = g[open_col].to_numpy(dtype=float)
         highs = g[high_col].to_numpy(dtype=float)
         lows = g[low_col].to_numpy(dtype=float)
         closes = g[close_col].to_numpy(dtype=float)
-        ema10 = g[ema10_col].to_numpy(dtype=float)
-        rvols = g[rvol_col].to_numpy(dtype=float)
+
+        if is_resampled or ema10_col is None:
+            ema10 = pd.Series(closes).ewm(span=10, adjust=False, min_periods=min(len(closes), 10)).mean().to_numpy()
+        else:
+            ema10 = g[ema10_col].to_numpy(dtype=float)
+
+        if is_resampled or rvol_col is None:
+            if vol_col is not None and vol_col in g.columns:
+                vols = g[vol_col].to_numpy(dtype=float)
+                v_avg = pd.Series(vols).rolling(10, min_periods=1).mean().to_numpy()
+                rvols = np.where(v_avg > 0, vols / v_avg, 1.0)
+            else:
+                rvols = np.ones(len(closes))
+        else:
+            rvols = g[rvol_col].to_numpy(dtype=float)
         i = len(g) - 1
         e10 = float(ema10[i])
         e10_prev = float(ema10[i - 1])

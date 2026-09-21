@@ -36,6 +36,11 @@ try:
 except ModuleNotFoundError:
     from Scripts.config import DB_PATH, ROOT_DIR  # type: ignore
 
+try:
+    from midsml_breadth import format_midsml_breadth_barometer, query_midsml_breadth
+except ModuleNotFoundError:
+    from Scripts.midsml_breadth import format_midsml_breadth_barometer, query_midsml_breadth  # type: ignore
+
 ENV_PATH = ROOT_DIR / ".env"
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -56,7 +61,10 @@ def load_dotenv(path: Path = ENV_PATH) -> None:
 
 
 def tradingview_symbol(symbol: str) -> str:
-    return str(symbol).strip().upper().replace("-", "_")
+    s = str(symbol).strip().upper().replace("-", "_")
+    if s.startswith("NSE:"):
+        s = s[4:]
+    return s
 
 
 def to_tv_list(symbols: list[str], header: str | None = None) -> str:
@@ -197,9 +205,11 @@ except ModuleNotFoundError:
 
 
 def build_deals_telegram_report(
-    lookback_days: int = 20,
+    lookback_days: int | Path | str = 20,
     min_mcap_cr: float = 900.0,
     db_path: Path | None = None,
+    *,
+    days: int | None = None,
 ) -> dict:
     """
     Build structured institutional deals report aggregated by:
@@ -208,11 +218,17 @@ def build_deals_telegram_report(
     3. HIGHEST BUY / SELL turnover leaders
     Each section provides TradingView copy-paste formatted lists.
     """
-    target_db = Path(db_path) if db_path is not None else DB_PATH
+    if isinstance(lookback_days, (Path, str)):
+        target_db = Path(lookback_days)
+        actual_lookback = days if days is not None else 20
+    else:
+        target_db = Path(db_path) if db_path is not None else DB_PATH
+        actual_lookback = days if days is not None else int(lookback_days)
+
     if not target_db.exists():
         raise FileNotFoundError(f"Database not found: {target_db}")
 
-    lookback_days = max(1, int(lookback_days))
+    lookback_days = max(1, int(actual_lookback))
 
     with duckdb.connect(str(target_db), read_only=True) as db:
         max_deal = db.execute("SELECT max(trade_date) FROM deals").fetchone()[0]
@@ -486,9 +502,77 @@ def build_deals_telegram_report(
     all_deal_buckets = all_tiers_tv if all_tiers_tv else ",".join([s for s in [sec_4plus, sec_3days, sec_2days, sec_fii, sec_dii, sec_top_buys, sec_prop, sec_below_200] if s])
 
     # -------------------------------------------------------------
-    # FORMAT TELEGRAM MESSAGES (CONSOLIDATED 2 HIGH-IMPACT MESSAGES)
+    # FORMAT TELEGRAM MESSAGES (BREADTH + TODAY + CONVICTION + WATCHLISTS)
     # -------------------------------------------------------------
     messages = []
+
+    # 1. Fetch MidSmallcap 400 Breadth Barometer
+    try:
+        breadth_data = query_midsml_breadth(db_path=target_db, trade_date=as_of)
+        barometer_text = format_midsml_breadth_barometer(breadth_data)
+    except Exception as exc:
+        breadth_data = {}
+        barometer_text = ""
+
+    # 2. Extract Today's Deals specifically
+    as_of_date = dates[0] if dates else None
+    today_df = df[df["trade_date"] == as_of_date].copy() if as_of_date else pd.DataFrame()
+    quarantined_sym_set = set(quarantined_df["symbol"]) if not quarantined_df.empty else set()
+    today_quality = (
+        today_df[(~today_df["is_prop"]) & (~today_df["symbol"].isin(quarantined_sym_set))].copy()
+        if not today_df.empty
+        else pd.DataFrame()
+    )
+
+    today_buys = today_quality[today_quality["side"] == "BUY"] if not today_quality.empty else pd.DataFrame()
+    today_sells = today_quality[today_quality["side"] == "SELL"] if not today_quality.empty else pd.DataFrame()
+
+    today_buy_summary = pd.DataFrame()
+    if not today_buys.empty:
+        today_buy_summary = (
+            today_buys.groupby("symbol")
+            .agg(
+                buy_cr=("deal_value_cr", "sum"),
+                clients=("client_name", lambda names: ", ".join(list(dict.fromkeys(names))[:3])),
+                close_price=("close_price", "first"),
+                away_52w_high_pct=("away_52w_high_pct", "first"),
+            )
+            .sort_values("buy_cr", ascending=False)
+            .reset_index()
+        )
+
+    today_sell_summary = pd.DataFrame()
+    if not today_sells.empty:
+        today_sell_summary = (
+            today_sells.groupby("symbol")
+            .agg(
+                sell_cr=("deal_value_cr", "sum"),
+                clients=("client_name", lambda names: ", ".join(list(dict.fromkeys(names))[:3])),
+                close_price=("close_price", "first"),
+                away_52w_high_pct=("away_52w_high_pct", "first"),
+            )
+            .sort_values("sell_cr", ascending=False)
+            .reset_index()
+        )
+
+    today_buy_syms = today_buy_summary["symbol"].tolist() if not today_buy_summary.empty else []
+    tv_today_buys = to_tv_list(today_buy_syms)
+
+    # Repeat accumulation and High conviction subsets
+    repeat_df = quality_buys[quality_buys["deal_days"] >= 2].sort_values(
+        ["deal_days", "buy_cr", "net_cr"], ascending=[False, False, False]
+    )
+    repeat_syms = repeat_df["symbol"].tolist()
+    tv_repeat = to_tv_list(repeat_syms)
+
+    high_conviction_df = quality_buys[
+        (quality_buys["buy_cr"] >= 25.0) | (quality_buys["net_cr"] >= 20.0)
+    ].sort_values(["buy_cr", "net_cr"], ascending=[False, False])
+    high_conviction_syms = high_conviction_df["symbol"].tolist()
+    tv_high_conviction = to_tv_list(high_conviction_syms)
+
+    prop_pure_syms = prop_only_df["symbol"].tolist() if not prop_only_df.empty else []
+    tv_prop_pure = to_tv_list(prop_pure_syms)
 
     # Calculate Institutional Net Flow across the window
     inst_deals = quality_deals[quality_deals["category"].isin(["FII", "DII"])]
@@ -497,17 +581,52 @@ def build_deals_telegram_report(
     inst_net_cr = inst_buy_cr - inst_sell_cr
     inst_sign = "+" if inst_net_cr >= 0 else "-"
 
-    # MESSAGE 1: 🎯 SWING DEALS: CONVICTION & RADAR (With Master TV Paste)
-    msg1_lines = [
+    # MESSAGE 1: 🎯 SWING DEALS & BREADTH BRIEFING
+    msg1_lines = []
+    if barometer_text:
+        msg1_lines.extend([
+            barometer_text,
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━",
+        ])
+
+    msg1_lines.extend([
         "🎯 *MARKETPULSE DEALS — SWING RADAR*",
         f"🗓 *As of:* `{as_of}` | *Window:* Last {len(dates)} Deal Sessions",
         f"🏛 *Total Inst Flow:* `{inst_sign}₹{abs(inst_net_cr):,.1f} Cr` (Buy: ₹{inst_buy_cr:,.1f} Cr | Sell: ₹{inst_sell_cr:,.1f} Cr)",
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
+        f"🌟 *TODAY'S DEALS (`{as_of}`)*",
+        "_Fresh non-prop institutional trades from today's session_",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ])
+    if today_buy_summary.empty and today_sell_summary.empty:
+        msg1_lines.append("• No non-prop institutional deals recorded today.")
+    else:
+        if not today_buy_summary.empty:
+            for _, r in today_buy_summary.head(6).iterrows():
+                close_str = f"CMP ₹{r['close_price']:,.0f}" if pd.notna(r["close_price"]) else ""
+                if pd.notna(r["away_52w_high_pct"]):
+                    away_val = float(r["away_52w_high_pct"])
+                    if abs(away_val) < 0.05:
+                        away_val = 0.0
+                    away_str = f"{away_val:+.1f}% 52W"
+                else:
+                    away_str = ""
+                m_str = f" | {close_str} · {away_str}" if (close_str or away_str) else ""
+                today_lines_client = r["clients"]
+                msg1_lines.append(f"• `{r['symbol']}`: BUY ₹{r['buy_cr']:,.1f}Cr • {today_lines_client}{m_str}")
+        if not today_sell_summary.empty:
+            for _, r in today_sell_summary.head(4).iterrows():
+                msg1_lines.append(f"• `{r['symbol']}`: SELL ₹{r['sell_cr']:,.1f}Cr • {r['clients']}")
+
+    msg1_lines.extend([
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━",
         f"💎 *TIER 1: CONVICTION ACCUMULATION* ({len(conviction_df)} stocks)",
         "_Multi-day persistence (2+ days) or Whale Inflows (>=₹25Cr)_",
         "━━━━━━━━━━━━━━━━━━━━━",
-    ]
+    ])
     if conviction_df.empty:
         msg1_lines.append("• No conviction accumulation deals recorded in window.")
     else:
@@ -566,6 +685,10 @@ def build_deals_telegram_report(
             "📋 *TRADINGVIEW MASTER PASTE (Tier 1 & 2):*",
             f"`{master_tv}`",
         ])
+    msg1_lines.extend([
+        "",
+        "👇 *Dedicated watchlists sent below — tap code box to 1-tap copy into TradingView Android.*",
+    ])
     messages.append("\n".join(msg1_lines))
 
     # MESSAGE 2: 🛡️ DEALS: DISTRIBUTION, PROP CHURN & QUARANTINE
@@ -615,6 +738,35 @@ def build_deals_telegram_report(
 
     messages.append("\n".join(msg2_lines))
 
+    # DEDICATED STANDALONE WATCHLIST MESSAGES (1-Tap Copy on Telegram Android)
+    if tv_today_buys:
+        messages.append(
+            f"📋 *WATCHLIST 1: TODAY'S DEALS* (`{as_of}`)\n"
+            f"_{len(today_buy_syms)} stocks · Quality non-prop buys from today's closing session_\n\n"
+            f"`{tv_today_buys}`"
+        )
+
+    if tv_high_conviction:
+        messages.append(
+            f"📋 *WATCHLIST 2: HIGH CONVICTION ACCUMULATION*\n"
+            f"_{len(high_conviction_syms)} stocks · Whale Inflows (>=₹25Cr) or Net Institutional Surge_\n\n"
+            f"`{tv_high_conviction}`"
+        )
+
+    if tv_repeat:
+        messages.append(
+            f"📋 *WATCHLIST 3: REPEAT ACCUMULATION*\n"
+            f"_{len(repeat_syms)} stocks · Institutional presence across 2+ distinct sessions_\n\n"
+            f"`{tv_repeat}`"
+        )
+
+    if tv_prop_pure:
+        messages.append(
+            f"📋 *WATCHLIST 4: PROP DESK / HFT CHURN*\n"
+            f"_{len(prop_pure_syms)} stocks · Pure intraday scalp turnover (No FII/DII sponsorship)_\n\n"
+            f"`{tv_prop_pure}`"
+        )
+
     # Backwards compatibility day_rows
     day_rows = []
     for d in dates[:10]:
@@ -655,6 +807,10 @@ def build_deals_telegram_report(
         "top_sells": sec_top_sells,
         "below_200ema": sec_turnaround,
         "below_1000cr": sec_below_1000cr,
+        "today_buys": tv_today_buys,
+        "high_conviction": tv_high_conviction,
+        "repeat": tv_repeat,
+        "prop_pure": tv_prop_pure,
     }
 
     return {
@@ -664,6 +820,11 @@ def build_deals_telegram_report(
         "buy_count": len(top_buys),
         "buy_tv": day_rows[0]["tv"] if day_rows else "",
         "tv_strings": tv_strings,
+        "midsml_breadth": breadth_data,
+        "today_deals": {
+            "buys": today_buy_summary,
+            "sells": today_sell_summary,
+        },
         "tiers": {
             "conviction": conviction_df,
             "fresh_radar": fresh_radar_df,

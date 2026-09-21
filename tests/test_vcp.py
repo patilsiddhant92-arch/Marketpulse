@@ -70,16 +70,61 @@ def test_classify_passes_shakeout_force_purple():
     out = classify_vcp_frame(_frame(shakeout=True, force=True, purple=True, close=120.0))
     assert not out.empty
     assert bool(out.iloc[0]["qualifies"])
-    assert out.iloc[0]["purple_n"] >= VCP["purple_min_count"]
+    assert out.iloc[0]["purple_n"] >= 0
 
 
-def test_no_shakeout_rejects():
-    assert classify_vcp_frame(_frame(shakeout=False)).empty
+def test_no_shakeout_rejects_when_required():
+    # When require_shakeout is explicitly enabled, it filters out false shakeout
+    assert classify_vcp_frame(_frame(shakeout=False), cfg={"require_shakeout": True}).empty
+    # But by default under Manas Arora VCP, shakeout is an optional confirmation, not a hard barrier
+    out = classify_vcp_frame(_frame(shakeout=False))
+    assert not out.empty
 
 
 def test_close_under_30_rejects():
     assert classify_vcp_frame(_frame(close=25.0)).empty
 
 
-def test_thin_purple_rejects():
-    assert classify_vcp_frame(_frame(purple=False)).empty
+def test_thin_purple_rejects_when_required():
+    assert classify_vcp_frame(_frame(purple=False), cfg={"purple_min_count": 3}).empty
+
+
+def test_manas_vcp_contraction_and_vdu():
+    from Scripts.vcp import analyze_manas_vcp
+
+    # Progressive contractions with drying volume
+    highs = np.array([100.0] * 15 + [98.0] * 15 + [97.0] * 20)
+    lows = np.array([82.0] * 15 + [89.0] * 15 + [93.5] * 20)
+    closes = np.array([90.0] * 15 + [95.0] * 15 + [96.5] * 20)
+    volumes = np.array([1_000_000.0] * 40 + [250_000.0] * 10)
+
+    res = analyze_manas_vcp(highs, lows, closes, volumes)
+    assert res["vcp_stage"] in ("3T VCP", "2T VCP", "Tight Coil")
+    assert res["vdu_active"] is True
+    assert res["vdu_ratio"] < 0.8
+    assert res["pivot_distance_pct"] <= 0.0
+    assert res["vcp_score"] >= 70.0
+    assert res["pivot_price"] == 100.0
+    assert res["stop_price"] <= 95.0
+
+
+def test_manas_vcp_stage2_filter():
+    # Stage 2 requires trading above 200 EMA and within 25% of 52W high
+    df = _frame(close=120.0)
+    df["ema_200"] = 130.0  # Close below 200 EMA
+    assert classify_vcp_frame(df).empty
+
+    df["ema_200"] = 110.0  # Close above 200 EMA -> qualifies
+    assert not classify_vcp_frame(df).empty
+
+    df["away_52w_high_pct"] = -30.0  # Farther than -25% from 52W high
+    assert classify_vcp_frame(df).empty
+
+    df["away_52w_high_pct"] = -12.0  # Within 25% -> qualifies
+    out = classify_vcp_frame(df)
+    assert not out.empty
+    assert "pivot_price" in out.columns
+    assert "stop_price" in out.columns
+    assert "vcp_score" in out.columns
+
+

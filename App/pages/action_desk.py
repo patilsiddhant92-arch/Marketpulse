@@ -45,8 +45,10 @@ except ModuleNotFoundError:
 
 try:
     from App.ui.stock_drawer import open_stock_360_modal, query_stock_candlestick_data, render_stock_inspector_panel
+    from App.ui.table import _table_event_symbol
 except ModuleNotFoundError:
     from ui.stock_drawer import open_stock_360_modal, query_stock_candlestick_data, render_stock_inspector_panel  # type: ignore
+    from ui.table import _table_event_symbol  # type: ignore
 
 try:
     from App.ui.vcp_chart import render_vcp_ohlc
@@ -135,6 +137,88 @@ def compute_exposure_gate(
     gate["vix_label"] = "VIX n/a" if not vix_available else f"{vix}"
     gate["vix_spike"] = vix_spike
     return gate
+
+
+def _rs_trail_5d(con: Any, symbols: list[str], trade_date: Any = None) -> pd.DataFrame:
+    """Last 5 session RS percentiles per symbol with step-by-step colored transitions and 5D trend badge."""
+    if not symbols:
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail", "rs_5d_trail_html"])
+    clause = ", ".join([f"'{str(s).strip().upper()}'" for s in symbols])
+    try:
+        if trade_date:
+            date_filter = "WHERE trade_date <= ?"
+            params = [trade_date]
+        else:
+            date_filter = ""
+            params = []
+        hist = con.execute(
+            f"""
+            WITH dates AS (
+                SELECT DISTINCT trade_date
+                FROM indicators_daily
+                {date_filter}
+                ORDER BY trade_date DESC
+                LIMIT 5
+            ),
+            recent AS (
+                SELECT symbol, trade_date, rs_percentile
+                FROM indicators_daily
+                WHERE symbol IN ({clause})
+                  AND trade_date IN (SELECT trade_date FROM dates)
+            )
+            SELECT symbol, trade_date, rs_percentile
+            FROM recent
+            ORDER BY symbol, trade_date ASC
+            """,
+            params,
+        ).fetchdf()
+    except Exception:
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail", "rs_5d_trail_html"])
+
+    if hist.empty:
+        return pd.DataFrame(columns=["symbol", "rs_5d_trail", "rs_5d_trail_html"])
+
+    rows = []
+    for sym, g in hist.groupby("symbol", sort=False):
+        vals = [int(round(float(v))) for v in g["rs_percentile"].dropna().tolist()]
+        if not vals:
+            rows.append({"symbol": sym, "rs_5d_trail": "—", "rs_5d_trail_html": "—"})
+            continue
+        plain_trail = " → ".join(str(v) for v in vals)
+
+        html_parts = []
+        for i, val in enumerate(vals):
+            if i == 0:
+                color_class = "text-zinc-400 font-medium"
+                arrow = ""
+            else:
+                prev = vals[i - 1]
+                if val > prev:
+                    color_class = "mp-up font-bold text-emerald-400"
+                    arrow = '<span class="text-zinc-600 mx-0.5 text-[10px]">→</span>'
+                elif val < prev:
+                    color_class = "mp-down font-bold text-rose-400"
+                    arrow = '<span class="text-zinc-600 mx-0.5 text-[10px]">→</span>'
+                else:
+                    color_class = "text-zinc-400 font-medium"
+                    arrow = '<span class="text-zinc-600 mx-0.5 text-[10px]">→</span>'
+            html_parts.append(f'{arrow}<span class="{color_class}">{val}</span>')
+
+        if len(vals) > 1:
+            delta = vals[-1] - vals[0]
+            if delta > 0:
+                trend_badge = f'<span class="ml-1 text-[10px] text-emerald-400 font-bold" title="5D Net: +{delta}">▲+{delta}</span>'
+                plain_trail += f" ▲+{delta}"
+            elif delta < 0:
+                trend_badge = f'<span class="ml-1 text-[10px] text-rose-400 font-bold" title="5D Net: {delta}">▼{delta}</span>'
+                plain_trail += f" ▼{delta}"
+            else:
+                trend_badge = '<span class="ml-1 text-[10px] text-zinc-500 font-bold" title="5D Net: 0">▬</span>'
+                plain_trail += " ▬"
+            html_parts.append(trend_badge)
+
+        rows.append({"symbol": sym, "rs_5d_trail": plain_trail, "rs_5d_trail_html": "".join(html_parts)})
+    return pd.DataFrame(rows)
 
 
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
@@ -234,6 +318,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     m.industry,
                     m.market_cap_cr,
                     COALESCE(m.band, 20.0) AS band,
+                    m.pe,
                     i.close_price AS cmp,
                     (i.close_price / nullif(i.prev_close, 0) - 1.0) * 100 AS day_pct,
                     i.return_5d_pct,
@@ -256,6 +341,10 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                     i.low_volatility_near_high,
                     COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) AS to_cr,
                     round(i.avg_trade_size / nullif(i.avg_trade_size_20d, 0), 2) AS ticket_ratio,
+                    COALESCE(i.delivery_spike, false) AS delivery_spike,
+                    COALESCE(i.price_up_delivery_up, false) AS price_up_delivery_up,
+                    COALESCE(i.nr7, false) AS nr7,
+                    round(i.rs_vs_midsml400_21d, 1) AS rs_vs_midsml400_21d,
                     h.rvol_arr,
                     h.deliv_arr,
                     h.day_pct_arr
@@ -277,6 +366,23 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
         # Build readable RVOL Trail and institutional flow strings
         if not setup_pool.empty:
+            def _build_inst_badges(row):
+                badges = []
+                tr = row.get("ticket_ratio")
+                if tr is not None and not (pd.isna(tr) or np.isnan(float(tr))) and float(tr) >= 1.25:
+                    badges.append(f"{float(tr):.1f}x Whale 🏛️")
+                if bool(row.get("delivery_spike")):
+                    badges.append("Deliv Surge 📦")
+                elif bool(row.get("price_up_delivery_up")):
+                    badges.append("Acc Vol 📈")
+                if bool(row.get("nr7")):
+                    badges.append("NR7 ⚡")
+                midsml_rs = row.get("rs_vs_midsml400_21d")
+                if midsml_rs is not None and not pd.isna(midsml_rs) and float(midsml_rs) >= 5.0:
+                    badges.append("MidSml RS 💪")
+                return " · ".join(badges) if badges else "—"
+
+            setup_pool["inst_footprint"] = setup_pool.apply(_build_inst_badges, axis=1)
             setup_pool["rvol_trail"] = setup_pool["rvol_arr"].apply(
                 lambda arr: " -> ".join([f"{x:.1f}x" for x in arr]) if arr is not None and len(arr) > 0 else "—"
             )
@@ -292,12 +398,81 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             setup_pool["away_20ema"] = setup_pool["away_20ema_pct"].apply(
                 lambda a: f"{float(a):+.1f}%" if a is not None and not pd.isna(a) else "—"
             )
+
+            # Wire 5-day RS Velocity Trail
+            pool_symbols = setup_pool["symbol"].tolist()
+            trail_df = _rs_trail_5d(con, pool_symbols, trade_date=trade_date)
+            if not trail_df.empty:
+                setup_pool = setup_pool.merge(trail_df, on="symbol", how="left")
+            if "rs_5d_trail" not in setup_pool.columns:
+                setup_pool["rs_5d_trail"] = "—"
+            if "rs_5d_trail_html" not in setup_pool.columns:
+                setup_pool["rs_5d_trail_html"] = "—"
+
+            # Setup tenure / age from signal_ledger
+            try:
+                ledger_df = con.execute(
+                    """
+                    WITH latest AS (
+                        SELECT COALESCE(?::DATE, (SELECT max(trade_date) FROM indicators_daily)) AS max_d
+                    ),
+                    sessions AS (
+                        SELECT trade_date, dense_rank() OVER (ORDER BY trade_date ASC) as session_idx
+                        FROM (SELECT DISTINCT trade_date FROM indicators_daily)
+                    ),
+                    ledger AS (
+                        SELECT symbol, first_seen_date
+                        FROM (
+                            SELECT symbol, first_seen_date,
+                                   row_number() OVER (
+                                       PARTITION BY symbol
+                                       ORDER BY
+                                           CASE WHEN status IN ('prepare', 'observe') THEN 0 ELSE 1 END,
+                                           last_seen_date DESC,
+                                           first_seen_date DESC
+                                   ) as rn
+                            FROM signal_ledger
+                            CROSS JOIN latest
+                            WHERE first_seen_date <= latest.max_d
+                        )
+                        WHERE rn = 1
+                    )
+                    SELECT l.symbol, l.first_seen_date,
+                           (s_max.session_idx - s_first.session_idx + 1) AS session_age
+                    FROM ledger l
+                    CROSS JOIN latest
+                    LEFT JOIN sessions s_max ON s_max.trade_date = latest.max_d
+                    LEFT JOIN sessions s_first ON s_first.trade_date = l.first_seen_date
+                    """,
+                    [trade_date],
+                ).fetchdf()
+                age_map = {}
+                for r in ledger_df.itertuples(index=False):
+                    age = int(r.session_age) if (r.session_age is not None and not pd.isna(r.session_age)) else 1
+                    age_map[str(r.symbol).strip().upper()] = age
+            except Exception:
+                age_map = {}
+
+            def _format_setup_age(sym: str) -> str:
+                age = age_map.get(str(sym).strip().upper(), 1)
+                if age <= 2:
+                    return f"Fresh (D{age})"
+                elif age <= 7:
+                    return f"Coiling (D{age})"
+                else:
+                    return f"Extended (D{age})"
+
+            setup_pool["setup_age"] = setup_pool["symbol"].apply(_format_setup_age)
         else:
+            setup_pool["inst_footprint"] = pd.Series(dtype=str)
             setup_pool["rvol_trail"] = pd.Series(dtype=str)
             setup_pool["ticket_flow"] = pd.Series(dtype=str)
             setup_pool["band_fmt"] = pd.Series(dtype=str)
             setup_pool["away_10ema"] = pd.Series(dtype=str)
             setup_pool["away_20ema"] = pd.Series(dtype=str)
+            setup_pool["rs_5d_trail"] = pd.Series(dtype=str)
+            setup_pool["rs_5d_trail_html"] = pd.Series(dtype=str)
+            setup_pool["setup_age"] = pd.Series(dtype=str)
 
         # Attach macro theme tags to setup pool
         user_db_path = Path(db_path).parent / "marketpulse_user.duckdb"
@@ -387,9 +562,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         # Weekly flag may fetch 400 sessions for resampling; daily queue still uses 252 / 45.
         darvas_hist = pd.DataFrame()
         daily_lookback = int(DARVAS["box_lookback_sessions"]) if use_v2 else 45
-        fetch_lookback = (
-            max(daily_lookback, int(WEEKLY_LOOKBACK_SESSIONS)) if use_weekly else daily_lookback
-        )
+        fetch_lookback = max(daily_lookback, int(WEEKLY_LOOKBACK_SESSIONS))
         if not setup_pool.empty:
             pool_symbols = setup_pool["symbol"].tolist()
             con.register("pool_syms_tbl", pd.DataFrame({"symbol": pool_symbols}))
@@ -413,7 +586,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     # -------------------------------------------------------------
     # Queue 5: Darvas Box & 10/20 EMA Squeeze (Decoupled from RS)
     # Squeeze into top box and 10 EMA / 20 EMA. No stop-loss filter.
-    # Weekly path is behind MP_DARVAS_WEEKLY (completed weeks only).
+    # Weekly & Monthly paths available via screener timeframe toggle.
     # -------------------------------------------------------------
     def _hist_last_sessions(hist: pd.DataFrame, n: int) -> pd.DataFrame:
         if hist is None or hist.empty:
@@ -422,9 +595,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         keep = set(sessions.tail(int(n)))
         return hist.loc[pd.to_datetime(hist["trade_date"]).isin(keep)].copy()
 
-    darvas_hist_daily = (
-        _hist_last_sessions(darvas_hist, daily_lookback) if use_weekly else darvas_hist
-    )
+    darvas_hist_daily = _hist_last_sessions(darvas_hist, daily_lookback)
 
     def _assemble_darvas_queue(
         cand_df: pd.DataFrame, *, v2: bool, weekly: bool = False
@@ -432,6 +603,14 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         if cand_df is None or cand_df.empty or setup_pool.empty:
             return pd.DataFrame(), 0
         out = setup_pool.merge(cand_df, on="symbol", how="inner")
+        if out.empty:
+            return pd.DataFrame(), 0
+        # Invariant: Darvas Squeeze must only show stocks trading ABOVE 200 EMA.
+        # Stocks below 200 EMA are consolidating in a downtrend — not valid squeeze candidates.
+        if v2 and "ema_200" in out.columns:
+            ema200 = pd.to_numeric(out["ema_200"], errors="coerce")
+            cmp = pd.to_numeric(out["cmp"], errors="coerce")
+            out = out.loc[(cmp > ema200) | ema200.isna()].copy()
         if out.empty:
             return pd.DataFrame(), 0
         out["trigger_price"] = out["darvas_top"]
@@ -445,12 +624,24 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         if v2:
             out["why_now"] = [
                 f"Close inside, wick ≤1.5% under stacked 10/20 floor · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
-                for sq, cr, top in zip(out["squeeze_pct"], out["candle_range_pct"], out["darvas_top"])
+                + (f" · {fp}" if fp and fp != "—" else "")
+                for sq, cr, top, fp in zip(
+                    out["squeeze_pct"],
+                    out["candle_range_pct"],
+                    out["darvas_top"],
+                    out["inst_footprint"] if "inst_footprint" in out.columns else [""] * len(out),
+                )
             ]
             return apply_display_window(out)
         out["why_now"] = [
             f"OHLC inside box · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
-            for sq, cr, top in zip(out["squeeze_pct"], out["candle_range_pct"], out["darvas_top"])
+            + (f" · {fp}" if fp and fp != "—" else "")
+            for sq, cr, top, fp in zip(
+                out["squeeze_pct"],
+                out["candle_range_pct"],
+                out["darvas_top"],
+                out["inst_footprint"] if "inst_footprint" in out.columns else [""] * len(out),
+            )
         ]
         out = out.sort_values(["squeeze_pct", "candle_range_pct"], ascending=[True, True]).head(150)
         return out, int(len(out))
@@ -510,47 +701,66 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
 
     darvas_df, darvas_count = _assemble_darvas_queue(darvas_cand_df, v2=use_v2)
 
-    # -------------------------------------------------------------
-    # Queue: Darvas 10 EMA (Pullback / Catch-up) — Approach A primary
-    # -------------------------------------------------------------
+    def _assemble_darvas_10ema_queue(
+        flav: pd.DataFrame, exclude_syms: set | None = None, is_resampled: bool = False
+    ) -> pd.DataFrame:
+        if flav is None or flav.empty or setup_pool.empty:
+            return pd.DataFrame()
+        if exclude_syms:
+            flav = flav[~flav["symbol"].isin(exclude_syms)].copy()
+        if flav.empty:
+            return pd.DataFrame()
+        rename_dict = {
+            "rvol": "flavor_rvol",
+            "away_10ema_pct": "flavor_away_10ema_pct",
+        }
+        cols_to_keep = ["symbol", "flavor", "thrust_pct", "away_10ema_pct", "rvol"]
+        if is_resampled and "ema_10" in flav.columns:
+            rename_dict["ema_10"] = "flavor_ema_10"
+            cols_to_keep.append("ema_10")
+        flav_slim = flav[[c for c in cols_to_keep if c in flav.columns]].rename(
+            columns=rename_dict
+        )
+        out = setup_pool.merge(flav_slim, on="symbol", how="inner")
+        # Invariant: Darvas 10 EMA setups must also trade ABOVE 200 EMA.
+        if not out.empty and "ema_200" in out.columns:
+            ema200 = pd.to_numeric(out["ema_200"], errors="coerce")
+            cmp = pd.to_numeric(out["cmp"], errors="coerce")
+            out = out.loc[(cmp > ema200) | ema200.isna()].copy()
+        if not out.empty:
+            base_ema = out["flavor_ema_10"] if (is_resampled and "flavor_ema_10" in out.columns) else out["ema_10"]
+            out["trigger_price"] = base_ema.round(2)
+            out["stop_loss"] = (base_ema * 0.985).round(2)
+            out["risk_pct"] = (
+                (out["trigger_price"] / out["stop_loss"] - 1.0) * 100.0
+            ).round(2)
+            out["setup_type"] = "Darvas 10 EMA"
+            out["why_now"] = [
+                f"{fl} after thrust {tp:.1f}% · dry rvol {rv:.2f} · away 10EMA {aw:+.1f}%"
+                + (f" · {fp}" if fp and fp != "—" else "")
+                for fl, tp, rv, aw, fp in zip(
+                    out["flavor"],
+                    out["thrust_pct"],
+                    out["flavor_rvol"],
+                    out["flavor_away_10ema_pct"],
+                    out["inst_footprint"] if "inst_footprint" in out.columns else [""] * len(out),
+                )
+            ]
+            out = out.sort_values(
+                ["flavor", "flavor_away_10ema_pct"], ascending=[True, True]
+            ).head(QUEUE_DISPLAY_CAPS.get("darvas_10ema", 40))
+        return out
+
     darvas_10ema_df = pd.DataFrame()
     if not darvas_hist_daily.empty and not setup_pool.empty:
         flav = classify_darvas_10ema_frame(darvas_hist_daily)
-        if not flav.empty:
-            if not darvas_df.empty and "symbol" in darvas_df.columns:
-                flav = flav[~flav["symbol"].isin(set(darvas_df["symbol"].astype(str)))].copy()
-            # Avoid merge collisions with setup_pool (ema_10, rvol, away_10ema_pct).
-            flav_slim = flav[["symbol", "flavor", "thrust_pct", "away_10ema_pct", "rvol"]].rename(
-                columns={
-                    "rvol": "flavor_rvol",
-                    "away_10ema_pct": "flavor_away_10ema_pct",
-                }
-            )
-            darvas_10ema_df = setup_pool.merge(flav_slim, on="symbol", how="inner")
-            if not darvas_10ema_df.empty:
-                darvas_10ema_df["trigger_price"] = darvas_10ema_df["ema_10"].round(2)
-                darvas_10ema_df["stop_loss"] = (darvas_10ema_df["ema_10"] * 0.985).round(2)
-                darvas_10ema_df["risk_pct"] = (
-                    (darvas_10ema_df["trigger_price"] / darvas_10ema_df["stop_loss"] - 1.0) * 100.0
-                ).round(2)
-                darvas_10ema_df["setup_type"] = "Darvas 10 EMA"
-                darvas_10ema_df["why_now"] = [
-                    f"{fl} after thrust {tp:.1f}% · dry rvol {rv:.2f} · away 10EMA {aw:+.1f}%"
-                    for fl, tp, rv, aw in zip(
-                        darvas_10ema_df["flavor"],
-                        darvas_10ema_df["thrust_pct"],
-                        darvas_10ema_df["flavor_rvol"],
-                        darvas_10ema_df["flavor_away_10ema_pct"],
-                    )
-                ]
-                darvas_10ema_df = darvas_10ema_df.sort_values(
-                    ["flavor", "flavor_away_10ema_pct"], ascending=[True, True]
-                ).head(QUEUE_DISPLAY_CAPS.get("darvas_10ema", 40))
+        exclude_darvas = set(darvas_df["symbol"].astype(str)) if not darvas_df.empty and "symbol" in darvas_df.columns else None
+        darvas_10ema_df = _assemble_darvas_10ema_queue(flav, exclude_syms=exclude_darvas, is_resampled=False)
 
 
 
     # -------------------------------------------------------------
-    # Queue: VCP (EMA shakeout + 3M force + purple density)
+    # Queue: VCP (Manas Arora Progressive Contractions + VDU)
     # -------------------------------------------------------------
     vcp_df = pd.DataFrame()
     if not darvas_hist_daily.empty and not setup_pool.empty:
@@ -560,49 +770,123 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             vcp_hist = darvas_hist
         flav = classify_vcp_frame(vcp_hist)
         if not flav.empty:
-            vcp_slim = flav[["symbol", "purple_n", "ret_3m_pct", "close_location_pct", "ema_rising", "avg_volume_20d"]].copy()
+            vcp_cols_to_merge = [
+                "symbol",
+                "vcp_stage",
+                "contractions_depth",
+                "vdu_active",
+                "vdu_ratio",
+                "pivot_price",
+                "stop_price",
+                "pivot_distance_pct",
+                "vcp_score",
+                "purple_n",
+                "ret_3m_pct",
+                "close_location_pct",
+                "ema_rising",
+                "avg_volume_20d",
+            ]
+            vcp_slim = flav[[c for c in vcp_cols_to_merge if c in flav.columns]].copy()
             vcp_df = setup_pool.merge(vcp_slim, on="symbol", how="inner")
             if not vcp_df.empty:
-                # Liquidity reinforce: avg_volume_20d >= 200k when column present
+                # Invariant: VCP must trade ABOVE 200 EMA (Stage 2 template)
+                if "ema_200" in vcp_df.columns:
+                    ema200 = pd.to_numeric(vcp_df["ema_200"], errors="coerce")
+                    cmp = pd.to_numeric(vcp_df["cmp"], errors="coerce")
+                    vcp_df = vcp_df.loc[(cmp > ema200) | ema200.isna()].copy()
+                # Liquidity reinforce: avg_volume_20d >= 100k when column present
                 if "avg_volume_20d" in vcp_df.columns:
                     vcp_df = vcp_df[
                         vcp_df["avg_volume_20d"].isna()
-                        | (vcp_df["avg_volume_20d"] >= float(VCP.get("min_avg_volume_20d", 200_000)))
+                        | (vcp_df["avg_volume_20d"] >= float(VCP.get("min_avg_volume_20d", 100_000)))
                     ].copy()
                 if "cmp" in vcp_df.columns:
                     vcp_df = vcp_df[vcp_df["cmp"] >= float(VCP.get("min_close_price", 30.0))].copy()
                 if not vcp_df.empty:
-                    vcp_df["trigger_price"] = (vcp_df["cmp"] * 1.005).round(2)
-                    stop_base = vcp_df["ema_20"] if "ema_20" in vcp_df.columns else vcp_df["ema_10"]
-                    vcp_df["stop_loss"] = (stop_base * 0.985).round(2)
+                    # Trigger price: pivot resistance breakout (or CMP * 1.005 if already above pivot)
+                    triggers = []
+                    for _, r in vcp_df.iterrows():
+                        pp = r.get("pivot_price")
+                        cmp_val = float(r["cmp"])
+                        if pd.notna(pp) and float(pp) > cmp_val:
+                            triggers.append(round(float(pp), 2))
+                        else:
+                            triggers.append(round(cmp_val * 1.005, 2))
+                    vcp_df["trigger_price"] = triggers
+
+                    # Stop loss: low of final contraction wave (stop_price) or EMA20/EMA10 floor
+                    stop_losses = []
+                    for _, r in vcp_df.iterrows():
+                        sp = r.get("stop_price")
+                        cmp_val = float(r["cmp"])
+                        if pd.notna(sp) and float(sp) > 0 and float(sp) < cmp_val:
+                            sl = round(float(sp) * 0.995, 2)
+                        elif "ema_20" in r and pd.notna(r["ema_20"]) and float(r["ema_20"]) < cmp_val:
+                            sl = round(float(r["ema_20"]) * 0.985, 2)
+                        elif "ema_10" in r and pd.notna(r["ema_10"]) and float(r["ema_10"]) < cmp_val:
+                            sl = round(float(r["ema_10"]) * 0.985, 2)
+                        else:
+                            sl = round(cmp_val * 0.95, 2)
+                        stop_losses.append(sl)
+                    vcp_df["stop_loss"] = stop_losses
                     vcp_df["risk_pct"] = (
                         (vcp_df["trigger_price"] / vcp_df["stop_loss"] - 1.0) * 100.0
                     ).round(2)
                     vcp_df["setup_type"] = "VCP"
-                    vcp_df["why_now"] = [
-                        f"Shakeout reclaim | purple {int(pn)}/{int(VCP.get('purple_lookback', 63))} | 3M {r3:+.0f}% | close loc {cl:.0f}%"
-                        for pn, r3, cl in zip(
-                            vcp_df["purple_n"],
-                            vcp_df["ret_3m_pct"],
-                            vcp_df["close_location_pct"].fillna(0),
+
+                    # Explainable Manas Arora rationale
+                    why_now_list = []
+                    for _, r in vcp_df.iterrows():
+                        stage = str(r.get("vcp_stage") or "VCP")
+                        depths = str(r.get("contractions_depth") or "—")
+                        vdu_str = "VDU ✓" if r.get("vdu_active") else f"Vol {float(r.get('vdu_ratio') or 1.0):.2f}x"
+                        p_dist = float(r.get("pivot_distance_pct") or 0.0)
+                        pn = int(r.get("purple_n") or 0)
+                        r3 = float(r.get("ret_3m_pct") or 0.0)
+                        rk = float(r.get("risk_pct") or 0.0)
+                        score = float(r.get("vcp_score") or 0.0)
+                        fp = str(r.get("inst_footprint") or "—")
+                        fp_suffix = f" · {fp}" if fp and fp != "—" else ""
+                        why_now_list.append(
+                            f"{stage} ({depths}) · {vdu_str} · Pivot {p_dist:+.1f}% · Risk {rk:.1f}% · Score {score:.0f}{fp_suffix}"
                         )
-                    ]
-                    # Soft rank already from classifier; break ties with less extension
-                    sort_cols = ["ema_rising", "purple_n", "ret_3m_pct"]
+                    vcp_df["why_now"] = why_now_list
+                    # Rank: highest VCP score first, then tightest pivot distance, then rising EMA
+                    sort_cols = ["vcp_score", "pivot_distance_pct", "ema_rising"]
                     ascending = [False, False, False]
                     if "away_52w_high_pct" in vcp_df.columns:
                         sort_cols.append("away_52w_high_pct")
-                        ascending.append(True)
+                        ascending.append(False)
                     vcp_df = vcp_df.sort_values(sort_cols, ascending=ascending).head(
                         QUEUE_DISPLAY_CAPS.get("vcp", 40)
                     )
 
     darvas_weekly_df = pd.DataFrame()
     darvas_count_weekly = 0
-    if use_weekly and not darvas_hist.empty:
+    darvas_monthly_df = pd.DataFrame()
+    darvas_count_monthly = 0
+    darvas_10ema_weekly_df = pd.DataFrame()
+    darvas_count_10ema_weekly = 0
+    darvas_10ema_monthly_df = pd.DataFrame()
+    darvas_count_10ema_monthly = 0
+    if not darvas_hist.empty:
         sq_weekly = squeeze_frame(darvas_hist, timeframe="W", as_of=trade_date)
         cand_w = sq_weekly.loc[sq_weekly["qualifies"]].copy() if not sq_weekly.empty else pd.DataFrame()
         darvas_weekly_df, darvas_count_weekly = _assemble_darvas_queue(cand_w, v2=True, weekly=True)
+
+        sq_monthly = squeeze_frame(darvas_hist, timeframe="M", as_of=trade_date)
+        cand_m = sq_monthly.loc[sq_monthly["qualifies"]].copy() if not sq_monthly.empty else pd.DataFrame()
+        darvas_monthly_df, darvas_count_monthly = _assemble_darvas_queue(cand_m, v2=True, weekly=True)
+
+        flav_w = classify_darvas_10ema_frame(darvas_hist, timeframe="W", as_of=trade_date)
+        exclude_w = set(darvas_weekly_df["symbol"].astype(str)) if not darvas_weekly_df.empty and "symbol" in darvas_weekly_df.columns else None
+        darvas_10ema_weekly_df = _assemble_darvas_10ema_queue(flav_w, exclude_syms=exclude_w, is_resampled=True)
+        darvas_count_10ema_weekly = len(darvas_10ema_weekly_df)
+
+        flav_m = classify_darvas_10ema_frame(darvas_hist, timeframe="M", as_of=trade_date)
+        exclude_m = set(darvas_monthly_df["symbol"].astype(str)) if not darvas_monthly_df.empty and "symbol" in darvas_monthly_df.columns else None
+        darvas_10ema_monthly_df = _assemble_darvas_10ema_queue(flav_m, exclude_syms=exclude_m, is_resampled=True)
+        darvas_count_10ema_monthly = len(darvas_10ema_monthly_df)
 
     def _is_num(v: Any) -> bool:
         if v is None or v is np.ma.masked:
@@ -613,9 +897,15 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         except Exception:
             return False
 
-    # -------------------------------------------------------------
-    # macro_pulse retired with Overview/macro noise
-    macro_pulse = {}
+    try:
+        from App.thematic_engine import get_macro_pulse
+        macro_pulse = get_macro_pulse(Path(db_path))
+    except Exception:
+        try:
+            from thematic_engine import get_macro_pulse
+            macro_pulse = get_macro_pulse(Path(db_path))
+        except Exception:
+            macro_pulse = {"top": [], "bottom": []}
     data = {
         "ready": True,
         "trade_date": trade_date_str,
@@ -644,18 +934,28 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         "themes": top_sectors,
         "darvas_count": darvas_count,
         "darvas_count_weekly": darvas_count_weekly,
-        "darvas_weekly_enabled": use_weekly,
+        "darvas_count_monthly": darvas_count_monthly,
+        "darvas_10ema_count": len(darvas_10ema_df),
+        "darvas_10ema_count_weekly": darvas_count_10ema_weekly,
+        "darvas_10ema_count_monthly": darvas_count_10ema_monthly,
+        "darvas_weekly_enabled": True,
         "queues": {
             "darvas": darvas_df,
             "darvas_10ema": darvas_10ema_df,
             "vcp": vcp_df,
-            "darvas_weekly": darvas_weekly_df,  # optional weekly Darvas variant (flag), not a 4th primary
+            "darvas_weekly": darvas_weekly_df,
+            "darvas_monthly": darvas_monthly_df,
+            "darvas_10ema_weekly": darvas_10ema_weekly_df,
+            "darvas_10ema_monthly": darvas_10ema_monthly_df,
         },
         "tv_lists": {
             "darvas": to_tv_list(darvas_df["symbol"].tolist()) if not darvas_df.empty else "",
             "darvas_10ema": to_tv_list(darvas_10ema_df["symbol"].tolist()) if not darvas_10ema_df.empty else "",
             "vcp": to_tv_list(vcp_df["symbol"].tolist()) if not vcp_df.empty else "",
             "darvas_weekly": to_tv_list(darvas_weekly_df["symbol"].tolist()) if not darvas_weekly_df.empty else "",
+            "darvas_monthly": to_tv_list(darvas_monthly_df["symbol"].tolist()) if not darvas_monthly_df.empty else "",
+            "darvas_10ema_weekly": to_tv_list(darvas_10ema_weekly_df["symbol"].tolist()) if not darvas_10ema_weekly_df.empty else "",
+            "darvas_10ema_monthly": to_tv_list(darvas_10ema_monthly_df["symbol"].tolist()) if not darvas_10ema_monthly_df.empty else "",
             "all_focus": to_tv_list(
                 list(dict.fromkeys(
                     (darvas_df["symbol"].tolist() if not darvas_df.empty else [])
@@ -919,14 +1219,15 @@ def build_action_desk_page(
         "selected_symbol": initial_sym,
         "real_inst_flow_only": False,
         "darvas_tf": "Daily",
+        "darvas_10ema_tf": "Daily",
         "matrix_rows_per_page": 25,
         "matrix_page": 1,
     }
 
     # Display columns for the matrix
     display_cols = [
-        "symbol", "flavor", "purple_n", "ret_3m_pct", "close_location_pct", "peer", "uc_flag", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
-        "day_pct", "rvol", "delivery_pct", "rs_percentile", "sector"
+        "symbol", "setup_age", "rs_5d_trail", "flavor", "purple_n", "ret_3m_pct", "close_location_pct", "peer", "uc_flag", "inst_footprint", "ticket_flow", "band_fmt", "away_10ema", "deal_flow", "rvol_trail", "theme", "cmp", "trigger_price", "stop_loss",
+        "day_pct", "rvol", "delivery_pct", "rs_percentile", "pe", "sector"
     ]
 
     # Cockpit 3-column split-pane layout
@@ -1009,11 +1310,24 @@ def build_action_desk_page(
         render_inspector()
 
     def _darvas_is_weekly() -> bool:
-        return bool(data.get("darvas_weekly_enabled")) and state.get("darvas_tf") == "Weekly"
+        return state.get("darvas_tf") == "Weekly"
+
+    def _darvas_is_monthly() -> bool:
+        return state.get("darvas_tf") == "Monthly"
 
     def _queue_frame(q_key: str) -> pd.DataFrame:
-        if q_key == "darvas" and _darvas_is_weekly():
-            return queues.get("darvas_weekly", pd.DataFrame())
+        if q_key == "darvas":
+            tf = state.get("darvas_tf", "Daily")
+            if tf == "Weekly":
+                return queues.get("darvas_weekly", pd.DataFrame())
+            elif tf == "Monthly":
+                return queues.get("darvas_monthly", pd.DataFrame())
+        elif q_key == "darvas_10ema":
+            tf = state.get("darvas_10ema_tf", "Daily")
+            if tf == "Weekly":
+                return queues.get("darvas_10ema_weekly", pd.DataFrame())
+            elif tf == "Monthly":
+                return queues.get("darvas_10ema_monthly", pd.DataFrame())
         return queues.get(q_key, pd.DataFrame())
 
     def set_queue(q_key: str) -> None:
@@ -1058,12 +1372,16 @@ def build_action_desk_page(
             q_key = state["active_queue"]
             q_info = queue_meta.get(q_key, queue_meta["darvas"])
             q_df = _queue_frame(q_key)
-            if state.get("real_inst_flow_only") and not q_df.empty and "deal_flow" in q_df.columns:
-                q_df = q_df[q_df["deal_flow"].astype(str).str.strip().ne("—")]
-            if q_key == "darvas" and _darvas_is_weekly():
-                tv_text = tv.get("darvas_weekly", "")
+            if state.get("real_inst_flow_only") and not q_df.empty:
+                has_deal = q_df["deal_flow"].astype(str).str.strip().ne("—") if "deal_flow" in q_df.columns else pd.Series(False, index=q_df.index)
+                has_fp = q_df["inst_footprint"].astype(str).str.strip().ne("—") if "inst_footprint" in q_df.columns else pd.Series(False, index=q_df.index)
+                q_df = q_df[has_deal | has_fp]
+            if q_key == "darvas" and not q_df.empty and "squeeze_pct" in q_df.columns:
+                q_df = q_df.sort_values(["squeeze_pct", "candle_range_pct"], ascending=[True, True])
+            if not q_df.empty and "symbol" in q_df.columns:
+                tv_text = to_tv_list(q_df["symbol"].tolist())
             else:
-                tv_text = to_tv_list(q_df["symbol"].tolist()) if (not q_df.empty and "symbol" in q_df.columns) else tv.get(q_info["tv_key"], "")
+                tv_text = ""
 
             # Header Banner
             with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
@@ -1072,25 +1390,34 @@ def build_action_desk_page(
                         ui.label(q_info["title"]).classes("text-sm font-bold text-[var(--mp-text)]")
                         ui.label(q_info["desc"]).classes("text-xs text-[var(--mp-muted)]")
                     with ui.row().classes("items-center gap-2"):
-                        if q_key == "darvas" and data.get("darvas_weekly_enabled"):
-                            def _on_darvas_tf(e):
-                                state["darvas_tf"] = e.value
-                                q_new = _queue_frame("darvas")
+                        if q_key in ("darvas", "darvas_10ema"):
+                            tf_state_key = "darvas_tf" if q_key == "darvas" else "darvas_10ema_tf"
+                            def _on_tf(e, k=q_key, sk=tf_state_key):
+                                state[sk] = e.value
+                                q_new = _queue_frame(k)
                                 if not q_new.empty and "symbol" in q_new.columns:
                                     state["selected_symbol"] = str(q_new["symbol"].iloc[0])
                                 render_queue_nav()
                                 render_matrix()
                                 render_inspector()
+                            # Active multi-timeframe toggle: ["Daily", "Weekly"] extended to ["Daily", "Weekly", "Monthly"]
                             tf_toggle = ui.toggle(
-                                ["Daily", "Weekly"],
-                                value=state.get("darvas_tf", "Daily"),
+                                ["Daily", "Weekly", "Monthly"],
+                                value=state.get(tf_state_key, "Daily"),
                             ).props("dense unelevated").classes("mp-toggle text-xs")
-                            tf_toggle.on_value_change(_on_darvas_tf)
+                            tf_toggle.on_value_change(_on_tf)
                         if copy_text and tv_text:
+                            btn_label = f"📋 Copy {q_info['short_title']} (TV)"
+                            if q_key == "darvas":
+                                tf = state.get("darvas_tf", "Daily")
+                                btn_label = f"📋 Copy Darvas Squeeze ({tf}) (TV)"
+                            elif q_key == "darvas_10ema":
+                                tf = state.get("darvas_10ema_tf", "Daily")
+                                btn_label = f"📋 Copy Darvas 10 EMA ({tf}) (TV)"
                             ui.button(
-                                f"📋 Copy {q_info['short_title']} (TV)",
-                                on_click=lambda *_, t=tv_text, lbl=f"{q_info['short_title']} (TV)": copy_text(lbl, t),
-                            ).classes("mp-button text-xs").props("dense outline")
+                                btn_label,
+                                on_click=lambda *_, t=tv_text, lbl=btn_label: copy_text(lbl, t),
+                            ).classes("mp-button text-xs font-bold").props("dense outline")
 
                 # Quality Filter Strip
                 is_classic_rs = False  # classic RS queues retired
@@ -1144,7 +1471,7 @@ def build_action_desk_page(
                     ui.label(f"No {q_info['short_title']} setups currently active in this session.").classes("text-sm text-[var(--mp-muted)]")
             else:
                 matrix_cols = display_cols
-                if q_key == "darvas" and (darvas_v2_enabled() or _darvas_is_weekly()):
+                if q_key == "darvas":
                     squeeze_cols = [
                         "squeeze_pct", "candle_range_pct", "darvas_top",
                         "tightening", "squeeze_age", "failed_low",
@@ -1153,10 +1480,14 @@ def build_action_desk_page(
                 table_cols = [c for c in matrix_cols if c in q_df.columns]
                 rows_per = int(state.get("matrix_rows_per_page") or 25)
                 page_now = int(state.get("matrix_page") or 1)
+                pagination_dict = {"rowsPerPage": rows_per, "page": page_now}
+                if q_key == "darvas":
+                    pagination_dict["sortBy"] = "squeeze_pct"
+                    pagination_dict["descending"] = False
                 tbl = table_from_df(
                     q_df[table_cols],
                     "",
-                    pagination={"rowsPerPage": rows_per, "page": page_now},
+                    pagination=pagination_dict,
                 )
                 if tbl is not None:
                     def on_table_click(e):
@@ -1182,23 +1513,16 @@ def build_action_desk_page(
                         except Exception:
                             pass
 
+                    def on_stock_open(e):
+                        sym = _table_event_symbol(e)
+                        if sym:
+                            select_symbol(sym)
+                            open_stock_360_modal(Path(db_path), sym, copy_text=copy_text)
+
                     tbl.on("rowClick", on_table_click)
                     tbl.on("row-click", on_table_click)
+                    tbl.on("open_stock", on_stock_open)
                     tbl.on("update:pagination", on_pagination)
-                    # Belt-and-suspenders: matrix remounts often; keep 360 open wired.
-                    def _open_360_from_table(e):
-                        args = getattr(e, "args", None)
-                        if isinstance(args, str):
-                            sym360 = args
-                        elif isinstance(args, (list, tuple)) and args:
-                            sym360 = args[0] if not isinstance(args[0], dict) else (args[0].get("symbol") or "")
-                        elif isinstance(args, dict):
-                            sym360 = args.get("symbol") or args.get("value") or ""
-                        else:
-                            sym360 = ""
-                        open_stock_360_modal(Path(db_path), str(sym360 or "").strip().upper(), copy_text=copy_text)
-
-                    tbl.on("stock360", _open_360_from_table)
 
     def render_inspector() -> None:
         with inspector_host:

@@ -270,3 +270,20 @@ def test_action_desk_exposure_reads_same_breadth_daily_row_as_strip():
     assert exp["ab20_pct"] == health["ab20_pct"]
     assert exp["ab50_pct"] == health["ab50_pct"]
     assert exp["ab200_pct"] == health["ab200_pct"]
+
+
+@pytest.mark.skipif(not DB_PATH.exists(), reason="Database not built")
+def test_market_health_cards_contain_multi_day_breadth_changes_and_real_series():
+    health = query_market_health_summary(DB_PATH)
+    by_key = {c["key"]: c for c in health["cards"]}
+    
+    # 5D / 20D precomputed changes
+    assert "change_5d" in by_key["above_20"]
+    assert "change_20d" in by_key["above_200"]
+    assert by_key["above_20"]["column_series"] == "above_20ema_pct"
+    assert by_key["above_200"]["column_series"] == "above_200ema_pct"
+
+    # Real series keys, no deceptive fallback
+    assert by_key["rsi_60"]["column_series"] == "rsi_60_pct"
+    assert by_key["pivot"]["column_series"] == "pivot_pct"
+

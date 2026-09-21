@@ -1,9 +1,15 @@
 import os
+import sys
 from pathlib import Path
 
 # Resolve paths relative to the project root (parent of Scripts/)
 # This makes the project portable regardless of its location on disk.
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+# Ensure the project root is on sys.path so that `from App.X import ...`
+# works when scripts are invoked from Scripts/ (e.g. daily_pipeline via Task Scheduler).
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 INPUT_DIR = ROOT_DIR / "Input"
 ARCHIVE_DIR = INPUT_DIR / "archive"
 DAILY_DIR = INPUT_DIR / "daily"

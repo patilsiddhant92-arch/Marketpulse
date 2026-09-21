@@ -118,6 +118,58 @@ def is_in_watchlist(user_db: Path, wl_num: int, symbol: str) -> bool:
         return False
 
 
+def query_stock_rs_delivery_history(
+    db_path: Path, symbol: str, limit: int = 60
+) -> dict[str, Any]:
+    """Query trailing 60 sessions of RS percentile, volume, and delivery % for trend charting."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+    ckey = cache_key(db_path, "latest", "stock_rs_delivery_history", sym, limit)
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        df = db.execute(
+            """
+            SELECT trade_date, rs_percentile, delivery_pct, volume, delivery_qty, close_price
+            FROM indicators_daily
+            WHERE symbol = ?
+            ORDER BY trade_date DESC
+            LIMIT ?
+            """,
+            [sym, limit],
+        ).fetchdf()
+
+    if df.empty:
+        res = {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+        set_cached(ckey, res)
+        return res
+
+    df = df.iloc[::-1].reset_index(drop=True)
+    dates = [str(pd.to_datetime(d).strftime("%Y-%m-%d")) for d in df["trade_date"]]
+    rs = [round(float(x), 1) if pd.notna(x) else None for x in df["rs_percentile"]]
+    deliv_pct = [round(float(x), 1) if pd.notna(x) else None for x in df["delivery_pct"]]
+    volume = [int(x) if pd.notna(x) else 0 for x in df["volume"]]
+    deliv_qty = [int(x) if pd.notna(x) else 0 for x in df["delivery_qty"]]
+    close = [round(float(x), 2) if pd.notna(x) else None for x in df["close_price"]]
+
+    res = {
+        "dates": dates,
+        "rs": rs,
+        "delivery_pct": deliv_pct,
+        "volume": volume,
+        "delivery_qty": deliv_qty,
+        "close": close,
+    }
+    set_cached(ckey, res)
+    return res
+
+
 def query_stock_candlestick_data(
     db_path: Path, symbol: str, limit: int = 90, *, predicate: dict | None = None
 ) -> dict[str, Any]:
@@ -503,6 +555,17 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
                 """,
                 [sym],
             ).fetchdf()
+            if not ind.empty:
+                try:
+                    pe_df = db.execute(
+                        "SELECT pe, adjusted_pe FROM stocks_master WHERE symbol = ?",
+                        [sym],
+                    ).fetchdf()
+                    if not pe_df.empty:
+                        ind["pe"] = pe_df["pe"].iloc[0]
+                        ind["adjusted_pe"] = pe_df["adjusted_pe"].iloc[0]
+                except Exception:
+                    pass
         except duckdb.Error:
             ind = pd.DataFrame()
 
@@ -552,20 +615,45 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
             except duckdb.Error:
                 deals = pd.DataFrame()
 
-        # 4. Corporate Events from real security_events table
+        # 4. Corporate Events from real security_events table (both upcoming and recent)
         try:
             events = db.execute(
                 """
-                SELECT event_date, event_type, headline
-                FROM security_events
-                WHERE symbol = ?
+                WITH fut AS (
+                    SELECT event_date, event_type, headline
+                    FROM security_events
+                    WHERE symbol = ? AND event_date >= CURRENT_DATE - INTERVAL 7 DAY
+                    ORDER BY event_date ASC
+                    LIMIT 15
+                ),
+                past AS (
+                    SELECT event_date, event_type, headline
+                    FROM security_events
+                    WHERE symbol = ? AND event_date < CURRENT_DATE - INTERVAL 7 DAY
+                    ORDER BY event_date DESC
+                    LIMIT 20
+                )
+                SELECT * FROM fut
+                UNION ALL
+                SELECT * FROM past
                 ORDER BY event_date DESC
-                LIMIT 20
                 """,
-                [sym],
+                [sym, sym],
             ).fetchdf()
         except duckdb.Error:
-            events = pd.DataFrame()
+            try:
+                events = db.execute(
+                    """
+                    SELECT event_date, event_type, headline
+                    FROM security_events
+                    WHERE symbol = ?
+                    ORDER BY event_date DESC
+                    LIMIT 30
+                    """,
+                    [sym],
+                ).fetchdf()
+            except duckdb.Error:
+                events = pd.DataFrame()
 
         # 5. Master Reference (Circuits & Band Remarks)
         try:
@@ -640,6 +728,21 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
 
         peer_comparison = query_stock_peer_comparison(db_path, sym, db_con=db)
 
+        # Industry median P/E
+        industry_median_pe = None
+        if not ind.empty and pd.notna(ind.iloc[0].get("industry")):
+            target_ind = str(ind.iloc[0]["industry"]).strip()
+            if target_ind:
+                try:
+                    med_row = db.execute(
+                        "SELECT median(pe) FROM stocks_master WHERE industry = ? AND pe > 0",
+                        [target_ind],
+                    ).fetchone()
+                    if med_row and med_row[0] is not None:
+                        industry_median_pe = round(float(med_row[0]), 2)
+                except Exception:
+                    pass
+
     profile = ind.iloc[0].to_dict() if not ind.empty else {"symbol": sym}
     candidate_setup = cand.iloc[0].to_dict() if not cand.empty else {}
     ref_row = ref.iloc[0].to_dict() if not ref.empty else {}
@@ -659,18 +762,40 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
         except Exception:
             fund_attribution = []
 
+    # Detect upcoming corporate event within 14 days of latest trade date
+    upcoming_event = None
+    if not events.empty and "event_date" in events.columns:
+        latest_d = pd.to_datetime(profile.get("trade_date") or profile.get("latest_price_date") or "2026-09-16")
+        future_mask = (pd.to_datetime(events["event_date"]) >= latest_d) & (
+            pd.to_datetime(events["event_date"]) <= latest_d + pd.Timedelta(days=14)
+        )
+        upcoming = events[future_mask].sort_values("event_date", ascending=True)
+        if not upcoming.empty:
+            ev_row = upcoming.iloc[0]
+            ev_type = str(ev_row.get("event_type") or "Event").replace("_", " ").title()
+            ev_date = pd.to_datetime(ev_row["event_date"]).strftime("%d %b")
+            days_away = (pd.to_datetime(ev_row["event_date"]).date() - latest_d.date()).days
+            upcoming_event = {
+                "type": ev_type,
+                "date_str": ev_date,
+                "days_away": days_away,
+                "headline": str(ev_row.get("headline") or ""),
+            }
+
     res = {
         "symbol": sym,
         "profile": profile,
         "candidate_setup": candidate_setup,
         "deals": deals,
         "events": events,
+        "upcoming_event": upcoming_event,
         "reference": ref_row,
         "company_profile": company_profile,
         "thematic_tags": thematic_tags,
         "peer_groups": peer_groups,
         "peer_comparison": peer_comparison,
         "fund_attribution": fund_attribution,
+        "industry_median_pe": industry_median_pe,
     }
     set_cached(ckey, res)
     return res
@@ -757,8 +882,19 @@ def open_stock_360_modal(
                         ui.label(full_name).classes("text-xs text-slate-300 font-medium self-center")
                     if mcap and pd.notna(mcap):
                         ui.label(f"MCap ₹{float(mcap):,.0f} Cr").classes("mp-badge mp-neutral")
+                    band_val = ref.get("band") or profile.get("band")
+                    if band_val is not None and not pd.isna(band_val) and float(band_val) <= 5.0:
+                        ui.label(f"🚨 {int(float(band_val))}% Circuit Collar").classes(
+                            "mp-badge bg-rose-950/80 text-rose-300 border border-rose-500/50 font-semibold"
+                        )
                     if band_remarks:
                         ui.label(f"⚠️ {band_remarks}").classes("mp-badge mp-warn")
+                    ue = data.get("upcoming_event")
+                    if ue:
+                        days_lbl = "Today" if ue["days_away"] == 0 else (f"in {ue['days_away']}d" if ue["days_away"] > 0 else "")
+                        ui.label(f"📅 {ue['type']} {days_lbl} ({ue['date_str']})").classes(
+                            "mp-badge bg-amber-950/80 text-amber-300 border border-amber-500/50 font-semibold"
+                        )
                     if vcp_state and vcp_state != "None":
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone}")
@@ -780,6 +916,16 @@ def open_stock_360_modal(
                     ui.label(f"Market Regime · {market_regime}").classes("mp-badge mp-neutral")
                     ui.label(f"Event Risk · {event_risk}").classes("mp-badge mp-neutral")
                     ui.label(f"Data As Of · {data_as_of}").classes("mp-badge mp-neutral")
+
+                    stock_pe = profile.get("pe")
+                    adj_pe = profile.get("adjusted_pe")
+                    ind_med_pe = data.get("industry_median_pe")
+                    if stock_pe is not None and pd.notna(stock_pe) and float(stock_pe) > 0:
+                        ui.label(f"P/E · {float(stock_pe):.1f}x").classes("mp-badge mp-info font-semibold")
+                    if adj_pe is not None and pd.notna(adj_pe) and float(adj_pe) > 0:
+                        ui.label(f"Adj P/E · {float(adj_pe):.1f}x").classes("mp-badge mp-info font-semibold")
+                    if ind_med_pe is not None and pd.notna(ind_med_pe) and float(ind_med_pe) > 0:
+                        ui.label(f"Ind Median P/E · {float(ind_med_pe):.1f}x").classes("mp-badge mp-neutral font-semibold")
 
             with ui.column().classes("items-end gap-1"):
                 with ui.row().classes("items-center gap-2"):
@@ -1300,6 +1446,15 @@ def open_stock_360_modal(
                         rvol = profile.get("rvol")
                         ui.label("RVOL (20D)").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(f"{float(rvol):.2f}x" if pd.notna(rvol) else "—").classes("text-xl font-bold")
+                    with ui.card().classes("p-3 mp-card text-center"):
+                        ui.label("Stock P/E").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"{float(stock_pe):.1f}x" if stock_pe and pd.notna(stock_pe) and float(stock_pe) > 0 else "—").classes("text-xl font-bold")
+                    with ui.card().classes("p-3 mp-card text-center"):
+                        ui.label("Adj P/E").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"{float(adj_pe):.1f}x" if adj_pe and pd.notna(adj_pe) and float(adj_pe) > 0 else "—").classes("text-xl font-bold")
+                    with ui.card().classes("p-3 mp-card text-center"):
+                        ui.label("Ind Median P/E").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"{float(ind_med_pe):.1f}x" if ind_med_pe and pd.notna(ind_med_pe) and float(ind_med_pe) > 0 else "—").classes("text-xl font-bold")
 
                 ui.label("Moving Averages & Key Levels").classes("text-sm font-bold mb-2")
                 with ui.row().classes("w-full gap-2 flex-wrap mb-3"):
@@ -1318,6 +1473,166 @@ def open_stock_360_modal(
                 deliv_qty = profile.get("delivery_qty")
                 turnover_cr = profile.get("turnover_cr")
                 ui.label(f"Turnover: ₹{float(turnover_cr or 0):,.1f} Cr · Delivery: {float(deliv_pct or 0):.1f}% ({float(deliv_qty or 0):,.0f} shares)").classes("text-xs text-[var(--mp-muted)]")
+
+                # 60-Session RS Trajectory & Delivery Volume Profile
+                hist = query_stock_rs_delivery_history(db_path, sym, limit=60)
+                if hist and hist.get("dates"):
+                    with ui.row().classes("w-full gap-3 mt-4 flex-wrap"):
+                        # Chart 1: RS Percentile Trajectory (60 Sessions)
+                        with ui.card().classes("p-3 mp-card flex-1 min-w-[320px]"):
+                            with ui.row().classes("w-full items-center justify-between mb-1"):
+                                ui.label("📈 60-Session RS Percentile Trajectory").classes("text-xs font-bold text-[var(--mp-text)]")
+                                rs_vals = [x for x in hist["rs"] if x is not None]
+                                if rs_vals:
+                                    first_rs = rs_vals[0]
+                                    latest_rs = rs_vals[-1]
+                                    rs_diff = round(latest_rs - first_rs, 1)
+                                    diff_tone = "text-emerald-400" if rs_diff >= 0 else "text-rose-400"
+                                    ui.label(f"Latest: {latest_rs:.0f} (60D Δ: {rs_diff:+.1f})").classes(f"text-xs font-mono font-semibold {diff_tone}")
+
+                            rs_chart_opt = {
+                                "backgroundColor": "transparent",
+                                "animation": False,
+                                "tooltip": {
+                                    "trigger": "axis",
+                                    "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                                    "borderColor": "#334155",
+                                    "borderWidth": 1,
+                                    "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                                    "confine": True,
+                                },
+                                "grid": {"left": "10%", "right": "6%", "top": "14%", "bottom": "18%"},
+                                "xAxis": {
+                                    "type": "category",
+                                    "data": hist["dates"],
+                                    "boundaryGap": False,
+                                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                                },
+                                "yAxis": {
+                                    "type": "value",
+                                    "min": 0,
+                                    "max": 100,
+                                    "splitLine": {"lineStyle": {"color": "#1e293b"}},
+                                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                                },
+                                "series": [
+                                    {
+                                        "name": "RS Percentile",
+                                        "type": "line",
+                                        "smooth": True,
+                                        "data": hist["rs"],
+                                        "lineStyle": {"color": "#38bdf8", "width": 2},
+                                        "areaStyle": {
+                                            "color": {
+                                                "type": "linear",
+                                                "x": 0, "y": 0, "x2": 0, "y2": 1,
+                                                "colorStops": [
+                                                    {"offset": 0, "color": "rgba(56, 189, 248, 0.35)"},
+                                                    {"offset": 1, "color": "rgba(56, 189, 248, 0.0)"},
+                                                ],
+                                            }
+                                        },
+                                        "showSymbol": False,
+                                        "markLine": {
+                                            "silent": True,
+                                            "data": [
+                                                {
+                                                    "yAxis": 80,
+                                                    "lineStyle": {"color": "#10b981", "type": "dashed", "width": 1},
+                                                    "label": {"formatter": "80 Leader", "position": "insideEndTop", "color": "#10b981", "fontSize": 9},
+                                                },
+                                                {
+                                                    "yAxis": 70,
+                                                    "lineStyle": {"color": "#f59e0b", "type": "dashed", "width": 1},
+                                                    "label": {"formatter": "70 Outperform", "position": "insideEndTop", "color": "#f59e0b", "fontSize": 9},
+                                                },
+                                            ],
+                                        },
+                                    }
+                                ],
+                            }
+                            ui.echart(rs_chart_opt).classes("w-full h-[220px]")
+
+                        # Chart 2: 60-Session Volume & Delivery Trend
+                        with ui.card().classes("p-3 mp-card flex-1 min-w-[320px]"):
+                            with ui.row().classes("w-full items-center justify-between mb-1"):
+                                ui.label("📦 60-Session Volume & Delivery Trend").classes("text-xs font-bold text-[var(--mp-text)]")
+                                deliv_vals = [x for x in hist["delivery_pct"] if x is not None]
+                                avg_deliv = sum(deliv_vals) / len(deliv_vals) if deliv_vals else 0
+                                ui.label(f"Avg Deliv: {avg_deliv:.1f}% · Latest: {float(deliv_pct or 0):.1f}%").classes("text-xs font-mono font-semibold text-amber-400")
+
+                            deliv_chart_opt = {
+                                "backgroundColor": "transparent",
+                                "animation": False,
+                                "tooltip": {
+                                    "trigger": "axis",
+                                    "axisPointer": {"type": "shadow"},
+                                    "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                                    "borderColor": "#334155",
+                                    "borderWidth": 1,
+                                    "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                                    "confine": True,
+                                },
+                                "legend": {
+                                    "data": ["Volume", "Delivery Qty", "Delivery %"],
+                                    "textStyle": {"color": "#94a3b8", "fontSize": 9},
+                                    "top": 0,
+                                    "itemWidth": 10,
+                                    "itemHeight": 6,
+                                },
+                                "grid": {"left": "10%", "right": "10%", "top": "16%", "bottom": "18%"},
+                                "xAxis": {
+                                    "type": "category",
+                                    "data": hist["dates"],
+                                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                                },
+                                "yAxis": [
+                                    {
+                                        "type": "value",
+                                        "name": "Volume",
+                                        "splitLine": {"lineStyle": {"color": "#1e293b"}},
+                                        "axisLabel": {"color": "#94a3b8", "fontSize": 8},
+                                    },
+                                    {
+                                        "type": "value",
+                                        "name": "Deliv %",
+                                        "min": 0,
+                                        "max": 100,
+                                        "splitLine": {"show": False},
+                                        "axisLabel": {"color": "#fbbf24", "fontSize": 8, "formatter": "{value}%"},
+                                    },
+                                ],
+                                "series": [
+                                    {
+                                        "name": "Volume",
+                                        "type": "bar",
+                                        "yAxisIndex": 0,
+                                        "data": hist["volume"],
+                                        "itemStyle": {"color": "#475569"},
+                                    },
+                                    {
+                                        "name": "Delivery Qty",
+                                        "type": "bar",
+                                        "yAxisIndex": 0,
+                                        "barGap": "-100%",
+                                        "data": hist["delivery_qty"],
+                                        "itemStyle": {"color": "#3b82f6"},
+                                    },
+                                    {
+                                        "name": "Delivery %",
+                                        "type": "line",
+                                        "yAxisIndex": 1,
+                                        "smooth": True,
+                                        "data": hist["delivery_pct"],
+                                        "lineStyle": {"color": "#fbbf24", "width": 1.5},
+                                        "itemStyle": {"color": "#fbbf24"},
+                                        "showSymbol": False,
+                                    },
+                                ],
+                            }
+                            ui.echart(deliv_chart_opt).classes("w-full h-[220px]")
 
             # Tab 2: User Notes & Study
             with ui.tab_panel(t_notes).classes("mp-confirmation-section p-4"):
@@ -1518,6 +1833,17 @@ def render_stock_inspector_panel(
                         ui.label(f"RS {float(rs):.0f}").classes("mp-badge mp-good text-[11px]")
                     _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
                     _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
+                    band_val = profile.get("band") or data.get("reference", {}).get("band")
+                    if band_val is not None and not pd.isna(band_val) and float(band_val) <= 5.0:
+                        ui.label(f"🚨 {int(float(band_val))}% Collar").classes(
+                            "mp-badge bg-rose-950/80 text-rose-300 border border-rose-500/50 font-semibold text-[10px]"
+                        )
+                    ue = data.get("upcoming_event")
+                    if ue:
+                        days_lbl = "Today" if ue["days_away"] == 0 else (f"in {ue['days_away']}d" if ue["days_away"] > 0 else "")
+                        ui.label(f"📅 {ue['type']} {days_lbl}").classes(
+                            "mp-badge bg-amber-950/80 text-amber-300 border border-amber-500/50 font-semibold text-[10px]"
+                        )
                     if vcp_state and vcp_state != "None":
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone} text-[10px]")

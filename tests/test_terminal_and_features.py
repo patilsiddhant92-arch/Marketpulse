@@ -199,9 +199,9 @@ def test_telegram_deals_persistence_and_clientele_structure() -> None:
     report = build_deals_telegram_report(lookback_days=5, min_mcap_cr=500.0)
     assert "as_of" in report
     assert "messages" in report
-    assert len(report["messages"]) == 2
+    assert len(report["messages"]) >= 2
 
-    msg1, msg2 = report["messages"]
+    msg1, msg2 = report["messages"][:2]
     # Message 1: 3-Tier Swing Radar (Alpha & Action)
     assert "TIER 1: CONVICTION ACCUMULATION" in msg1
     assert "TIER 2: FRESH WHALE RADAR" in msg1
@@ -218,5 +218,5 @@ def test_telegram_deals_persistence_and_clientele_structure() -> None:
     res = notify_deals(dry_run=True, lookback_days=5)
     assert res["sent"] is False
     assert res["dry_run"] is True
-    assert res["message_count"] == 2
+    assert res["message_count"] >= 2
 

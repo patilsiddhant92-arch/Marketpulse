@@ -55,6 +55,9 @@ def _open_symbol_tv_and_360(db_path: Path, symbol: str, *, copy_text=None, on_se
 
 def query_historical_breadth(db_path: Path, days: int = 180) -> pd.DataFrame:
     """Fetch trailing breadth history from breadth_daily."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame()
     ckey = cache_key(db_path, "latest", "hist_breadth", days)
     cached = get_cached(ckey)
     if cached is not None:
@@ -81,6 +84,9 @@ def query_historical_breadth(db_path: Path, days: int = 180) -> pd.DataFrame:
 
 def query_market_turnover_trend(db_path: Path, days: int = 60) -> pd.DataFrame:
     """Fetch daily total market cash turnover and 20-day moving average."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame()
     ckey = cache_key(db_path, "latest", "hist_turnover", days)
     cached = get_cached(ckey)
     if cached is not None:
@@ -122,6 +128,9 @@ def query_market_turnover_trend(db_path: Path, days: int = 60) -> pd.DataFrame:
 
 def query_benchmark_trends(db_path: Path, days: int = 126) -> pd.DataFrame:
     """Fetch historical daily close prices for key market benchmark indices."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame()
     ckey = cache_key(db_path, "latest", "hist_benchmarks", days)
     cached = get_cached(ckey)
     if cached is not None:
@@ -136,10 +145,13 @@ def query_benchmark_trends(db_path: Path, days: int = 126) -> pd.DataFrame:
                    distance_ema_50_pct, distance_ema_200_pct, trend_state
             FROM index_daily
             WHERE index_name IN ({ph})
+              AND trade_date >= (
+                  SELECT min(trade_date)
+                  FROM (SELECT DISTINCT trade_date FROM index_daily ORDER BY trade_date DESC LIMIT ?)
+              )
             ORDER BY trade_date DESC
-            LIMIT ?
             """,
-            [days * len(targets)],
+            [days],
         ).fetchdf()
 
     if not df.empty:
@@ -150,6 +162,9 @@ def query_benchmark_trends(db_path: Path, days: int = 126) -> pd.DataFrame:
 
 def query_sector_money_flows(db_path: Path, sessions: int = 10) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch consecutive day money flows and recent 10-session turnover share matrix."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return pd.DataFrame(), pd.DataFrame()
     ckey = cache_key(db_path, "latest", "hist_sector_flows", sessions)
     cached = get_cached(ckey)
     if cached is not None:
@@ -268,6 +283,7 @@ def build_market_trends_page(
     *,
     copy_text: Callable[[str, str], None] | None = None,
     on_select_symbol: Callable[[str], None] | None = None,
+    table_from_df: Callable | None = None,
 ) -> None:
     """Render the comprehensive Market Trends & Historical Money Flow workspace."""
     db_path = Path(db_path)
@@ -276,7 +292,7 @@ def build_market_trends_page(
     # Load core datasets
     breadth_df = query_historical_breadth(db_path, days=180)
     to_df = query_market_turnover_trend(db_path, days=60)
-    bench_df = query_benchmark_trends(db_path, days=90)
+    bench_df = query_benchmark_trends(db_path, days=126)
     sec_df, streak_df = query_sector_money_flows(db_path, sessions=10)
 
     # Current top-level numbers
@@ -472,39 +488,130 @@ def build_market_trends_page(
                 if bench_df.empty:
                     ui.label("No benchmark index history available.").classes("text-sm text-[var(--mp-muted)] p-4")
                 else:
+                    # Interactive multi-line comparative performance chart (Rebased to 100 at T-126)
+                    try:
+                        pivot_df = bench_df.pivot(index="trade_date", columns="index_name", values="close_price").sort_index()
+                        pivot_df = pivot_df.tail(126)
+                    except Exception:
+                        pivot_df = pd.DataFrame()
+
+                    if not pivot_df.empty and len(pivot_df) > 1:
+                        rebased_df = pd.DataFrame(index=pivot_df.index)
+                        for col in pivot_df.columns:
+                            s = pivot_df[col].dropna()
+                            if not s.empty and float(s.iloc[0]) != 0:
+                                rebased_df[col] = (pivot_df[col] / float(s.iloc[0])) * 100.0
+                            else:
+                                rebased_df[col] = pivot_df[col]
+                        b_dates = [str(pd.to_datetime(d).strftime("%d %b")) for d in rebased_df.index]
+
+                        target_configs = [
+                            ("Nifty 50", "Nifty 50", "#38bdf8", 2.5),
+                            ("Nifty 500", "Nifty 500", "#a855f7", 2.0),
+                            ("NIFTY MIDCAP 100", "Midcap 100", "#10b981", 2.0),
+                            ("NIFTY SMLCAP 100", "Smallcap 100", "#f59e0b", 2.0),
+                        ]
+
+                        b_series = []
+                        b_legend = []
+                        for col_key, display_name, line_color, line_width in target_configs:
+                            if col_key in rebased_df.columns:
+                                s_vals = [round(float(v), 2) if pd.notna(v) else None for v in rebased_df[col_key]]
+                                b_legend.append(display_name)
+                                b_series.append({
+                                    "name": display_name,
+                                    "type": "line",
+                                    "data": s_vals,
+                                    "lineStyle": {"color": line_color, "width": line_width},
+                                    "showSymbol": False,
+                                    "smooth": True,
+                                })
+
+                        z_start_bench = max(0, int(((len(b_dates) - 65) / max(1, len(b_dates))) * 100))
+
+                        bench_chart_opt = {
+                            "backgroundColor": "transparent",
+                            "animation": False,
+                            "tooltip": {
+                                "trigger": "axis",
+                                "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                                "borderColor": "#334155",
+                                "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                            },
+                            "legend": {"data": b_legend, "textStyle": {"color": "#94a3b8", "fontSize": 11}, "top": 0},
+                            "grid": {"left": "4%", "right": "4%", "top": "12%", "bottom": "15%"},
+                            "xAxis": {"type": "category", "data": b_dates, "axisLabel": {"color": "#94a3b8", "fontSize": 10}},
+                            "yAxis": {
+                                "type": "value",
+                                "scale": True,
+                                "axisLabel": {"color": "#94a3b8", "fontSize": 10},
+                                "splitLine": {"lineStyle": {"color": "#1e293b"}},
+                            },
+                            "dataZoom": [
+                                {"type": "inside", "start": z_start_bench, "end": 100},
+                                {
+                                    "type": "slider",
+                                    "start": z_start_bench,
+                                    "end": 100,
+                                    "height": 18,
+                                    "bottom": 2,
+                                    "borderColor": "#334155",
+                                    "fillerColor": "rgba(56, 189, 248, 0.15)",
+                                    "handleStyle": {"color": "#38bdf8"},
+                                    "textStyle": {"color": "#94a3b8", "fontSize": 10},
+                                },
+                            ],
+                            "series": b_series,
+                        }
+
+                        with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)] bg-[var(--mp-surface)] mb-4"):
+                            with ui.row().classes("w-full items-center justify-between mb-2 flex-wrap gap-1"):
+                                ui.label("📈 Comparative Benchmark Performance (Rebased to 100 @ T-126)").classes("text-sm font-bold text-[var(--mp-text)]")
+                                ui.label("Nifty 50 · Nifty 500 · Midcap 100 · Smallcap 100 (Trailing 126 Sessions)").classes("text-[10px] text-[var(--mp-muted)] font-mono")
+                            ui.echart(bench_chart_opt).classes("w-full h-[360px]")
+
                     # Performance scorecard table
                     latest_bench = bench_df.groupby("index_name").last().reset_index()
                     scorecard_cols = [
-                        {"name": "index_name", "label": "Index", "field": "index_name", "align": "left"},
-                        {"name": "close_price", "label": "Close", "field": "close_price", "align": "right"},
-                        {"name": "return_1d_pct", "label": "1D Return", "field": "return_1d_pct", "align": "right"},
-                        {"name": "return_5d_pct", "label": "5D Return", "field": "return_5d_pct", "align": "right"},
-                        {"name": "return_20d_pct", "label": "1M Return", "field": "return_20d_pct", "align": "right"},
-                        {"name": "distance_ema_50_pct", "label": "vs 50 EMA", "field": "distance_ema_50_pct", "align": "right"},
-                        {"name": "distance_ema_200_pct", "label": "vs 200 EMA", "field": "distance_ema_200_pct", "align": "right"},
-                        {"name": "trend_state", "label": "Trend Regime", "field": "trend_state", "align": "center"},
+                        "index_name", "close_price", "return_1d_pct", "return_5d_pct",
+                        "return_20d_pct", "distance_ema_50_pct", "distance_ema_200_pct", "trend_state"
                     ]
-                    scorecard_rows = []
-                    for _, r in latest_bench.iterrows():
-                        r1 = float(r.get("return_1d_pct") or 0.0)
-                        r5 = float(r.get("return_5d_pct") or 0.0)
-                        r20 = float(r.get("return_20d_pct") or 0.0)
-                        d50 = float(r.get("distance_ema_50_pct") or 0.0)
-                        d200 = float(r.get("distance_ema_200_pct") or 0.0)
-                        scorecard_rows.append({
-                            "index_name": r["index_name"],
-                            "close_price": f"₹{float(r['close_price']):,.2f}",
-                            "return_1d_pct": f"{r1:+.2f}%",
-                            "return_5d_pct": f"{r5:+.2f}%",
-                            "return_20d_pct": f"{r20:+.2f}%",
-                            "distance_ema_50_pct": f"{d50:+.1f}%",
-                            "distance_ema_200_pct": f"{d200:+.1f}%",
-                            "trend_state": r.get("trend_state", "—"),
-                        })
+                    scorecard_df = latest_bench[[c for c in scorecard_cols if c in latest_bench.columns]].copy()
 
-                    with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
-                        ui.label("📊 Market Benchmark Performance Scorecard").classes("text-sm font-bold text-[var(--mp-text)] mb-2")
-                        ui.table(columns=scorecard_cols, rows=scorecard_rows).classes("w-full mp-table text-xs font-mono")
+                    if table_from_df is not None:
+                        table_from_df(scorecard_df, "📊 Market Benchmark Performance Scorecard", copy_symbols=False)
+                    else:
+                        scorecard_cols_def = [
+                            {"name": "index_name", "label": "Index", "field": "index_name", "align": "left"},
+                            {"name": "close_price", "label": "Close", "field": "close_price", "align": "right"},
+                            {"name": "return_1d_pct", "label": "1D Return", "field": "return_1d_pct", "align": "right"},
+                            {"name": "return_5d_pct", "label": "5D Return", "field": "return_5d_pct", "align": "right"},
+                            {"name": "return_20d_pct", "label": "1M Return", "field": "return_20d_pct", "align": "right"},
+                            {"name": "distance_ema_50_pct", "label": "vs 50 EMA", "field": "distance_ema_50_pct", "align": "right"},
+                            {"name": "distance_ema_200_pct", "label": "vs 200 EMA", "field": "distance_ema_200_pct", "align": "right"},
+                            {"name": "trend_state", "label": "Trend Regime", "field": "trend_state", "align": "center"},
+                        ]
+                        scorecard_rows = []
+                        for _, r in scorecard_df.iterrows():
+                            r1 = float(r.get("return_1d_pct") or 0.0)
+                            r5 = float(r.get("return_5d_pct") or 0.0)
+                            r20 = float(r.get("return_20d_pct") or 0.0)
+                            d50 = float(r.get("distance_ema_50_pct") or 0.0)
+                            d200 = float(r.get("distance_ema_200_pct") or 0.0)
+                            scorecard_rows.append({
+                                "index_name": r["index_name"],
+                                "close_price": f"₹{float(r['close_price']):,.2f}",
+                                "return_1d_pct": f"{r1:+.2f}%",
+                                "return_5d_pct": f"{r5:+.2f}%",
+                                "return_20d_pct": f"{r20:+.2f}%",
+                                "distance_ema_50_pct": f"{d50:+.1f}%",
+                                "distance_ema_200_pct": f"{d200:+.1f}%",
+                                "trend_state": r.get("trend_state", "—"),
+                            })
+
+                        with ui.card().classes("w-full mp-card p-4 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+                            ui.label("📊 Market Benchmark Performance Scorecard").classes("text-sm font-bold text-[var(--mp-text)] mb-2")
+                            ui.table(columns=scorecard_cols_def, rows=scorecard_rows).classes("w-full mp-table text-xs font-mono")
 
             # =================================================================
             # TAB 4: SECTOR INFLOW STREAKS & HEATMAP

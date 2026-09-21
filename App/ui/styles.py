@@ -26,7 +26,7 @@ STYLES_HTML = """
             /* ── TEXT ── */
             --mp-text:            #f1f4f8;
             --mp-muted:           #98a7ba;
-            --mp-faint:           #6e7e93;
+            --mp-faint:           #7888a0;
             --mp-inverse:         #080c12;
 
             /* ── ACCENT (gold signal, not SaaS blue) ── */
@@ -567,6 +567,50 @@ STYLES_HTML = """
             z-index: 20 !important;
             box-shadow: 0 1px 0 var(--mp-border);
           }
+          /* Table Header Functional Group Color Palette (F5) */
+          .mp-table th.mp-th-price-return,
+          .q-table th.mp-th-price-return {
+            color: var(--mp-cyan) !important;
+            border-top: 2px solid rgba(90, 211, 208, 0.45) !important;
+          }
+          .mp-table th.mp-th-volume,
+          .q-table th.mp-th-volume {
+            color: var(--mp-warn) !important;
+            border-top: 2px solid rgba(240, 190, 88, 0.45) !important;
+          }
+          .mp-table th.mp-th-rs,
+          .q-table th.mp-th-rs {
+            color: var(--mp-good) !important;
+            border-top: 2px solid rgba(69, 212, 131, 0.45) !important;
+          }
+          .mp-table th.mp-th-valuation,
+          .q-table th.mp-th-valuation {
+            color: #c084fc !important;
+            border-top: 2px solid rgba(192, 132, 252, 0.45) !important;
+          }
+          .mp-table th.mp-th-momentum,
+          .q-table th.mp-th-momentum {
+            color: var(--mp-info) !important;
+            border-top: 2px solid rgba(116, 169, 255, 0.45) !important;
+          }
+          .mp-table th.mp-th-risk,
+          .q-table th.mp-th-risk {
+            color: var(--mp-bad) !important;
+            border-top: 2px solid rgba(242, 124, 132, 0.45) !important;
+          }
+          /* Light theme header color adaptations */
+          body.body--light .mp-table th.mp-th-price-return,
+          body.body--light .q-table th.mp-th-price-return { color: #0891b2 !important; border-top-color: #0891b2 !important; }
+          body.body--light .mp-table th.mp-th-volume,
+          body.body--light .q-table th.mp-th-volume { color: #b45309 !important; border-top-color: #b45309 !important; }
+          body.body--light .mp-table th.mp-th-rs,
+          body.body--light .q-table th.mp-th-rs { color: #15803d !important; border-top-color: #15803d !important; }
+          body.body--light .mp-table th.mp-th-valuation,
+          body.body--light .q-table th.mp-th-valuation { color: #7e22ce !important; border-top-color: #7e22ce !important; }
+          body.body--light .mp-table th.mp-th-momentum,
+          body.body--light .q-table th.mp-th-momentum { color: #1d4ed8 !important; border-top-color: #1d4ed8 !important; }
+          body.body--light .mp-table th.mp-th-risk,
+          body.body--light .q-table th.mp-th-risk { color: #be123c !important; border-top-color: #be123c !important; }
           .mp-table td, .mp-table .q-td, .q-table td, .q-table .q-td {
             color: var(--mp-text);
             font-size: 12.5px !important;
@@ -764,9 +808,9 @@ STYLES_HTML = """
           /* Mini badges */
           .mp-mini-badge {
             margin-left: 4px;
-            padding: 1px 5px;
-            border-radius: 3px;
-            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px !important;
             font-weight: 700;
             vertical-align: middle;
             white-space: nowrap;
@@ -1002,8 +1046,10 @@ STYLES_HTML = """
           }
 
           /* Expand mp-badge usage for all tones/states (pervasive coloring) */
-          .mp-badge, .mp-chip {
+          .mp-badge, .mp-mini-badge, .mp-chip {
+            font-size: 12px !important;
             font-weight: 600;
+            line-height: 1.25;
           }
           /* Ensure rotation states use exact colors from standard */
           .mp-state-leading { background: var(--mp-leading-bg) !important; color: var(--mp-leading) !important; }
@@ -1185,9 +1231,9 @@ STYLES_HTML = """
             padding: 2px 7px;
             border: 1px solid currentColor;
             border-radius: var(--mp-radius-full);
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.03em;
+            font-size: 12px !important;
+            font-weight: 700;
+            letter-spacing: 0.02em;
           }
 
           @media (max-width: 700px) {
@@ -1653,6 +1699,135 @@ STYLES_HTML = """
           .mp-deal-badge-fii { background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
           .mp-deal-badge-dii { background: rgba(168, 85, 247, 0.18); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
           .mp-deal-badge-prop { background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
+
+          /* =========================================================================
+             WCAG AA Contrast Guarantee for Badges & Chips Across Themes (F4)
+             Enforces >= 4.5:1 contrast on both dark surfaces (#101721) and light surfaces (#ffffff).
+             ========================================================================= */
+          body.body--light .mp-badge.mp-good,
+          body.body--light .mp-state-leading,
+          .bg-white .mp-badge.mp-good,
+          .bg-white .mp-state-leading,
+          .mp-light-theme .mp-badge.mp-good,
+          .mp-light-theme .mp-state-leading {
+            background: #d1f2dd !important;
+            color: #0e6237 !important;
+            border: 1px solid #a3e6ba !important;
+          }
+
+          body.body--light .mp-badge.mp-bad,
+          body.body--light .mp-state-lagging,
+          .bg-white .mp-badge.mp-bad,
+          .bg-white .mp-state-lagging,
+          .mp-light-theme .mp-badge.mp-bad,
+          .mp-light-theme .mp-state-lagging {
+            background: #ffe4e6 !important;
+            color: #9f1239 !important;
+            border: 1px solid #fecdd3 !important;
+          }
+
+          body.body--light .mp-badge.mp-warn,
+          body.body--light .mp-state-weakening,
+          .bg-white .mp-badge.mp-warn,
+          .bg-white .mp-state-weakening,
+          .mp-light-theme .mp-badge.mp-warn,
+          .mp-light-theme .mp-state-weakening {
+            background: #fef3c7 !important;
+            color: #92400e !important;
+            border: 1px solid #fde68a !important;
+          }
+
+          body.body--light .mp-badge.mp-info,
+          body.body--light .mp-state-emerging,
+          .bg-white .mp-badge.mp-info,
+          .bg-white .mp-state-emerging,
+          .mp-light-theme .mp-badge.mp-info,
+          .mp-light-theme .mp-state-emerging {
+            background: #dbeafe !important;
+            color: #1e40af !important;
+            border: 1px solid #bfdbfe !important;
+          }
+
+          body.body--light .mp-state-improving,
+          body.body--light .mp-improving-badge,
+          .bg-white .mp-state-improving,
+          .bg-white .mp-improving-badge,
+          .mp-light-theme .mp-state-improving,
+          .mp-light-theme .mp-improving-badge {
+            background: #cffafe !important;
+            color: #155e75 !important;
+            border: 1px solid #a5f3fc !important;
+          }
+
+          body.body--light .mp-badge.mp-neutral,
+          body.body--light .mp-state-neutral,
+          body.body--light .mp-chip,
+          .bg-white .mp-badge.mp-neutral,
+          .bg-white .mp-state-neutral,
+          .bg-white .mp-chip,
+          .mp-light-theme .mp-badge.mp-neutral,
+          .mp-light-theme .mp-state-neutral,
+          .mp-light-theme .mp-chip {
+            background: #f1f5f9 !important;
+            color: #334155 !important;
+            border: 1px solid #cbd5e1 !important;
+          }
+
+          body.body--light .mp-sector-badge,
+          .bg-white .mp-sector-badge,
+          .mp-light-theme .mp-sector-badge {
+            background: #d1f2dd !important;
+            color: #0e6237 !important;
+            border: 1px solid #a3e6ba !important;
+          }
+
+          body.body--light .mp-industry-badge,
+          .bg-white .mp-industry-badge,
+          .mp-light-theme .mp-industry-badge {
+            background: #cffafe !important;
+            color: #155e75 !important;
+            border: 1px solid #a5f3fc !important;
+          }
+
+          body.body--light .mp-sector-tag,
+          .bg-white .mp-sector-tag,
+          .mp-light-theme .mp-sector-tag {
+            background: #e0f2fe !important;
+            color: #0369a1 !important;
+            border: 1px solid #bae6fd !important;
+          }
+
+          body.body--light .mp-deal-badge,
+          .bg-white .mp-deal-badge,
+          .mp-light-theme .mp-deal-badge {
+            background: #fef3c7 !important;
+            color: #92400e !important;
+            border: 1px solid #fde68a !important;
+          }
+
+          body.body--light .mp-deal-badge-fii,
+          .bg-white .mp-deal-badge-fii,
+          .mp-light-theme .mp-deal-badge-fii {
+            background: #e0f2fe !important;
+            color: #0369a1 !important;
+            border: 1px solid #bae6fd !important;
+          }
+
+          body.body--light .mp-deal-badge-dii,
+          .bg-white .mp-deal-badge-dii,
+          .mp-light-theme .mp-deal-badge-dii {
+            background: #f3e8ff !important;
+            color: #6b21a8 !important;
+            border: 1px solid #e9d5ff !important;
+          }
+
+          body.body--light .mp-deal-badge-prop,
+          .bg-white .mp-deal-badge-prop,
+          .mp-light-theme .mp-deal-badge-prop {
+            background: #fef3c7 !important;
+            color: #92400e !important;
+            border: 1px solid #fde68a !important;
+          }
         </style>
         """
 
