@@ -28,7 +28,7 @@ from config import (
     SECTOR_FILE,
     WATCHLIST_BUCKETS,
 )
-from index_history import build_index_features, load_all_index_history, load_all_market_activity_history
+from index_history import build_index_features, load_all_index_history
 from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
 from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
 from index_constituents import load_membership_csv, ensure_index_constituents
@@ -801,7 +801,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     # True RS vs Nifty 50 / MidSml 400 (excess return, fail-closed). Peer rs_percentile stays primary.
     print("  5c+/8: Computing true RS vs index benches...", flush=True)
     try:
-        index_raw = load_all_market_activity_history(ROOT_DIR)
+        index_raw = load_all_index_history(ROOT_DIR)
         if index_raw is not None and not index_raw.empty:
             indicators = attach_true_rs_columns(indicators, index_raw)
         else:
@@ -817,7 +817,7 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
 
     print("  5c++/8: Computing stock vs mapped sector-index RS...", flush=True)
     try:
-        _idx = load_all_market_activity_history(ROOT_DIR)
+        _idx = load_all_index_history(ROOT_DIR)
         _mem = load_membership_csv()
         _master = master if "master" in dir() else None
         indicators = attach_sector_index_rs(indicators, _idx, _mem, _master)
@@ -1385,7 +1385,7 @@ def main() -> None:
     try:
         if not args.quiet:
             print("  7c/8: Loading market-index history...")
-        index_raw = load_all_market_activity_history(ROOT_DIR)
+        index_raw = load_all_index_history(ROOT_DIR)
         index_features = build_index_features(index_raw)
     except Exception:
         index_features = pd.DataFrame()

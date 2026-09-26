@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from build_index_name_map import derive_name_map
@@ -51,6 +53,15 @@ def test_derive_name_map_is_one_to_one():
     canon_rows = m[m["canonical_name"] == "Nifty 50"]
     assert len(canon_rows) == 1
     assert canon_rows.iloc[0]["source_name"] == "Nifty 50"
+
+
+def test_full_build_and_decision_tables_use_merged_index_history():
+    """RS/sector-metrics feeds must use the ind_close_all + MA merged loader, not MA-only,
+    so a full rebuild sees the backfilled 2020+ history rather than MA-only (2025-01+)."""
+    scripts = Path(__file__).resolve().parent.parent / "Scripts"
+    for name in ("build_database.py", "materialize_decision_tables.py"):
+        text = (scripts / name).read_text(encoding="utf-8")
+        assert "load_all_market_activity_history(" not in text, f"{name} still calls the MA-only loader"
 
 
 def test_features_keep_extra_columns(tmp_path):
