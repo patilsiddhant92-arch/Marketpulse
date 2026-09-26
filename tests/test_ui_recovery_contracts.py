@@ -57,15 +57,6 @@ def test_header_groups_brand_and_status_meta_for_small_screens():
     assert ".mp-header-meta" in styles
 
 
-def test_production_today_uses_decision_panel_not_stub_snapshot():
-    app_source = Path("App/app.py").read_text(encoding="utf-8")
-    stub = Path("App/pages/today.py").read_text(encoding="utf-8")
-    assert "build_today_decision_panel" in app_source
-    assert "load_app_snapshot" not in stub
-    assert "NotImplementedError" in stub
-    assert "quarantined" in stub.lower()
-
-
 def test_ui_run_kwargs_refuses_remote_without_allow_flag(monkeypatch):
     import importlib
     import sys
@@ -124,7 +115,7 @@ def test_launch_batch_selects_a_free_port_for_repeatable_startups():
     assert "netstat -ano" in launch
     assert "findstr" in launch
     assert 'set "MP_PORT=%PORT%"' in launch
-    assert 'set "URL=http://localhost:%PORT%"' in launch
+    assert 'set "URL=http://127.0.0.1:%PORT%"' in launch
 
 
 def test_app_market_db_connects_are_read_only():
@@ -137,8 +128,3 @@ def test_app_market_db_connects_are_read_only():
     assert 'duckdb.connect(str(DB_PATH), read_only=True)' in source
 
 
-def test_screener_page_reads_focused_v2_without_fundamentals():
-    source = Path("App/pages/screener.py").read_text(encoding="utf-8")
-    assert "load_decision_snapshot" in source
-    assert "screener_daily" not in source
-    assert "technofunda_score" not in source

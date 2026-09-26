@@ -14,7 +14,6 @@ from App.ui.stock_drawer import (
 )
 
 DB_PATH = Path("Database/marketpulse.duckdb")
-USER_DB = Path("Database/marketpulse_user.duckdb")
 
 
 def test_stock_candlestick_query_limits_400_then_reverses(tmp_path):
@@ -69,27 +68,22 @@ def test_stock_candlestick_query_returns_expected_structure():
     assert h >= l
 
 
-def test_user_notes_roundtrip():
+def test_user_notes_roundtrip(tmp_path):
+    user_db = tmp_path / "user.duckdb"
     test_symbol = "TEST_STOCK"
     test_note = "Testing local setup breakout thesis at 1450"
-    save_stock_note(USER_DB, test_symbol, test_note)
-    loaded = load_stock_note(USER_DB, test_symbol)
-    assert loaded == test_note
+    save_stock_note(user_db, test_symbol, test_note)
+    assert load_stock_note(user_db, test_symbol) == test_note
 
 
-def test_user_watchlist_toggle():
+def test_user_watchlist_toggle(tmp_path):
+    user_db = tmp_path / "user.duckdb"
     test_symbol = "TEST_WL_STOCK"
-    # Ensure initially false or toggle to known state
-    if is_in_watchlist(USER_DB, 1, test_symbol):
-        toggle_watchlist_symbol(USER_DB, 1, test_symbol)
-
-    assert is_in_watchlist(USER_DB, 1, test_symbol) is False
-    added = toggle_watchlist_symbol(USER_DB, 1, test_symbol)
-    assert added is True
-    assert is_in_watchlist(USER_DB, 1, test_symbol) is True
-    removed = toggle_watchlist_symbol(USER_DB, 1, test_symbol)
-    assert removed is False
-    assert is_in_watchlist(USER_DB, 1, test_symbol) is False
+    assert is_in_watchlist(user_db, 1, test_symbol) is False
+    assert toggle_watchlist_symbol(user_db, 1, test_symbol) is True
+    assert is_in_watchlist(user_db, 1, test_symbol) is True
+    assert toggle_watchlist_symbol(user_db, 1, test_symbol) is False
+    assert is_in_watchlist(user_db, 1, test_symbol) is False
 
 
 def test_stock_rs_delivery_history_query():

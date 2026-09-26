@@ -68,6 +68,10 @@ def save_stock_note(user_db: Path, symbol: str, text: str) -> None:
     try:
         with duckdb.connect(str(user_db)) as db:
             db.execute(
+                "CREATE TABLE IF NOT EXISTS portfolio_settings "
+                "(setting_key VARCHAR PRIMARY KEY, setting_value VARCHAR, updated_at TIMESTAMP)"
+            )
+            db.execute(
                 """
                 INSERT INTO portfolio_settings (setting_key, setting_value, updated_at)
                 VALUES (?, ?, now())
@@ -86,6 +90,10 @@ def toggle_watchlist_symbol(user_db: Path, wl_num: int, symbol: str) -> bool:
     key = f"watchlist_{wl_num}"
     try:
         with duckdb.connect(str(user_db)) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS portfolio_settings "
+                "(setting_key VARCHAR PRIMARY KEY, setting_value VARCHAR, updated_at TIMESTAMP)"
+            )
             r = db.execute("SELECT setting_value FROM portfolio_settings WHERE setting_key = ?", [key]).fetchone()
             current = set(json.loads(r[0])) if (r and r[0]) else set()
             if symbol in current:

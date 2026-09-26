@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 import duckdb
 import pytest
@@ -11,6 +12,8 @@ from Scripts.midsml_breadth import (
     _clean_val,
 )
 from Scripts.telegram_deals import build_deals_telegram_report
+
+NEG_ZERO = re.compile(r"-0\.0(?![0-9])")
 
 
 def test_clean_val_deadband():
@@ -106,7 +109,7 @@ def test_telegram_deals_report_standalone_watchlists():
 
     # Verify no -0.0 anywhere in generated telegram text
     for i, m in enumerate(msgs):
-        assert "-0.0" not in m, f"Message {i} contained negative zero: {m}"
+        assert not NEG_ZERO.search(m), f"Message {i} contained negative zero: {m}"
 
     # Verify tv_strings structure
     tv = report["tv_strings"]

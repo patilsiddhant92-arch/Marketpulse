@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 import time
 import numpy as np
@@ -20,6 +21,8 @@ from App.pages.action_desk import fetch_action_desk_data
 from App.ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner
 from Scripts.config import DB_PATH
 from Scripts.telegram_deals import build_deals_telegram_report, to_tv_list
+
+NEG_ZERO = re.compile(r"-0\.0(?![0-9])")
 
 
 def test_copy_text_to_clipboard_single_and_dual_args(monkeypatch) -> None:
@@ -212,7 +215,7 @@ def test_telegram_deals_net_cr_formatting() -> None:
     assert len(messages) >= 2
     full_text = "\n".join(messages)
     assert "-0.0Cr" not in full_text, "Found negative zero '-0.0Cr' in Telegram deals message!"
-    assert "-0.0" not in full_text, "Found '-0.0' in Telegram deals message!"
+    assert not NEG_ZERO.search(full_text), f"Found negative zero in Telegram deals message: {NEG_ZERO.search(full_text)}"
 
 
 def test_table_from_df_copy_symbols_does_not_truncate_turnarounds(monkeypatch) -> None:

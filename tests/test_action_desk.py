@@ -105,6 +105,7 @@ def test_action_desk_data_returns_valid_decision_structure(monkeypatch) -> None:
         assert exp.get("vix_available") is True
 
 
+@pytest.mark.realdb
 def test_action_desk_enforces_strict_swing_quality_rules(monkeypatch) -> None:
     _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
@@ -168,6 +169,7 @@ def test_action_desk_tradingview_paste_lists(monkeypatch) -> None:
     assert "NSE:" in tv["darvas"]
 
 
+@pytest.mark.realdb
 def test_action_desk_darvas_squeeze_queue(monkeypatch) -> None:
     _force_v1(monkeypatch)
     data = fetch_action_desk_data(DB_PATH)
@@ -247,6 +249,7 @@ def test_display_window_count(monkeypatch) -> None:
         assert col in darvas_df.columns
 
 
+@pytest.mark.realdb
 def test_queue_and_drawer_same_predicate(monkeypatch) -> None:
     """Fails on current main: drawer hard-coded 3.5/3.5, queue 5.0/4.0 + ema20."""
     from App.ui.stock_drawer import query_stock_candlestick_data

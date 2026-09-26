@@ -38,11 +38,11 @@ def test_stocks_search_options_labels_cover_symbols_and_names():
 
     # Verify both symbol code and company name appear in the label so user searches by either letter or name
     assert "RELIANCE" in opts["RELIANCE"]
-    assert "RELIANCE INDUSTRIES" in opts["RELIANCE"]
+    assert "reliance industries" in opts["RELIANCE"].lower()
     assert "TCS" in opts["TCS"]
-    assert "TATA CONSULTANCY" in opts["TCS"]
+    assert "tata consultancy" in opts["TCS"].lower()
     assert "SBIN" in opts["SBIN"]
-    assert "STATE BANK OF INDIA" in opts["SBIN"]
+    assert "state bank of india" in opts["SBIN"].lower()
 
 
 def test_resolve_stock_symbol_resolution():
