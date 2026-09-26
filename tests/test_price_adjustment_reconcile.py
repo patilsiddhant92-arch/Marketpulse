@@ -101,6 +101,26 @@ def test_override_replaces_event_dropped_by_duplicate_guard():
     assert row["confidence"] == "override"
 
 
+def test_override_wins_post_override_dedupe_against_untouched_row():
+    # bc P4 bonus 0.9 on 2026-08-10 (event A) and bc P4 bonus 0.5 on 2026-08-14 (event B, a
+    # different factor so the FIRST dedupe pass does not collapse them). An override on
+    # 2026-08-13 factor 0.9 replaces the closer event, B -- but that override's new (date, factor)
+    # now falls within window_days/factor_tol of the untouched event A. The SECOND dedupe pass
+    # (which runs after overrides) must not fall back to "keep the earliest": the override row
+    # must survive over the plain bc row it now collides with.
+    bc = pd.DataFrame([_a("P4", "2026-08-10", "bonus", 0.9, "bc"),
+                       _a("P4", "2026-08-14", "bonus", 0.5, "bc")])
+    ov = pd.DataFrame([{"symbol": "P4", "ex_date": pd.Timestamp("2026-08-13"), "factor": 0.9, "note": "confirmed date"}])
+    out = reconcile(bc, pd.DataFrame(), pd.DataFrame(), ov)
+    p4 = out[out["symbol"] == "P4"]
+    applied = p4[p4["applied"]]
+    assert len(applied) == 1
+    row = applied.iloc[0]
+    assert row["ex_date"] == pd.Timestamp("2026-08-13")
+    assert math.isclose(row["factor"], 0.9)
+    assert row["confidence"] == "override"
+
+
 def test_override_far_from_any_event_is_added():
     bc = pd.DataFrame([_a("FARAWAY", "2026-01-01", "bonus", 0.5, "bc")])
     ov = pd.DataFrame([{"symbol": "FARAWAY", "ex_date": pd.Timestamp("2026-02-01"), "factor": 0.6, "note": "separate event"}])

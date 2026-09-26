@@ -344,8 +344,37 @@ def _has_bc_rights(bc: pd.DataFrame, symbol, ex_date, window_days: float) -> boo
     return any(_near(ex_date, r["ex_date"], window_days) for _, r in rights.iterrows())
 
 
+def _is_override_row(r: dict) -> bool:
+    """True if `r` was produced or touched by `_apply_overrides` (replaced-in-place or added new)."""
+    return r.get("confidence") in ("override", "suppressed") or "override" in str(r.get("source", ""))
+
+
+def _dup_wins(candidate: dict, incumbent: dict) -> bool:
+    """True if `candidate` should replace `incumbent` when both are applied duplicates of the
+    same event (same symbol, within window_days, factors within factor_tol).
+
+    An override (or suppression) always wins over an untouched bc/mcap/gap-derived row, since it
+    is the analyst's deliberate correction. Between two override rows, the one applied later in
+    the overrides list wins (tracked via `_override_rank`). Between two plain, non-override rows,
+    the earlier-dated one wins (duplicate-announcement guard) -- `incumbent` is always the
+    earlier-dated of the pair here, since callers process rows in ascending ex_date order.
+    """
+    cand_override, inc_override = _is_override_row(candidate), _is_override_row(incumbent)
+    if cand_override != inc_override:
+        return cand_override
+    if cand_override and inc_override:
+        return candidate.get("_override_rank", -1) >= incumbent.get("_override_rank", -1)
+    return False
+
+
 def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) -> list[dict]:
-    """Keep only the earliest of two applied events for the same symbol that agree within tolerance."""
+    """Collapse applied duplicates of the same symbol/date-window/factor to a single row.
+
+    Plain duplicates (e.g. two bc announcements of the same bonus) keep the earliest. An override
+    or suppression always outranks a plain row regardless of date, per `_dup_wins`, so an override
+    that lands within window_days/factor_tol of an untouched event isn't silently dropped by the
+    "keep the earliest" rule.
+    """
     by_symbol: dict[str, list[int]] = {}
     for i, r in enumerate(rows):
         if r["applied"]:
@@ -355,12 +384,17 @@ def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) 
         idxs_sorted = sorted(idxs, key=lambda i: rows[i]["ex_date"])
         kept: list[int] = []
         for i in idxs_sorted:
-            is_dup = any(_near(rows[i]["ex_date"], rows[j]["ex_date"], window_days)
-                        and _same_factor(rows[i]["factor"], rows[j]["factor"], factor_tol) for j in kept)
-            if is_dup:
-                drop.add(i)
-            else:
+            dup_of = next((j for j in kept if _near(rows[i]["ex_date"], rows[j]["ex_date"], window_days)
+                          and _same_factor(rows[i]["factor"], rows[j]["factor"], factor_tol)), None)
+            if dup_of is None:
                 kept.append(i)
+            elif _dup_wins(rows[i], rows[dup_of]):
+                kept.remove(dup_of)
+                kept.append(i)
+                drop.add(dup_of)
+                drop.discard(i)
+            else:
+                drop.add(i)
     return [r for i, r in enumerate(rows) if i not in drop]
 
 
@@ -394,11 +428,16 @@ def _apply_overrides(rows: list[dict], overrides: pd.DataFrame, window_days: flo
     duplicate-announcement guard already dropped from turning into a second, spurious applied row
     (see `reconcile`, which also re-runs the duplicate guard after overrides to guarantee this).
     `source` records provenance as "<old source>+override" when replacing, or "override" when new.
+
+    Each touched row is tagged with `_override_rank` (its position in `overrides`, not a published
+    column -- dropped when the final frame is built from `ADJUSTMENT_COLUMNS`). `_dedupe_duplicates`
+    uses it to break ties between two override rows that end up within window_days/factor_tol of
+    each other: the later-listed override wins.
     """
     if overrides is None or overrides.empty:
         return rows
     claimed: set = set()
-    for _, o in overrides.iterrows():
+    for rank, (_, o) in enumerate(overrides.iterrows()):
         if pd.isna(o["ex_date"]):
             continue
         symbol, ex_date, factor = o["symbol"], o["ex_date"], o["factor"]
@@ -412,10 +451,13 @@ def _apply_overrides(rows: list[dict], overrides: pd.DataFrame, window_days: flo
             r["applied"] = not suppressed
             r["confidence"] = "suppressed" if suppressed else "override"
             r["source"] = f"{r['source']}+override"
+            r["_override_rank"] = rank
         else:
-            rows.append(_row(symbol, ex_date, "override", float("nan") if suppressed else factor,
-                             "override", "suppressed" if suppressed else "override",
-                             not suppressed, o.get("note", "")))
+            new_row = _row(symbol, ex_date, "override", float("nan") if suppressed else factor,
+                          "override", "suppressed" if suppressed else "override",
+                          not suppressed, o.get("note", ""))
+            new_row["_override_rank"] = rank
+            rows.append(new_row)
     return rows
 
 
