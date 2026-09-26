@@ -309,9 +309,20 @@ def _row(symbol, ex_date, kind, factor, source, confidence, applied, description
             "confidence": confidence, "applied": applied, "description": description}
 
 
-def _find_match(candidates: pd.DataFrame, used: set, symbol, ex_date, factor, window_days: float, factor_tol: float):
+# A bc adjusting kind may only merge with an mcap event derived the same way: a bonus is only
+# corroborated by an issue-size jump (mcap_issue); a split/consolidation only by a face-value
+# change (mcap_fv). A same-day, same-factor coincidence across incompatible kinds (e.g. a bc
+# split and an unrelated mcap_issue bonus) must NOT merge into one row.
+_MERGE_SOURCE = {"bonus": "mcap_issue", "split": "mcap_fv", "consolidation": "mcap_fv"}
+
+
+def _find_match(candidates: pd.DataFrame, used: set, symbol, ex_date, factor, window_days: float, factor_tol: float,
+                allowed_source: str | None = None):
     """Return the index of the first unused candidate row matching symbol/date/factor, else None."""
-    for idx, row in candidates[candidates["symbol"] == symbol].iterrows():
+    pool = candidates[candidates["symbol"] == symbol]
+    if allowed_source is not None:
+        pool = pool[pool["source"] == allowed_source]
+    for idx, row in pool.iterrows():
         if idx in used:
             continue
         if _near(ex_date, row["ex_date"], window_days) and _same_factor(factor, row["factor"], factor_tol):
@@ -353,29 +364,58 @@ def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) 
     return [r for i, r in enumerate(rows) if i not in drop]
 
 
-def _apply_overrides(rows: list[dict], overrides: pd.DataFrame) -> list[dict]:
+def _closest_row(rows: list[dict], claimed: set, symbol, ex_date, window_days: float):
+    """Return the index of the nearest-dated row for `symbol` within `window_days`, else None.
+
+    Any row is eligible regardless of its current `applied` state, so an override can replace
+    a previously-suppressed or not-applied row too. `claimed` excludes rows another override in
+    this same call already replaced, so two overrides never collapse onto one row.
+    """
+    best_idx, best_delta = None, None
+    for i, r in enumerate(rows):
+        if i in claimed or r["symbol"] != symbol or pd.isna(r["ex_date"]):
+            continue
+        if not _near(ex_date, r["ex_date"], window_days):
+            continue
+        delta = abs((pd.Timestamp(r["ex_date"]) - pd.Timestamp(ex_date)).days)
+        if best_delta is None or delta < best_delta:
+            best_idx, best_delta = i, delta
+    return best_idx
+
+
+def _apply_overrides(rows: list[dict], overrides: pd.DataFrame, window_days: float) -> list[dict]:
+    """Apply manual overrides last.
+
+    Per ruling: an override matches an existing event (applied or not) for the same symbol whose
+    ex_date falls within `window_days` -- picking the closest one -- and REPLACES that event's
+    ex_date/factor/applied/confidence in place (a null factor suppresses it; otherwise it becomes
+    the applied, authoritative row for that date). Only when no such event exists is the override
+    appended as a brand-new row. This is what prevents an override keyed to a date that a
+    duplicate-announcement guard already dropped from turning into a second, spurious applied row
+    (see `reconcile`, which also re-runs the duplicate guard after overrides to guarantee this).
+    `source` records provenance as "<old source>+override" when replacing, or "override" when new.
+    """
     if overrides is None or overrides.empty:
         return rows
-    ov_by_key = {(o["symbol"], pd.Timestamp(o["ex_date"]).normalize()): o
-                for _, o in overrides.iterrows() if not pd.isna(o["ex_date"])}
-    matched = set()
-    for r in rows:
-        key = (r["symbol"], pd.Timestamp(r["ex_date"]).normalize()) if not pd.isna(r["ex_date"]) else None
-        if key in ov_by_key:
-            o = ov_by_key[key]
-            matched.add(key)
-            suppressed = pd.isna(o["factor"])
-            r["factor"] = float("nan") if suppressed else o["factor"]
+    claimed: set = set()
+    for _, o in overrides.iterrows():
+        if pd.isna(o["ex_date"]):
+            continue
+        symbol, ex_date, factor = o["symbol"], o["ex_date"], o["factor"]
+        idx = _closest_row(rows, claimed, symbol, ex_date, window_days)
+        suppressed = pd.isna(factor)
+        if idx is not None:
+            claimed.add(idx)
+            r = rows[idx]
+            r["ex_date"] = ex_date
+            r["factor"] = float("nan") if suppressed else factor
             r["applied"] = not suppressed
             r["confidence"] = "suppressed" if suppressed else "override"
-            if not suppressed:
-                r["source"] = "override"
-    for key, o in ov_by_key.items():
-        if key in matched:
-            continue
-        applied = not pd.isna(o["factor"])
-        rows.append(_row(key[0], key[1], "override", o["factor"] if applied else float("nan"),
-                         "override", "override" if applied else "suppressed", applied, o.get("note", "")))
+            r["source"] = f"{r['source']}+override"
+        else:
+            rows.append(_row(symbol, ex_date, "override", float("nan") if suppressed else factor,
+                             "override", "suppressed" if suppressed else "override",
+                             not suppressed, o.get("note", "")))
     return rows
 
 
@@ -394,7 +434,8 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
         symbol, ex_date, kind, factor = b["symbol"], b["ex_date"], b["kind"], b["factor"]
         description = b.get("description", "")
         if kind in ADJUSTING_KINDS and not pd.isna(factor):
-            m_idx = _find_match(mcap, mcap_used, symbol, ex_date, factor, window_days, factor_tol)
+            m_idx = _find_match(mcap, mcap_used, symbol, ex_date, factor, window_days, factor_tol,
+                                allowed_source=_MERGE_SOURCE.get(kind))
             if m_idx is not None:
                 mcap_used.add(m_idx)
                 source = "bc+" + str(mcap.loc[m_idx, "source"])
@@ -429,8 +470,11 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
         else:  # mcap_issue
             rights_conflict = _has_bc_rights(bc, symbol, ex_date, window_days)
             g_idx = _find_gap_match(gaps, gap_used, symbol, ex_date, factor, window_days, gap_tol)
-            if g_idx is not None and not rights_conflict:
+            if g_idx is not None:
+                # The gap is explained either way: by the confirmed bonus, or by the conflicting
+                # rights issue. Either way it should not also surface as an unexplained_gap.
                 gap_used.add(g_idx)
+            if g_idx is not None and not rights_conflict:
                 rows.append(_row(symbol, ex_date, kind, factor, "mcap_issue", "confirmed", True, description))
             else:
                 confidence = "rights_conflict" if rights_conflict else "unconfirmed"
@@ -442,7 +486,11 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
         rows.append(_row(g["symbol"], g["ex_date"], "unexplained_gap", g["gap_ratio"], "gap", "unconfirmed", False, ""))
 
     rows = _dedupe_duplicates(rows, window_days, factor_tol)
-    rows = _apply_overrides(rows, overrides)
+    rows = _apply_overrides(rows, overrides, window_days)
+    # Re-run the duplicate guard: an override can retarget a row's ex_date onto another applied
+    # row's neighborhood, so this is what guarantees no two applied rows for the same symbol end
+    # up within window_days/factor_tol of each other after overrides are in play.
+    rows = _dedupe_duplicates(rows, window_days, factor_tol)
 
     out = pd.DataFrame(rows, columns=ADJUSTMENT_COLUMNS)
     return out.sort_values(["symbol", "ex_date"]).reset_index(drop=True)

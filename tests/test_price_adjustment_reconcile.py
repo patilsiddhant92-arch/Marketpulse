@@ -54,6 +54,8 @@ def test_mcap_issue_bonus_conflicts_with_bc_rights():
     out = reconcile(bc, mcap, gaps, pd.DataFrame())
     row = out[(out["symbol"] == "MPEL") & (out["source"] == "mcap_issue")].iloc[0]
     assert not row["applied"] and row["confidence"] == "rights_conflict"
+    # The gap next to the conflicting rights issue is explained by it, not left dangling.
+    assert not ((out["symbol"] == "MPEL") & (out["kind"] == "unexplained_gap")).any()
 
 
 def test_mcap_issue_bonus_unconfirmed_without_evidence():
@@ -68,3 +70,45 @@ def test_mcap_issue_bonus_confirmed_by_gap_without_bc():
     out = reconcile(pd.DataFrame(), mcap, gaps, pd.DataFrame()).set_index("symbol")
     row = out.loc["XYZ"]
     assert row["applied"] and row["confidence"] == "confirmed" and row["source"] == "mcap_issue"
+
+
+def test_incompatible_kinds_do_not_merge():
+    # A bc split and an mcap_issue bonus landing on the same symbol/date/factor by coincidence
+    # must NOT merge -- only kind-compatible pairs do (bonus<->mcap_issue, split/consolidation<->mcap_fv).
+    bc = pd.DataFrame([_a("SPLITCO", "2026-07-10", "split", 0.5, "bc")])
+    mcap = pd.DataFrame([_a("SPLITCO", "2026-07-10", "bonus", 0.5, "mcap_issue")])
+    out = reconcile(bc, mcap, pd.DataFrame(), pd.DataFrame())
+    assert not (out["source"] == "bc+mcap_issue").any()
+    bc_row = out[out["source"] == "bc"].iloc[0]
+    assert bc_row["applied"] and bc_row["confidence"] == "single_source"
+    mcap_row = out[out["source"] == "mcap_issue"].iloc[0]
+    assert not mcap_row["applied"] and mcap_row["confidence"] == "unconfirmed"
+
+
+def test_override_replaces_event_dropped_by_duplicate_guard():
+    # Two bc announcements of the same bonus two days apart collapse to one applied row at the
+    # earlier date. An override keyed to the *dropped* date must not become a second applied row
+    # -- it should replace the surviving row (nearest within window_days), leaving exactly one.
+    bc = pd.DataFrame([_a("DUPCO", "2026-08-10", "bonus", 0.5, "bc"),
+                       _a("DUPCO", "2026-08-12", "bonus", 0.5, "bc")])
+    ov = pd.DataFrame([{"symbol": "DUPCO", "ex_date": pd.Timestamp("2026-08-12"), "factor": 0.4, "note": "correct date"}])
+    out = reconcile(bc, pd.DataFrame(), pd.DataFrame(), ov)
+    dupco = out[out["symbol"] == "DUPCO"]
+    applied = dupco[dupco["applied"]]
+    assert len(applied) == 1
+    row = applied.iloc[0]
+    assert row["ex_date"] == pd.Timestamp("2026-08-12") and math.isclose(row["factor"], 0.4)
+    assert row["confidence"] == "override"
+
+
+def test_override_far_from_any_event_is_added():
+    bc = pd.DataFrame([_a("FARAWAY", "2026-01-01", "bonus", 0.5, "bc")])
+    ov = pd.DataFrame([{"symbol": "FARAWAY", "ex_date": pd.Timestamp("2026-02-01"), "factor": 0.6, "note": "separate event"}])
+    out = reconcile(bc, pd.DataFrame(), pd.DataFrame(), ov)
+    faraway = out[out["symbol"] == "FARAWAY"]
+    applied = faraway[faraway["applied"]]
+    assert len(applied) == 2
+    added = faraway[faraway["source"] == "override"].iloc[0]
+    assert added["applied"] and added["ex_date"] == pd.Timestamp("2026-02-01") and math.isclose(added["factor"], 0.6)
+    original = faraway[faraway["ex_date"] == pd.Timestamp("2026-01-01")].iloc[0]
+    assert original["applied"] and original["confidence"] == "single_source"
