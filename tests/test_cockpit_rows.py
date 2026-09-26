@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from App.api.server import _opt_float, cockpit_row
+from App.api.server import _opt_float, _opt_str, cockpit_row
 
 
 BASE = {
@@ -52,3 +52,16 @@ def test_darvas_10ema_geometry_is_null_until_redefined():
 
 def test_blank_symbol_is_skipped():
     assert cockpit_row({**BASE, "symbol": " "}, "vcp") is None
+
+
+def test_opt_str_keeps_missing_as_none():
+    assert _opt_str(None) is None
+    assert _opt_str(float("nan")) is None
+    assert _opt_str("  ") is None
+    assert _opt_str(" Metals ") == "Metals"
+
+
+def test_nan_sector_and_why_now_do_not_become_the_string_nan():
+    row = cockpit_row({**BASE, "sector": float("nan"), "why_now": float("nan")}, "vcp")
+    assert row["sector"] is None
+    assert row["why_now"] == ""

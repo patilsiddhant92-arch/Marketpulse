@@ -348,6 +348,19 @@ def _opt_float(val: Any, ndigits: int = 2) -> float | None:
     return round(f, ndigits)
 
 
+def _opt_str(val: Any) -> str | None:
+    """Missing stays missing: None/NaN/blank -> None; else the stripped string."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(val).strip()
+    return s or None
+
+
 def cockpit_row(row: Mapping[str, Any], queue: str) -> dict[str, Any] | None:
     sym = str(row.get("symbol") or "").strip().upper()
     if not sym:
@@ -362,7 +375,7 @@ def cockpit_row(row: Mapping[str, Any], queue: str) -> dict[str, Any] | None:
     dist = round((trigger / cmp_val - 1.0) * 100.0, 2) if trigger and cmp_val else None
     return {
         "symbol": sym,
-        "sector": str(row.get("sector") or "") or None,
+        "sector": _opt_str(row.get("sector")),
         "queue": queue,
         "cmp": cmp_val,
         "change_1d_pct": _opt_float(row.get("day_pct")),
@@ -373,11 +386,11 @@ def cockpit_row(row: Mapping[str, Any], queue: str) -> dict[str, Any] | None:
         "trigger_price": trigger,
         "invalidation_price": stop,
         "mcap_cr": _opt_float(row.get("market_cap_cr")),
-        "why_now": str(row.get("why_now") or ""),
+        "why_now": _opt_str(row.get("why_now")) or "",
         "rs_percentile": _opt_float(row.get("rs_percentile"), 1),
         "delivery_pct": _opt_float(row.get("delivery_pct"), 1),
-        "theme": str(row.get("theme") or "") or None,
-        "deal_flow": str(row.get("deal_flow") or "") or None,
+        "theme": _opt_str(row.get("theme")),
+        "deal_flow": _opt_str(row.get("deal_flow")),
         "squeeze_pct": _opt_float(row.get("squeeze_pct")),
     }
 
