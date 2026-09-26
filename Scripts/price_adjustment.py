@@ -7,6 +7,7 @@ import os
 import pickle
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -354,6 +355,7 @@ def _parse_mcap_csv(path: Path) -> dict:
 
 
 _CACHE_STORE = "parse_cache.pkl"
+_PARSE_WORKERS = min(8, os.cpu_count() or 1)
 
 
 def _read_cache_entry(store_file: Path):
@@ -399,19 +401,54 @@ class _ParseCache:
         # The same file name can live in several input dirs (archive, backfill, downloads/...).
         return os.path.normcase(os.path.abspath(path))
 
-    def load(self, path: Path, parser) -> dict:
-        if self.store_file is None:
-            return parser(path)
-        st = Path(path).stat()
-        key = (_CACHE_VERSION, Path(path).name, st.st_size, st.st_mtime_ns)
-        entry_key = self._entry_key(path)
-        entry = self.entries.get(entry_key)
-        if isinstance(entry, dict) and entry.get("key") == key and isinstance(entry.get("data"), dict):
-            return entry["data"]
-        data = parser(path)
-        self.entries[entry_key] = {"key": key, "data": data}
-        self.dirty = True
-        return data
+    def load_many(self, paths: list[Path], parser) -> list:
+        """`[parser(p) or its cached result, ...]` in `paths` order; a failure is returned as the
+        exception object (for the caller to report or re-raise) instead of being raised.
+
+        Cache misses are parsed on a small thread pool. The first open of a file that on-access
+        scanning hasn't seen yet costs ~36 ms per PR zip here when done one at a time vs ~3 ms
+        with 8 threads (measured on 250 fresh copies of real zips), and a cold run opens 1,749
+        of them. Cache bookkeeping stays on the calling thread.
+        """
+        results: list = [None] * len(paths)
+        misses: list[tuple[int, tuple | None]] = []
+        for i, p in enumerate(paths):
+            if self.store_file is None:
+                misses.append((i, None))
+                continue
+            try:
+                st = Path(p).stat()
+            except OSError as exc:
+                results[i] = exc
+                continue
+            key = (_CACHE_VERSION, Path(p).name, st.st_size, st.st_mtime_ns)
+            entry = self.entries.get(self._entry_key(p))
+            if isinstance(entry, dict) and entry.get("key") == key and isinstance(entry.get("data"), dict):
+                results[i] = entry["data"]
+            else:
+                misses.append((i, key))
+        if not misses:
+            return results
+
+        def _run(p):
+            try:
+                return parser(p)
+            except Exception as exc:  # noqa: BLE001 - handed back to the caller
+                return exc
+
+        miss_paths = [paths[i] for i, _ in misses]
+        workers = min(_PARSE_WORKERS, len(misses))
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                parsed = list(pool.map(_run, miss_paths))
+        else:
+            parsed = [_run(p) for p in miss_paths]
+        for (i, key), data in zip(misses, parsed):
+            results[i] = data
+            if key is not None and isinstance(data, dict):
+                self.entries[self._entry_key(paths[i])] = {"key": key, "data": data}
+                self.dirty = True
+        return results
 
     def save(self) -> None:
         if self.store_file is None or not self.dirty:
@@ -426,12 +463,15 @@ class _ParseCache:
 
 def _load_pr_zips(zip_paths: list[Path], cache: _ParseCache) -> list[tuple[Path, dict]]:
     """Parse (or load from cache) every PR zip once; unreadable zips are reported and skipped."""
+    paths = [Path(p) for p in zip_paths]
     entries = []
-    for p in zip_paths:
-        try:
-            entries.append((Path(p), cache.load(Path(p), _parse_pr_zip)))
-        except (zipfile.BadZipFile, OSError, pd.errors.ParserError) as exc:
-            print(f"Skipped {Path(p).name}: {exc}")
+    for p, result in zip(paths, cache.load_many(paths, _parse_pr_zip)):
+        if isinstance(result, (zipfile.BadZipFile, OSError, pd.errors.ParserError)):
+            print(f"Skipped {p.name}: {result}")
+        elif isinstance(result, Exception):
+            raise result
+        else:
+            entries.append((p, result))
     return entries
 
 
@@ -544,11 +584,12 @@ def _mcap_csv_paths(root: Path) -> list[Path]:
 
 def _mcap_frames_from(root: Path, zip_entries: list[tuple[Path, dict]], cache: _ParseCache) -> pd.DataFrame:
     frames = []
-    for p in _mcap_csv_paths(root):
-        try:
-            frames.append(cache.load(p, _parse_mcap_csv)["mcap"])
-        except Exception as exc:  # noqa: BLE001 - one bad loose CSV must not stop the run
-            print(f"Skipped {Path(p).name}: {exc}")
+    csv_paths = _mcap_csv_paths(root)
+    for p, result in zip(csv_paths, cache.load_many(csv_paths, _parse_mcap_csv)):
+        if isinstance(result, Exception):  # one bad loose CSV must not stop the run
+            print(f"Skipped {Path(p).name}: {result}")
+        else:
+            frames.append(result["mcap"])
     frames.extend(data["mcap"] for _, data in zip_entries if data.get("mcap") is not None and not data["mcap"].empty)
     frames = [f for f in frames if not f.empty]
     if not frames:

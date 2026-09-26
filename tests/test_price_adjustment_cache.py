@@ -121,6 +121,25 @@ def test_each_pr_zip_is_opened_once_per_run(tmp_path, monkeypatch):
     assert opened.count(os.fspath(zip_path)) == 1
 
 
+def test_parallel_parse_keeps_file_order_and_reports_bad_zips(tmp_path, capsys):
+    hdr = "SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE\n"
+    zips = []
+    for day in range(1, 13):
+        p = tmp_path / f"PR{day:02d}0826.zip"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr(f"bc{day:02d}082026.csv", hdr + f"EQ,SYM{day:02d},X,,,,2026-09-{day:02d},,,BONUS 1:1\n")
+        zips.append(p)
+    bad = tmp_path / "PR130826.zip"
+    bad.write_bytes(b"this is not a zip")
+    zips.insert(5, bad)
+
+    a = pa.collect_bc_actions(zips, cache_dir=tmp_path / "cache")
+
+    assert a["symbol"].tolist() == [f"SYM{d:02d}" for d in range(1, 13)]
+    assert a["published"].tolist() == [pd.Timestamp(f"2026-08-{d:02d}") for d in range(1, 13)]
+    assert "Skipped PR130826.zip" in capsys.readouterr().out
+
+
 # --- vectorised parsers keep the old row-by-row semantics --------------------------------------
 
 def test_bc_dates_fall_back_across_columns_and_formats():
