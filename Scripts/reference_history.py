@@ -314,6 +314,9 @@ def load_reference_history(root: Path) -> pd.DataFrame:
         col = next((name for name in frame.columns if name.startswith("market_cap")), None)
         if col is None or "symbol" not in frame.columns:
             return pd.DataFrame()
+        if "series" in frame.columns:
+            # NSE appends Listed / Permitted / Total summary rows with a blank series.
+            frame = frame[frame["series"].fillna("").astype(str).str.strip() != ""]
         return pd.DataFrame(
             {
                 "symbol": frame["symbol"],

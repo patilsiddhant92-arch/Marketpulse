@@ -221,25 +221,31 @@ def build_prices(universe: set[str]) -> pd.DataFrame:
     return prices
 
 
-def read_market_cap() -> pd.DataFrame:
-    path = latest_file(DAILY_DIR, "mcap*.csv")
-    if not path:
-        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"])
-    df = clean_columns(pd.read_csv(path, dtype=str, skipinitialspace=True))
+MCAP_COLUMNS = ["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"]
+
+
+def parse_market_cap_frame(df: pd.DataFrame) -> pd.DataFrame:
     market_cap_col = next((c for c in df.columns if c.startswith("market_cap")), None)
-    if not market_cap_col:
-        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"])
+    if not market_cap_col or "symbol" not in df.columns:
+        return pd.DataFrame(columns=MCAP_COLUMNS)
+    if "series" in df.columns:
+        # NSE appends Listed / Permitted / Total summary rows with a blank series.
+        df = df[df["series"].fillna("").astype(str).str.strip() != ""]
     out = pd.DataFrame()
     out["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-    out["security_name"] = df.get("security_name", "").astype(str).str.strip()
+    out["security_name"] = df.get("security_name", pd.Series("", index=df.index)).astype(str).str.strip()
     out["market_cap_cr"] = to_number(df[market_cap_col]) / 10_000_000
     out["market_cap_date"] = pd.to_datetime(df.get("trade_date", ""), format="%d %b %Y", errors="coerce")
     issue_size_col = next((c for c in df.columns if c.startswith("issue_size")), None)
-    if issue_size_col:
-        out["issue_size"] = to_number(df[issue_size_col])
-    else:
-        out["issue_size"] = np.nan
-    return out.drop_duplicates("symbol", keep="last")
+    out["issue_size"] = to_number(df[issue_size_col]) if issue_size_col else np.nan
+    return out.drop_duplicates("symbol", keep="last").reset_index(drop=True)
+
+
+def read_market_cap() -> pd.DataFrame:
+    path = latest_file(DAILY_DIR, "mcap*.csv")
+    if not path:
+        return pd.DataFrame(columns=MCAP_COLUMNS)
+    return parse_market_cap_frame(clean_columns(pd.read_csv(path, dtype=str, skipinitialspace=True)))
 
 
 def read_price_band() -> pd.DataFrame:
