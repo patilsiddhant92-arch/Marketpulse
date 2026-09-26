@@ -18,8 +18,12 @@ import yaml
 ADJUSTING_KINDS = frozenset({"split", "bonus", "consolidation"})
 
 _NUM = r"(\d+(?:\.\d+)?)"
-# Match BONUS followed optionally by ISSUE/SHARES, then ratio; restricts to nearby numbers
-_BONUS_RE = re.compile(rf"BONUS(?:\s+(?:ISSUE|SHARES?))?[\s:-]*{_NUM}\s*:\s*{_NUM}")
+# The bonus keyword: BONUS, or NSE's "BON" abbreviation ("BON1:1/FVSPLT...", "BON 2:1/...") --
+# only as its own word directly followed by a ratio, so BONDS / CARBON / BONANZA never match.
+_BONUS_WORD = r"(?:BONUS|\bBON(?=[\s:-]*\d+(?:\.\d+)?\s*:))"
+_BONUS_WORD_RE = re.compile(_BONUS_WORD)
+# Match the bonus keyword followed optionally by ISSUE/SHARES, then ratio; restricts to nearby numbers
+_BONUS_RE = re.compile(rf"{_BONUS_WORD}(?:\s+(?:ISSUE|SHARES?))?[\s:-]*{_NUM}\s*:\s*{_NUM}")
 # "FROM RS 10 ... TO RE 1", "RS.10 TO RS.2", "FRM RS 2 TO RE 1"
 _FV_RE = re.compile(rf"(?:FROM|FRM)?\s*R[SE]\.?\s*{_NUM}\D*?\bTO\b\s*R[SE]\.?\s*{_NUM}")
 # Match SPLIT, SPLT, SUB-DIVISION, SUB - DIVISION, SUB DIVISION, SUBDIVISION
@@ -31,7 +35,8 @@ _DIV_RE = re.compile(r"\bDIV(IDEND)?\b|\bDIV\s*-")
 # RS/RE-less face-value forms, only searched *after* a SPLIT/CONSOLIDATION keyword:
 # "FVSPLIT10TO2", "FV SPLIT 10 TO 2", "SPLIT FROM 10 TO 1" (either side may still carry RS/RE).
 _FV_BARE_RE = re.compile(rf"(?:R[SE]\.?\s*)?{_NUM}\s*(?:/-)?\s*TO\s*(?:R[SE]\.?\s*)?{_NUM}")
-_CONSOLIDATION_RE = re.compile(r"CONSOLIDAT")
+# "CONSOLIDATION ...", and NSE's "CNSLDATN RE 1 TO RS 10" / "CNSLDATNRE1 TO RS10" abbreviation.
+_CONSOLIDATION_RE = re.compile(r"CONSOLIDAT|CNSLDAT")
 # Indian face values are at most Rs 1000; anything larger in a bare "X TO Y" is not a face value
 # (e.g. the "2021 TO 05" inside a "01/08/2021 TO 05/08/2021" date range).
 _MAX_FACE_VALUE = 1000.0
@@ -48,7 +53,7 @@ def _normalize_purpose(purpose) -> str:
 
 
 def _is_pref_bonus(text: str) -> bool:
-    return "BONUS" in text and ("NCRPS" in text or "PREF" in text or "DEBENTURE" in text)
+    return bool(_BONUS_WORD_RE.search(text)) and ("NCRPS" in text or "PREF" in text or "DEBENTURE" in text)
 
 
 def _fv_action(text: str, start: int) -> ParsedAction | None:
@@ -80,7 +85,7 @@ def _fv_action(text: str, start: int) -> ParsedAction | None:
 def _adjusting_actions(text: str) -> list[ParsedAction]:
     """Every adjusting action (bonus a:b; split/consolidation x->y) in `text`, in text order."""
     found: list[tuple[int, ParsedAction]] = []
-    if "BONUS" in text:
+    if "BON" in text:
         for m in _BONUS_RE.finditer(text):
             a, b = float(m.group(1)), float(m.group(2))
             if a > 0 and b > 0:

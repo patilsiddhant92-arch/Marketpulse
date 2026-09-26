@@ -139,3 +139,31 @@ def test_parse_purpose_all_non_adjusting_is_single_classification(text):
 
 def test_rights_stays_one_rights_action():
     assert parse_purpose_all("RIGHTS 3:8@ PRM RS 14/-") == [ParsedAction("rights", None)]
+
+
+@pytest.mark.parametrize("text,bonus,split", [
+    ("BON1:1/FVSPLTFRMRS5TORS2", 0.5, 0.4),      # real NSE text: TIDEWATER, ex 2021-07-26
+    ("BON 2:1/FVSPLIT RS2TORE1", 1 / 3, 0.5),    # real NSE text: SHRENIK, ex 2020-10-08
+])
+def test_bon_abbreviation_yields_bonus_and_split(text, bonus, split):
+    out = parse_purpose_all(text)
+    assert [a.kind for a in out] == ["bonus", "split"]
+    assert math.isclose(out[0].factor, bonus) and math.isclose(out[1].factor, split)
+
+
+@pytest.mark.parametrize("text,factor", [
+    ("CNSLDATNRE1 TO RS10", 10.0),        # real NSE text: VERTOZ, ex 2025-06-25
+    ("CNSLDATN RE 1 TO RS 10", 10.0),     # real NSE text: SHEKHAWATI, ex 2024-08-28
+    ("CNSLDATNRS10 TO RS1000", 100.0),    # real NSE text: KAUSHALYA, ex 2024-01-12
+])
+def test_cnsldatn_abbreviation_is_consolidation(text, factor):
+    assert parse_purpose_all(text) == [ParsedAction("consolidation", factor)]
+
+
+@pytest.mark.parametrize("text", [
+    "REDEMPTION OF BONDS 1:1", "INT ON BONDS", "CARBON 2:1", "CARBON1:1", "BONANZA 1:1",
+    "XBON 1:1", "BON", "BONDS",
+])
+def test_bon_does_not_match_inside_other_words(text):
+    assert all(a.kind != "bonus" for a in parse_purpose_all(text))
+    assert parse_purpose(text).kind != "bonus"
