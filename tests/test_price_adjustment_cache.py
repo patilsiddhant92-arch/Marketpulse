@@ -45,6 +45,19 @@ def test_cache_dir_none_reads_and_writes_nothing(tmp_path, monkeypatch):
     assert adjustments["applied"].any()
 
 
+def test_unexpected_parse_error_prints_a_failure_line_before_raising(tmp_path, monkeypatch, capsys):
+    _seed_root(tmp_path)
+
+    def _bad(_path):
+        raise KeyError("PURPOSE")
+
+    monkeypatch.setattr(pa, "_parse_pr_zip", _bad)
+    with pytest.raises(KeyError):
+        pa.adjust_prices(_goodluck(), tmp_path, cache_dir=None)
+    out = capsys.readouterr().out
+    assert "PRICE ADJUSTMENT FAILED: PR210826.zip: KeyError: 'PURPOSE'" in out
+
+
 def test_warm_cache_gives_identical_result_without_reparsing_sources(tmp_path, monkeypatch):
     _seed_root(tmp_path)
     cache = tmp_path / "cache"

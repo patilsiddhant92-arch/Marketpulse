@@ -469,6 +469,8 @@ def _load_pr_zips(zip_paths: list[Path], cache: _ParseCache) -> list[tuple[Path,
         if isinstance(result, (zipfile.BadZipFile, OSError, pd.errors.ParserError)):
             print(f"Skipped {p.name}: {result}")
         elif isinstance(result, Exception):
+            # One line the EOD status log can show, before the traceback.
+            print(f"PRICE ADJUSTMENT FAILED: {p.name}: {type(result).__name__}: {result}", flush=True)
             raise result
         else:
             entries.append((p, result))
