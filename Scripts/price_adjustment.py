@@ -7,7 +7,8 @@ from dataclasses import dataclass
 ADJUSTING_KINDS = frozenset({"split", "bonus", "consolidation"})
 
 _NUM = r"(\d+(?:\.\d+)?)"
-_BONUS_RE = re.compile(rf"BONUS\D*?{_NUM}\s*:\s*{_NUM}")
+# Match BONUS followed optionally by ISSUE/SHARES, then ratio; restricts to nearby numbers
+_BONUS_RE = re.compile(rf"BONUS(?:\s+(?:ISSUE|SHARES?))?[\s:-]*{_NUM}\s*:\s*{_NUM}")
 # "FROM RS 10 ... TO RE 1", "RS.10 TO RS.2", "FRM RS 2 TO RE 1"
 _FV_RE = re.compile(rf"(?:FROM|FRM)?\s*R[SE]\.?\s*{_NUM}\D*?\bTO\b\s*R[SE]\.?\s*{_NUM}")
 # Match SPLIT, SPLT, SUB-DIVISION, SUB - DIVISION, SUB DIVISION, SUBDIVISION
@@ -43,20 +44,20 @@ def parse_purpose(purpose: str) -> ParsedAction:
             a, b = float(m.group(1)), float(m.group(2))
             if a > 0 and b > 0:
                 return ParsedAction("bonus", b / (a + b))
-        # BONUS text exists but no valid pattern → return "other"
-        return ParsedAction("other", None)
+        # BONUS text exists but no valid pattern; continue to check non-adjusting keywords
+        # only return "other" if no other keywords match
 
     # Try split/consolidation
     is_split = _SPLIT_RE.search(text) is not None
     is_consolidation = "CONSOLIDAT" in text
+    has_adjusting_keyword = has_bonus or is_split or is_consolidation
     if is_split or is_consolidation:
         m = _FV_RE.search(text)
         if m:
             old, new = float(m.group(1)), float(m.group(2))
             if old > 0 and new > 0 and old != new:
                 return ParsedAction("consolidation" if new > old else "split", new / old)
-        # SPLIT/CONSOLIDATION text exists but no valid pattern → return "other"
-        return ParsedAction("other", None)
+        # SPLIT/CONSOLIDATION text exists but no valid pattern; continue to check non-adjusting keywords
 
     # Fall back to non-adjusting keywords
     if "RIGHTS" in text:
@@ -65,5 +66,9 @@ def parse_purpose(purpose: str) -> ParsedAction:
         return ParsedAction("demerger", None)
     if _DIV_RE.search(text):
         return ParsedAction("dividend", None)
+
+    # If we had adjusting keywords (BONUS/SPLIT/CONSOLIDATION) but no valid ratio and no other keywords, return "other"
+    if has_adjusting_keyword:
+        return ParsedAction("other", None)
 
     return ParsedAction("other", None)

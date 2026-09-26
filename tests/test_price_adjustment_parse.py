@@ -44,6 +44,12 @@ def test_adjusting_actions(text, kind, factor):
     ("", "other"),
     ("INTERIM DIVIDEND - RS 5 PER SHARE", "dividend"),
     ("RIGHTS ISSUE", "rights"),
+    ("BONUS ISSUE AND RIGHTS ISSUE", "rights"),
+    ("FV SPLIT AND DEMERGER", "demerger"),
+    ("SPLIT AND DIV - RS 2 PER SHARE", "dividend"),
+    ("BONUS ISSUE AND DEMERGER", "demerger"),
+    ("FV SPLIT AND RIGHTS ISSUE", "rights"),
+    ("BONUS AND RIGHTS 1:2", "rights"),
 ])
 def test_non_adjusting_actions(text, kind):
     p = parse_purpose(text)
