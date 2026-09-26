@@ -1190,10 +1190,12 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
     for col in PRICE_COLS:
         if col in df.columns:
             df[f"adj_{col}"] = (df[col].astype("float64") * df["price_factor"]).astype("float64")
+    # Share counts: rounded to whole shares (1000 / (1/3) is 3000.0000000000005, not 3000) but
+    # kept float64 so NaN survives; they become indicators_daily.volume downstream.
     if "volume" in df.columns:
-        df["adj_volume"] = (df["volume"].astype("float64") / df["price_factor"]).astype("float64")
+        df["adj_volume"] = (df["volume"].astype("float64") / df["price_factor"]).round().astype("float64")
     if "delivery_qty" in df.columns:
-        df["adj_delivery_qty"] = (df["delivery_qty"].astype("float64") / df["price_factor"]).astype("float64")
+        df["adj_delivery_qty"] = (df["delivery_qty"].astype("float64") / df["price_factor"]).round().astype("float64")
 
     if "adj_close_price" in df.columns:
         ordered = df.sort_values(["symbol", "trade_date"], kind="stable")

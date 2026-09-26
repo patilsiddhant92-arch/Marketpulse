@@ -122,3 +122,38 @@ def test_missing_optional_columns_do_not_crash():
 
     ind = indicator_input(result)
     assert not any(c.startswith("adj_") for c in ind.columns)
+
+
+def test_adjusted_share_counts_are_whole_numbers_and_feed_indicators():
+    """2:3 bonus (factor 3/5): 101 / 0.6 is 168.33 shares; adj_volume / adj_delivery_qty are
+    rounded to whole shares (float64 so NaN survives) and calc_indicators/rvol still work."""
+    import numpy as np
+
+    from build_database import calc_indicators
+
+    days = pd.bdate_range("2026-06-01", periods=30)
+    prices = pd.DataFrame({
+        "symbol": "AAA", "trade_date": days,
+        "open_price": 90.0, "high_price": 91.0, "low_price": 89.0, "close_price": 90.0,
+        "prev_close": 90.0, "volume": [101.0 + i for i in range(30)],
+        "delivery_qty": [51.0 + i for i in range(30)], "delivery_pct": 50.0, "turnover_cr": 1.0,
+    })
+    prices.loc[3, "volume"] = np.nan
+    adj = pd.DataFrame({"symbol": ["AAA"], "ex_date": [days[20]], "kind": ["bonus"], "factor": [0.6],
+                        "source": ["bc"], "confidence": ["confirmed"], "applied": [True], "description": [""]})
+
+    result = apply_adjustments(prices, adj)
+
+    for col in ("adj_volume", "adj_delivery_qty"):
+        assert result[col].dtype == "float64"
+        values = result[col].dropna()
+        assert (values == values.round()).all()
+    assert result.loc[0, "adj_volume"] == 168.0  # 101 / 0.6 = 168.33
+    assert result.loc[0, "adj_delivery_qty"] == 85.0
+    assert np.isnan(result.loc[3, "adj_volume"])
+    assert result.loc[25, "adj_volume"] == 126.0  # on/after ex-date: unscaled
+
+    ind = calc_indicators(indicator_input(result), pd.DataFrame(columns=["symbol", "high_52w", "low_52w"]))
+    last = ind.sort_values("trade_date").iloc[-1]
+    assert last["volume"] == 130.0
+    assert np.isfinite(last["rvol"]) and last["rvol"] > 0
