@@ -12,6 +12,10 @@ from index_history import load_all_market_activity_history, parse_ind_close_all
 MAP_PATH = ROOT_DIR / "Input" / "reference" / "index_name_map.csv"
 
 
+def _norm_name(name: str) -> str:
+    return str(name).strip().lower().replace(" ", "")
+
+
 def derive_name_map(close_all: pd.DataFrame, ma: pd.DataFrame, min_overlap: int = 5, tol: float = 0.01) -> pd.DataFrame:
     a = close_all[["trade_date", "index_name", "close_price"]].rename(columns={"index_name": "source_name", "close_price": "c1"})
     b = ma[["trade_date", "index_name", "close_price"]].rename(columns={"index_name": "canonical_name", "close_price": "c2"})
@@ -20,7 +24,27 @@ def derive_name_map(close_all: pd.DataFrame, ma: pd.DataFrame, min_overlap: int 
     counts = j.groupby(["source_name", "canonical_name"]).size().rename("overlap_days").reset_index()
     counts = counts[counts["overlap_days"] >= min_overlap]
     best = counts.sort_values(["source_name", "overlap_days"], ascending=[True, False]).drop_duplicates("source_name")
-    return best.reset_index(drop=True)
+
+    # Enforce one-to-one: keep only the best source per canonical_name too, so two different
+    # ind_close_all names never collapse onto the same canonical index downstream.
+    best = best.copy()
+    best["_exact"] = best.apply(
+        lambda r: 0 if _norm_name(r["source_name"]) == _norm_name(r["canonical_name"]) else 1, axis=1
+    )
+    best = best.sort_values(
+        ["canonical_name", "overlap_days", "_exact", "source_name"],
+        ascending=[True, False, True, True],
+    )
+    deduped = best.drop_duplicates("canonical_name", keep="first")
+    dropped = best.drop(deduped.index)
+    for _, row in dropped.iterrows():
+        print(
+            f"WARNING: dropping duplicate mapping source={row['source_name']!r} -> "
+            f"canonical={row['canonical_name']!r} (overlap_days={row['overlap_days']}); "
+            f"canonical already claimed by a source with equal or better overlap"
+        )
+    deduped = deduped.drop(columns="_exact").sort_values("source_name")
+    return deduped[["source_name", "canonical_name", "overlap_days"]].reset_index(drop=True)
 
 
 def main() -> int:

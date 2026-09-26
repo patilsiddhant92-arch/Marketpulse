@@ -35,6 +35,24 @@ def test_derive_name_map_by_matching_closes():
     assert m.loc["Nifty 50", "canonical_name"] == "Nifty 50"
 
 
+def test_derive_name_map_is_one_to_one():
+    dates = pd.to_datetime(["2026-09-2%d" % i for i in range(1, 7)])
+    close_all = pd.DataFrame({
+        "trade_date": list(dates) * 2,
+        "index_name": ["Nifty 50"] * 6 + ["Nifty 50 Futures Index"] * 6,
+        "close_price": [25000 + i for i in range(6)] * 2,
+    })
+    ma = pd.DataFrame({
+        "trade_date": dates,
+        "index_name": ["Nifty 50"] * 6,
+        "close_price": [25000 + i for i in range(6)],
+    })
+    m = derive_name_map(close_all, ma)
+    canon_rows = m[m["canonical_name"] == "Nifty 50"]
+    assert len(canon_rows) == 1
+    assert canon_rows.iloc[0]["source_name"] == "Nifty 50"
+
+
 def test_load_all_prefers_close_all_and_fills_from_ma(tmp_path, monkeypatch):
     daily = tmp_path / "Input" / "daily"
     daily.mkdir(parents=True)
