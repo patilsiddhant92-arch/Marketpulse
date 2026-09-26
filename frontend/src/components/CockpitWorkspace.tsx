@@ -36,7 +36,7 @@ export const CockpitWorkspace: React.FC<Props> = ({
 
   useEffect(() => {
     setLoading(true);
-    fetch(`http://127.0.0.1:8000/api/candidates/cockpit?queue=${queue}`)
+    fetch(`/api/candidates/cockpit?queue=${queue}`)
       .then((res) => res.json())
       .then((data: CockpitResponse) => {
         const list = data.candidates || [];
@@ -238,10 +238,10 @@ export const CockpitWorkspace: React.FC<Props> = ({
                       </a>
                     </td>
                     <td className="py-2 px-3 text-[#98a7ba] font-sans truncate max-w-[130px]">
-                      {c.sector}
+                      {c.sector ?? DASH}
                     </td>
                     <td className="py-2 px-3 text-right font-medium text-[#f1f4f8]">
-                      ₹{num(c.cmp)}
+                      {c.cmp == null ? DASH : `₹${num(c.cmp)}`}
                     </td>
                     <td className={`py-2 px-3 text-right font-semibold ${
                       c.change_1d_pct == null ? 'text-[#94a3b8]' : c.change_1d_pct >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'

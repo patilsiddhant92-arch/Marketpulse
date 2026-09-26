@@ -51,7 +51,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
   useEffect(() => {
     if (!symbol) return;
     setLoading(true);
-    fetch(`http://127.0.0.1:8000/api/stock/${symbol}/chart?limit=180`)
+    fetch(`/api/stock/${symbol}/chart?limit=180`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -67,7 +67,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
 
     // Fetch Peer Comparison
     setPeersLoading(true);
-    fetch(`http://127.0.0.1:8000/api/stock/${symbol}/peers`)
+    fetch(`/api/stock/${symbol}/peers`)
       .then((res) => {
         if (!res.ok) return null;
         return res.json();

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { HelpCircle, Info } from 'lucide-react';
+import { DASH } from './nullable';
 
 export interface BenchmarkGuide {
   title: string;
@@ -139,7 +140,10 @@ export const InfoTooltip: React.FC<{ param: keyof typeof BENCHMARKS; label?: str
   );
 };
 
-export const renderRvolBadge = (rvol: number) => {
+export const renderRvolBadge = (rvol: number | null | undefined) => {
+  if (rvol == null || Number.isNaN(rvol)) {
+    return <span className="font-mono text-xs text-[#5f748d]">{DASH}</span>;
+  }
   if (rvol >= 2.5) {
     return (
       <span
@@ -177,7 +181,10 @@ export const renderRvolBadge = (rvol: number) => {
   );
 };
 
-export const renderDeliveryBadge = (delivPct: number, ratio?: number, spike?: boolean) => {
+export const renderDeliveryBadge = (delivPct: number | null | undefined, ratio?: number, spike?: boolean) => {
+  if (delivPct == null || Number.isNaN(delivPct)) {
+    return <span className="font-mono text-xs text-[#5f748d]">{DASH}</span>;
+  }
   if (spike || (ratio !== undefined && ratio >= 1.5)) {
     return (
       <span
@@ -242,7 +249,10 @@ export const renderTurnoverBadge = (cr: number) => {
   );
 };
 
-export const renderRsBadge = (rs: number) => {
+export const renderRsBadge = (rs: number | null | undefined) => {
+  if (rs == null || Number.isNaN(rs)) {
+    return <span className="font-mono text-xs text-[#5f748d]">{DASH}</span>;
+  }
   if (rs >= 90) {
     return (
       <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#f0be58]/20 text-[#f0be58] border border-[#f0be58]/35" title="Elite Market Leader (Top 10%)">

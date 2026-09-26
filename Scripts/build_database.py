@@ -932,6 +932,25 @@ def build_enrichment(mcap: pd.DataFrame, bands: pd.DataFrame, pe: pd.DataFrame, 
     return enrichment
 
 
+def compute_repeated_client_count(deals: pd.DataFrame) -> pd.Series:
+    """Count of distinct trade dates a client has hit the same symbol/side.
+
+    Keyed by symbol|client_name|side only -- deliberately excluding deal_type.
+    Prints reported in both the bulk and block files get collapsed into a
+    single "Block+Bulk" deal_type (see collapse_cross_listed_prints); if
+    deal_type were part of the repeat key, the same buyer trading "Bulk" on
+    one day and "Block+Bulk" (post-collapse) on another day would be treated
+    as two different clients, silently undercounting repeat_client_count.
+    """
+    key = client_repeat_key(deals)
+    return deals.groupby(key)["trade_date"].transform("nunique")
+
+
+def client_repeat_key(deals: pd.DataFrame) -> pd.Series:
+    """Pure key builder shared by compute_repeated_client_count (and tests)."""
+    return deals["symbol"].astype(str) + "|" + deals["client_name"].astype(str) + "|" + deals["side"].astype(str)
+
+
 def enrich_deals(deals: pd.DataFrame, prices: pd.DataFrame, indicators: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
     if deals.empty:
         return deals
@@ -943,9 +962,7 @@ def enrich_deals(deals: pd.DataFrame, prices: pd.DataFrame, indicators: pd.DataF
     out = out.merge(master[master_cols], on="symbol", how="left")
     out["deal_pct_volume"] = out["quantity"] / out["volume"] * 100
     out["deal_price_vs_close_pct"] = (out["price"] / out["close_price"] - 1) * 100
-    out["client_symbol_key"] = out["deal_type"].astype(str) + "|" + out["symbol"].astype(str) + "|" + out["client_name"].astype(str) + "|" + out["side"].astype(str)
-    out["repeated_client_count"] = out.groupby("client_symbol_key")["trade_date"].transform("nunique")
-    out = out.drop(columns=["client_symbol_key"])
+    out["repeated_client_count"] = compute_repeated_client_count(out)
     return enrich_deals_with_tiers(out)
 
 

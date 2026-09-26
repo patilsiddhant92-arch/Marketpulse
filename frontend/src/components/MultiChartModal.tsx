@@ -108,7 +108,7 @@ const ChartTile: React.FC<TileProps> = ({
     setSymbolInput(symbol);
     if (!symbol) return;
     setLoading(true);
-    fetch(`http://127.0.0.1:8000/api/stock/${symbol}/chart?limit=180`)
+    fetch(`/api/stock/${symbol}/chart?limit=180`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -727,7 +727,7 @@ export const MultiChartModal: React.FC<MultiChartModalProps> = ({
     const target = benchmarkSymbol || selectedSymbols[0] || poolSymbols[0];
     if (!target) return;
     setLoadingPeers(true);
-    fetch(`http://127.0.0.1:8000/api/stock/${target}/peers`)
+    fetch(`/api/stock/${target}/peers`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();

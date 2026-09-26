@@ -202,7 +202,15 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
                       <td className={`py-2 px-3 text-right ${c.stop_loss == null ? 'text-[#94a3b8]' : 'text-[#f43f5e]'}`}>
                         {c.stop_loss == null ? DASH : `₹${num(c.stop_loss)}`}
                       </td>
-                      <td className={`py-2 px-3 text-right font-semibold ${c.risk_pct == null ? 'text-[#94a3b8]' : 'text-[#45d483]'}`}>
+                      <td className={`py-2 px-3 text-right font-semibold ${
+                        c.risk_pct == null
+                          ? 'text-[#94a3b8]'
+                          : c.risk_pct <= 5.0
+                          ? 'text-[#45d483]'
+                          : c.risk_pct > 8.0
+                          ? 'text-[#f43f5e]'
+                          : 'text-[#fda4af]'
+                      }`}>
                         {c.risk_pct == null ? DASH : `${num(c.risk_pct, 1)}%`}
                       </td>
                       <td className={`py-2 px-3 text-right ${c.dist_to_pivot_pct == null ? 'text-[#94a3b8]' : 'text-[#38bdf8]'}`}>
@@ -252,7 +260,17 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
                 </div>
                 <div className="p-2.5 rounded-lg bg-[#101721] border border-[#1f2b3c] flex justify-between">
                   <span className="text-[#98a7ba]">Controlled Trade Risk:</span>
-                  <span className="font-bold text-[#45d483]">{selectedCandidate.risk_pct == null ? DASH : `${num(selectedCandidate.risk_pct)}% (Target 3-5%)`}</span>
+                  <span className={`font-bold ${
+                    selectedCandidate.risk_pct == null
+                      ? 'text-[#94a3b8]'
+                      : selectedCandidate.risk_pct <= 5.0
+                      ? 'text-[#45d483]'
+                      : selectedCandidate.risk_pct > 8.0
+                      ? 'text-[#f43f5e]'
+                      : 'text-[#fda4af]'
+                  }`}>
+                    {selectedCandidate.risk_pct == null ? DASH : `${num(selectedCandidate.risk_pct)}% (Target 3-5%)`}
+                  </span>
                 </div>
               </div>
 

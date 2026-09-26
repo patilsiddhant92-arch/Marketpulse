@@ -14,9 +14,9 @@ export interface ExposureGate {
 }
 
 export interface VixData {
-  current: number;
-  change_1d_pct: number;
-  tone: string;
+  current: number | null;
+  change_1d_pct: number | null;
+  tone: string | null;
 }
 
 export interface MarketTape {

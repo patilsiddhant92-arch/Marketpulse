@@ -38,7 +38,7 @@ export const App: React.FC = () => {
   const [isBreadthDrawerOpen, setIsBreadthDrawerOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/api/market/regime')
+    fetch('/api/market/regime')
       .then((res) => res.json())
       .then((data) => setRegime(data))
       .catch((err) => console.error('Regime error:', err))

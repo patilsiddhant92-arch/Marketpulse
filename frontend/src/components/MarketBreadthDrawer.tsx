@@ -15,7 +15,7 @@ export const MarketBreadthDrawer: React.FC<Props> = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetch('http://127.0.0.1:8000/api/market/breadth/historical?days=180')
+    fetch('/api/market/breadth/historical?days=180')
       .then((res) => res.json())
       .then((data) => {
         setHistory(data.history || []);

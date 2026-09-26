@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from App.api.server import gate_inputs_from, parse_exposure_band, playbook_for_band
+from App.api.server import gate_inputs_from, parse_exposure_band, playbook_for_band, vix_payload
 from App.pages.action_desk import compute_exposure_gate
 
 
@@ -57,6 +57,31 @@ def test_gate_inputs_from_feeds_none_to_risk_off_band():
     )
     assert gate["id"] == "risk_off"
     assert parse_exposure_band(gate["pct"]) == (0.0, 15.0)
+
+
+def test_vix_payload_missing_stays_none_not_zero():
+    """Missing VIX must never render as a fabricated 0.00 'Low Risk' reading."""
+    payload = vix_payload(None, None)
+    assert payload == {"current": None, "change_1d_pct": None, "tone": None}
+
+
+def test_vix_payload_nan_also_stays_none():
+    payload = vix_payload(float("nan"), float("nan"))
+    assert payload["current"] is None
+    assert payload["change_1d_pct"] is None
+    assert payload["tone"] is None
+
+
+def test_vix_payload_low_risk_tone():
+    payload = vix_payload(12.2, -1.5)
+    assert payload["current"] == 12.2
+    assert payload["change_1d_pct"] == -1.5
+    assert payload["tone"] == "Low Risk"
+
+
+def test_vix_payload_moderate_and_high_risk_tone():
+    assert vix_payload(17.0, 0.0)["tone"] == "Moderate"
+    assert vix_payload(25.0, 0.0)["tone"] == "High Risk"
 
 
 @pytest.mark.realdb

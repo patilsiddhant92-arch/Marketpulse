@@ -1,6 +1,7 @@
 import React from 'react';
 import { MarketRegimeResponse } from '../types';
 import { ShieldCheck, Activity, TrendingUp, Layers, Flame, Compass, ChevronRight, BarChart2, Zap } from 'lucide-react';
+import { DASH } from '../utils/nullable';
 
 interface Props {
   regime: MarketRegimeResponse | null;
@@ -37,7 +38,9 @@ export const ExposureGateHeader: React.FC<Props> = ({
       : 'text-[#f27c84] border-[#3a2027] bg-[#3a2027]/60';
 
   const vixTone =
-    vix.current < 15
+    vix.current == null
+      ? 'text-[#94a3b8]'
+      : vix.current < 15
       ? 'text-[#45d483]'
       : vix.current < 20
       ? 'text-[#f0be58]'
@@ -150,10 +153,12 @@ export const ExposureGateHeader: React.FC<Props> = ({
           <div className="flex flex-col">
             <span className="text-[9px] uppercase tracking-wider font-semibold text-[#8898aa]">India VIX</span>
             <div className="flex items-center gap-1 font-mono text-[11px]">
-              <span className={`font-bold ${vixTone}`}>{vix.current.toFixed(2)}</span>
-              <span className={`text-[10px] ${vix.change_1d_pct <= 0 ? 'text-[#45d483]' : 'text-[#f27c84]'}`}>
-                {vix.change_1d_pct >= 0 ? `+${vix.change_1d_pct.toFixed(1)}%` : `${vix.change_1d_pct.toFixed(1)}%`}
-              </span>
+              <span className={`font-bold ${vixTone}`}>{vix.current == null ? DASH : vix.current.toFixed(2)}</span>
+              {vix.change_1d_pct != null && (
+                <span className={`text-[10px] ${vix.change_1d_pct <= 0 ? 'text-[#45d483]' : 'text-[#f27c84]'}`}>
+                  {vix.change_1d_pct >= 0 ? `+${vix.change_1d_pct.toFixed(1)}%` : `${vix.change_1d_pct.toFixed(1)}%`}
+                </span>
+              )}
             </div>
           </div>
         </div>

@@ -300,11 +300,7 @@ def get_market_regime():
             "is_actionable": bool(band_low and band_low > 0),
             **playbook,
         },
-        "vix": {
-            "current": _sanitize_float(vix_val),
-            "change_1d_pct": _sanitize_float(vix_1d_pct),
-            "tone": "Low Risk" if _sanitize_float(vix_val) < 15 else ("Moderate" if _sanitize_float(vix_val) < 20 else "High Risk"),
-        },
+        "vix": vix_payload(vix_val, vix_1d_pct),
         "tape": {
             "total_stocks": stocks_cnt,
             "advancers": adv_cnt,
@@ -359,6 +355,29 @@ def _opt_str(val: Any) -> str | None:
         pass
     s = str(val).strip()
     return s or None
+
+
+def vix_payload(vix_val: Any, vix_1d_pct: Any) -> dict[str, Any]:
+    """Missing VIX stays missing: no fabricated 0.00 "Low Risk" reading.
+
+    current/change_1d_pct are None when the source value is missing/NaN/inf/non-numeric.
+    tone is None whenever current is None; otherwise the existing Low/Moderate/High bands.
+    """
+    current = _opt_float(vix_val)
+    change_1d_pct = _opt_float(vix_1d_pct)
+    if current is None:
+        tone = None
+    elif current < 15:
+        tone = "Low Risk"
+    elif current < 20:
+        tone = "Moderate"
+    else:
+        tone = "High Risk"
+    return {
+        "current": current,
+        "change_1d_pct": change_1d_pct,
+        "tone": tone,
+    }
 
 
 def cockpit_row(row: Mapping[str, Any], queue: str) -> dict[str, Any] | None:
