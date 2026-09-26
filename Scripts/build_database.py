@@ -392,6 +392,18 @@ def _iter_deal_paths(folder: Path, kind: str) -> list[Path]:
     return sorted(found.values(), key=_deal_file_sort_key)
 
 
+PRINT_KEY = ["trade_date", "symbol", "client_name", "side", "quantity", "price"]
+
+
+def collapse_cross_listed_prints(deals: pd.DataFrame) -> pd.DataFrame:
+    """A block deal above 0.5% of equity also appears in the bulk file; keep one row per print."""
+    if deals.empty:
+        return deals
+    types = deals.groupby(PRINT_KEY, dropna=False)["deal_type"].transform(lambda s: "+".join(sorted(set(s.astype(str)))))
+    out = deals.assign(deal_type=types)
+    return out.drop_duplicates(PRINT_KEY, keep="last").reset_index(drop=True)
+
+
 def read_all_deals() -> pd.DataFrame:
     """Load bulk/block from archive, daily, and downloads/DDMMYYYY/ (dated sessions)."""
     from config import INPUT_DIR
@@ -422,6 +434,7 @@ def read_all_deals() -> pd.DataFrame:
         ["deal_type", "trade_date", "symbol", "client_name", "side", "quantity", "price"],
         keep="last",
     )
+    deals = collapse_cross_listed_prints(deals)
     deals["deal_value_cr"] = deals["quantity"] * deals["price"] / 10_000_000
     return deals.sort_values(["trade_date", "deal_type", "symbol", "side", "client_name"]).reset_index(drop=True)
 
