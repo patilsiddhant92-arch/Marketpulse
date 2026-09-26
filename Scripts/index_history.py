@@ -367,6 +367,15 @@ def _load_ind_close_all_files(paths: list[Path]) -> list[pd.DataFrame]:
             for required in ("Index Date", "Index Name"):
                 if required not in raw.columns:
                     raise KeyError(required)
+            # Filename-authoritative date must itself be a real calendar date -- an
+            # impossible one (e.g. ind_close_all_31022026.csv) would blow up the
+            # filename_date Timestamp construction inside the batched parse below and,
+            # unguarded, take down the fast path for every file in the batch just to
+            # skip this one row source.
+            name_match = _IND_CLOSE_ALL_RE.search(p.name)
+            if name_match:
+                dd, mm, yyyy = name_match.groups()
+                pd.Timestamp(year=int(yyyy), month=int(mm), day=int(dd))
         except Exception as exc:
             emit(i, f"Skipped {p.name}: {exc}")
             continue
@@ -378,7 +387,8 @@ def _load_ind_close_all_files(paths: list[Path]) -> list[pd.DataFrame]:
     if raws:
         try:
             frames = [_ind_close_all_frames_to_rows(ok_paths, raws, lambda j, message: emit(ok_order[j], message))]
-        except Exception:
+        except Exception as exc:
+            print(f"index_history: batched parse failed ({exc}); falling back to per-file parsing")
             # Heterogeneous files (e.g. duplicate headers) that can't be batched: fall back
             # to the original one-file-at-a-time parse.
             messages[:] = [m for m in messages if m[2].startswith("Skipped ")]

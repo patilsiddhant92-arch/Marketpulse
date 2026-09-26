@@ -1,14 +1,20 @@
 """Characterization + memo tests for the batched/memoised index-history loader.
 
-``_reference_load`` below is a verbatim port of the pre-optimisation algorithm (per-file
-``parse_ind_close_all`` + per-file ``parse_market_activity``, tuple-set MA filter); the
-optimised ``load_all_index_history`` must reproduce it exactly, dtypes included.
+``_reference_load`` below drives ``_old_parse_ind_close_all`` / ``_old_parse_market_activity``
+-- verbatim copies of the pre-optimisation (commit 51736b5) per-file parse functions, wired
+through the pre-optimisation per-file loop + tuple-set MA filter algorithm. The optimised
+``load_all_index_history`` (batched parse + memoisation) must reproduce that old behaviour
+exactly, dtypes included. Comparing against the *current* ``parse_ind_close_all`` /
+``parse_market_activity`` would only pin the new implementation against itself, since both
+of those were rewritten as part of the same optimisation.
 """
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -28,6 +34,85 @@ HEADER = (
 )
 
 
+def _old_parse_market_activity(path: Path, trade_date) -> pd.DataFrame:
+    """Verbatim body of ``parse_market_activity`` from commit 51736b5 (pre-optimisation)."""
+    rows = []
+    with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        reader = csv.reader(handle)
+        for raw in reader:
+            values = [str(value).strip() for value in raw]
+            if len(values) < 8 or values[1].strip().upper() in {"INDEX", ""}:
+                continue
+            previous, opening, high, low, close, change = (index_history._number(value) for value in values[2:8])
+            if not values[1] or any(value is None for value in (previous, opening, high, low, close, change)):
+                continue
+            rows.append(
+                {
+                    "trade_date": pd.Timestamp(trade_date).normalize(),
+                    "index_name": values[1],
+                    "previous_close": previous,
+                    "open_price": opening,
+                    "high_price": high,
+                    "low_price": low,
+                    "close_price": close,
+                    "change_value": change,
+                    "return_1d_pct": round((close / previous - 1.0) * 100, 10) if previous else None,
+                }
+            )
+    return pd.DataFrame(rows, columns=INDEX_COLUMNS)
+
+
+def _old_parse_ind_close_all(path: Path) -> pd.DataFrame:
+    """Verbatim body of ``parse_ind_close_all`` from commit 51736b5 (pre-optimisation)."""
+    raw = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
+    raw.columns = [str(c).strip() for c in raw.columns]
+
+    def num(col):
+        if col not in raw.columns:
+            return pd.Series(np.nan, index=raw.index, dtype="float64")
+        return pd.to_numeric(raw[col].astype(str).str.replace(",", "").str.strip().replace({"-": None}), errors="coerce")
+
+    trade_date = pd.to_datetime(raw["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce")
+
+    name_match = index_history._IND_CLOSE_ALL_RE.search(Path(path).name)
+    if name_match:
+        dd, mm, yyyy = name_match.groups()
+        filename_date = pd.Timestamp(year=int(yyyy), month=int(mm), day=int(dd))
+        parsed_dates = trade_date.dropna().unique()
+        if len(parsed_dates) and pd.Timestamp(parsed_dates[0]) != filename_date:
+            # NSE occasionally writes "Index Date" as MM-DD-YYYY instead of this file's
+            # usual DD-MM-YYYY (all three known cases are April 2023). The filename date
+            # is authoritative -- trusting the column would misdate every row and, worse,
+            # can silently collide with (and overwrite) a genuinely different session.
+            print(
+                f"WARNING: {Path(path).name} Index Date parsed as "
+                f"{pd.Timestamp(parsed_dates[0]).date().isoformat()} but the filename implies "
+                f"{filename_date.date().isoformat()}; using the filename date for all rows"
+            )
+            trade_date = pd.Series(filename_date, index=raw.index)
+
+    out = pd.DataFrame({
+        "trade_date": trade_date,
+        "index_name": raw["Index Name"].astype(str).str.strip(),
+        "open_price": num("Open Index Value"),
+        "high_price": num("High Index Value"),
+        "low_price": num("Low Index Value"),
+        "close_price": num("Closing Index Value"),
+        "change_value": num("Points Change"),
+        "return_1d_pct": num("Change(%)"),
+        "volume": num("Volume"),
+        "turnover_cr": num("Turnover (Rs. Cr.)"),
+        "pe": num("P/E"),
+        "pb": num("P/B"),
+        "div_yield": num("Div Yield"),
+    })
+    out["previous_close"] = out["close_price"] - out["change_value"]
+    out = out.dropna(subset=["trade_date", "close_price"])
+    if out.empty:
+        print(f"WARNING: {Path(path).name} yielded 0 rows")
+    return out[INDEX_COLUMNS + EXTRA_INDEX_COLUMNS]
+
+
 def _reference_load(root: Path, name_map_path: Path | None = None) -> pd.DataFrame:
     root = Path(root)
     name_map_path = name_map_path or (root / "Input" / "reference" / "index_name_map.csv")
@@ -37,7 +122,7 @@ def _reference_load(root: Path, name_map_path: Path | None = None) -> pd.DataFra
         if folder.exists():
             for p in sorted(folder.glob("ind_close_all_*.csv")):
                 try:
-                    frames.append(parse_ind_close_all(p))
+                    frames.append(_old_parse_ind_close_all(p))
                 except Exception as exc:
                     print(f"Skipped {p.name}: {exc}")
     ma_paths = []
@@ -49,7 +134,7 @@ def _reference_load(root: Path, name_map_path: Path | None = None) -> pd.DataFra
         day = index_history._parse_ma_date(Path(path))
         if day is None:
             continue
-        frame = parse_market_activity(path, day)
+        frame = _old_parse_market_activity(path, day)
         if not frame.empty:
             ma_frames.append(frame)
     ma = (
@@ -142,6 +227,36 @@ def test_load_all_matches_reference_algorithm(tmp_path, capsys):
     assert "ind_close_all_21092026.csv yielded 0 rows" in actual_out
 
 
+def test_impossible_filename_date_is_skipped_without_losing_the_batched_path(tmp_path, monkeypatch, capsys):
+    """A single unparseable-date filename must not force the slow per-file fallback for
+    every file in the batch -- it should be validated and skipped up front instead."""
+    _write_tree(tmp_path)
+    backfill = tmp_path / "Input" / "archive" / "backfill" / "index"
+    (backfill / "ind_close_all_31022026.csv").write_text(
+        HEADER + "Nifty 50,28-02-2026,25000.00,25100.00,24900.00,25050.00,50.00,0.20,1,1,1,1,1\n"
+    )
+
+    batch_sizes: list[int] = []
+    original = index_history._ind_close_all_frames_to_rows
+
+    def spy(paths, raws, emit):
+        batch_sizes.append(len(paths))
+        return original(paths, raws, emit)
+
+    monkeypatch.setattr(index_history, "_ind_close_all_frames_to_rows", spy)
+    actual = load_all_index_history(tmp_path)
+    out = capsys.readouterr().out
+
+    # One batched call covering every valid file; the per-file fallback loop (which would
+    # call this once per file, i.e. len(paths) == 1 repeatedly) never runs.
+    assert len(batch_sizes) == 1
+    assert batch_sizes[0] > 1
+    assert "index_history: batched parse failed" not in out
+    assert "Skipped ind_close_all_31022026.csv" in out
+
+    pd.testing.assert_frame_equal(actual, _reference_load(tmp_path))
+
+
 def test_repeated_calls_hit_memo_and_return_independent_copies(tmp_path, monkeypatch):
     _write_tree(tmp_path)
     first = load_all_index_history(tmp_path)
@@ -186,6 +301,29 @@ def test_memo_invalidates_when_name_map_changes(tmp_path):
     pd.testing.assert_frame_equal(after, _reference_load(tmp_path))
 
 
+def test_memo_invalidates_when_an_ma_file_changes(tmp_path):
+    """The memo's file-set signature must cover MA files too, not just ind_close_all/name map."""
+    _write_tree(tmp_path)
+    before = load_all_index_history(tmp_path)
+
+    downloads = tmp_path / "Input" / "downloads" / "25092026"
+    new_ma = downloads / "MA_extra.csv"
+    new_ma.write_text(
+        ",25-Sep-2026\n,INDEX,PREVIOUS CLOSE,OPEN,HIGH,LOW,CLOSE,GAIN/LOSS\n,Nifty Bank,100,101,102,99,105,5\n"
+    )
+    after_add = load_all_index_history(tmp_path)
+    assert len(after_add) == len(before) + 1
+    pd.testing.assert_frame_equal(after_add, _reference_load(tmp_path))
+
+    new_ma.write_text(
+        ",25-Sep-2026\n,INDEX,PREVIOUS CLOSE,OPEN,HIGH,LOW,CLOSE,GAIN/LOSS\n,Nifty Bank,100,101,102,99,205,105\n"
+    )
+    after_modify = load_all_index_history(tmp_path)
+    modified = after_modify.set_index(["trade_date", "index_name"])
+    assert modified.loc[(pd.Timestamp("2026-09-25"), "Nifty Bank"), "close_price"] == 205.0
+    pd.testing.assert_frame_equal(after_modify, _reference_load(tmp_path))
+
+
 def test_scandir_listing_matches_pathlib_glob(tmp_path):
     _write_tree(tmp_path)
     (tmp_path / "Input" / "daily" / "IND_CLOSE_ALL_27092026.CSV").write_text(HEADER)  # case-insensitive like glob on Windows
@@ -217,23 +355,11 @@ def test_ma_line_prefilter_matches_full_csv_parse(tmp_path):
     plain.write_text(body, newline="")
     quoted = tmp_path / "MA240926.csv"
     quoted.write_text(body + '\r\n,"Quoted, Name",1,1,1,1,2,1\r\n', newline="")
-    import csv
 
-    def reference(path):
-        rows = []
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
-            for raw in csv.reader(handle):
-                values = [str(v).strip() for v in raw]
-                if len(values) < 8 or values[1].upper() in {"INDEX", ""}:
-                    continue
-                nums = [index_history._number(v) for v in values[2:8]]
-                if any(v is None for v in nums):
-                    continue
-                rows.append(values[1])
-        return rows
-
+    trade_date = pd.Timestamp("2026-09-25")
     for path in (plain, quoted):
-        frame = parse_market_activity(path, pd.Timestamp("2026-09-25"))
-        assert frame["index_name"].tolist() == reference(path)
-    assert "Split B" in parse_market_activity(plain, pd.Timestamp("2026-09-25"))["index_name"].tolist()
-    assert "Quoted, Name" in parse_market_activity(quoted, pd.Timestamp("2026-09-25"))["index_name"].tolist()
+        actual = parse_market_activity(path, trade_date)
+        expected = _old_parse_market_activity(path, trade_date)
+        pd.testing.assert_frame_equal(actual, expected)
+    assert "Split B" in parse_market_activity(plain, trade_date)["index_name"].tolist()
+    assert "Quoted, Name" in parse_market_activity(quoted, trade_date)["index_name"].tolist()
