@@ -151,7 +151,7 @@ def read_sector() -> pd.DataFrame:
     return df.drop_duplicates("symbol", keep="last")
 
 
-def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
+def read_bhavcopy(path: Path, universe: set[str] | None = None) -> pd.DataFrame:
     df = pd.read_csv(path, dtype=str, skipinitialspace=True)
     df = clean_columns(df)
     rename = {
@@ -187,7 +187,11 @@ def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
     df = df[[col for col in needed if col in df.columns]].copy()
     df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
     df["series"] = df["series"].astype(str).str.strip().str.upper()
-    df = df[df["symbol"].isin(universe)]
+    if universe is None:
+        from universe import SERIES_WHITELIST
+        df = df[df["series"].isin(SERIES_WHITELIST)]
+    else:
+        df = df[df["symbol"].isin(universe)]
     df["trade_date"] = pd.to_datetime(df["trade_date"].astype(str).str.strip(), format="%d-%b-%Y", errors="coerce")
     for col in ["prev_close", "open_price", "high_price", "low_price", "last_price", "close_price", "avg_price", "volume", "turnover_lacs", "trades", "delivery_qty", "delivery_pct"]:
         if col in df.columns:
@@ -198,10 +202,11 @@ def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
     return df.drop(columns=["series_priority"], errors="ignore")
 
 
-def build_prices(universe: set[str]) -> pd.DataFrame:
+def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
     # Include downloads/ so a session that never made it to archive/daily is still rebuilt.
     downloads = INPUT_DIR / "downloads"
     files = set(ARCHIVE_DIR.glob("sec_bhavdata_full_*.csv")) | set(DAILY_DIR.glob("sec_bhavdata_full_*.csv"))
+    files |= set((ARCHIVE_DIR / "backfill" / "bhav").glob("sec_bhavdata_full_*.csv"))
     if downloads.exists():
         files |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
     files = sorted(files)
@@ -218,6 +223,12 @@ def build_prices(universe: set[str]) -> pd.DataFrame:
     prices = pd.concat(frames, ignore_index=True)
     prices = prices.dropna(subset=["symbol", "trade_date", "close_price"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+    if universe is None:
+        changes_path = INPUT_DIR / "reference" / "symbolchange.csv"
+        if changes_path.exists():
+            from symbol_changes import parse_symbol_changes, resolve_current_symbol
+            from universe import apply_symbol_changes
+            prices = apply_symbol_changes(prices, resolve_current_symbol(parse_symbol_changes(changes_path)))
     return prices
 
 
