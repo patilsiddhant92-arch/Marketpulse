@@ -62,6 +62,21 @@ def _load_table(name: str) -> pd.DataFrame:
         return con.execute(f"SELECT * FROM {name}").fetchdf()
 
 
+def _load_extra_actions() -> pd.DataFrame | None:
+    """Corporate actions from the live DB, re-parsed for `adjust_prices`' `extra_actions` param.
+
+    Returns `None` (which `adjust_prices` treats as "no extra actions") when the table isn't
+    available yet -- e.g. a database that predates the `corporate_actions` table, or one that
+    simply has no rows in it yet -- printing a warning with the underlying exception rather
+    than failing the whole append.
+    """
+    try:
+        return actions_from_corporate_actions_table(_load_table("corporate_actions"))
+    except Exception as exc:
+        print(f"Warning: corporate_actions table unavailable ({exc}); no extra actions fed to adjust_prices.")
+        return None
+
+
 def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataFrame:
     """Any bhavcopy in daily, archive, or downloads newer than DB max is appended."""
     from config import ARCHIVE_DIR, INPUT_DIR
@@ -156,11 +171,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
     prices = drop_stale_adjustment_columns(prices)
 
-    try:
-        extra_actions = actions_from_corporate_actions_table(_load_table("corporate_actions"))
-    except Exception as exc:
-        print(f"Warning: corporate_actions table unavailable ({exc}); no extra actions fed to adjust_prices.")
-        extra_actions = None
+    extra_actions = _load_extra_actions()
     prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
     print(summarize_adjustments(price_adjustments))
 

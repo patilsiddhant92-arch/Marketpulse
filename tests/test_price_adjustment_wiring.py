@@ -49,3 +49,20 @@ def test_drop_stale_adjustment_columns_removes_adj_and_price_factor():
     assert "adj_close_price" in df.columns
     untouched = drop_stale_adjustment_columns(out)
     assert list(untouched.columns) == list(out.columns)
+
+
+def test_load_extra_actions_warns_and_returns_none_when_corporate_actions_missing(monkeypatch, capsys):
+    import append_database as ad
+
+    def boom(name):
+        raise RuntimeError("no such table: corporate_actions")
+
+    monkeypatch.setattr(ad, "_load_table", boom)
+
+    result = ad._load_extra_actions()
+
+    assert result is None
+    captured = capsys.readouterr()
+    assert "Warning" in captured.out
+    assert "corporate_actions" in captured.out
+    assert "no such table: corporate_actions" in captured.out
