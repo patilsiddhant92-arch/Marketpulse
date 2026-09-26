@@ -1,8 +1,13 @@
 """Split / bonus / consolidation price adjustment from official NSE data."""
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
 
 ADJUSTING_KINDS = frozenset({"split", "bonus", "consolidation"})
 
@@ -72,3 +77,91 @@ def parse_purpose(purpose: str) -> ParsedAction:
         return ParsedAction("other", None)
 
     return ParsedAction("other", None)
+
+
+ACTION_COLUMNS = ["symbol", "ex_date", "kind", "factor", "description", "source"]
+_BC_MEMBER = re.compile(r"(?i)^bc\d{6,8}\.csv$")
+_ACTION_SERIES = {"EQ", "BE", "BZ", "SM", "ST"}
+
+
+def _parse_date(value) -> pd.Timestamp:
+    text = str(value or "").strip()
+    if not text:
+        return pd.NaT
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y", "%d-%m-%Y"):
+        ts = pd.to_datetime(text, format=fmt, errors="coerce")
+        if not pd.isna(ts):
+            return ts.normalize()
+    return pd.NaT
+
+
+def read_bc_member(zf: zipfile.ZipFile) -> pd.DataFrame:
+    names = [n for n in zf.namelist() if _BC_MEMBER.match(Path(n).name)]
+    if not names:
+        return pd.DataFrame()
+    text = zf.read(names[0]).decode("utf-8-sig", errors="replace")
+    if not text.strip():
+        return pd.DataFrame()
+    return pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False)
+
+
+def _action_rows(symbols, ex_dates, purposes, source: str) -> pd.DataFrame:
+    rows = []
+    for sym, ex, purpose in zip(symbols, ex_dates, purposes):
+        if not sym or pd.isna(ex):
+            continue
+        parsed = parse_purpose(purpose)
+        rows.append({"symbol": sym, "ex_date": ex, "kind": parsed.kind, "factor": parsed.factor,
+                     "description": str(purpose).strip(), "source": source})
+    return pd.DataFrame(rows, columns=ACTION_COLUMNS)
+
+
+def _first_date(row: dict, keys: tuple[str, ...]) -> pd.Timestamp:
+    """Return the first parseable date among `keys` in `row`, else NaT."""
+    for key in keys:
+        parsed = _parse_date(row.get(key))
+        if not pd.isna(parsed):
+            return parsed
+    return pd.NaT
+
+
+def actions_from_bc_frame(raw: pd.DataFrame) -> pd.DataFrame:
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=ACTION_COLUMNS)
+    df = raw.rename(columns=lambda c: str(c).strip().upper())
+    df = df[df.get("SERIES", pd.Series("", index=df.index)).astype(str).str.strip().str.upper().isin(_ACTION_SERIES)]
+    ex = [_first_date(r, ("EX_DT", "RECORD_DT", "BC_STRT_DT")) for r in df.to_dict("records")]
+    syms = df["SYMBOL"].astype(str).str.strip().str.upper().tolist()
+    return _action_rows(syms, ex, df["PURPOSE"].tolist(), "bc")
+
+
+def collect_bc_actions(zip_paths: list[Path]) -> pd.DataFrame:
+    frames = []
+    for p in zip_paths:
+        try:
+            with zipfile.ZipFile(p) as zf:
+                frames.append(actions_from_bc_frame(read_bc_member(zf)))
+        except (zipfile.BadZipFile, OSError, pd.errors.ParserError) as exc:
+            print(f"Skipped {Path(p).name}: {exc}")
+    if not frames:
+        return pd.DataFrame(columns=ACTION_COLUMNS)
+    out = pd.concat(frames, ignore_index=True)
+    return out.drop_duplicates(["symbol", "ex_date", "description"]).reset_index(drop=True)
+
+
+def actions_from_corporate_actions_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=ACTION_COLUMNS)
+    ex = pd.to_datetime(df["ex_date"], errors="coerce").dt.normalize()
+    syms = df["symbol"].astype(str).str.strip().str.upper().tolist()
+    return _action_rows(syms, ex.tolist(), df["description"].fillna("").tolist(), "bc")
+
+
+def find_pr_zips(root: Path) -> list[Path]:
+    root = Path(root)
+    found = set((root / "Input" / "archive").glob("PR*.zip"))
+    found |= set((root / "Input" / "archive" / "backfill" / "pr").glob("PR*.zip"))
+    downloads = root / "Input" / "downloads"
+    if downloads.exists():
+        found |= set(downloads.rglob("PR*.zip"))
+    return sorted(found)

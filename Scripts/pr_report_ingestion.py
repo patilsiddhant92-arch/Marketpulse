@@ -19,6 +19,14 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - package import path
     from Scripts.migrations import run_migrations
 
+try:
+    from price_adjustment import parse_purpose
+except ModuleNotFoundError:  # pragma: no cover - package import path
+    from Scripts.price_adjustment import parse_purpose
+
+
+_ACTION_TYPE_OVERRIDES = {"rights": "rights_issue", "demerger": "merger_demerger"}
+
 
 EVENT_CATEGORY_MAP = {
     "financial result": "financial_results",
@@ -44,8 +52,13 @@ class PRReportBundle:
     top_value: pd.DataFrame
 
 
-def _read_member(archive: ZipFile, suffix: str) -> str:
-    names = [name for name in archive.namelist() if name.lower().endswith(suffix.lower())]
+def _read_member_any(archive: ZipFile, prefix: str, trade_date: date, ext: str) -> str:
+    """Read a member named `<prefix><ddmmyyyy|ddmmyy>.<ext>`, case-insensitively."""
+    candidates = {
+        f"{prefix}{trade_date.strftime('%d%m%Y')}.{ext}".lower(),
+        f"{prefix}{trade_date.strftime('%d%m%y')}.{ext}".lower(),
+    }
+    names = [name for name in archive.namelist() if Path(name).name.lower() in candidates]
     if not names:
         return ""
     return archive.read(names[0]).decode("utf-8-sig", errors="replace")
@@ -148,15 +161,13 @@ def _parse_corporate_actions(text: str) -> pd.DataFrame:
             continue
         symbol = _symbol(row.get("SYMBOL"))
         purpose = str(row.get("PURPOSE") or "").strip()
-        text_lower = purpose.lower()
-        action_type = "other"
-        for needle, normalized in (("dividend", "dividend"), ("bonus", "bonus"), ("split", "split"), ("rights", "rights_issue"), ("merger", "merger_demerger"), ("demerger", "merger_demerger")):
-            if needle in text_lower:
-                action_type = normalized
-                break
+        parsed = parse_purpose(purpose)
+        action_type = _ACTION_TYPE_OVERRIDES.get(parsed.kind, parsed.kind)
+        ratio_from = 1.0
+        ratio_to = 1.0 / parsed.factor if parsed.factor else 1.0
         ex_date = _date(row.get("EX_DT")) or _date(row.get("RECORD_DT")) or _date(row.get("BC_STRT_DT"))
         if symbol and ex_date:
-            rows.append({"symbol": symbol, "ex_date": ex_date, "action_type": action_type, "ratio_from": 1.0, "ratio_to": 1.0, "cash_amount": None, "description": purpose})
+            rows.append({"symbol": symbol, "ex_date": ex_date, "action_type": action_type, "ratio_from": ratio_from, "ratio_to": ratio_to, "cash_amount": None, "description": purpose})
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -198,15 +209,15 @@ def parse_pr_zip(path: Path, trade_date: date) -> PRReportBundle:
     path = Path(path)
     with ZipFile(path) as archive:
         events = pd.concat(
-            [normalize_announcement(_read_member(archive, "an" + trade_date.strftime("%d%m%Y") + ".txt"), trade_date), _parse_board_meetings(_read_member(archive, "bm" + trade_date.strftime("%d%m%Y") + ".txt"), trade_date)],
+            [normalize_announcement(_read_member_any(archive, "an", trade_date, "txt"), trade_date), _parse_board_meetings(_read_member_any(archive, "bm", trade_date, "txt"), trade_date)],
             ignore_index=True,
         )
         return PRReportBundle(
             trade_date=trade_date,
             events=events,
-            corporate_actions=_parse_corporate_actions(_read_member(archive, "bc" + trade_date.strftime("%d%m%Y") + ".csv")),
-            risk_daily=pd.concat([_parse_risk_daily(_read_member(archive, "bh" + trade_date.strftime("%d%m%Y") + ".csv"), trade_date), _parse_risk_daily(_read_member(archive, "hl" + trade_date.strftime("%d%m%Y") + ".csv"), trade_date)], ignore_index=True),
-            top_value=_parse_top_value(_read_member(archive, "tt" + trade_date.strftime("%d%m%Y") + ".csv"), trade_date),
+            corporate_actions=_parse_corporate_actions(_read_member_any(archive, "bc", trade_date, "csv")),
+            risk_daily=pd.concat([_parse_risk_daily(_read_member_any(archive, "bh", trade_date, "csv"), trade_date), _parse_risk_daily(_read_member_any(archive, "hl", trade_date, "csv"), trade_date)], ignore_index=True),
+            top_value=_parse_top_value(_read_member_any(archive, "tt", trade_date, "csv"), trade_date),
         )
 
 
