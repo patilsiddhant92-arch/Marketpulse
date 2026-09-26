@@ -11,6 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import duckdb
 import pandas as pd
@@ -33,6 +34,7 @@ from build_database import (
     read_sector,
     write_database,
 )
+from index_history import build_index_features, load_all_market_activity_history
 from sector_metrics import compute_sector_metrics
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
 from reference_history import load_reference_history
@@ -74,6 +76,24 @@ def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataF
         return pd.DataFrame()
     out = pd.concat(frames, ignore_index=True)
     return out.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+
+
+def load_index_for_metrics(root_dir: Path, table_loader: Callable[[str], pd.DataFrame]) -> pd.DataFrame:
+    """Index features for sector metrics, including the session being appended.
+
+    The stored index_daily is rewritten from MA files only inside write_database, i.e. after
+    sector metrics are computed, so it lacks the newest session.
+    """
+    try:
+        raw = load_all_market_activity_history(root_dir)
+        if raw is not None and not raw.empty:
+            return build_index_features(raw)
+    except Exception as exc:
+        print(f"Warning: MA-based index features unavailable ({exc}); using stored index_daily")
+    try:
+        return table_loader("index_daily")
+    except Exception:
+        return pd.DataFrame()
 
 
 def append_session(*, force_full: bool = False, notify_telegram: bool = True) -> AppendResult:
@@ -153,10 +173,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
             reference_for_metrics = _load_table("security_reference_daily")
         except Exception:
             reference_for_metrics = pd.DataFrame()
-    try:
-        index_for_metrics = _load_table("index_daily")
-    except Exception:
-        index_for_metrics = pd.DataFrame()
+    index_for_metrics = load_index_for_metrics(ROOT_DIR, _load_table)
     sector_metrics_daily = compute_sector_metrics(indicators, master, reference_for_metrics, index_for_metrics, deals)
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
 
