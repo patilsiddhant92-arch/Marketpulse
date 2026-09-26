@@ -24,61 +24,110 @@ _SPLIT_RE = re.compile(r"SPLIT|SPLT|SUB\s*-?\s*DIVISION")
 _DIV_RE = re.compile(r"\bDIV(IDEND)?\b|\bDIV\s*-")
 
 
+# RS/RE-less face-value forms, only searched *after* a SPLIT/CONSOLIDATION keyword:
+# "FVSPLIT10TO2", "FV SPLIT 10 TO 2", "SPLIT FROM 10 TO 1" (either side may still carry RS/RE).
+_FV_BARE_RE = re.compile(rf"(?:R[SE]\.?\s*)?{_NUM}\s*(?:/-)?\s*TO\s*(?:R[SE]\.?\s*)?{_NUM}")
+_CONSOLIDATION_RE = re.compile(r"CONSOLIDAT")
+# Indian face values are at most Rs 1000; anything larger in a bare "X TO Y" is not a face value
+# (e.g. the "2021 TO 05" inside a "01/08/2021 TO 05/08/2021" date range).
+_MAX_FACE_VALUE = 1000.0
+
+
 @dataclass(frozen=True)
 class ParsedAction:
     kind: str
     factor: float | None
 
 
-def parse_purpose(purpose: str) -> ParsedAction:
-    text = re.sub(r"\s+", " ", str(purpose or "").upper()).strip()
-    if not text:
-        return ParsedAction("other", None)
+def _normalize_purpose(purpose) -> str:
+    return re.sub(r"\s+", " ", str(purpose or "").upper()).strip()
 
-    # Check for pref_bonus first (takes precedence even if BONUS pattern matches)
-    if "BONUS" in text and ("NCRPS" in text or "PREF" in text or "DEBENTURE" in text):
-        return ParsedAction("pref_bonus", None)
 
-    # Try to parse adjusting actions (bonus, split, consolidation)
-    # These should be checked before non-adjusting (rights, demerger, div)
-    # so that combined purposes like "BONUS 1:1 AND RIGHTS" return the bonus
+def _is_pref_bonus(text: str) -> bool:
+    return "BONUS" in text and ("NCRPS" in text or "PREF" in text or "DEBENTURE" in text)
 
-    # Try bonus first
-    has_bonus = "BONUS" in text
-    if has_bonus:
-        m = _BONUS_RE.search(text)
-        if m:
+
+def _fv_action(text: str, start: int) -> ParsedAction | None:
+    """The face-value change after position `start` (a SPLIT/CONSOLIDATION keyword), else None.
+
+    Tries the strict "RS x ... TO RS y" form after the keyword, then the RS-less form after the
+    keyword (plausible face values only), then -- for backward compatibility -- the strict form
+    anywhere in the text.
+    """
+    def _valid(old: float, new: float) -> ParsedAction | None:
+        if old > 0 and new > 0 and old != new:
+            return ParsedAction("consolidation" if new > old else "split", new / old)
+        return None
+
+    tail = text[start:]
+    m = _FV_RE.search(tail)
+    if m and (act := _valid(float(m.group(1)), float(m.group(2)))):
+        return act
+    for m in _FV_BARE_RE.finditer(tail):
+        old, new = float(m.group(1)), float(m.group(2))
+        if old <= _MAX_FACE_VALUE and new <= _MAX_FACE_VALUE and (act := _valid(old, new)):
+            return act
+    m = _FV_RE.search(text)
+    if m and (act := _valid(float(m.group(1)), float(m.group(2)))):
+        return act
+    return None
+
+
+def _adjusting_actions(text: str) -> list[ParsedAction]:
+    """Every adjusting action (bonus a:b; split/consolidation x->y) in `text`, in text order."""
+    found: list[tuple[int, ParsedAction]] = []
+    if "BONUS" in text:
+        for m in _BONUS_RE.finditer(text):
             a, b = float(m.group(1)), float(m.group(2))
             if a > 0 and b > 0:
-                return ParsedAction("bonus", b / (a + b))
-        # BONUS text exists but no valid pattern; continue to check non-adjusting keywords
-        # only return "other" if no other keywords match
+                found.append((m.start(), ParsedAction("bonus", b / (a + b))))
+    keyword_pos = [m.start() for m in (_SPLIT_RE.search(text), _CONSOLIDATION_RE.search(text)) if m]
+    if keyword_pos:
+        start = min(keyword_pos)
+        act = _fv_action(text, start)
+        if act is not None:
+            found.append((start, act))
+    found.sort(key=lambda t: t[0])
+    return [act for _, act in found]
 
-    # Try split/consolidation
-    is_split = _SPLIT_RE.search(text) is not None
-    is_consolidation = "CONSOLIDAT" in text
-    has_adjusting_keyword = has_bonus or is_split or is_consolidation
-    if is_split or is_consolidation:
-        m = _FV_RE.search(text)
-        if m:
-            old, new = float(m.group(1)), float(m.group(2))
-            if old > 0 and new > 0 and old != new:
-                return ParsedAction("consolidation" if new > old else "split", new / old)
-        # SPLIT/CONSOLIDATION text exists but no valid pattern; continue to check non-adjusting keywords
 
-    # Fall back to non-adjusting keywords
+def _non_adjusting_kind(text: str) -> ParsedAction:
     if "RIGHTS" in text:
         return ParsedAction("rights", None)
     if "DEMERGER" in text or "DE-MERGER" in text:
         return ParsedAction("demerger", None)
     if _DIV_RE.search(text):
         return ParsedAction("dividend", None)
-
-    # If we had adjusting keywords (BONUS/SPLIT/CONSOLIDATION) but no valid ratio and no other keywords, return "other"
-    if has_adjusting_keyword:
-        return ParsedAction("other", None)
-
+    # Includes BONUS/SPLIT/CONSOLIDATION text without a parseable ratio: never guessed.
     return ParsedAction("other", None)
+
+
+def parse_purpose_all(purpose: str) -> list[ParsedAction]:
+    """Every adjusting action in an NSE purpose text, in text order.
+
+    `BONUS2:1/FVSPLIT10TO2` -> [bonus 1/3, split 0.2]. When the text holds no adjusting action,
+    a single-element list with the non-adjusting classification (pref_bonus / rights / demerger /
+    dividend / other) is returned, so the result is never empty.
+    """
+    text = _normalize_purpose(purpose)
+    if not text:
+        return [ParsedAction("other", None)]
+    # pref_bonus takes precedence even if a BONUS ratio matches (it's not an equity bonus).
+    if _is_pref_bonus(text):
+        return [ParsedAction("pref_bonus", None)]
+    actions = _adjusting_actions(text)
+    return actions if actions else [_non_adjusting_kind(text)]
+
+
+def parse_purpose(purpose: str) -> ParsedAction:
+    """Single-action classification of an NSE purpose text.
+
+    Adjusting actions win over non-adjusting keywords ("BONUS 1:1 AND RIGHTS" is a bonus). When
+    a text holds several adjusting actions, the bonus is returned (historical precedence); use
+    `parse_purpose_all` to get all of them.
+    """
+    actions = parse_purpose_all(purpose)
+    return next((a for a in actions if a.kind == "bonus"), actions[0])
 
 
 ACTION_COLUMNS = ["symbol", "ex_date", "kind", "factor", "description", "source"]
@@ -108,13 +157,21 @@ def read_bc_member(zf: zipfile.ZipFile) -> pd.DataFrame:
 
 
 def _action_rows(symbols, ex_dates, purposes, source: str) -> pd.DataFrame:
+    """One row per parsed action: a multi-action purpose ("BONUS2:1/FVSPLIT10TO2") expands into
+    several rows sharing symbol, ex_date, description and source. Each distinct purpose text is
+    parsed once."""
     rows = []
+    parsed_cache: dict[str, list[ParsedAction]] = {}
     for sym, ex, purpose in zip(symbols, ex_dates, purposes):
         if not sym or pd.isna(ex):
             continue
-        parsed = parse_purpose(purpose)
-        rows.append({"symbol": sym, "ex_date": ex, "kind": parsed.kind, "factor": parsed.factor,
-                     "description": str(purpose).strip(), "source": source})
+        description = str(purpose).strip()
+        parsed = parsed_cache.get(description)
+        if parsed is None:
+            parsed = parsed_cache[description] = parse_purpose_all(description)
+        for act in parsed:
+            rows.append({"symbol": sym, "ex_date": ex, "kind": act.kind, "factor": act.factor,
+                         "description": description, "source": source})
     return pd.DataFrame(rows, columns=ACTION_COLUMNS)
 
 
@@ -148,7 +205,7 @@ def collect_bc_actions(zip_paths: list[Path]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame(columns=ACTION_COLUMNS)
     out = pd.concat(frames, ignore_index=True)
-    return out.drop_duplicates(["symbol", "ex_date", "description"]).reset_index(drop=True)
+    return out.drop_duplicates(["symbol", "ex_date", "description", "kind"]).reset_index(drop=True)
 
 
 def actions_from_corporate_actions_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -754,7 +811,7 @@ def adjust_prices(prices: pd.DataFrame, root: Path,
     bc = collect_bc_actions(zips)
     if extra_actions is not None and not extra_actions.empty:
         bc = pd.concat([bc, extra_actions[ACTION_COLUMNS]], ignore_index=True)
-        bc = bc.drop_duplicates(["symbol", "ex_date", "description"]).reset_index(drop=True)
+        bc = bc.drop_duplicates(["symbol", "ex_date", "description", "kind"]).reset_index(drop=True)
     mcap_frames = read_mcap_frames(root, zips)
 
     changes_path = root / "Input" / "reference" / "symbolchange.csv"

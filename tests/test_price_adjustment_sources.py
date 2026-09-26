@@ -59,3 +59,36 @@ def test_actions_from_db_table():
                        "action_type": ["other"], "description": ["FVSPLT FRM RS 10 TO RS 2"]})
     a = actions_from_corporate_actions_table(df).iloc[0]
     assert a["kind"] == "split" and math.isclose(a["factor"], 0.2) and a["source"] == "bc"
+
+
+# --- Task 10: one purpose -> one row per parsed action -----------------------------------------
+
+BC_MULTI = """SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE
+EQ,GLOBE,Globe Textiles (I) Ltd.,30/07/2021, , ,29/07/2021, , ,BONUS2:1/FVSPLIT10TO2
+EQ,OTHERCO,Other Co,30/07/2021, , ,29/07/2021, , ,DIV - RS 2 PER SH
+"""
+
+
+def test_bc_frame_expands_multi_action_purpose_into_rows():
+    raw = pd.read_csv(io.StringIO(BC_MULTI), dtype=str, keep_default_na=False)
+    a = actions_from_bc_frame(raw)
+    globe = a[a["symbol"] == "GLOBE"].reset_index(drop=True)
+    assert globe["kind"].tolist() == ["bonus", "split"]
+    assert math.isclose(globe.loc[0, "factor"], 1 / 3) and math.isclose(globe.loc[1, "factor"], 0.2)
+    assert (globe["description"] == "BONUS2:1/FVSPLIT10TO2").all()
+    assert (globe["ex_date"] == pd.Timestamp("2021-07-29")).all() and (globe["source"] == "bc").all()
+    assert a[a["symbol"] == "OTHERCO"]["kind"].tolist() == ["dividend"]
+
+
+def test_collect_keeps_both_actions_of_a_multi_action_purpose(tmp_path):
+    z = _zip(tmp_path, "PR200721.zip", "bc20072021.csv", BC_MULTI)
+    a = collect_bc_actions([z])
+    assert sorted(a[a["symbol"] == "GLOBE"]["kind"].tolist()) == ["bonus", "split"]
+
+
+def test_db_table_expands_multi_action_purpose():
+    df = pd.DataFrame({"symbol": ["GLOBE"], "ex_date": pd.to_datetime(["2021-08-03"]),
+                       "action_type": ["bonus"], "description": ["BONUS 1:1 AND FV SPLIT FROM RS 10 TO RS 2"]})
+    a = actions_from_corporate_actions_table(df)
+    assert a["kind"].tolist() == ["bonus", "split"]
+    assert math.isclose(a["factor"].iloc[0], 0.5) and math.isclose(a["factor"].iloc[1], 0.2)
