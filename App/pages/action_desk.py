@@ -106,9 +106,9 @@ def resolve_india_vix(con: duckdb.DuckDBPyConnection, trade_date: Any) -> tuple[
 
 def compute_exposure_gate(
     *,
-    adv_pct: float,
-    ab20_pct: float,
-    ab200_pct: float,
+    adv_pct: float | None,
+    ab20_pct: float | None,
+    ab200_pct: float | None,
     vix: float | None,
     vix_1d_pct: float,
     net_lows_expanding: bool,

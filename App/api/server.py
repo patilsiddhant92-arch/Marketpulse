@@ -122,6 +122,32 @@ def playbook_for_band(band_low: float | None, ab50_pct: float | None) -> dict[st
     }
 
 
+def gate_inputs_from(exp_inputs: dict[str, Any]) -> dict[str, float | None]:
+    """Un-defaulted breadth inputs for the exposure gate.
+
+    `exp_inputs` (from `load_exposure_gate_args`) already leaves a missing/NaN
+    breadth column as None; this must stay None here too — never fabricated as
+    50.0 — so a NULL column fails the gate closed instead of masquerading as a
+    neutral reading (spec 6.3).
+    """
+    def _num(key: str) -> float | None:
+        v = exp_inputs.get(key)
+        if v is None:
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if (np.isnan(f) or np.isinf(f)) else f
+
+    return {
+        "adv_pct": _num("adv_pct"),
+        "ab20_pct": _num("ab20_pct"),
+        "ab50_pct": _num("ab50_pct"),
+        "ab200_pct": _num("ab200_pct"),
+    }
+
+
 def get_db(read_only: bool = True) -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(DB_PATH), read_only=read_only)
 
@@ -219,10 +245,11 @@ def get_market_regime():
         c_52w_h = int(exp_inputs.get("count_52w_highs") or 0)
         c_52w_l = int(exp_inputs.get("count_52w_lows") or 0)
 
+        gate_args = gate_inputs_from(exp_inputs)
         gate = compute_exposure_gate(
-            adv_pct=adv_pct,
-            ab20_pct=ab20_pct,
-            ab200_pct=ab200_pct,
+            adv_pct=gate_args["adv_pct"],
+            ab20_pct=gate_args["ab20_pct"],
+            ab200_pct=gate_args["ab200_pct"],
             vix=vix_val,
             vix_1d_pct=vix_1d_pct,
             net_lows_expanding=bool(exp_inputs.get("net_lows_expanding", False)),
@@ -256,7 +283,7 @@ def get_market_regime():
 
     band = str(gate.get("pct") or "")
     band_low, band_high = parse_exposure_band(band)
-    playbook = playbook_for_band(band_low, ab50_pct if not b_df.empty else None)
+    playbook = playbook_for_band(band_low, gate_args["ab50_pct"])
 
     return {
         "as_of": str(pd.to_datetime(trade_date).date()),
