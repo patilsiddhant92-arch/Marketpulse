@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DealsDeskResponse, TierDealRecord, StarRadarDeal, FundLeaderboardRecord } from '../types';
+import { DealsDeskResponse, TierDealRecord, FundLeaderboardRecord } from '../types';
 import { ShieldAlert, TrendingUp, Users, DollarSign, Filter, Copy, Check, Star, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
 
@@ -16,7 +16,10 @@ export const DealsWorkspace: React.FC<Props> = ({
 }) => {
   const [lookbackDays, setLookbackDays] = useState<number>(20);
   const [setupFilter, setSetupFilter] = useState<string>('ALL');
-  const [activeTab, setActiveTab] = useState<'conviction' | 'fresh' | 'star' | 'leaderboard' | 'prop' | 'distribution'>('conviction');
+  const [activeTab, setActiveTab] = useState<
+    'today' | 'play' | 'conviction' | 'fresh' | 'star' | 'leaderboard' | 'prop' | 'distribution'
+  >('play');
+  const [openFund, setOpenFund] = useState<string | null>(null);
   const [persistenceFilter, setPersistenceFilter] = useState<number>(0); // 0 = all, 2, 3, 4+
 
   const [data, setData] = useState<DealsDeskResponse | null>(null);
@@ -31,12 +34,13 @@ export const DealsWorkspace: React.FC<Props> = ({
 
   const fetchDeals = () => {
     setLoading(true);
-    fetch(`http://127.0.0.1:8000/api/deals/institutional?lookback_days=${lookbackDays}&setup_filter=${setupFilter}`)
+    fetch(`/api/deals/institutional?lookback_days=${lookbackDays}&setup_filter=${setupFilter}`)
       .then((res) => res.json())
       .then((resData: DealsDeskResponse) => {
         setData(resData);
-        if (resData.conviction && resData.conviction.length > 0 && !selectedSymbol) {
-          onSelectSymbol(resData.conviction[0].symbol);
+        const first = resData.play?.[0] || resData.conviction?.[0];
+        if (first && !selectedSymbol) {
+          onSelectSymbol(first.symbol);
         }
       })
       .catch((err) => console.error('Deals fetch error:', err))
@@ -52,6 +56,16 @@ export const DealsWorkspace: React.FC<Props> = ({
     navigator.clipboard.writeText(text);
     setCopiedMsg(label);
     setTimeout(() => setCopiedMsg(null), 2000);
+  };
+
+  const copySymbols = (symbols: string[], label: string, section?: string) => {
+    const toks = symbols
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean)
+      .map((s) => `NSE:${s.replace(/-/g, '_')}`);
+    if (!toks.length) return;
+    const payload = section ? `###${section},${toks.join(',')}` : toks.join(',');
+    copyToClipboard(payload, label);
   };
 
   const handleSort = (key: keyof TierDealRecord) => {
@@ -79,9 +93,9 @@ export const DealsWorkspace: React.FC<Props> = ({
   const currentRecords: TierDealRecord[] = useMemo(() => {
     if (!data) return [];
     let list: TierDealRecord[] = [];
-    if (activeTab === 'conviction') list = data.conviction;
-    else if (activeTab === 'fresh') list = data.fresh_radar;
-    else if (activeTab === 'prop') list = data.prop_only;
+    if (activeTab === 'play' || activeTab === 'conviction' || activeTab === 'fresh') {
+      list = data.play && data.play.length ? data.play : [...data.conviction, ...data.fresh_radar];
+    } else if (activeTab === 'prop') list = data.prop_only;
     else if (activeTab === 'distribution') list = data.distribution;
 
     if (persistenceFilter > 0) {
@@ -143,25 +157,31 @@ export const DealsWorkspace: React.FC<Props> = ({
 
         {/* Quick Export Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {data?.tv_strings?.master_tv && (
+          {(data?.play?.length || data?.counts?.play) ? (
             <button
-              onClick={() => copyToClipboard(data.tv_strings.master_tv, 'Master TV')}
+              onClick={() =>
+                copySymbols(
+                  (data.play && data.play.length ? data.play : [...data.conviction, ...data.fresh_radar]).map((r) => r.symbol),
+                  'Play TV',
+                  'Play'
+                )
+              }
               className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold bg-[#182b46] text-[#74a9ff] border border-[#2b4c7e] hover:border-[#74a9ff]"
             >
-              {copiedMsg === 'Master TV' ? <Check className="w-3 h-3 text-[#45d483]" /> : <Copy className="w-3 h-3" />}
-              <span>Copy Master TV ({data.counts.conviction + data.counts.fresh_radar})</span>
+              {copiedMsg === 'Play TV' ? <Check className="w-3 h-3 text-[#45d483]" /> : <Copy className="w-3 h-3" />}
+              <span>Copy Play ({data.counts.play || data.play?.length || 0})</span>
             </button>
-          )}
+          ) : null}
 
-          {data?.tv_strings?.conviction_tv && (
+          {data?.prop_only?.length ? (
             <button
-              onClick={() => copyToClipboard(data.tv_strings.conviction_tv, 'Conviction TV')}
-              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold bg-[#163526] text-[#45d483] border border-[#235338] hover:border-[#45d483]"
+              onClick={() => copySymbols(data.prop_only.map((r) => r.symbol), 'HFT TV', '🎯 Prop HFT Churn')}
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold bg-[#3a2a12] text-[#f0be58] border border-[#6b5420] hover:border-[#f0be58]"
             >
-              {copiedMsg === 'Conviction TV' ? <Check className="w-3 h-3 text-[#45d483]" /> : <Copy className="w-3 h-3" />}
-              <span>Copy Conviction ({data.counts.conviction})</span>
+              {copiedMsg === 'HFT TV' ? <Check className="w-3 h-3 text-[#45d483]" /> : <Copy className="w-3 h-3" />}
+              <span>Copy HFT ({data.prop_only.length})</span>
             </button>
-          )}
+          ) : null}
 
           {data?.tv_strings?.star_radar_tv && (
             <button
@@ -179,24 +199,24 @@ export const DealsWorkspace: React.FC<Props> = ({
       <div className="px-4 py-1.5 bg-[#090d16] border-b border-[#1f2b3c] flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
-            onClick={() => { setActiveTab('conviction'); setPersistenceFilter(0); }}
+            onClick={() => { setActiveTab('today'); setPersistenceFilter(0); }}
             className={`px-3 py-1.5 text-xs rounded-t font-semibold transition border-b-2 ${
-              activeTab === 'conviction'
+              activeTab === 'today'
+                ? 'bg-[#152336] text-[#f0be58] border-[#f0be58]'
+                : 'text-[#98a7ba] border-transparent hover:text-white'
+            }`}
+          >
+            Today ({data?.counts?.today || 0})
+          </button>
+          <button
+            onClick={() => { setActiveTab('play'); setPersistenceFilter(0); }}
+            className={`px-3 py-1.5 text-xs rounded-t font-semibold transition border-b-2 ${
+              activeTab === 'play'
                 ? 'bg-[#152336] text-[#45d483] border-[#45d483]'
                 : 'text-[#98a7ba] border-transparent hover:text-white'
             }`}
           >
-            💎 Tier 1: Conviction Accumulation ({data?.counts?.conviction || 0})
-          </button>
-          <button
-            onClick={() => { setActiveTab('fresh'); setPersistenceFilter(0); }}
-            className={`px-3 py-1.5 text-xs rounded-t font-semibold transition border-b-2 ${
-              activeTab === 'fresh'
-                ? 'bg-[#152336] text-[#38bdf8] border-[#38bdf8]'
-                : 'text-[#98a7ba] border-transparent hover:text-white'
-            }`}
-          >
-            ⚡ Tier 2: Fresh Whale Radar ({data?.counts?.fresh_radar || 0})
+            Play ({data?.counts?.play || 0})
           </button>
           <button
             onClick={() => setActiveTab('star')}
@@ -241,7 +261,7 @@ export const DealsWorkspace: React.FC<Props> = ({
         </div>
 
         {/* Multi-Day Persistence Pills (Active inside Tier 1) */}
-        {activeTab === 'conviction' && (
+        {(activeTab === 'play' || activeTab === 'conviction') && (
           <div className="flex items-center gap-1 text-xs">
             <span className="text-[#7888a0] text-[10px] uppercase font-mono mr-1">Sessions:</span>
             {[
@@ -272,11 +292,58 @@ export const DealsWorkspace: React.FC<Props> = ({
           <div className="p-8 text-center text-[#98a7ba] text-xs">
             Aggregating multi-session block and bulk deal accumulation across {lookbackDays} sessions...
           </div>
-        ) : activeTab === 'star' ? (
-          /* Star Fund Radar View */
+        ) : activeTab === 'today' ? (
           <div className="p-4 space-y-3">
             <div className="p-3 rounded-lg bg-[#101721] border border-[#1f2b3c] text-xs text-[#98a7ba]">
-              <span className="text-[#f0be58] font-bold">⭐ High-Conviction Star Fund Radar:</span> Tracks fresh footprint additions by celebrity HNIs (Ashish Kacholia, Mukul Agrawal) and elite momentum funds (Quant Mutual Fund, Graviton, Morgan Stanley).
+              <span className="text-[#f0be58] font-bold">Today&apos;s prints</span> on the latest NSE bulk/block tape, mcap ≥ ₹1,000 Cr. Matched buy=sell on the same name is often a transfer, not new money.
+            </div>
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#0e1522] text-[#98a7ba] uppercase font-mono text-[11px] border-b border-[#1f2b3c] sticky top-0">
+                  <th className="py-2 px-3">Symbol</th>
+                  <th className="py-2 px-3">Client / House</th>
+                  <th className="py-2 px-3">Side</th>
+                  <th className="py-2 px-3 text-right">₹ Cr</th>
+                  <th className="py-2 px-3 text-right">Price</th>
+                  <th className="py-2 px-3">Clientele</th>
+                  <th className="py-2 px-3 text-right">MCap</th>
+                  <th className="py-2 px-3">Sector</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#151f2b] font-mono">
+                {(data?.today_deals || []).map((td, i) => (
+                  <tr
+                    key={`${td.symbol}-${td.client_name}-${i}`}
+                    onClick={() => onSelectSymbol(td.symbol)}
+                    className="cursor-pointer hover:bg-[#151f2b] transition"
+                  >
+                    <td className="py-2 px-3 font-bold text-[#38bdf8]">{td.symbol}</td>
+                    <td className="py-2 px-3 text-[#c5d1e0] font-sans">
+                      <div>{td.fund_house || td.client_name}</div>
+                      {td.fund_house && td.fund_house !== td.client_name && (
+                        <div className="text-[10px] text-[#64748b]">{td.client_name}</div>
+                      )}
+                    </td>
+                    <td className={`py-2 px-3 font-bold ${td.side === 'BUY' ? 'text-[#10b981]' : 'text-[#f43f5e]'}`}>
+                      {td.side}
+                    </td>
+                    <td className="py-2 px-3 text-right text-[#f0be58] font-bold">₹{td.deal_cr.toFixed(1)}</td>
+                    <td className="py-2 px-3 text-right">₹{td.price.toFixed(2)}</td>
+                    <td className="py-2 px-3 text-[#98a7ba]">
+                      {td.clientele}
+                      {td.is_prop ? ' · PROP' : ''}
+                    </td>
+                    <td className="py-2 px-3 text-right text-[#98a7ba]">₹{td.mcap_cr.toFixed(0)} Cr</td>
+                    <td className="py-2 px-3 text-[#98a7ba] font-sans">{td.sector}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : activeTab === 'star' ? (
+          <div className="p-4 space-y-3">
+            <div className="p-3 rounded-lg bg-[#101721] border border-[#1f2b3c] text-xs text-[#98a7ba]">
+              <span className="text-[#f0be58] font-bold">Star Fund Radar:</span> recent prints by high-score houses. Click a fund on the Leaderboard tab to see every name they printed in this window (net buy vs sell). This is the NSE bulk/block tape, not a full holdings file.
             </div>
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -332,33 +399,115 @@ export const DealsWorkspace: React.FC<Props> = ({
             </table>
           </div>
         ) : activeTab === 'leaderboard' ? (
-          /* Institutional Fund Leaderboard View */
           <div className="p-4 space-y-3">
             <div className="p-3 rounded-lg bg-[#101721] border border-[#1f2b3c] text-xs text-[#98a7ba]">
-              <span className="text-[#a855f7] font-bold">🏆 Institutional Attribution Scorecard:</span> Ranks fund houses by historical win rate (% bets achieving &ge; +5% within 20 sessions) and average peak run-up.
+              <span className="text-[#a855f7] font-bold">Fund Leaderboard:</span> click a house to open the names they printed in this window. Bets = print count. Names = unique stocks. Net long = buy ₹ minus sell ₹ still positive. NSE bulk/block is not a full portfolio file.
             </div>
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-[#0e1522] text-[#98a7ba] uppercase font-mono text-[11px] border-b border-[#1f2b3c] sticky top-0">
                   <th className="py-2 px-3">Fund House</th>
                   <th className="py-2 px-3">Tier</th>
-                  <th className="py-2 px-3 text-right">Catalyst Score</th>
-                  <th className="py-2 px-3 text-right">20D Win Rate</th>
-                  <th className="py-2 px-3 text-right">Avg Peak Gain</th>
-                  <th className="py-2 px-3 text-right">Bets Count</th>
+                  <th className="py-2 px-3 text-right">Catalyst</th>
+                  <th className="py-2 px-3 text-right">20D Win</th>
+                  <th className="py-2 px-3 text-right">Avg Peak</th>
+                  <th className="py-2 px-3 text-right">Bets</th>
+                  <th className="py-2 px-3 text-right">Names</th>
+                  <th className="py-2 px-3 text-right">Net long</th>
+                  <th className="py-2 px-3 text-right">₹ Cr</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#151f2b] font-mono">
-                {data?.fund_leaderboard.map((fl, i) => (
-                  <tr key={i} className="hover:bg-[#151f2b] transition">
-                    <td className="py-2 px-3 font-bold text-[#f1f4f8] font-sans">{fl.fund_house}</td>
-                    <td className="py-2 px-3"><span className="px-1.5 py-0.5 rounded text-[10px] bg-[#1e293b] text-[#74a9ff]">{fl.tier}</span></td>
-                    <td className="py-2 px-3 text-right text-[#f0be58] font-bold">{fl.catalyst_score.toFixed(1)}</td>
-                    <td className="py-2 px-3 text-right text-[#45d483] font-bold">{fl.win_rate_20d}%</td>
-                    <td className="py-2 px-3 text-right text-[#10b981]">+{fl.avg_runup.toFixed(1)}%</td>
-                    <td className="py-2 px-3 text-right text-[#98a7ba]">{fl.bets_count} bets</td>
-                  </tr>
-                ))}
+                {data?.fund_leaderboard.map((fl) => {
+                  const open = openFund === fl.fund_house;
+                  const holds = fl.holdings || [];
+                  return (
+                    <React.Fragment key={fl.fund_house}>
+                      <tr
+                        className="hover:bg-[#151f2b] transition cursor-pointer"
+                        onClick={() => setOpenFund(open ? null : fl.fund_house)}
+                      >
+                        <td className="py-2 px-3 font-bold text-[#f1f4f8] font-sans">
+                          {open ? '▾ ' : '▸ '}
+                          {fl.fund_house}
+                        </td>
+                        <td className="py-2 px-3"><span className="px-1.5 py-0.5 rounded text-[10px] bg-[#1e293b] text-[#74a9ff]">{fl.tier}</span></td>
+                        <td className="py-2 px-3 text-right text-[#f0be58] font-bold">{fl.catalyst_score.toFixed(1)}</td>
+                        <td className="py-2 px-3 text-right text-[#45d483] font-bold">{fl.win_rate_20d}%</td>
+                        <td className="py-2 px-3 text-right text-[#10b981]">+{fl.avg_runup.toFixed(1)}%</td>
+                        <td className="py-2 px-3 text-right text-[#98a7ba]">{fl.bets_count}</td>
+                        <td className="py-2 px-3 text-right text-[#c5d1e0] font-bold">{fl.names_count ?? holds.length}</td>
+                        <td className="py-2 px-3 text-right text-[#38bdf8]">{fl.net_long_count ?? 0}</td>
+                        <td className="py-2 px-3 text-right text-[#f0be58]">₹{(fl.total_cr || 0).toFixed(0)}</td>
+                      </tr>
+                      {open && (
+                        <tr>
+                          <td colSpan={9} className="bg-[#0a101a] px-4 py-3">
+                            {holds.length === 0 ? (
+                              <div className="text-[#7888a0] text-[11px]">No ≥ ₹5 Cr prints in this window for this house.</div>
+                            ) : (
+                              <table className="w-full text-left text-[11px]">
+                                <thead>
+                                  <tr className="text-[#7888a0] uppercase">
+                                    <th className="py-1">Symbol</th>
+                                    <th className="py-1 text-right">Net ₹ Cr</th>
+                                    <th className="py-1 text-right">Buy</th>
+                                    <th className="py-1 text-right">Sell</th>
+                                    <th className="py-1">Last</th>
+                                    <th className="py-1">Side</th>
+                                    <th className="py-1 text-right">Ret</th>
+                                    <th className="py-1 text-right">Prints</th>
+                                    <th className="py-1">Sector</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {holds.map((h) => (
+                                    <tr
+                                      key={h.symbol}
+                                      className="cursor-pointer hover:bg-[#151f2b]"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSelectSymbol(h.symbol);
+                                      }}
+                                    >
+                                      <td className="py-1 font-bold text-[#38bdf8]">{h.symbol}</td>
+                                      <td className={`py-1 text-right font-bold ${h.net_cr >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'}`}>
+                                        {h.net_cr >= 0 ? '+' : ''}{h.net_cr.toFixed(1)}
+                                      </td>
+                                      <td className="py-1 text-right text-[#98a7ba]">{h.buy_cr.toFixed(1)}</td>
+                                      <td className="py-1 text-right text-[#98a7ba]">{h.sell_cr.toFixed(1)}</td>
+                                      <td className="py-1 text-[#98a7ba]">{h.last_date}</td>
+                                      <td className={h.last_side === 'BUY' ? 'text-[#10b981]' : 'text-[#f43f5e]'}>{h.last_side}</td>
+                                      <td className={`py-1 text-right ${ (h.ret_pct || 0) >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'}`}>
+                                        {h.ret_pct == null ? '—' : `${h.ret_pct >= 0 ? '+' : ''}${h.ret_pct.toFixed(1)}%`}
+                                      </td>
+                                      <td className="py-1 text-right">{h.prints}</td>
+                                      <td className="py-1 text-[#98a7ba] font-sans">{h.sector}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                            {holds.length > 0 && (
+                              <button
+                                className="mt-2 px-2 py-1 text-[10px] rounded bg-[#182b46] text-[#74a9ff] border border-[#2b4c7e]"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyToClipboard(
+                                    holds.map((h) => `NSE:${h.symbol}`).join(', '),
+                                    `${fl.fund_house} TV`
+                                  );
+                                }}
+                              >
+                                Copy {holds.length} symbols
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -369,6 +518,9 @@ export const DealsWorkspace: React.FC<Props> = ({
               <tr className="bg-[#0e1522] text-[#98a7ba] uppercase font-mono text-[11px] tracking-wider border-b border-[#1f2b3c] sticky top-0 z-10 select-none">
                 <th onClick={() => handleSort('symbol')} className="py-2 px-3 font-semibold cursor-pointer hover:text-white">
                   Symbol {renderSortArrow('symbol')}
+                </th>
+                <th onClick={() => handleSort('play_reason')} className="py-2 px-3 font-semibold cursor-pointer hover:text-white">
+                  Why {renderSortArrow('play_reason')}
                 </th>
                 <th onClick={() => handleSort('trend')} className="py-2 px-3 font-semibold cursor-pointer hover:text-white">
                   Trend {renderSortArrow('trend')}
@@ -426,6 +578,14 @@ export const DealsWorkspace: React.FC<Props> = ({
                         <span>{r.symbol}</span>
                         <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" />
                       </a>
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#152336] text-[#74a9ff] border border-[#2b4c7e]">
+                        {r.play_reason || '—'}
+                      </span>
+                      {r.transfer_cr && r.transfer_cr > 0 ? (
+                        <span className="ml-1 text-[10px] text-[#f0be58]">xfer {r.transfer_cr.toFixed(0)}</span>
+                      ) : null}
                     </td>
                     <td className="py-2 px-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${

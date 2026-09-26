@@ -467,6 +467,7 @@ def test_streamlined_3tier_deals_architecture(tmp_path):
     assert "NSE:FRESH_RADAR" not in tv["conviction_tv"]
 
     assert "NSE:FRESH_RADAR" in tv["fresh_radar_tv"]
+    assert tv["prop_tv"].startswith("###")
     assert "NSE:PURE_PROP" in tv["prop_tv"]
     assert "NSE:LOCKED_5PCT" in tv["quarantined_tv"]
 

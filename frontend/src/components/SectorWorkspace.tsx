@@ -80,13 +80,15 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
 
   // Sorting
   const [sortConfig, setSortConfig] = useState<SortConfig<SectorRecord>>({
-    key: 'rs_percentile',
+    key: 'horizon_return_pct',
     direction: 'desc',
   });
 
+  const horizonLabel = lookbackDays === 10 ? '10D' : lookbackDays === 63 ? '63D' : '30D';
+
   const fetchSectors = () => {
     setLoading(true);
-    fetch(`http://127.0.0.1:8000/api/sector/rotation?level=${encodeURIComponent(level)}&lookback_days=${lookbackDays}`)
+    fetch(`/api/sector/rotation?level=${encodeURIComponent(level)}&lookback_days=${lookbackDays}`)
       .then((res) => res.json())
       .then((data) => setSectors(data.sectors || []))
       .catch((err) => console.error('Sector fetch error:', err))
@@ -94,8 +96,26 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
   };
 
   useEffect(() => {
+    setSortConfig({ key: 'horizon_return_pct', direction: 'desc' });
     fetchSectors();
   }, [level, lookbackDays]);
+
+  const openGroupTiles = (groupName: string, fallback: string[]) => {
+    if (!onOpenMultiChart) return;
+    fetch(
+      `/api/sector/${encodeURIComponent(groupName)}/stocks?level=${encodeURIComponent(level)}&min_mcap=1000&above_ema200=true&limit=500`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        const syms = (data.stocks || [])
+          .map((row: { symbol?: string }) => String(row.symbol || '').trim().toUpperCase())
+          .filter(Boolean);
+        onOpenMultiChart(syms.length ? syms : fallback);
+      })
+      .catch(() => {
+        if (fallback.length) onOpenMultiChart(fallback);
+      });
+  };
 
   // Compute live counts per rotation state
   const stateCounts = useMemo(() => {
@@ -181,6 +201,9 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
             <h2 className="text-xs font-bold text-[#f1f4f8] uppercase tracking-wider">
               Sector Rotation &amp; Historical Breadth Matrix
             </h2>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30">
+              ≥ ₹1,000 Cr · {horizonLabel}
+            </span>
           </div>
 
           {/* Level Selector */}
@@ -345,11 +368,8 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
                 <th onClick={() => handleSort('rs_percentile')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
                   Avg RS {renderSortArrow('rs_percentile')}
                 </th>
-                <th onClick={() => handleSort('return_5d_pct')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
-                  5D RS % {renderSortArrow('return_5d_pct')}
-                </th>
-                <th onClick={() => handleSort('return_20d_pct')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
-                  1M RS % {renderSortArrow('return_20d_pct')}
+                <th onClick={() => handleSort('horizon_return_pct')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white" title={`Equal-weight return of ≥ ₹1,000 Cr names over ${horizonLabel}`}>
+                  {horizonLabel} RS % {renderSortArrow('horizon_return_pct')}
                 </th>
                 <th onClick={() => handleSort('above_50_ema_pct')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
                   &gt; 50 EMA {renderSortArrow('above_50_ema_pct')}
@@ -360,8 +380,8 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
                 <th onClick={() => handleSort('near_52w_highs')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
                   52W Highs {renderSortArrow('near_52w_highs')}
                 </th>
-                <th onClick={() => handleSort('turnover_share_delta_5d')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white" title="5D Turnover Share Surge & Institutional Money Flow">
-                  Institutional Flow {renderSortArrow('turnover_share_delta_5d')}
+                <th onClick={() => handleSort('turnover_share_delta_5d')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white" title={`${horizonLabel} share of liquid tape (≥ ₹1,000 Cr)`}>
+                  {horizonLabel} Flow {renderSortArrow('turnover_share_delta_5d')}
                 </th>
                 <th className="py-2 px-3 font-semibold">Top Leaders / Actions</th>
               </tr>
@@ -451,17 +471,12 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
                     </td>
                     <td
                       className={`py-2 px-3 text-right font-semibold ${
-                        s.return_5d_pct >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'
+                        (s.horizon_return_pct ?? s.return_20d_pct) >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'
                       }`}
                     >
-                      {s.return_5d_pct >= 0 ? `+${s.return_5d_pct.toFixed(1)}%` : `${s.return_5d_pct.toFixed(1)}%`}
-                    </td>
-                    <td
-                      className={`py-2 px-3 text-right ${
-                        s.return_20d_pct >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'
-                      }`}
-                    >
-                      {s.return_20d_pct >= 0 ? `+${s.return_20d_pct.toFixed(1)}%` : `${s.return_20d_pct.toFixed(1)}%`}
+                      {(s.horizon_return_pct ?? s.return_20d_pct) >= 0
+                        ? `+${(s.horizon_return_pct ?? s.return_20d_pct).toFixed(1)}%`
+                        : `${(s.horizon_return_pct ?? s.return_20d_pct).toFixed(1)}%`}
                     </td>
                     <td className="py-2 px-3 text-right text-[#f0be58]">
                       {s.above_50_ema_pct.toFixed(1)}%
@@ -539,13 +554,16 @@ export const SectorWorkspace: React.FC<Props> = ({ onSelectSymbol, onOpenMultiCh
                             </button>
                           ))
                         )}
-                        {s.leaders.length >= 2 && onOpenMultiChart && (
+                        {(s.tile_symbols?.length || s.leaders.length) >= 1 && onOpenMultiChart && (
                           <button
-                            onClick={() => onOpenMultiChart(s.leaders)}
-                            title={`Open ${s.sector} leaders in Multi-Chart Tiles`}
+                            onClick={() => openGroupTiles(s.sector, s.tile_symbols?.length ? s.tile_symbols : s.leaders)}
+                            title={`Open all ≥ ₹1,000 Cr names above 200 EMA in ${s.sector}`}
                             className="px-1.5 py-0.5 rounded bg-[#162235] text-[#38bdf8] hover:bg-[#38bdf8] hover:text-[#080c14] border border-[#253c5e] text-[10px] font-medium transition flex items-center gap-1"
                           >
                             <LayoutGrid className="w-2.5 h-2.5" /> Tiles
+                            <span className="font-mono">
+                              ({s.tile_symbols?.length || s.leaders.length})
+                            </span>
                           </button>
                         )}
                       </div>

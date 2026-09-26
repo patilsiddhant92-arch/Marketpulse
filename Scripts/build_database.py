@@ -873,9 +873,21 @@ def build_master(equity: pd.DataFrame, sector: pd.DataFrame, prices: pd.DataFram
     master = equity.merge(sector, on="symbol", how="left")
     master = master.merge(latest_price[["symbol", "series", "trade_date", "close_price"]], on="symbol", how="left")
     master = master.rename(columns={"series": "latest_series", "trade_date": "latest_price_date", "close_price": "latest_close"})
-    master = master.merge(mcap, on="symbol", how="left")
+    mcap_join = mcap.drop(columns=["security_name"], errors="ignore")
+    master = master.merge(mcap_join, on="symbol", how="left")
     master = master.merge(bands, on="symbol", how="left")
     master = master.merge(pe, on="symbol", how="left")
+    if "security_name_x" in master.columns or "security_name_y" in master.columns:
+        left = master["security_name_x"] if "security_name_x" in master.columns else master.get("security_name")
+        right = master["security_name_y"] if "security_name_y" in master.columns else None
+        if left is not None and right is not None:
+            left_s = left.astype("string").str.strip().replace("", pd.NA)
+            master["security_name"] = left_s.fillna(right)
+        elif left is not None:
+            master["security_name"] = left
+        elif right is not None:
+            master["security_name"] = right
+        master = master.drop(columns=[c for c in ("security_name_x", "security_name_y") if c in master.columns])
     if "listing_date" in master.columns and "latest_price_date" in master.columns:
         l_dt = pd.to_datetime(master["listing_date"], errors="coerce")
         p_dt = pd.to_datetime(master["latest_price_date"], errors="coerce")
@@ -1217,6 +1229,7 @@ def write_database(
         "candidate_daily",
         "signal_ledger",
         "signal_outcomes",
+        "schema_migrations",
     )
     if DB_PATH.exists():
         try:
@@ -1258,6 +1271,10 @@ def write_database(
             con.execute("CREATE TABLE security_reference_daily AS SELECT * FROM security_reference_daily_df")
             con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
             print(f"Created table security_reference_daily: {len(reference_history):,} rows")
+
+    from migrations import _apply_always_on_repairs
+
+    _apply_always_on_repairs(con)
 
     con.close()
     if DB_PATH.exists():

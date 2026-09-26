@@ -44,7 +44,7 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
   const fetchCapitalFlow = () => {
     setLoading(true);
     setError(null);
-    fetch(`http://127.0.0.1:8000/api/market/capital-flow?level=${level}`)
+    fetch(`/api/market/capital-flow?level=${level}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
         return res.json();
@@ -112,6 +112,12 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
     return <span className={`font-mono font-bold ${color}`}>{sign}{val.toFixed(2)}%</span>;
   };
 
+  const shareDelta = (group: CapitalFlowGroup) => {
+    if (timeframe === '1D') return group.turnover_share_delta_1d;
+    if (timeframe === '5D') return group.turnover_share_delta_5d;
+    return group.turnover_share_delta_21d ?? 0;
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#080c14] overflow-y-auto font-sans select-none">
       {/* Top Header & Navigation Strip */}
@@ -126,11 +132,12 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                 Capital Flow &amp; Money Rotation Radar
               </h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30 font-bold">
-                INSTITUTIONAL TAPE
+                ≥ ₹1,000 Cr
               </span>
             </div>
             <p className="text-[11px] text-[#7888a0]">
-              Real-time capital migration, sector turnover expansion &amp; coordinated individual stock accumulation.
+              Liquid tape only: mcap ≥ ₹1,000 Cr · ADV ≥ ₹3 Cr · CMP ≥ ₹10. Share of that universe, not penny-stock noise.
+              {data?.universe?.stock_count ? ` · ${data.universe.stock_count} names` : ''}
             </p>
           </div>
         </div>
@@ -242,8 +249,10 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                         </span>
                         <div className="text-[10px] text-[#7888a0]">
                           {timeframe === '1D'
-                            ? 'Largest turnover share expansion today'
-                            : `${timeframe} leading momentum & institutional buying`}
+                            ? 'Largest liquid-turnover share expansion today'
+                            : timeframe === '5D'
+                              ? '5-session share of liquid tape'
+                              : '21-session share of liquid tape'}
                         </div>
                       </div>
                     </div>
@@ -285,20 +294,10 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                             </div>
 
                             <div className="text-right font-mono text-xs flex items-center gap-2">
-                              {timeframe === '1D' ? (
-                                <div>
-                                  <span className="text-[#98a7ba] text-[10px] mr-1">Share Δ:</span>
-                                  {formatDeltaShare(group.turnover_share_delta_1d)}
-                                </div>
-                              ) : timeframe === '5D' ? (
-                                <div className="text-[#34d399] font-bold">
-                                  {group.return_5d_pct >= 0 ? `+${group.return_5d_pct.toFixed(1)}%` : `${group.return_5d_pct.toFixed(1)}%`}
-                                </div>
-                              ) : (
-                                <div className="text-[#34d399] font-bold">
-                                  {group.return_1m_pct >= 0 ? `+${group.return_1m_pct.toFixed(1)}%` : `${group.return_1m_pct.toFixed(1)}%`}
-                                </div>
-                              )}
+                              <div>
+                                <span className="text-[#98a7ba] text-[10px] mr-1">Share Δ:</span>
+                                {formatDeltaShare(shareDelta(group))}
+                              </div>
                             </div>
                           </div>
 
@@ -394,8 +393,10 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                         </span>
                         <div className="text-[10px] text-[#7888a0]">
                           {timeframe === '1D'
-                            ? 'Largest turnover share contraction today'
-                            : `${timeframe} lagging momentum & distribution`}
+                            ? 'Largest liquid-turnover share contraction today'
+                            : timeframe === '5D'
+                              ? '5-session share leaving the liquid tape'
+                              : '21-session share leaving the liquid tape'}
                         </div>
                       </div>
                     </div>
@@ -435,20 +436,10 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                             </div>
 
                             <div className="text-right font-mono text-xs flex items-center gap-2">
-                              {timeframe === '1D' ? (
-                                <div>
-                                  <span className="text-[#98a7ba] text-[10px] mr-1">Share Δ:</span>
-                                  {formatDeltaShare(group.turnover_share_delta_1d)}
-                                </div>
-                              ) : timeframe === '5D' ? (
-                                <div className="text-[#f43f5e] font-bold">
-                                  {group.return_5d_pct >= 0 ? `+${group.return_5d_pct.toFixed(1)}%` : `${group.return_5d_pct.toFixed(1)}%`}
-                                </div>
-                              ) : (
-                                <div className="text-[#f43f5e] font-bold">
-                                  {group.return_1m_pct >= 0 ? `+${group.return_1m_pct.toFixed(1)}%` : `${group.return_1m_pct.toFixed(1)}%`}
-                                </div>
-                              )}
+                              <div>
+                                <span className="text-[#98a7ba] text-[10px] mr-1">Share Δ:</span>
+                                {formatDeltaShare(shareDelta(group))}
+                              </div>
                             </div>
                           </div>
 
@@ -508,11 +499,11 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                         Top Stock Capital Accumulators (Liquidity Influx)
                       </h2>
                       <span className="px-2 py-0.2 rounded text-[10px] font-mono bg-[#163526] text-[#34d399] border border-[#235338] font-bold">
-                        TURNOVER SURGE &gt; 1.3x WITH PRICE UP
+                        ≥ ₹1,000 Cr · T/O ≥ ₹10 Cr · +30% SURGE
                       </span>
                     </div>
                     <p className="text-[11px] text-[#7888a0]">
-                      Stocks experiencing coordinated institutional buying: Daily turnover expansion &ge; 130%, Delivery ratio &gt; 1.0x, and positive price action.
+                      Tradeable names only. Ranked by rupees, not percentage spikes on thin paper.
                     </p>
                   </div>
                 </div>
@@ -553,6 +544,7 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                     <tr className="bg-[#0e1522] text-[#98a7ba] uppercase font-mono text-[11px] tracking-wider border-b border-[#1f2b3c] sticky top-0 z-10 select-none">
                       <th className="py-2.5 px-3 font-semibold">Symbol</th>
                       <th className="py-2.5 px-3 font-semibold">Sector &amp; Industry</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">MCap</th>
                       <th className="py-2.5 px-3 font-semibold text-right">CMP (₹)</th>
                       <th className="py-2.5 px-3 font-semibold text-right">1D %</th>
                       <th className="py-2.5 px-3 font-semibold text-right">
@@ -577,7 +569,7 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                   <tbody className="divide-y divide-[#151f2b] font-mono">
                     {filteredAccumulators.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-8 text-center text-[#7888a0] font-sans text-xs">
+                        <td colSpan={12} className="py-8 text-center text-[#7888a0] font-sans text-xs">
                           No stocks matching capital accumulation criteria found.
                         </td>
                       </tr>
@@ -605,6 +597,10 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                           <td className="py-2 px-3 text-[#98a7ba] font-sans truncate max-w-[170px]">
                             <div className="font-medium text-white truncate">{s.sector}</div>
                             <div className="text-[10px] text-[#64748b] truncate">{s.industry}</div>
+                          </td>
+
+                          <td className="py-2 px-3 text-right font-medium text-[#f1f4f8]">
+                            {s.mcap_cr ? `₹${(s.mcap_cr / 1000).toFixed(s.mcap_cr >= 10000 ? 0 : 1)}k Cr` : '—'}
                           </td>
 
                           <td className="py-2 px-3 text-right font-medium text-[#f1f4f8]">
@@ -650,7 +646,11 @@ export const CapitalFlowDashboard: React.FC<Props> = ({
                           </td>
 
                           <td className="py-2 px-3 text-right">
-                            {renderRsBadge(s.rs_percentile)}
+                            {s.rs_percentile == null ? (
+                              <span className="text-[#7888a0]">—</span>
+                            ) : (
+                              renderRsBadge(s.rs_percentile)
+                            )}
                           </td>
 
                           <td className="py-2 px-3 text-center">

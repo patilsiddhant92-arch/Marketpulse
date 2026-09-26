@@ -17,8 +17,8 @@ def test_schema_v8_preserves_versioned_indicator_clientele_and_sector_contracts(
         indicator_columns = {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
         deal_columns = {row[1] for row in db.execute("PRAGMA table_info(deals)").fetchall()}
 
-    assert CURRENT_SCHEMA_VERSION == 8
-    assert schema_version(db_path) == 8
+    assert CURRENT_SCHEMA_VERSION == 9
+    assert schema_version(db_path) == 9
     assert {
         "atr_14",
         "atr_14_wilder",
@@ -65,9 +65,9 @@ def test_version_7_databases_gain_rs_side_columns_and_migrate_to_8(tmp_path) -> 
         columns = {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
         versions = [row[0] for row in db.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
 
-    assert CURRENT_SCHEMA_VERSION == 8
-    assert schema_version(db_path) == 8
-    assert versions == [7, 8]
+    assert CURRENT_SCHEMA_VERSION == 9
+    assert schema_version(db_path) == 9
+    assert versions == [7, 8, 9]
     assert {
         "adr_20_pct",
         "rs_score_adaptive",

@@ -591,6 +591,10 @@ export const MultiChartModal: React.FC<MultiChartModalProps> = ({
       setBenchmarkSymbol(cleanUnique[0] || 'HAL');
       setCurrentPage(0);
       setMaximizedIndex(null);
+      const n = cleanUnique.length;
+      const nextLayout: GridLayout =
+        n <= 1 ? '1x1' : n <= 2 ? '1x2' : n <= 4 ? '2x2' : n <= 6 ? '2x3' : n <= 8 ? '2x4' : n <= 9 ? '3x3' : '3x4';
+      setLayout(nextLayout);
     }
   }, [isOpen, initialSymbols]);
 

@@ -12,7 +12,12 @@ import pytest
 
 from App.cache_manager import get_cached, set_cached, invalidate_cache, cache_key
 from App.indicators.darvas import DARVAS, apply_display_window, darvas_v2_enabled
-from App.pages.action_desk import compute_exposure_gate, fetch_action_desk_data, resolve_india_vix
+from App.pages.action_desk import (
+    compute_exposure_gate,
+    fetch_action_desk_data,
+    resolve_india_vix,
+    stocks_master_security_name_sql,
+)
 from Scripts.config import DB_PATH
 from Scripts.desk_contract import (
     ACTION_DESK_SUBTITLE,
@@ -61,6 +66,19 @@ def test_cache_manager_lifecycle() -> None:
     deleted = invalidate_cache("test_metric")
     assert deleted >= 1
     assert get_cached(key) is None
+
+
+def test_stocks_master_security_name_sql_handles_pandas_merge_suffixes(tmp_path) -> None:
+    db_path = tmp_path / "master.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        "CREATE TABLE stocks_master (symbol VARCHAR, security_name_x VARCHAR, security_name_y VARCHAR)"
+    )
+    assert stocks_master_security_name_sql(con) == "COALESCE(m.security_name_x, m.security_name_y)"
+    con.execute("DROP TABLE stocks_master")
+    con.execute("CREATE TABLE stocks_master (symbol VARCHAR, security_name VARCHAR)")
+    assert stocks_master_security_name_sql(con) == "m.security_name"
+    con.close()
 
 
 def test_action_desk_data_returns_valid_decision_structure(monkeypatch) -> None:

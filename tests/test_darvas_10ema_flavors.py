@@ -78,43 +78,97 @@ def test_pullback_flavor_dry_near_ema():
 
 
 def test_catchup_flavor_held_highs_ema_rising():
-    df = _hist(last_rvol=0.55, last_close=104.0, last_ema10=102.8, thrust=True)
-    df.loc[df.index[-3]:, "high_price"] = 104.5
-    df.loc[df.index[-1], "close_price"] = 104.0
-    df.loc[df.index[-1], "ema_10"] = 102.8
-    df.loc[df.index[-2], "ema_10"] = 101.5
-    # keep structure closes above ema
-    for j in df.index[-5:]:
-        df.loc[j, "close_price"] = max(float(df.loc[j, "close_price"]), float(df.loc[j, "ema_10"]) * 1.002)
-        df.loc[j, "high_price"] = max(float(df.loc[j, "high_price"]), float(df.loc[j, "close_price"]))
+    df = _hist(last_rvol=0.55, last_close=108.0, last_ema10=100.0, thrust=True)
+    for n, j in enumerate(df.index[-8:]):
+        ema = 94.0 + n * 0.75
+        close = 107.5
+        df.loc[j, "ema_10"] = ema
+        df.loc[j, "close_price"] = close
+        df.loc[j, "open_price"] = close
+        df.loc[j, "high_price"] = close * 1.008
+        df.loc[j, "low_price"] = close * 0.997  # well above 10 EMA — no tag
+        df.loc[j, "rvol"] = 0.55
+    df.loc[df.index[-1], "close_price"] = 108.0
+    df.loc[df.index[-1], "ema_10"] = 100.0
+    df.loc[df.index[-2], "ema_10"] = 98.8
     out = classify_darvas_10ema_frame(df)
     assert not out.empty
-    assert out.iloc[0]["flavor"] in {"Catch-up", "Pullback"}
+    assert out.iloc[0]["flavor"] == "Catch-up"
 
 
 def test_wet_volume_rejects():
     df = _hist(last_rvol=1.4, last_close=100.0, last_ema10=99.6, thrust=True)
+    for j in df.index[:-1]:
+        ema = float(df.loc[j, "ema_10"])
+        df.loc[j, "low_price"] = ema * 1.06
+        df.loc[j, "open_price"] = ema * 1.05
+        df.loc[j, "close_price"] = max(float(df.loc[j, "close_price"]), ema * 1.04)
+        df.loc[j, "high_price"] = max(float(df.loc[j, "high_price"]), float(df.loc[j, "close_price"]))
     out = classify_darvas_10ema_frame(df)
     assert out.empty
 
 
-def test_no_thrust_rejects():
-    df = _hist(last_rvol=0.6, last_close=100.0, last_ema10=99.6, thrust=False)
+def test_no_tag_and_not_near_highs_rejects():
+    df = _hist(last_rvol=0.6, last_close=110.0, last_ema10=99.6, thrust=False)
+    for j in df.index:
+        ema = float(df.loc[j, "ema_10"])
+        df.loc[j, "low_price"] = ema * 1.06
+        df.loc[j, "open_price"] = ema * 1.07
+        df.loc[j, "close_price"] = 120.0
+        df.loc[j, "high_price"] = 121.0
+    df.loc[df.index[-1], "close_price"] = 110.0
+    df.loc[df.index[-1], "high_price"] = 111.0
+    df.loc[df.index[-1], "low_price"] = 109.0
+    df.loc[df.index[-1], "ema_10"] = 99.6
+    df.loc[df.index[-2], "ema_10"] = 99.0
     out = classify_darvas_10ema_frame(df)
     assert out.empty
 
 
 def test_close_under_ema_after_thrust_rejects():
-    df = _hist(last_rvol=0.6, last_close=100.0, last_ema10=99.6, thrust=True, keep_closes_above_ema=False)
-    out = classify_darvas_10ema_frame(df)
-    assert out.empty
-
-
-def test_open_under_ema_after_thrust_rejects():
     df = _hist(last_rvol=0.6, last_close=100.0, last_ema10=99.6, thrust=True, keep_closes_above_ema=True)
-    df.loc[df.index[-1], "open_price"] = float(df.loc[df.index[-1], "ema_10"]) * 0.98
+    ema = float(df.loc[df.index[-1], "ema_10"])
+    df.loc[df.index[-1], "close_price"] = ema * 0.99
+    df.loc[df.index[-1], "open_price"] = ema * 0.99
+    df.loc[df.index[-1], "high_price"] = ema * 0.995
+    df.loc[df.index[-1], "low_price"] = ema * 0.98
     out = classify_darvas_10ema_frame(df)
     assert out.empty
+
+
+def test_open_under_ema_with_wick_tag_is_pullback():
+    df = _hist(last_rvol=0.6, last_close=100.0, last_ema10=99.6, thrust=True, keep_closes_above_ema=True)
+    ema = float(df.loc[df.index[-1], "ema_10"])
+    df.loc[df.index[-1], "open_price"] = ema * 0.98
+    df.loc[df.index[-1], "low_price"] = ema * 0.99
+    df.loc[df.index[-1], "close_price"] = ema * 1.004
+    df.loc[df.index[-1], "high_price"] = ema * 1.01
+    out = classify_darvas_10ema_frame(df)
+    assert not out.empty
+    assert out.iloc[0]["flavor"] == "Pullback"
+
+
+def test_traceback_tag_two_days_ago_then_move():
+    """PINELABS-style: OHLC tags 10 EMA two sessions back, then price leaves."""
+    df = _hist(last_rvol=0.5, last_close=106.0, last_ema10=100.0, thrust=True)
+    ema_seq = [96.0, 97.0, 98.0, 99.0, 100.0]
+    close_seq = [97.0, 98.2, 99.0, 102.5, 106.0]
+    for offset, (ema, close) in enumerate(zip(ema_seq, close_seq)):
+        j = df.index[-5 + offset]
+        df.loc[j, "ema_10"] = ema
+        df.loc[j, "close_price"] = close
+        df.loc[j, "open_price"] = close
+        df.loc[j, "high_price"] = close * 1.01
+        df.loc[j, "low_price"] = close * 0.995
+        df.loc[j, "rvol"] = 0.5
+    tag = df.index[-3]
+    df.loc[tag, "low_price"] = 98.0 * 0.999
+    df.loc[tag, "ema_10"] = 98.0
+    df.loc[tag, "close_price"] = 99.0
+    df.loc[tag, "open_price"] = 99.0
+    out = classify_darvas_10ema_frame(df)
+    assert not out.empty
+    assert out.iloc[0]["flavor"] == "Trace-back"
 
 
 def test_weekly_and_monthly_darvas_10ema_resampling():

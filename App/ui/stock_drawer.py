@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 import duckdb
+import numpy as np
 import pandas as pd
 from nicegui import ui
 
@@ -22,6 +23,8 @@ from App.indicators.darvas import (
     darvas_v2_enabled,
     is_darvas_10ema_squeeze,
     is_darvas_10ema_squeeze_legacy,
+    weekly_ohlc,
+    monthly_ohlc,
 )
 
 try:
@@ -171,21 +174,31 @@ def query_stock_rs_delivery_history(
 
 
 def query_stock_candlestick_data(
-    db_path: Path, symbol: str, limit: int = 90, *, predicate: dict | None = None
+    db_path: Path, symbol: str, limit: int = 90, *, predicate: dict | None = None, timeframe: str = "D"
 ) -> dict[str, Any]:
-    """Query trailing OHLCV, EMAs, and Nicolas Darvas Box for technical candlestick charting."""
+    """Query trailing OHLCV, EMAs, and Nicolas Darvas Box for technical candlestick charting (Daily, Weekly, Monthly)."""
     sym = str(symbol).strip().upper()
     use_v2 = predicate is not None or darvas_v2_enabled()
     if predicate:
         pred_tag = "pred_" + "_".join(f"{k}={predicate[k]}" for k in sorted(predicate))
     else:
         pred_tag = "v2" if use_v2 else "v1"
-    ckey = cache_key(db_path, "latest", "stock_candlestick_data", sym, limit, pred_tag)
+
+    tf_str = str(timeframe or "D").upper().strip()
+    if tf_str in ("W", "WEEKLY"):
+        tf_mode = "W"
+    elif tf_str in ("M", "MONTHLY"):
+        tf_mode = "M"
+    else:
+        tf_mode = "D"
+
+    ckey = cache_key(db_path, "latest", "stock_candlestick_data", sym, limit, pred_tag, tf_mode)
     cached = get_cached(ckey)
     if cached is not None:
         return cached
 
     box_lookback = int(DARVAS["box_lookback_sessions"])
+    fetch_limit = box_lookback * 4 if tf_mode in ("W", "M") else box_lookback
     with duckdb.connect(str(db_path), read_only=True) as db:
         df = db.execute(
             """
@@ -196,15 +209,39 @@ def query_stock_candlestick_data(
             ORDER BY trade_date DESC
             LIMIT ?
             """,
-            [sym, box_lookback],
+            [sym, fetch_limit],
         ).fetchdf()
 
     if df.empty:
         return {}
 
     df = df.iloc[::-1].reset_index(drop=True)
+    df["symbol"] = sym
 
-    # Darvas box on DARVAS box_lookback_sessions, then tail to the display window
+    if tf_mode == "W":
+        df = weekly_ohlc(df)
+        if df.empty:
+            return {}
+    elif tf_mode == "M":
+        df = monthly_ohlc(df)
+        if df.empty:
+            return {}
+
+    if tf_mode in ("W", "M"):
+        closes = pd.Series(df["close_price"].astype(float).values)
+        df["ema_10"] = closes.ewm(span=10, adjust=False, min_periods=min(len(closes), 10)).mean().values
+        df["ema_20"] = closes.ewm(span=20, adjust=False, min_periods=min(len(closes), 20)).mean().values
+        df["ema_50"] = closes.ewm(span=50, adjust=False, min_periods=min(len(closes), 50)).mean().values
+        df["ema_200"] = closes.ewm(span=200, adjust=False, min_periods=min(len(closes), 200)).mean().values
+        delta = closes.diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(com=13, adjust=False, min_periods=min(len(closes), 14)).mean()
+        avg_loss = loss.ewm(com=13, adjust=False, min_periods=min(len(closes), 14)).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        df["rsi_14"] = (100 - (100 / (1 + rs))).fillna(50.0).values
+
+    # Darvas box calculation
     top_box, bottom_box = calculate_darvas_box(
         df["high_price"].values, df["low_price"].values, boxp=5
     )
@@ -231,7 +268,7 @@ def query_stock_candlestick_data(
     vol = [float(x or 0) for x in sub["volume"]]
     rsi = [round(float(x), 1) if pd.notna(x) else None for x in sub["rsi_14"]]
 
-    # Squeeze evaluation on the most recent bar (verifying OHLC is inside the box in near range)
+    # Squeeze evaluation on the most recent bar
     last_close = float(sub["close_price"].iloc[-1]) if not sub.empty and pd.notna(sub["close_price"].iloc[-1]) else 0.0
     last_high = float(sub["high_price"].iloc[-1]) if not sub.empty and pd.notna(sub["high_price"].iloc[-1]) else 0.0
     last_low = float(sub["low_price"].iloc[-1]) if not sub.empty and pd.notna(sub["low_price"].iloc[-1]) else 0.0
@@ -240,8 +277,9 @@ def query_stock_candlestick_data(
     last_bottom = float(bottom_box[-1]) if len(bottom_box) > 0 and pd.notna(bottom_box[-1]) else 0.0
     last_ema10 = float(sub["ema_10"].iloc[-1]) if not sub.empty and pd.notna(sub["ema_10"].iloc[-1]) else 0.0
     last_ema20 = float(sub["ema_20"].iloc[-1]) if not sub.empty and pd.notna(sub["ema_20"].iloc[-1]) else None
+    cfg = {**DARVAS, **(predicate or {})}
+    max_range = float(cfg.get("max_range_pct_weekly", 8.0)) if tf_mode == "W" else (float(cfg.get("max_range_pct_monthly", 12.0)) if tf_mode == "M" else float(cfg["max_range_pct"]))
     if use_v2:
-        cfg = {**DARVAS, **(predicate or {})}
         is_squeeze = is_darvas_10ema_squeeze(
             last_close,
             last_top,
@@ -251,7 +289,7 @@ def query_stock_candlestick_data(
             low=last_low,
             open_price=last_open,
             max_squeeze_pct=float(cfg["max_squeeze_pct"]),
-            max_candle_range_pct=float(cfg["max_range_pct"]),
+            max_candle_range_pct=max_range,
             require_ohlc_inside=True,
             ema20=last_ema20,
             cfg=cfg,
@@ -267,7 +305,7 @@ def query_stock_candlestick_data(
             low=last_low,
             open_price=last_open,
             max_squeeze_pct=float(DARVAS["max_squeeze_pct"]),
-            max_candle_range_pct=float(DARVAS["max_range_pct"]),
+            max_candle_range_pct=max_range,
             require_ohlc_inside=True,
         )
     # Near-miss evidence: always report spreads when computable, even if badge is false.
@@ -294,6 +332,7 @@ def query_stock_candlestick_data(
         "candle_range_pct": candle_range_pct,
         "latest_darvas_top": last_top if last_top > 0 else None,
         "latest_darvas_bottom": last_bottom if last_bottom > 0 else None,
+        "timeframe": tf_mode,
     }
     set_cached(ckey, res)
     return res

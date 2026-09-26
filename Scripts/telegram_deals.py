@@ -263,11 +263,12 @@ def build_deals_telegram_report(
             ema_col = "i.ema_200" if "ema_200" in ind_cols else "NULL as ema_200"
             away_col = "i.away_52w_high_pct" if "away_52w_high_pct" in ind_cols else "NULL as away_52w_high_pct"
             rs_col = "i.rs_percentile" if "rs_percentile" in ind_cols else "NULL as rs_percentile"
+            adv_col = "i.avg_traded_value_cr_20d" if "avg_traded_value_cr_20d" in ind_cols else "NULL as avg_traded_value_cr_20d"
             indicators_join = "LEFT JOIN indicators_daily i ON i.symbol = d.symbol AND i.trade_date = (SELECT max(trade_date) FROM indicators_daily)"
-            ind_select = f"{close_col}, {ema_col}, {away_col}, {rs_col}"
+            ind_select = f"{close_col}, {ema_col}, {away_col}, {rs_col}, {adv_col}"
         else:
             indicators_join = ""
-            ind_select = "NULL as close_price, NULL as ema_200, NULL as away_52w_high_pct, NULL as rs_percentile"
+            ind_select = "NULL as close_price, NULL as ema_200, NULL as away_52w_high_pct, NULL as rs_percentile, NULL as avg_traded_value_cr_20d"
 
         sql = f"""
         SELECT d.trade_date, d.symbol, d.client_name, d.side, d.deal_value_cr,
@@ -348,11 +349,59 @@ def build_deals_telegram_report(
         ema_200=("ema_200", "first"),
         away_52w_high_pct=("away_52w_high_pct", "first") if "away_52w_high_pct" in df.columns else ("close_price", lambda _: None),
         rs_percentile=("rs_percentile", "first") if "rs_percentile" in df.columns else ("close_price", lambda _: None),
+        avg_traded_value_cr_20d=("avg_traded_value_cr_20d", "first") if "avg_traded_value_cr_20d" in df.columns else ("close_price", lambda _: None),
         buy_cr=("deal_value_cr", lambda v: v[df.loc[v.index, "side"] == "BUY"].sum()),
         sell_cr=("deal_value_cr", lambda v: v[df.loc[v.index, "side"] == "SELL"].sum()),
         total_cr=("deal_value_cr", "sum"),
     ).reset_index()
     sym_meta["net_cr"] = sym_meta["buy_cr"] - sym_meta["sell_cr"]
+    if "avg_traded_value_cr_20d" not in sym_meta.columns:
+        sym_meta["avg_traded_value_cr_20d"] = float("nan")
+    sym_meta["avg_traded_value_cr_20d"] = pd.to_numeric(sym_meta["avg_traded_value_cr_20d"], errors="coerce")
+
+    # Same-day buy≈sell is a transfer, not new money. Cancel the matched rupees.
+    day_buy = (
+        df[df["side"].astype(str).str.upper().eq("BUY")]
+        .groupby(["symbol", "trade_date"])["deal_value_cr"].sum()
+    )
+    day_sell = (
+        df[df["side"].astype(str).str.upper().eq("SELL")]
+        .groupby(["symbol", "trade_date"])["deal_value_cr"].sum()
+    )
+    day_both = pd.concat([day_buy.rename("buy"), day_sell.rename("sell")], axis=1).fillna(0.0)
+    both_pos = (day_both["buy"] > 0) & (day_both["sell"] > 0)
+    ratio = day_both[["buy", "sell"]].min(axis=1) / day_both[["buy", "sell"]].max(axis=1).replace(0, pd.NA)
+    day_both["matched"] = 0.0
+    day_both.loc[both_pos & (ratio >= 0.80), "matched"] = day_both.loc[both_pos & (ratio >= 0.80), ["buy", "sell"]].min(axis=1)
+    transfer_map = day_both["matched"].groupby(level=0).sum()
+    sym_meta["transfer_cr"] = sym_meta["symbol"].map(transfer_map).fillna(0.0)
+    sym_meta["is_transfer"] = (sym_meta["transfer_cr"] >= 5.0) & (
+        sym_meta["net_cr"].abs() <= (sym_meta["transfer_cr"] * 0.15).clip(lower=1.0)
+    )
+
+    nonprop = df[df["category"] != "PROP"]
+    n_houses = nonprop.groupby("symbol")["client_name"].nunique()
+    house_days = nonprop.groupby(["symbol", "client_name"])["trade_date"].nunique()
+    repeat_houses = house_days[house_days >= 2].groupby(level=0).size()
+    sym_meta["n_houses"] = sym_meta["symbol"].map(n_houses).fillna(0).astype(int)
+    sym_meta["repeat_house"] = sym_meta["symbol"].map(lambda s: bool(repeat_houses.get(s, 0) >= 1))
+    adv = sym_meta["avg_traded_value_cr_20d"].replace(0, pd.NA)
+    sym_meta["size_vs_adv"] = (sym_meta["buy_cr"] - sym_meta["transfer_cr"]).clip(lower=0) / adv
+    sym_meta["size_vs_adv"] = pd.to_numeric(sym_meta["size_vs_adv"], errors="coerce")
+
+    def _play_reason(row) -> str:
+        if bool(row.get("is_transfer")):
+            return "Transfer"
+        if bool(row.get("repeat_house")) or int(row.get("deal_days") or 0) >= 2:
+            return "Repeat"
+        if int(row.get("n_houses") or 0) >= 2:
+            return "Cluster"
+        size = row.get("size_vs_adv")
+        if (pd.notna(size) and float(size) >= 0.5) or float(row.get("buy_cr") or 0) >= 25 or float(row.get("net_cr") or 0) >= 20:
+            return "Size"
+        return "Single"
+
+    sym_meta["play_reason"] = sym_meta.apply(_play_reason, axis=1)
 
     # -------------------------------------------------------------
     # QUALITY & QUARANTINE CLASSIFICATION
@@ -395,15 +444,23 @@ def build_deals_telegram_report(
     # -------------------------------------------------------------
     # 3-TIER ACTION-FIRST CLASSIFICATION (MUTUALLY EXCLUSIVE)
     # -------------------------------------------------------------
-    # Non-prop stocks with BUY side interest
-    quality_buys = quality_df[quality_df["buy_cr"] > 0].copy()
+    # Non-prop stocks with BUY side interest. Transfers (matched buy≈sell) are not buys.
+    quality_buys = quality_df[(quality_df["buy_cr"] > 0) & (~quality_df["is_transfer"])].copy()
+    transfer_df = quality_df[quality_df["is_transfer"]].sort_values("transfer_cr", ascending=False).copy()
 
-    # Tier 1: Conviction Accumulation — Multi-day persistence (2+ Deal Days) OR Substantial Buying (buy_cr >= 25 Cr or net_cr >= 20 Cr)
+    # Play = net long after transfers, with a repeat house, a second house, or real size.
+    # One-day whales (buy >= 25 Cr) stay in the list so a single institutional print is visible.
     conviction_df = quality_buys[
         (quality_buys["deal_days"] >= 2)
+        | (quality_buys["repeat_house"])
+        | (quality_buys["n_houses"] >= 2)
         | (quality_buys["buy_cr"] >= 25.0)
         | (quality_buys["net_cr"] >= 20.0)
-    ].sort_values(["deal_days", "buy_cr", "net_cr"], ascending=[False, False, False]).copy()
+        | (quality_buys["size_vs_adv"].fillna(0) >= 0.5)
+    ].sort_values(
+        ["repeat_house", "n_houses", "size_vs_adv", "net_cr"],
+        ascending=[False, False, False, False],
+    ).copy()
 
     conviction_syms = set(conviction_df["symbol"])
 
@@ -465,7 +522,9 @@ def build_deals_telegram_report(
     # -------------------------------------------------------------
     sec_conviction = to_tv_list(conviction_df["symbol"].tolist(), header="💎 Conviction Accumulation") if not conviction_df.empty else ""
     sec_fresh = to_tv_list(fresh_radar_df["symbol"].tolist(), header="⚡ Fresh Whale Radar") if not fresh_radar_df.empty else ""
-    sec_prop = to_tv_list(prop_only_df["symbol"].tolist(), header="🎯 Prop HFT Churn") if not prop_only_df.empty else ""
+    prop_symbols = prop_only_df["symbol"].tolist() if not prop_only_df.empty else []
+    sec_prop = to_tv_list(prop_symbols, header="🎯 Prop HFT Churn") if prop_symbols else ""
+    sec_prop_labeled = sec_prop
     sec_quarantined = to_tv_list(quarantined_df["symbol"].tolist(), header="📉 Quarantined (5% Band)") if not quarantined_df.empty else ""
     sec_below_200 = to_tv_list(below_200_df["symbol"].tolist(), header="🟡 Turnaround (<200 EMA)") if not below_200_df.empty else ""
     sec_top_sells = to_tv_list(top_sells["symbol"].tolist(), header="🔴 Institutional Exits") if not top_sells.empty else ""
@@ -779,6 +838,12 @@ def build_deals_telegram_report(
         "conviction_tv": sec_conviction,
         "fresh_radar_tv": sec_fresh,
         "prop_tv": sec_prop,
+        "prop_tv_labeled": sec_prop_labeled,
+        "play_tv": to_tv_list(
+            (conviction_df["symbol"].tolist() if not conviction_df.empty else [])
+            + (fresh_radar_df["symbol"].tolist() if not fresh_radar_df.empty else [])
+        ),
+        "transfer_tv": to_tv_list(transfer_df["symbol"].tolist()) if not transfer_df.empty else "",
         "quarantined_tv": sec_quarantined,
         "above_200_tv": sec_above_200,
         "turnaround_tv": sec_turnaround,
@@ -826,8 +891,10 @@ def build_deals_telegram_report(
             "sells": today_sell_summary,
         },
         "tiers": {
+            "play": pd.concat([conviction_df, fresh_radar_df], ignore_index=True) if not conviction_df.empty or not fresh_radar_df.empty else conviction_df,
             "conviction": conviction_df,
             "fresh_radar": fresh_radar_df,
+            "transfer": transfer_df,
             "prop_only": prop_only_df,
             "quarantined": quarantined_df,
             "distribution": distribution_df if not distribution_df.empty else top_sells,

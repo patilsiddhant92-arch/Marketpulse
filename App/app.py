@@ -1476,7 +1476,14 @@ def market_health_page() -> None:
     )
 
 
-def stock_rows_for_group(level_col: str, group_name: str, limit: int = 12, min_mcap: int = 1000) -> pd.DataFrame:
+def stock_rows_for_group(
+    level_col: str,
+    group_name: str,
+    limit: int = 12,
+    min_mcap: int = 1000,
+    above_ema200: bool = False,
+) -> pd.DataFrame:
+    ema_gate = "AND i.close_price > i.ema_200" if above_ema200 else ""
     return df_query(
         f"""
         WITH latest AS (SELECT max(trade_date) d FROM indicators_daily),
@@ -1509,8 +1516,9 @@ def stock_rows_for_group(level_col: str, group_name: str, limit: int = 12, min_m
         JOIN stocks_master m USING(symbol)
         LEFT JOIN deal_summary d USING(symbol)
         LEFT JOIN turnover t USING(symbol), latest
-        WHERE i.trade_date = latest.d AND m.{level_col} = ?
+        WHERE i.trade_date = latest.d AND trim(m.{level_col}) = ?
           AND coalesce(m.market_cap_cr, 0) >= ?
+          {ema_gate}
         ORDER BY i.rs_percentile DESC NULLS LAST, i.return_1m_pct DESC NULLS LAST, i.turnover_cr DESC NULLS LAST
         LIMIT ?
         """,

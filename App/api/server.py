@@ -45,10 +45,10 @@ from App.sector_read_model import (
     query_sector_breadth_divergence,
 )
 from App.deals_read_model import query_deals_advanced
-from Scripts.desk_contract import PRIMARY_QUEUES, match_exposure
+from Scripts.desk_contract import POOL, PRIMARY_QUEUES, match_exposure
 from Scripts.vcp import classify_vcp_frame
 from Scripts.institutional_engine import classify_client
-from Scripts.institutional_attribution import fetch_star_fund_radar
+from Scripts.institutional_attribution import clean_fund_name, fetch_star_fund_radar
 from Scripts.telegram_deals import build_deals_telegram_report, to_tv_list
 from Scripts.minervini_geometry import detect_contractions, load_template_context, load_ohlcv
 
@@ -829,23 +829,28 @@ def get_institutional_deals(
     star_radar = fetch_star_fund_radar(DB_PATH, lookback_days=lookback_days)
 
     tiers = report.get("tiers", {})
+    play_df = tiers.get("play", pd.DataFrame())
     conviction_df = tiers.get("conviction", pd.DataFrame())
     fresh_radar_df = tiers.get("fresh_radar", pd.DataFrame())
+    transfer_df = tiers.get("transfer", pd.DataFrame())
     prop_only_df = tiers.get("prop_only", pd.DataFrame())
     quarantined_df = tiers.get("quarantined", pd.DataFrame())
     distribution_df = tiers.get("distribution", pd.DataFrame())
 
     # Apply setup filter if requested
+    def _ema_slice(frame: pd.DataFrame, above: bool) -> pd.DataFrame:
+        if frame is None or frame.empty or "is_above_200" not in frame.columns:
+            return frame
+        return frame[frame["is_above_200"] if above else ~frame["is_above_200"]].copy()
+
     if setup_filter == "ABOVE_200":
-        if not conviction_df.empty and "is_above_200" in conviction_df.columns:
-            conviction_df = conviction_df[conviction_df["is_above_200"]].copy()
-        if not fresh_radar_df.empty and "is_above_200" in fresh_radar_df.columns:
-            fresh_radar_df = fresh_radar_df[fresh_radar_df["is_above_200"]].copy()
+        conviction_df = _ema_slice(conviction_df, True)
+        fresh_radar_df = _ema_slice(fresh_radar_df, True)
+        play_df = _ema_slice(play_df, True)
     elif setup_filter == "TURNAROUND":
-        if not conviction_df.empty and "is_above_200" in conviction_df.columns:
-            conviction_df = conviction_df[~conviction_df["is_above_200"]].copy()
-        if not fresh_radar_df.empty and "is_above_200" in fresh_radar_df.columns:
-            fresh_radar_df = fresh_radar_df[~fresh_radar_df["is_above_200"]].copy()
+        conviction_df = _ema_slice(conviction_df, False)
+        fresh_radar_df = _ema_slice(fresh_radar_df, False)
+        play_df = _ema_slice(play_df, False)
 
     def _df_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:
         if df.empty:
@@ -854,6 +859,7 @@ def get_institutional_deals(
         for _, r in df.iterrows():
             cats = r.get("categories", set())
             c_str = "/".join(sorted(list(cats))) if isinstance(cats, (set, list)) else str(cats)
+            size_vs = r.get("size_vs_adv")
             out.append({
                 "symbol": str(r.get("symbol", "")),
                 "deal_days": int(r.get("deal_days") or 1),
@@ -861,6 +867,10 @@ def get_institutional_deals(
                 "net_cr": round(_sanitize_float(r.get("net_cr")), 1),
                 "buy_cr": round(_sanitize_float(r.get("buy_cr")), 1),
                 "sell_cr": round(_sanitize_float(r.get("sell_cr")), 1),
+                "transfer_cr": round(_sanitize_float(r.get("transfer_cr")), 1),
+                "n_houses": int(r.get("n_houses") or 0),
+                "size_vs_adv": round(_sanitize_float(size_vs), 2) if pd.notna(size_vs) else None,
+                "play_reason": str(r.get("play_reason") or ""),
                 "close_price": round(_sanitize_float(r.get("close_price")), 2),
                 "ema_200": round(_sanitize_float(r.get("ema_200")), 2),
                 "trend": str(r.get("trend_stage") or ("🟢 >200 EMA" if r.get("is_above_200") else "🟡 Base / Turnaround")),
@@ -871,18 +881,26 @@ def get_institutional_deals(
             })
         return out
 
-    # Fund Leaderboard
+    # Fund Leaderboard + print-tape holdings (not a 13F book)
+    holdings_book = star_radar.get("holdings") or {}
     lead_df = star_radar.get("leaderboard", pd.DataFrame())
     leaderboard_records = []
     if not lead_df.empty:
         for _, lr in lead_df.iterrows():
+            house = str(lr.get("fund_house", ""))
+            names = holdings_book.get(house) or []
+            net_long = [h for h in names if float(h.get("net_cr") or 0) > 0]
             leaderboard_records.append({
-                "fund_house": str(lr.get("fund_house", "")),
+                "fund_house": house,
                 "tier": str(lr.get("fund_tier", "")),
                 "catalyst_score": round(_sanitize_float(lr.get("catalyst_score")), 1),
                 "win_rate_20d": round(_sanitize_float(lr.get("win_rate_20d")), 1),
                 "avg_runup": round(_sanitize_float(lr.get("avg_runup")), 1),
-                "bets_count": int(lr.get("bets_count") or 0),
+                "bets_count": int(lr.get("bets_count") or lr.get("total_bets") or 0),
+                "names_count": int(lr.get("names_count") or lr.get("unique_stocks") or len(names)),
+                "total_cr": round(_sanitize_float(lr.get("total_cr")), 1),
+                "holdings": names,
+                "net_long_count": len(net_long),
             })
 
     # Star Fund Radar Deals
@@ -902,20 +920,58 @@ def get_institutional_deals(
             "deal_cr": round(_sanitize_float(sd.get("deal_value_cr")), 1),
         })
 
+    today_deals: list[dict[str, Any]] = []
+    try:
+        with get_db() as con:
+            today_df = con.execute(
+                """
+                SELECT d.trade_date, d.symbol, d.client_name, d.side, d.price, d.deal_value_cr,
+                       d.clientele, d.is_prop, coalesce(d.market_cap_cr, 0) AS market_cap_cr,
+                       coalesce(d.sector, '') AS sector
+                FROM deals d
+                WHERE d.trade_date = (SELECT max(trade_date) FROM deals)
+                  AND coalesce(d.market_cap_cr, 0) >= ?
+                  AND upper(d.symbol) <> 'TOTAL'
+                ORDER BY d.deal_value_cr DESC NULLS LAST
+                LIMIT 250
+                """,
+                [float(min_mcap_cr)],
+            ).fetchdf()
+        for _, r in today_df.iterrows():
+            today_deals.append({
+                "symbol": str(r["symbol"]),
+                "client_name": str(r["client_name"]),
+                "fund_house": clean_fund_name(str(r["client_name"])),
+                "side": str(r["side"]).upper(),
+                "price": round(_sanitize_float(r["price"]), 2),
+                "deal_cr": round(_sanitize_float(r["deal_value_cr"]), 1),
+                "clientele": str(r.get("clientele") or ""),
+                "is_prop": bool(r.get("is_prop")),
+                "mcap_cr": round(_sanitize_float(r["market_cap_cr"]), 0),
+                "sector": str(r.get("sector") or ""),
+                "trade_date": str(pd.to_datetime(r["trade_date"]).date()),
+            })
+    except Exception:
+        today_deals = []
+
+    play_recs = _df_to_records(play_df)
     conviction_recs = _df_to_records(conviction_df)
     fresh_recs = _df_to_records(fresh_radar_df)
+    transfer_recs = _df_to_records(transfer_df)
 
-    # Multi-day persistence counts
-    cnt_4plus = sum(1 for r in conviction_recs if r["deal_days"] >= 4)
-    cnt_3 = sum(1 for r in conviction_recs if r["deal_days"] == 3)
-    cnt_2 = sum(1 for r in conviction_recs if r["deal_days"] == 2)
+    # Multi-day persistence counts on the Play list
+    cnt_4plus = sum(1 for r in play_recs if r["deal_days"] >= 4)
+    cnt_3 = sum(1 for r in play_recs if r["deal_days"] == 3)
+    cnt_2 = sum(1 for r in play_recs if r["deal_days"] == 2)
 
     return {
         "as_of": report.get("as_of"),
         "lookback_days": lookback_days,
         "counts": {
+            "play": len(play_recs),
             "conviction": len(conviction_recs),
             "fresh_radar": len(fresh_recs),
+            "transfer": len(transfer_recs),
             "four_plus_days": cnt_4plus,
             "three_days": cnt_3,
             "two_days": cnt_2,
@@ -924,110 +980,140 @@ def get_institutional_deals(
             "distribution": len(distribution_df),
             "star_deals": len(star_deals),
             "funds": len(leaderboard_records),
+            "today": len(today_deals),
         },
+        "play": play_recs,
         "conviction": conviction_recs,
         "fresh_radar": fresh_recs,
+        "transfer": transfer_recs,
         "prop_only": _df_to_records(prop_only_df),
         "quarantined": _df_to_records(quarantined_df),
         "distribution": _df_to_records(distribution_df),
         "star_radar": star_deals,
         "fund_leaderboard": leaderboard_records,
-        "tv_strings": report.get("tv_strings", {}),
+        "today_deals": today_deals,
+        "tv_strings": {
+            **(report.get("tv_strings") or {}),
+            "star_radar_tv": star_radar.get("tv_list") or "",
+        },
     }
 
 
 # =========================================================================
 # 6. Sector Relative Strength & Breadth Matrix API
 # =========================================================================
+def _sector_horizon_stats(level: str, lookback_days: int) -> dict[str, dict[str, Any]]:
+    """Liquid-universe (≥ ₹1,000 Cr) group stats for the selected horizon."""
+    col = "broad_industry"
+    if level == "Sector":
+        col = "sector"
+    elif level == "Industry":
+        col = "industry"
+    lookback = max(5, min(int(lookback_days or 30), 80))
+    min_mcap = float(POOL["min_mcap"])
+    out: dict[str, dict[str, Any]] = {}
+    with get_db() as con:
+        dates = [row[0] for row in con.execute(
+            "SELECT DISTINCT trade_date FROM indicators_daily ORDER BY trade_date DESC LIMIT ?",
+            [lookback + 1],
+        ).fetchall()]
+        if len(dates) < 2:
+            return out
+        latest, past = dates[0], dates[-1]
+        bars = con.execute(
+            f"""
+            SELECT i.trade_date, i.symbol, trim(m.{col}) AS group_name,
+                   i.close_price, i.prev_close, i.ema_200, i.ema_50, i.turnover_cr,
+                   i.rs_percentile, i.away_52w_high_pct,
+                   coalesce(m.market_cap_cr, 0) AS market_cap_cr
+            FROM indicators_daily i
+            JOIN stocks_master m ON m.symbol = i.symbol
+            WHERE i.trade_date IN (?, ?)
+              AND coalesce(m.market_cap_cr, 0) >= ?
+              AND upper(i.symbol) <> 'TOTAL'
+              AND nullif(trim(m.{col}), '') IS NOT NULL
+            """,
+            [latest, past, min_mcap],
+        ).fetchdf()
+    if bars.empty:
+        return out
+    bars["close_price"] = pd.to_numeric(bars["close_price"], errors="coerce")
+    bars["ema_200"] = pd.to_numeric(bars["ema_200"], errors="coerce")
+    bars["ema_50"] = pd.to_numeric(bars["ema_50"], errors="coerce")
+    bars["turnover_cr"] = pd.to_numeric(bars["turnover_cr"], errors="coerce").fillna(0.0)
+    bars["rs_percentile"] = pd.to_numeric(bars["rs_percentile"], errors="coerce")
+    bars["prev_close"] = pd.to_numeric(bars["prev_close"], errors="coerce")
+    bars["away_52w_high_pct"] = pd.to_numeric(bars["away_52w_high_pct"], errors="coerce")
+    now = bars[bars["trade_date"] == latest].copy()
+    past_bars = bars[bars["trade_date"] == past].copy()
+    then = past_bars[["symbol", "close_price"]].rename(columns={"close_price": "close_past"})
+    merged = now.merge(then, on="symbol", how="inner")
+    merged["horizon_ret"] = np.where(
+        merged["close_past"] > 0, merged["close_price"] / merged["close_past"] - 1.0, np.nan
+    )
+    tot_now = float(now["turnover_cr"].sum()) or 1.0
+    tot_past = float(past_bars["turnover_cr"].sum()) or 1.0
+    share_now = now.groupby("group_name")["turnover_cr"].sum() / tot_now * 100.0
+    share_past = (
+        past_bars.groupby("group_name")["turnover_cr"].sum() / tot_past * 100.0
+        if not past_bars.empty
+        else pd.Series(dtype=float)
+    )
+    ret_map = merged.groupby("group_name")["horizon_ret"].mean() * 100.0
+    for gname, g in now.groupby("group_name"):
+        above200 = g["close_price"] > g["ema_200"]
+        tile = g.loc[above200].sort_values(["rs_percentile", "turnover_cr"], ascending=[False, False])
+        chips = []
+        for _, row in tile.head(5).iterrows():
+            day_pct = (
+                (float(row["close_price"]) / float(row["prev_close"]) - 1.0) * 100.0
+                if pd.notna(row["prev_close"]) and float(row["prev_close"]) > 0
+                else 0.0
+            )
+            chips.append(
+                {
+                    "symbol": str(row["symbol"]),
+                    "rs_percentile": round(float(row["rs_percentile"]) if pd.notna(row["rs_percentile"]) else 0.0, 1),
+                    "change_1d_pct": round(day_pct, 2),
+                }
+            )
+        s_now = float(share_now.get(gname, 0.0))
+        s_past = float(share_past.get(gname, 0.0)) if gname in share_past.index else 0.0
+        out[str(gname)] = {
+            "total_stocks": int(len(g)),
+            "stage2_count": int(((g["close_price"] > g["ema_200"]) & (g["away_52w_high_pct"] >= -25)).sum()),
+            "stage2_percentage": round(float(((g["close_price"] > g["ema_200"]) & (g["away_52w_high_pct"] >= -25)).mean() * 100.0), 1),
+            "median_rs": round(float(g["rs_percentile"].median()) if g["rs_percentile"].notna().any() else 0.0, 1),
+            "above_50_ema_pct": round(float((g["close_price"] > g["ema_50"]).mean() * 100.0), 1),
+            "above_200_ema_pct": round(float(above200.mean() * 100.0), 1),
+            "near_52w_highs": int((g["away_52w_high_pct"] >= -5).sum()),
+            "turnover_1d_cr": round(float(g["turnover_cr"].sum()), 1),
+            "turnover_share_pct": round(s_now, 2),
+            "turnover_share_delta_horizon": round(s_now - s_past, 2),
+            "horizon_return_pct": round(float(ret_map.get(gname, 0.0)), 2) if gname in ret_map.index else 0.0,
+            "leader_chips": chips,
+            "tile_symbols": [str(s) for s in tile["symbol"].tolist()],
+        }
+    return out
+
+
 @app.get("/api/sector/rotation")
 def get_sector_rotation(
     level: str = Query("Broad Industry", enum=["Sector", "Broad Industry", "Industry"]),
     lookback_days: int = Query(30, description="Trailing lookback sessions"),
     states: Optional[list[str]] = Query(None, description="Filter by rotation states (e.g. Leading, Emerging, Improving, Weakening, Lagging, Neutral)"),
 ):
-    """
-    Sector Relative Strength (5D/20D/63D), visual breadth, and multi-horizon rotation.
-    Synthesizes Stage 2 participation %, median RS, turnover share delta, and inflow streaks.
-    """
+    """Sector matrix. Horizon (10/30/63 sessions) drives return and liquid-tape share Δ."""
     board = query_rotation_board(DB_PATH, level=level)
+    horizon = _sector_horizon_stats(level, lookback_days)
     if board.empty:
-        return {"total_count": 0, "filtered_count": 0, "state_counts": {}, "sectors": []}
+        return {"total_count": 0, "filtered_count": 0, "state_counts": {}, "sectors": [], "lookback_days": lookback_days}
 
     try:
         div_df = query_sector_breadth_divergence(DB_PATH)
         div_map = {str(r["group_name"]): str(r["divergence_status"]) for _, r in div_df.iterrows()}
     except Exception:
         div_map = {}
-
-    col = "broad_industry"
-    if level == "Sector":
-        col = "sector"
-    elif level == "Industry":
-        col = "industry"
-
-    # Query live Stage 2 metrics and leader details from DuckDB
-    stage2_map = {}
-    leaders_map = {}
-    try:
-        with get_db() as con:
-            stats_df = con.execute(f"""
-                WITH latest_date AS (SELECT MAX(trade_date) as td FROM indicators_daily),
-                stage2_stats AS (
-                    SELECT 
-                        trim(m.{col}) as group_name,
-                        count(*) as total_stocks,
-                        count(CASE WHEN i.close_price > i.ema_200 AND i.away_52w_high_pct >= -25 THEN 1 END) as stage2_count,
-                        round(count(CASE WHEN i.close_price > i.ema_200 AND i.away_52w_high_pct >= -25 THEN 1 END) * 100.0 / nullif(count(*), 0), 1) as stage2_pct,
-                        round(median(i.rs_percentile), 1) as median_rs
-                    FROM indicators_daily i
-                    JOIN stocks_master m ON m.symbol = i.symbol
-                    WHERE i.trade_date = (SELECT td FROM latest_date)
-                      AND nullif(trim(m.{col}), '') IS NOT NULL
-                    GROUP BY 1
-                ),
-                leaders AS (
-                    SELECT 
-                        trim(m.{col}) as group_name,
-                        i.symbol,
-                        round(coalesce(i.rs_percentile, 50.0), 1) as rs_percentile,
-                        round(((i.close_price - i.prev_close) / nullif(i.prev_close, 0)) * 100, 2) as change_1d_pct,
-                        row_number() over (partition by trim(m.{col}) order by i.rs_percentile desc nulls last) as rn
-                    FROM indicators_daily i
-                    JOIN stocks_master m ON m.symbol = i.symbol
-                    WHERE i.trade_date = (SELECT td FROM latest_date)
-                      AND nullif(trim(m.{col}), '') IS NOT NULL
-                )
-                SELECT s.*, 
-                       string_agg(l.symbol || ':' || coalesce(cast(l.rs_percentile as varchar), '0') || ':' || coalesce(cast(l.change_1d_pct as varchar), '0'), ',' order by l.rn) as top3_leaders
-                FROM stage2_stats s
-                LEFT JOIN leaders l ON s.group_name = l.group_name AND l.rn <= 3
-                GROUP BY s.group_name, s.total_stocks, s.stage2_count, s.stage2_pct, s.median_rs
-            """).fetchdf()
-
-            for _, row in stats_df.iterrows():
-                gn = str(row["group_name"])
-                stage2_map[gn] = {
-                    "total_stocks": int(row["total_stocks"] or 0),
-                    "stage2_count": int(row["stage2_count"] or 0),
-                    "stage2_percentage": _sanitize_float(row["stage2_pct"]),
-                    "median_rs": _sanitize_float(row["median_rs"]),
-                }
-                ldrs = []
-                if row.get("top3_leaders"):
-                    for item in str(row["top3_leaders"]).split(","):
-                        parts = item.split(":")
-                        if len(parts) >= 3:
-                            try:
-                                ldrs.append({
-                                    "symbol": parts[0],
-                                    "rs_percentile": round(float(parts[1]), 1),
-                                    "change_1d_pct": round(float(parts[2]), 2),
-                                })
-                            except Exception:
-                                pass
-                leaders_map[gn] = ldrs
-    except Exception as e:
-        print(f"Error querying stage2 stats: {e}")
 
     all_results = []
     state_counts = {
@@ -1047,38 +1133,45 @@ def get_sector_rotation(
         else:
             state_counts[st] = 1
 
-        st_data = stage2_map.get(g_name, {})
-        ld_data = leaders_map.get(g_name, [])
+        hz = horizon.get(g_name, {})
+        tile_syms = hz.get("tile_symbols") or []
+        chips = hz.get("leader_chips") or []
+        horizon_ret = hz.get("horizon_return_pct", _sanitize_float(r.get("return_1m_pct")))
+        share_delta = hz.get("turnover_share_delta_horizon", _sanitize_float(r.get("turnover_share_delta_5d")))
 
         all_results.append({
             "sector": g_name,
-            "total_stocks": st_data.get("total_stocks", int(r.get("stocks") or 0)),
-            "stage2_count": st_data.get("stage2_count", 0),
-            "stage2_percentage": st_data.get("stage2_percentage", 0.0),
-            "median_rs": st_data.get("median_rs", _sanitize_float(r.get("rs_percentile"))),
+            "total_stocks": hz.get("total_stocks", int(r.get("stocks") or 0)),
+            "stage2_count": hz.get("stage2_count", 0),
+            "stage2_percentage": hz.get("stage2_percentage", 0.0),
+            "median_rs": hz.get("median_rs", _sanitize_float(r.get("rs_percentile"))),
             "return_5d_pct": _sanitize_float(r.get("return_5d_pct")),
-            "return_20d_pct": _sanitize_float(r.get("return_1m_pct")),
+            "return_20d_pct": horizon_ret,
             "return_63d_pct": _sanitize_float(r.get("return_3m_pct")),
-            "rs_percentile": _sanitize_float(r.get("rs_percentile")),
+            "horizon_return_pct": horizon_ret,
+            "rs_percentile": hz.get("median_rs", _sanitize_float(r.get("rs_percentile"))),
             "advancers_pct": _sanitize_float(r.get("adv_pct") or 55.0),
             "above_10_ema_pct": _sanitize_float(r.get("above_10ema_pct")),
-            "above_50_ema_pct": _sanitize_float(r.get("above_50ema_pct")),
-            "above_200_ema_pct": _sanitize_float(r.get("above_200ema_pct")),
-            "near_52w_highs": int(r.get("near_52w_highs") or 0),
+            "above_50_ema_pct": hz.get("above_50_ema_pct", _sanitize_float(r.get("above_50ema_pct"))),
+            "above_200_ema_pct": hz.get("above_200_ema_pct", _sanitize_float(r.get("above_200ema_pct"))),
+            "near_52w_highs": hz.get("near_52w_highs", int(r.get("near_52w_highs") or 0)),
             "rotation_state": st,
             "rotation_rank": int(r.get("rotation_rank") or 0),
-            "turnover_1d_cr": round(_sanitize_float(r.get("turnover_1d_cr")), 1),
-            "turnover_share_pct": round(_sanitize_float(r.get("turnover_share_pct")), 2),
+            "turnover_1d_cr": hz.get("turnover_1d_cr", round(_sanitize_float(r.get("turnover_1d_cr")), 1)),
+            "turnover_share_pct": hz.get("turnover_share_pct", round(_sanitize_float(r.get("turnover_share_pct")), 2)),
             "turnover_share_delta_1d": round(_sanitize_float(r.get("turnover_share_delta_1d")), 2),
-            "turnover_share_delta_5d": round(_sanitize_float(r.get("turnover_share_delta_5d")), 2),
+            "turnover_share_delta_5d": share_delta,
             "turnover_expansion": str(r.get("turnover_expansion", "—")),
             "divergence_status": div_map.get(g_name, "In-Sync"),
-            "leaders": [s.strip() for s in str(r.get("leader_symbols", "")).split(",") if s.strip()][:5],
-            "leader_chips": ld_data,
+            "leaders": tile_syms[:5] if tile_syms else [s.strip() for s in str(r.get("leader_symbols", "")).split(",") if s.strip()][:5],
+            "leader_chips": chips,
+            "tile_symbols": tile_syms,
+            "lookback_days": lookback_days,
         })
 
-    if states:
-        filtered = [r for r in all_results if r["rotation_state"] in states]
+    state_filter = states if isinstance(states, (list, tuple, set)) else None
+    if state_filter:
+        filtered = [r for r in all_results if r["rotation_state"] in state_filter]
     else:
         filtered = all_results
 
@@ -1086,6 +1179,7 @@ def get_sector_rotation(
         "total_count": len(all_results),
         "filtered_count": len(filtered),
         "state_counts": state_counts,
+        "lookback_days": lookback_days,
         "sectors": filtered,
     }
 
@@ -1093,131 +1187,269 @@ def get_sector_rotation(
 # =========================================================================
 # 5B. Capital Flow & Multi-Horizon Rotation Radar
 # =========================================================================
+def _empty_capital_flow() -> dict[str, Any]:
+    return {
+        "as_of": "",
+        "universe": {
+            "min_mcap_cr": float(POOL["min_mcap"]),
+            "min_adv_cr": float(POOL["min_adv_cr"]),
+            "min_price": 10.0,
+            "stock_count": 0,
+        },
+        "top_inflows_1d": [],
+        "top_outflows_1d": [],
+        "top_inflows_5d": [],
+        "top_outflows_5d": [],
+        "top_inflows_1m": [],
+        "top_outflows_1m": [],
+        "stock_accumulators": [],
+    }
+
+
 @app.get("/api/market/capital-flow")
 def get_capital_flow(level: str = Query("Sector")):
-    """
-    Market-wide Capital Flow Radar across 1D (Session Tape), 1W (5D Shift), and 1M (21D Rotation).
-    Identifies sectors capturing turnover share vs sectors suffering capital exodus.
-    Also returns top stock accumulators (Turnover expansion > 2x with price up & delivery surge).
+    """Capital Flow Radar on the tradeable universe: mcap ≥ ₹1,000 Cr, ADV ≥ ₹3 Cr, CMP ≥ ₹10.
+
+    Group rotation is share of *liquid* turnover (not the all-cap tape).
+    1D / 5D / 1M are turnover-share deltas, not price returns.
+    Accumulators exclude cheap / illiquid names.
     """
     lvl_lower = level.strip().lower()
     if lvl_lower in ["sector", "sectors"]:
         clean_level = "Sector"
+        group_col = "sector"
+        min_group_turnover = 50.0
     elif lvl_lower in ["industry", "industries"]:
         clean_level = "Industry"
+        group_col = "industry"
+        min_group_turnover = 25.0
     else:
         clean_level = "Broad Industry"
+        group_col = "broad_industry"
+        min_group_turnover = 50.0
+
+    min_mcap = float(POOL["min_mcap"])
+    min_adv = float(POOL["min_adv_cr"])
+    min_band = float(POOL["min_band"])
+    min_price = 10.0
 
     with get_db() as con:
-        max_d = con.execute("SELECT max(trade_date) FROM sector_rotation").fetchone()[0]
-        if not max_d:
-            return {
-                "as_of": "",
-                "top_inflows_1d": [],
-                "top_outflows_1d": [],
-                "top_inflows_5d": [],
-                "top_outflows_5d": [],
-                "top_inflows_1m": [],
-                "top_outflows_1m": [],
-                "stock_accumulators": [],
-            }
+        dates = con.execute(
+            "SELECT DISTINCT trade_date FROM indicators_daily ORDER BY trade_date DESC LIMIT 22"
+        ).fetchall()
+        if not dates:
+            return _empty_capital_flow()
+        session_dates = [row[0] for row in dates]
+        latest = session_dates[0]
+        d1 = session_dates[1] if len(session_dates) > 1 else None
+        d5 = session_dates[5] if len(session_dates) > 5 else None
+        d21 = session_dates[21] if len(session_dates) > 21 else None
+        wanted = [d for d in (latest, d1, d5, d21) if d is not None]
 
-        # Query sector rotation board at this level
-        df = con.execute("""
-            SELECT group_name, turnover_1d_cr, turnover_share_pct, turnover_share_delta_1d, turnover_share_delta_5d,
-                   return_5d_pct, return_1m_pct, return_3m_pct, above_200ema_pct, rotation_state, leader_symbols
-            FROM sector_rotation
-            WHERE level = ? AND trade_date = ?
-        """, [clean_level, max_d]).fetchdf()
+        liquid = con.execute(
+            f"""
+            SELECT
+                i.trade_date,
+                i.symbol,
+                trim(m.{group_col}) AS group_name,
+                i.turnover_cr,
+                i.close_price,
+                i.prev_close,
+                i.avg_traded_value_cr_20d,
+                i.delivery_pct,
+                i.delivery_qty,
+                i.avg_delivery_qty_20d,
+                i.delivery_spike,
+                i.price_up_delivery_up,
+                i.rs_percentile,
+                i.ema_200,
+                i.avg_trade_size,
+                i.avg_trade_size_20d,
+                coalesce(m.market_cap_cr, 0) AS market_cap_cr,
+                coalesce(m.security_name, i.symbol) AS security_name,
+                m.sector,
+                m.industry
+            FROM indicators_daily i
+            JOIN stocks_master m ON m.symbol = i.symbol
+            WHERE i.trade_date IN ({",".join(["?"] * len(wanted))})
+              AND upper(i.symbol) <> 'TOTAL'
+              AND coalesce(m.market_cap_cr, 0) >= ?
+              AND coalesce(i.avg_traded_value_cr_20d, 0) >= ?
+              AND coalesce(i.close_price, 0) >= ?
+              AND coalesce(m.band, 20) > ?
+              AND nullif(trim(m.{group_col}), '') IS NOT NULL
+            """,
+            [*wanted, min_mcap, min_adv, min_price, min_band],
+        ).fetchdf()
 
-        # Query net institutional deal flow per group over last 10 days
-        col_name = "broad_industry" if clean_level == "Broad Industry" else ("sector" if clean_level == "Sector" else "industry")
         try:
-            deals_df = con.execute(f"""
-                SELECT 
-                    trim(m.{col_name}) as group_name,
-                    round(sum(CASE WHEN upper(d.side) LIKE '%BUY%' THEN d.deal_value_cr ELSE -d.deal_value_cr END), 1) as net_deal_cr
+            deals_df = con.execute(
+                f"""
+                SELECT
+                    trim(m.{group_col}) AS group_name,
+                    round(sum(CASE WHEN upper(d.side) LIKE '%BUY%' THEN d.deal_value_cr ELSE -d.deal_value_cr END), 1) AS net_deal_cr
                 FROM deals d
                 JOIN stocks_master m ON m.symbol = d.symbol
                 WHERE d.trade_date >= (SELECT max(trade_date) - INTERVAL 10 DAY FROM deals)
-                  AND nullif(trim(m.{col_name}), '') IS NOT NULL
+                  AND coalesce(m.market_cap_cr, 0) >= ?
+                  AND nullif(trim(m.{group_col}), '') IS NOT NULL
+                  AND upper(m.symbol) <> 'TOTAL'
                 GROUP BY 1
-            """).fetchdf()
+                """,
+                [min_mcap],
+            ).fetchdf()
             deals_map = dict(zip(deals_df["group_name"], deals_df["net_deal_cr"])) if not deals_df.empty else {}
         except Exception:
             deals_map = {}
 
-        # Top Stock Accumulators across market
-        acc_df = con.execute("""
-            SELECT 
-                i.symbol, m.security_name, m.sector, m.industry, i.close_price,
-                round(((i.close_price - nullif(i.prev_close, 0))/nullif(i.prev_close, 0))*100, 2) AS day_pct,
-                round(i.turnover_cr, 1) as turnover_cr,
-                round(i.avg_traded_value_cr_20d, 1) as avg_turnover_20d_cr,
-                round(((i.turnover_cr - nullif(i.avg_traded_value_cr_20d, 0))/nullif(i.avg_traded_value_cr_20d, 0))*100, 1) as turnover_expansion_pct,
-                round(i.delivery_qty / nullif(i.avg_delivery_qty_20d, 0), 2) as delivery_ratio,
-                round(i.delivery_pct, 1) as delivery_pct,
-                round(coalesce(i.rs_percentile, 50.0), 1) as rs_percentile,
-                i.delivery_spike, i.price_up_delivery_up,
-                round(i.avg_trade_size / nullif(i.avg_trade_size_20d, 0), 2) as ticket_ratio
-            FROM indicators_daily i
-            JOIN stocks_master m ON m.symbol = i.symbol
-            WHERE i.trade_date = (SELECT max(trade_date) FROM indicators_daily)
-              AND i.turnover_cr >= 5.0
-              AND (i.price_up_delivery_up = true OR i.delivery_spike = true)
-              AND i.close_price > i.prev_close
-            ORDER BY turnover_expansion_pct DESC
-            LIMIT 25
-        """).fetchdf()
+    if liquid.empty:
+        empty = _empty_capital_flow()
+        empty["as_of"] = str(pd.to_datetime(latest).date())
+        return empty
+
+    liquid["turnover_cr"] = pd.to_numeric(liquid["turnover_cr"], errors="coerce").fillna(0.0)
+    liquid["rs_percentile"] = pd.to_numeric(liquid["rs_percentile"], errors="coerce")
+    latest_bars = liquid[liquid["trade_date"] == latest].copy()
+    stock_count = int(latest_bars["symbol"].nunique())
+
+    def _share_map(day) -> dict[str, float]:
+        if day is None:
+            return {}
+        slice_df = liquid[liquid["trade_date"] == day]
+        if slice_df.empty:
+            return {}
+        grouped = slice_df.groupby("group_name", dropna=True)["turnover_cr"].sum()
+        total = float(grouped.sum())
+        if total <= 0:
+            return {}
+        return (grouped / total * 100.0).to_dict()
+
+    share_0 = _share_map(latest)
+    share_1 = _share_map(d1)
+    share_5 = _share_map(d5)
+    share_21 = _share_map(d21)
+
+    agg = latest_bars.groupby("group_name", dropna=True).agg(
+        turnover_cr=("turnover_cr", "sum"),
+        n=("symbol", "nunique"),
+        above_200=("close_price", lambda s: (s > pd.to_numeric(latest_bars.loc[s.index, "ema_200"], errors="coerce")).mean() * 100.0),
+        return_5d_pct=("close_price", "count"),
+    )
+
+    # Stage-2 % from the same liquid slice
+    above_map = (
+        latest_bars.assign(
+            _ab200=(
+                pd.to_numeric(latest_bars["close_price"], errors="coerce")
+                > pd.to_numeric(latest_bars["ema_200"], errors="coerce")
+            )
+        )
+        .groupby("group_name")["_ab200"]
+        .mean()
+        * 100.0
+    )
+
+    leaders_src = latest_bars.sort_values(
+        ["group_name", "turnover_cr", "rs_percentile", "symbol"],
+        ascending=[True, False, False, True],
+        na_position="last",
+    )
+    leader_map = (
+        leaders_src.groupby("group_name", sort=False)["symbol"]
+        .apply(lambda s: [str(x) for x in s.head(3).tolist()])
+        .to_dict()
+    )
 
     records = []
-    for _, r in df.iterrows():
-        gname = str(r["group_name"])
-        leaders = [s.strip() for s in str(r.get("leader_symbols") or "").split(",") if s.strip()][:3]
-        records.append({
-            "group_name": gname,
-            "level": clean_level,
-            "turnover_cr": round(_sanitize_float(r.get("turnover_1d_cr")), 1),
-            "turnover_share_pct": round(_sanitize_float(r.get("turnover_share_pct")), 2),
-            "turnover_share_delta_1d": round(_sanitize_float(r.get("turnover_share_delta_1d")), 2),
-            "turnover_share_delta_5d": round(_sanitize_float(r.get("turnover_share_delta_5d")), 2),
-            "return_5d_pct": round(_sanitize_float(r.get("return_5d_pct")), 1),
-            "return_1m_pct": round(_sanitize_float(r.get("return_1m_pct")), 1),
-            "return_3m_pct": round(_sanitize_float(r.get("return_3m_pct")), 1),
-            "above_200_ema_pct": round(_sanitize_float(r.get("above_200ema_pct")), 1),
-            "rotation_state": str(r.get("rotation_state") or "Neutral"),
-            "deal_net_cr": deals_map.get(gname, 0.0),
-            "leaders": leaders,
-        })
+    for gname, to_cr in agg["turnover_cr"].items():
+        if float(to_cr) < min_group_turnover:
+            continue
+        s0 = float(share_0.get(gname, 0.0))
+        records.append(
+            {
+                "group_name": str(gname),
+                "level": clean_level,
+                "turnover_cr": round(float(to_cr), 1),
+                "turnover_share_pct": round(s0, 2),
+                "turnover_share_delta_1d": round(s0 - float(share_1.get(gname, 0.0)), 2) if d1 is not None else 0.0,
+                "turnover_share_delta_5d": round(s0 - float(share_5.get(gname, 0.0)), 2) if d5 is not None else 0.0,
+                "turnover_share_delta_21d": round(s0 - float(share_21.get(gname, 0.0)), 2) if d21 is not None else 0.0,
+                "return_5d_pct": 0.0,
+                "return_1m_pct": 0.0,
+                "return_3m_pct": 0.0,
+                "above_200_ema_pct": round(float(above_map.get(gname, 0.0)), 1),
+                "rotation_state": "Leading" if (s0 - float(share_5.get(gname, 0.0) if d5 is not None else 0.0)) > 0.3 else (
+                    "Lagging" if (s0 - float(share_5.get(gname, 0.0) if d5 is not None else 0.0)) < -0.3 else "Neutral"
+                ),
+                "deal_net_cr": float(deals_map.get(gname, 0.0) or 0.0),
+                "leaders": leader_map.get(gname, []),
+                "liquid_names": int(agg.loc[gname, "n"]) if gname in agg.index else 0,
+            }
+        )
 
-    # Sort records for 1D, 5D, 1M
     by_1d = sorted(records, key=lambda x: x["turnover_share_delta_1d"], reverse=True)
-    top_inflows_1d = by_1d[:8]
+    top_inflows_1d = [r for r in by_1d if r["turnover_share_delta_1d"] > 0][:8]
     top_outflows_1d = sorted([r for r in by_1d if r["turnover_share_delta_1d"] < 0], key=lambda x: x["turnover_share_delta_1d"])[:8]
 
     by_5d = sorted(records, key=lambda x: x["turnover_share_delta_5d"], reverse=True)
-    top_inflows_5d = by_5d[:8]
+    top_inflows_5d = [r for r in by_5d if r["turnover_share_delta_5d"] > 0][:8]
     top_outflows_5d = sorted([r for r in by_5d if r["turnover_share_delta_5d"] < 0], key=lambda x: x["turnover_share_delta_5d"])[:8]
 
-    by_1m = sorted(records, key=lambda x: x["return_1m_pct"], reverse=True)
-    top_inflows_1m = by_1m[:8]
-    top_outflows_1m = sorted([r for r in by_1m if r["return_1m_pct"] < 0], key=lambda x: x["return_1m_pct"])[:8]
+    by_1m = sorted(records, key=lambda x: x["turnover_share_delta_21d"], reverse=True)
+    top_inflows_1m = [r for r in by_1m if r["turnover_share_delta_21d"] > 0][:8]
+    top_outflows_1m = sorted([r for r in by_1m if r["turnover_share_delta_21d"] < 0], key=lambda x: x["turnover_share_delta_21d"])[:8]
+
+    acc = latest_bars.copy()
+    acc["day_pct"] = np.where(
+        pd.to_numeric(acc["prev_close"], errors="coerce") > 0,
+        (pd.to_numeric(acc["close_price"], errors="coerce") / pd.to_numeric(acc["prev_close"], errors="coerce") - 1.0) * 100.0,
+        np.nan,
+    )
+    acc["turnover_expansion_pct"] = np.where(
+        pd.to_numeric(acc["avg_traded_value_cr_20d"], errors="coerce") > 0,
+        (pd.to_numeric(acc["turnover_cr"], errors="coerce") / pd.to_numeric(acc["avg_traded_value_cr_20d"], errors="coerce") - 1.0) * 100.0,
+        np.nan,
+    )
+    acc["delivery_ratio"] = np.where(
+        pd.to_numeric(acc["avg_delivery_qty_20d"], errors="coerce") > 0,
+        pd.to_numeric(acc["delivery_qty"], errors="coerce") / pd.to_numeric(acc["avg_delivery_qty_20d"], errors="coerce"),
+        np.nan,
+    )
+    acc["ticket_ratio"] = np.where(
+        pd.to_numeric(acc["avg_trade_size_20d"], errors="coerce") > 0,
+        pd.to_numeric(acc["avg_trade_size"], errors="coerce") / pd.to_numeric(acc["avg_trade_size_20d"], errors="coerce"),
+        np.nan,
+    )
+    acc_mask = (
+        (acc["turnover_cr"] >= 10.0)
+        & (acc["day_pct"] > 0)
+        & (acc["turnover_expansion_pct"] >= 30.0)
+        & (
+            acc["delivery_spike"].fillna(False).astype(bool)
+            | acc["price_up_delivery_up"].fillna(False).astype(bool)
+            | (acc["delivery_ratio"].fillna(0) >= 1.0)
+        )
+    )
+    acc_df = acc.loc[acc_mask].sort_values(["turnover_cr", "turnover_expansion_pct"], ascending=[False, False]).head(25)
 
     stock_accumulators = []
     if not acc_df.empty:
         for _, r in acc_df.iterrows():
+            rs_val = r.get("rs_percentile")
+            rs_num = _sanitize_float(rs_val) if pd.notna(rs_val) else None
             stock_accumulators.append({
                 "symbol": str(r["symbol"]),
                 "security_name": str(r["security_name"]),
                 "sector": str(r["sector"]),
                 "industry": str(r["industry"]),
                 "cmp": round(_sanitize_float(r["close_price"]), 2),
+                "mcap_cr": round(_sanitize_float(r["market_cap_cr"]), 0),
                 "day_pct": round(_sanitize_float(r["day_pct"]), 2),
                 "turnover_cr": round(_sanitize_float(r["turnover_cr"]), 1),
                 "turnover_expansion_pct": round(_sanitize_float(r["turnover_expansion_pct"]), 1),
                 "delivery_ratio": round(_sanitize_float(r["delivery_ratio"]), 2),
                 "delivery_pct": round(_sanitize_float(r["delivery_pct"]), 1),
-                "rs_percentile": round(_sanitize_float(r["rs_percentile"]), 1),
+                "rs_percentile": round(rs_num, 1) if rs_num is not None else None,
                 "ticket_ratio": round(_sanitize_float(r["ticket_ratio"]), 2),
                 "is_whale": bool(_sanitize_float(r["ticket_ratio"]) >= 1.25),
                 "deliv_spike": bool(r.get("delivery_spike")),
@@ -1225,7 +1457,13 @@ def get_capital_flow(level: str = Query("Sector")):
             })
 
     return {
-        "as_of": str(pd.to_datetime(max_d).date()),
+        "as_of": str(pd.to_datetime(latest).date()),
+        "universe": {
+            "min_mcap_cr": min_mcap,
+            "min_adv_cr": min_adv,
+            "min_price": min_price,
+            "stock_count": stock_count,
+        },
         "top_inflows_1d": top_inflows_1d,
         "top_outflows_1d": top_outflows_1d,
         "top_inflows_5d": top_inflows_5d,
@@ -1689,15 +1927,18 @@ def get_stock_peers(symbol: str):
 def get_sector_group_stocks(
     group_name: str,
     level: str = Query("Broad Industry", enum=["Sector", "Broad Industry", "Industry"]),
-    limit: int = Query(30, le=100),
-    min_mcap: int = Query(0),
+    limit: int = Query(500, le=500),
+    min_mcap: int = Query(1000),
+    above_ema200: bool = Query(False),
 ):
     """Fetch member stocks for a specific sector, broad industry, or industry."""
     from App.app import stock_rows_for_group
     from App.sector_read_model import LEVEL_COLUMNS
 
     col = LEVEL_COLUMNS.get(level, "broad_industry")
-    df = stock_rows_for_group(col, group_name, limit=limit, min_mcap=min_mcap)
+    df = stock_rows_for_group(
+        col, group_name, limit=limit, min_mcap=min_mcap, above_ema200=above_ema200
+    )
     if df.empty:
         return {"group_name": group_name, "level": level, "count": 0, "stocks": []}
 

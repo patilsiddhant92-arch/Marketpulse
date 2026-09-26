@@ -221,6 +221,23 @@ def _rs_trail_5d(con: Any, symbols: list[str], trade_date: Any = None) -> pd.Dat
     return pd.DataFrame(rows)
 
 
+def stocks_master_security_name_sql(con: duckdb.DuckDBPyConnection, alias: str = "m") -> str:
+    """Resolve a security-name expression for `stocks_master`.
+
+    A pandas merge of EQUITY_L and mcap both carrying `security_name` can persist
+    as `security_name_x` / `security_name_y` instead of `security_name`.
+    """
+    cols = {str(row[1]) for row in con.execute("PRAGMA table_info(stocks_master)").fetchall()}
+    if "security_name" in cols:
+        return f"{alias}.security_name"
+    present = [name for name in ("security_name_x", "security_name_y") if name in cols]
+    if len(present) == 2:
+        return f"COALESCE({alias}.{present[0]}, {alias}.{present[1]})"
+    if len(present) == 1:
+        return f"{alias}.{present[0]}"
+    return "CAST(NULL AS VARCHAR)"
+
+
 def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     """
     Query and assemble all datasets required for the Action Desk.
@@ -231,7 +248,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     key = cache_key(
         db_path,
         None,
-        "action_desk_v12_peer_on_symbol",
+        "action_desk_v14_squeeze_persist_10ema_tag",
         "darvas_v2" if use_v2 else "darvas_v1",
         "weekly" if use_weekly else "daily",
     )
@@ -292,8 +309,9 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             top_sectors["above_50_pct"] = top_sectors["above_50ema_pct"] if "above_50ema_pct" in top_sectors.columns else 0.0
 
         # 4. Strict Quality Filtered Pool for Setups (Without RS gate, so Darvas & Pre-Move queues can find unextended gems)
+        name_sql = stocks_master_security_name_sql(con)
         setup_pool = con.execute(
-            """
+            f"""
             WITH dates AS (
                 SELECT DISTINCT trade_date 
                 FROM indicators_daily 
@@ -313,7 +331,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 SELECT 
                     i.trade_date,
                     i.symbol,
-                    m.security_name,
+                    {name_sql} AS security_name,
                     m.sector,
                     m.industry,
                     m.market_cap_cr,
@@ -624,12 +642,14 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
         if v2:
             out["why_now"] = [
                 f"Close inside, wick ≤1.5% under stacked 10/20 floor · Squeezed {sq:.1f}% (Range {cr:.1f}%) into Green Line ₹{top:,.1f}"
+                + (f" · signal {sd}" if sd is not None and str(sd) not in {"", "NaT", "None"} else "")
                 + (f" · {fp}" if fp and fp != "—" else "")
-                for sq, cr, top, fp in zip(
+                for sq, cr, top, fp, sd in zip(
                     out["squeeze_pct"],
                     out["candle_range_pct"],
                     out["darvas_top"],
                     out["inst_footprint"] if "inst_footprint" in out.columns else [""] * len(out),
+                    out["signal_date"] if "signal_date" in out.columns else [None] * len(out),
                 )
             ]
             return apply_display_window(out)
@@ -714,7 +734,7 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
             "rvol": "flavor_rvol",
             "away_10ema_pct": "flavor_away_10ema_pct",
         }
-        cols_to_keep = ["symbol", "flavor", "thrust_pct", "away_10ema_pct", "rvol"]
+        cols_to_keep = ["symbol", "flavor", "thrust_pct", "away_10ema_pct", "rvol", "signal_date"]
         if is_resampled and "ema_10" in flav.columns:
             rename_dict["ema_10"] = "flavor_ema_10"
             cols_to_keep.append("ema_10")
@@ -735,20 +755,36 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
                 (out["trigger_price"] / out["stop_loss"] - 1.0) * 100.0
             ).round(2)
             out["setup_type"] = "Darvas 10 EMA"
+            flavor_rank = {"Pullback": 0, "Trace-back": 1, "Catch-up": 2}
+            out["_flavor_rank"] = out["flavor"].map(flavor_rank).fillna(9)
+            sig_dates = out["signal_date"] if "signal_date" in flav_slim.columns else None
+            if "signal_date" in out.columns:
+                sig_dates = out["signal_date"]
+            else:
+                sig_dates = [None] * len(out)
             out["why_now"] = [
-                f"{fl} after thrust {tp:.1f}% · dry rvol {rv:.2f} · away 10EMA {aw:+.1f}%"
-                + (f" · {fp}" if fp and fp != "—" else "")
-                for fl, tp, rv, aw, fp in zip(
+                (
+                    f"{fl}: OHLC tagged 10 EMA"
+                    + (f" on {sd}" if sd is not None else "")
+                    + (f" then moved · away {aw:+.1f}%" if fl == "Trace-back" else f" · away {aw:+.1f}%")
+                    + (f" · rvol {rv:.2f}" if rv is not None and pd.notna(rv) else "")
+                    + (f" · {fp}" if fp and fp != "—" else "")
+                    if fl in {"Pullback", "Trace-back"}
+                    else f"{fl}: 10 EMA catching price · away {aw:+.1f}%"
+                    + (f" · rvol {rv:.2f}" if rv is not None and pd.notna(rv) else "")
+                    + (f" · {fp}" if fp and fp != "—" else "")
+                )
+                for fl, aw, rv, fp, sd in zip(
                     out["flavor"],
-                    out["thrust_pct"],
-                    out["flavor_rvol"],
                     out["flavor_away_10ema_pct"],
+                    out["flavor_rvol"],
                     out["inst_footprint"] if "inst_footprint" in out.columns else [""] * len(out),
+                    sig_dates,
                 )
             ]
             out = out.sort_values(
-                ["flavor", "flavor_away_10ema_pct"], ascending=[True, True]
-            ).head(QUEUE_DISPLAY_CAPS.get("darvas_10ema", 40))
+                ["_flavor_rank", "flavor_away_10ema_pct"], ascending=[True, True]
+            ).drop(columns=["_flavor_rank"]).head(QUEUE_DISPLAY_CAPS.get("darvas_10ema", 40))
         return out
 
     darvas_10ema_df = pd.DataFrame()
@@ -971,8 +1007,9 @@ def fetch_action_desk_data(db_path: Path | str) -> dict[str, Any]:
     return data
 
 
-def render_inline_candlestick_chart(db_path: Path | str, symbol: str, is_darvas: bool = False) -> None:
-    cdata = query_stock_candlestick_data(Path(db_path), symbol, limit=90)
+def render_inline_candlestick_chart(db_path: Path | str, symbol: str, is_darvas: bool = False, timeframe: str = "Weekly") -> None:
+    tf_code = "W" if str(timeframe).upper().startswith("W") else ("M" if str(timeframe).upper().startswith("M") else "D")
+    cdata = query_stock_candlestick_data(Path(db_path), symbol, limit=90, timeframe=tf_code)
     if not cdata:
         ui.label(f"No historical candlestick data available for {symbol}.").classes("text-sm text-[var(--mp-muted)] p-4")
         return

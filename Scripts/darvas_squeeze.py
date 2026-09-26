@@ -44,6 +44,7 @@ SQUEEZE_COLUMNS = [
     "candle_range_pct",
     "box_age_sessions",
     "qualifies",
+    "signal_date",
 ]
 
 
@@ -712,6 +713,11 @@ def squeeze_frame(
             rv = rvols[i] if i < len(rvols) else np.nan
             return float(rv) if np.isfinite(rv) else None
 
+        cur_max_range = (
+            float(params.get("max_range_pct_weekly", 8.0))
+            if timeframe == "W"
+            else (float(params.get("max_range_pct_monthly", 12.0)) if timeframe == "M" else None)
+        )
         last_state = evaluate_squeeze_bar(
             closes[-1],
             top_box[-1],
@@ -723,19 +729,71 @@ def squeeze_frame(
             ema20=ema20[-1],
             rvol=_bar_rvol(len(g) - 1),
             ema10_prev=float(ema10[-2]) if len(ema10) >= 2 else None,
+            max_candle_range_pct=cur_max_range,
             cfg=params,
         )
         sq_now = last_state["squeeze_pct"]
-        sq_prior = _squeeze_pct_at(top_box[-6], ema10[-6]) if len(g) >= 6 else np.nan
-        # Daily: 5 sessions. Weekly: 5 completed weeks. Monthly: 5 completed months.
+        lookback = 6 if timeframe == "D" else (3 if timeframe == "W" else 2)
+        sq_prior = _squeeze_pct_at(top_box[-lookback], ema10[-lookback]) if len(g) >= lookback else np.nan
+        # Daily: 5 sessions. Weekly: completed weeks. Monthly: completed months.
         sq_5d = sq_prior if timeframe == "D" else np.nan
         sq_5w = sq_prior if timeframe == "W" else np.nan
-        tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_now < sq_prior)
-
-        # Approach A: tightening is a hard gate when the 5-bar prior spread is finite.
-        qualifies = bool(last_state["qualifies"])
-        if np.isfinite(sq_prior):
-            qualifies = qualifies and tightening
+        persist_n = int(params.get("persist_sessions", 5))
+        persist_max_rvol = float(params.get("persist_max_rvol", 1.5))
+        persist_max_range = float(params.get("persist_max_range_pct", 6.0))
+        close_floor_tol = float(params.get("close_floor_tol", DARVAS["close_floor_tol"]))
+        ceiling_tol = float(params.get("ceiling_tol", DARVAS["ceiling_tol"]))
+        signal_i = len(g) - 1  # weekly/monthly keep the as-of bar; daily may rewind to persist hit
+        if timeframe == "D":
+            tightening = bool(np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_now < sq_prior)
+            last_ok = bool(last_state["qualifies"])
+            persist_hit = False
+            start_p = max(0, len(g) - persist_n)
+            for pi in range(start_p, len(g)):
+                e20_p = ema20[pi] if pi < len(ema20) else np.nan
+                e10_prev_p = float(ema10[pi - 1]) if pi >= 1 else None
+                if evaluate_squeeze_bar(
+                    closes[pi],
+                    top_box[pi],
+                    bottom_box[pi],
+                    ema10[pi],
+                    high=highs[pi],
+                    low=lows[pi],
+                    open_price=opens[pi],
+                    ema20=e20_p,
+                    rvol=_bar_rvol(pi),
+                    ema10_prev=e10_prev_p,
+                    max_candle_range_pct=cur_max_range,
+                    cfg=params,
+                )["qualifies"]:
+                    persist_hit = True
+                    signal_i = pi
+            last_rv = _bar_rvol(len(g) - 1)
+            last_range = last_state["candle_range_pct"]
+            still_in = (
+                np.isfinite(closes[-1])
+                and np.isfinite(ema10[-1])
+                and np.isfinite(top_box[-1])
+                and top_box[-1] > 0
+                and closes[-1] >= ema10[-1] * close_floor_tol
+                and closes[-1] <= top_box[-1] * ceiling_tol
+            )
+            persist_ok = persist_hit and still_in
+            if np.isfinite(last_range):
+                persist_ok = persist_ok and last_range <= persist_max_range
+            if last_rv is not None:
+                persist_ok = persist_ok and last_rv <= persist_max_rvol
+            qualifies = last_ok or persist_ok
+            if last_ok:
+                signal_i = len(g) - 1
+        else:
+            if np.isfinite(sq_now) and np.isfinite(sq_prior) and sq_prior > 0:
+                tightening = bool(sq_now <= sq_prior + 0.2)
+            else:
+                tightening = bool(np.isfinite(sq_now))
+            qualifies = bool(last_state["qualifies"])
+            if np.isfinite(sq_prior) and sq_prior > 0:
+                qualifies = qualifies and tightening
         # Dry-vol gate applies only when rvol is present (evaluate_squeeze_bar).
         # Action Desk hist query must SELECT rvol so production never skips it.
 
@@ -754,6 +812,7 @@ def squeeze_frame(
                 ema20=e20_i,
                 rvol=_bar_rvol(i),
                 ema10_prev=e10_prev_i,
+                max_candle_range_pct=cur_max_range,
                 cfg=params,
             )["qualifies"]
             if not bar_ok:
@@ -775,6 +834,7 @@ def squeeze_frame(
                 "candle_range_pct": last_state["candle_range_pct"],
                 "box_age_sessions": _box_age_sessions(top_box),
                 "qualifies": bool(qualifies),
+                "signal_date": pd.Timestamp(g[date_col].iloc[signal_i]).date() if qualifies else None,
             }
         )
 
@@ -822,6 +882,27 @@ def apply_display_window(
     return ranked.head(w).reset_index(drop=True), n
 
 
+def _bar_tags_ema10(
+    open_: float,
+    high: float,
+    low: float,
+    close: float,
+    ema10: float,
+    *,
+    above_tol: float = 0.04,
+    undercut_tol: float = 0.015,
+) -> bool:
+    """True when this bar's OHLC tests the 10 EMA (wick or body)."""
+    vals = (open_, high, low, close, ema10)
+    if not all(np.isfinite(v) and v > 0 for v in (close, ema10, low, high)):
+        return False
+    tagged_low = (low <= ema10 * (1.0 + above_tol)) and (low >= ema10 * (1.0 - undercut_tol))
+    body_lo = min(open_, close) if np.isfinite(open_) else close
+    body_hi = max(open_, close) if np.isfinite(open_) else close
+    tagged_body = body_lo <= ema10 * (1.0 + above_tol) and body_hi >= ema10 * 0.998
+    return bool(tagged_low or tagged_body)
+
+
 def classify_darvas_10ema_frame(
     daily: pd.DataFrame,
     *,
@@ -831,28 +912,21 @@ def classify_darvas_10ema_frame(
     thrust_lookback: int = 10,
     min_thrust_pct: float = 3.0,
     min_thrust_rvol: float = 1.5,
-    max_away_ema_pct: float = 1.5,
-    catchup_high_tol_pct: float = 2.5,
+    max_away_ema_pct: float = 3.5,
+    catchup_high_tol_pct: float = 5.0,
     structure_lookback: int = 5,
+    tag_lookback: int = 8,
+    catchup_max_away_pct: float = 12.0,
+    catchup_max_rvol: float = 2.2,
+    traceback_max_away_pct: float = 18.0,
 ) -> pd.DataFrame:
-    """Classify post-thrust Darvas 10 EMA setups: Pullback | Catch-up.
+    """Classify rising-10-EMA setups: Pullback | Trace-back | Catch-up.
 
-    Supports timeframe in ("D", "W", "M").
-    timeframe="W" resamples completed weeks only.
-    timeframe="M" resamples completed months.
+    Pullback: latest OHLC is still on the 10 EMA.
+    Trace-back: OHLC tagged 10 EMA in `tag_lookback` sessions, then price moved.
+    Catch-up: 10 EMA rising into held highs (price already extended).
 
-    Shared gates (Approach A, trader contract):
-    - Prior thrust in lookback (day_pct >= min_thrust_pct, or rvol thrust through prior high).
-    - Rising 10 EMA on the signal bar.
-    - Dry/shallow volume on the signal bar (rvol <= DARVAS max_rvol).
-    - Structure: on the signal bar, close > 10 EMA (high or close above 10 EMA).
-      On the prior `structure_lookback` bars after the thrust (or last N bars),
-      every close must be above 10 EMA; open/high should be above 10 EMA when
-      possible; low may undercut 10 or 20 EMA.
-
-    Pullback: close has walked back toward rising 10 EMA (|away| <= max_away_ema_pct).
-    Catch-up: price held near recent highs while 10 EMA rises into the zone
-    (away > 0.5, near highs), still respecting structure-above-close rule.
+    Latest close must finish above a rising 10 EMA. Wicks may undercut.
     """
     if timeframe not in ("D", "W", "M"):
         raise ValueError(f"timeframe must be 'D', 'W', or 'M', got {timeframe!r}")
@@ -869,6 +943,7 @@ def classify_darvas_10ema_frame(
         "rvol",
         "thrust_pct",
         "qualifies",
+        "signal_date",
     ]
     empty = pd.DataFrame(columns=cols)
     if daily is None or daily.empty:
@@ -943,18 +1018,22 @@ def classify_darvas_10ema_frame(
         h = float(highs[i])
         o = float(opens[i])
         rv = float(rvols[i])
-        if not (np.isfinite(e10) and np.isfinite(e10_prev) and np.isfinite(c) and np.isfinite(rv)):
+        if not (np.isfinite(e10) and np.isfinite(e10_prev) and np.isfinite(c)):
             continue
         if e10 <= e10_prev:
             continue
-        if rv > max_rvol:
+        if not (c > e10 and h >= e10):
             continue
 
-        # Signal bar: High or Close above 10 EMA; close must finish above 10 EMA.
-        if not (c > e10 and (h > e10 or c > e10)):
-            continue
+        look_n = min(int(tag_lookback), 4) if is_resampled else int(tag_lookback)
+        tag_idxs = [
+            j
+            for j in range(max(0, i - look_n + 1), i + 1)
+            if _bar_tags_ema10(float(opens[j]), float(highs[j]), float(lows[j]), float(closes[j]), float(ema10[j]))
+        ]
+        last_tags = bool(tag_idxs and tag_idxs[-1] == i)
+        tag_i = tag_idxs[-1] if tag_idxs else None
 
-        # Prior thrust window excludes the signal bar.
         start_i = max(0, i - int(thrust_lookback))
         thrust_pct = 0.0
         thrust_idx: int | None = None
@@ -974,34 +1053,14 @@ def classify_darvas_10ema_frame(
             if thrust_day:
                 thrust_idx = j
                 thrust_pct = max(thrust_pct, float(day_pct))
-        if thrust_idx is None:
-            continue
 
-        # Structure after thrust:
-        # - thrust bar: High or Close > 10 EMA (already implied by thrust quality + close gate below)
-        # - other bars through signal: O, H, C above 10 EMA; Low may undercut 10/20 EMA
-        structure_ok = True
-        for j in range(thrust_idx + 1, i + 1):
-            e = ema10[j]
-            if not (np.isfinite(closes[j]) and np.isfinite(e) and np.isfinite(opens[j]) and np.isfinite(highs[j])):
-                structure_ok = False
-                break
-            if not (closes[j] > e and opens[j] >= e and highs[j] >= e):
-                structure_ok = False
-                break
-        # Thrust bar itself: High or Close above 10 EMA
-        te = ema10[thrust_idx]
-        if not (
-            np.isfinite(te)
-            and (closes[thrust_idx] > te or highs[thrust_idx] > te)
-        ):
-            structure_ok = False
-        if not structure_ok:
-            continue
+        post_tag_holds = True
+        if tag_i is not None:
+            for j in range(tag_i, i + 1):
+                if not (np.isfinite(closes[j]) and np.isfinite(ema10[j]) and closes[j] >= ema10[j] * 0.998):
+                    post_tag_holds = False
+                    break
 
-        # Squeeze-like deferral: tightening dry coil under TopBox with Top↔EMA gap
-        # still modest belongs to Squeeze family (even if primary Squeeze rejects for
-        # max_sq or a green-line poke) — do not mislabel as Catch-up/Pullback.
         top_box, _bot = calculate_darvas_box(highs, lows, boxp=5)
         top_now = float(top_box[i]) if np.isfinite(top_box[i]) else np.nan
         if np.isfinite(top_now) and top_now > 0 and c < top_now:
@@ -1016,30 +1075,64 @@ def classify_darvas_10ema_frame(
                 continue
 
         away = ((c / e10) - 1.0) * 100.0
-        recent_high = float(np.nanmax(highs[max(0, i - 9) : i + 1]))
-        near_highs = (
-            np.isfinite(recent_high)
-            and recent_high > 0
-            and ((recent_high - c) / recent_high) * 100.0 <= catchup_high_tol_pct
+        recent_closes = closes[max(0, i - 4) : i + 1]
+        max_close_5 = float(np.nanmax(recent_closes)) if len(recent_closes) else np.nan
+        near_held_highs = (
+            np.isfinite(max_close_5)
+            and max_close_5 > 0
+            and ((max_close_5 - c) / max_close_5) * 100.0 <= catchup_high_tol_pct
         )
-
+        away_prior = ((closes[i - 3] / ema10[i - 3]) - 1.0) * 100.0 if i >= 3 and ema10[i - 3] > 0 else np.nan
+        ema_catching = (np.isfinite(away_prior) and away < away_prior) or (
+            i >= 5 and ema10[i - 5] > 0 and (e10 / ema10[i - 5] - 1.0) >= 0.005
+        )
         flavor: str | None = None
-        if abs(away) <= max_away_ema_pct:
+        signal_i = i
+        dry_enough = (not np.isfinite(rv)) or rv <= max_rvol
+        catchup_vol_ok = (not np.isfinite(rv)) or rv <= catchup_max_rvol
+
+        traceback_i = None
+        for ti in reversed(tag_idxs):
+            if ti < i and np.isfinite(closes[ti]) and closes[ti] > 0 and c > closes[ti] * 1.003:
+                holds = True
+                for j in range(ti, i + 1):
+                    if not (np.isfinite(closes[j]) and np.isfinite(ema10[j]) and closes[j] >= ema10[j] * 0.998):
+                        holds = False
+                        break
+                if holds:
+                    traceback_i = ti
+                    break
+
+        if last_tags and abs(away) <= max_away_ema_pct and dry_enough:
             flavor = "Pullback"
-        elif near_highs and away > 0.5:
+        elif traceback_i is not None and 0.3 <= away <= traceback_max_away_pct:
+            flavor = "Trace-back"
+            signal_i = traceback_i
+        elif abs(away) <= max_away_ema_pct and dry_enough and (last_tags or (tag_i is not None and i - tag_i <= 2)):
+            flavor = "Pullback"
+            if tag_i is not None:
+                signal_i = tag_i
+        elif (
+            near_held_highs
+            and 1.5 <= away <= catchup_max_away_pct
+            and catchup_vol_ok
+            and ema_catching
+        ):
             flavor = "Catch-up"
         if flavor is None:
             continue
 
+        signal_date = pd.Timestamp(g[date_col].iloc[signal_i]).date()
         rows.append(
             {
                 "symbol": sym,
                 "flavor": flavor,
                 "ema_10": e10,
                 "away_10ema_pct": round(away, 2),
-                "rvol": round(rv, 3),
+                "rvol": round(rv, 3) if np.isfinite(rv) else np.nan,
                 "thrust_pct": round(thrust_pct, 2),
                 "qualifies": True,
+                "signal_date": signal_date,
             }
         )
 

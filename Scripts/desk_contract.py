@@ -49,6 +49,10 @@ DARVAS = dict(
     ema_trend_tol=0.995,
     box_lookback_sessions=252,
     display_window=40,
+    # Keep a squeeze on the list after the signal day if the coil is still intact.
+    persist_sessions=5,
+    persist_max_rvol=1.5,
+    persist_max_range_pct=6.0,
 )
 
 SECTOR_DEFAULT_SORT = "turnover_share_delta_5d"  # DESC
@@ -76,8 +80,8 @@ QUEUE_META = {
         "title": "2. Darvas 10 EMA",
         "short_title": "2. Darvas 10 EMA",
         "desc": (
-            "Post-thrust dry setups: Pullback (price to rising 10 EMA) or Catch-up "
-            "(10 EMA rises into held highs). Approach A primary."
+            "Rising 10 EMA: Pullback / Trace-back (OHLC tags 10 EMA, then price moves) "
+            "or Catch-up (10 EMA rises into held highs). Not last-bar only."
         ),
         "tv_key": "darvas_10ema",
         "cap_key": "darvas_10ema",

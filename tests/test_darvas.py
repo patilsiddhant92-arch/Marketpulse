@@ -315,7 +315,7 @@ def test_squeeze_frame_columns_and_unclipped_spread():
         "symbol", "darvas_top", "darvas_bottom", "squeeze_pct", "squeeze_pct_5d_ago",
         "squeeze_pct_5w_ago",
         "tightening", "squeeze_age", "failed_low", "ema_floor", "candle_range_pct",
-        "box_age_sessions", "qualifies",
+        "box_age_sessions", "qualifies", "signal_date",
     ):
         assert col in frame.columns
     row = frame.iloc[0]
@@ -506,7 +506,7 @@ def test_wema_200_min_periods_unchanged_and_wema_20_owned():
     assert darvas_weekly_enabled() is False
     mig = Path("Scripts/migrations.py").read_text(encoding="utf-8")
     assert "wema_20" in mig
-    assert "CURRENT_SCHEMA_VERSION = 8" in mig
+    assert "CURRENT_SCHEMA_VERSION = 9" in mig
 
 
 def test_no_ca_box_reset_in_weekly_path():

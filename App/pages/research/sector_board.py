@@ -502,6 +502,8 @@ def _build_sector_v2_page(
                 member_name = child or grp
                 ui.label(f"Constituent Stocks · {member_name}").classes("text-base font-bold text-[var(--mp-text)] mt-3")
                 members = query_group_members(db_path, level=member_level, group_name=member_name)
+                if not members.empty and "market_cap_cr" in members.columns:
+                    members = members[pd.to_numeric(members["market_cap_cr"], errors="coerce").fillna(0) >= 1000.0]
                 if members.empty:
                     ui.label("No active constituents in the latest session.").classes("text-xs text-[var(--mp-muted)]")
                     return
@@ -911,6 +913,8 @@ def build_sector_board_page(
                     ui.button("Close Drilldown", on_click=lambda: select_group("")).props("flat dense").classes("text-xs text-[var(--mp-muted)]")
 
                 sub = query_group_members(db_path, level=state["level"], group_name=grp)
+                if not sub.empty and "market_cap_cr" in sub.columns:
+                    sub = sub[pd.to_numeric(sub["market_cap_cr"], errors="coerce").fillna(0) >= 1000.0]
                 if sub.empty:
                     ui.label(f"No active constituents found for {grp} in latest session.").classes("text-xs text-[var(--mp-muted)]")
                 else:

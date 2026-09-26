@@ -149,6 +149,10 @@ export interface TierDealRecord {
   net_cr: number;
   buy_cr: number;
   sell_cr: number;
+  transfer_cr?: number;
+  n_houses?: number;
+  size_vs_adv?: number | null;
+  play_reason?: string;
   close_price: number;
   ema_200: number;
   trend: string;
@@ -158,6 +162,22 @@ export interface TierDealRecord {
   sector: string;
 }
 
+export interface FundHolding {
+  fund_house: string;
+  symbol: string;
+  buy_cr: number;
+  sell_cr: number;
+  net_cr: number;
+  prints: number;
+  last_date: string;
+  last_side: string;
+  last_price?: number | null;
+  cmp?: number | null;
+  ret_pct?: number | null;
+  mcap_cr?: number | null;
+  sector?: string;
+}
+
 export interface FundLeaderboardRecord {
   fund_house: string;
   tier: string;
@@ -165,6 +185,24 @@ export interface FundLeaderboardRecord {
   win_rate_20d: number;
   avg_runup: number;
   bets_count: number;
+  names_count?: number;
+  total_cr?: number;
+  net_long_count?: number;
+  holdings?: FundHolding[];
+}
+
+export interface TodayDealRecord {
+  symbol: string;
+  client_name: string;
+  fund_house: string;
+  side: string;
+  price: number;
+  deal_cr: number;
+  clientele: string;
+  is_prop: boolean;
+  mcap_cr: number;
+  sector: string;
+  trade_date: string;
 }
 
 export interface StarRadarDeal {
@@ -185,8 +223,10 @@ export interface DealsDeskResponse {
   as_of: string;
   lookback_days: number;
   counts: {
+    play?: number;
     conviction: number;
     fresh_radar: number;
+    transfer?: number;
     four_plus_days: number;
     three_days: number;
     two_days: number;
@@ -195,14 +235,18 @@ export interface DealsDeskResponse {
     distribution: number;
     star_deals: number;
     funds: number;
+    today?: number;
   };
+  play?: TierDealRecord[];
   conviction: TierDealRecord[];
   fresh_radar: TierDealRecord[];
+  transfer?: TierDealRecord[];
   prop_only: TierDealRecord[];
   quarantined: TierDealRecord[];
   distribution: TierDealRecord[];
   star_radar: StarRadarDeal[];
   fund_leaderboard: FundLeaderboardRecord[];
+  today_deals?: TodayDealRecord[];
   tv_strings: Record<string, string>;
 }
 
@@ -221,6 +265,7 @@ export interface SectorRecord {
   return_5d_pct: number;
   return_20d_pct: number;
   return_63d_pct: number;
+  horizon_return_pct?: number;
   rs_percentile: number;
   advancers_pct: number;
   above_10_ema_pct: number;
@@ -238,6 +283,8 @@ export interface SectorRecord {
   inflow_streak?: number;
   leaders: string[];
   leader_chips?: SectorLeaderChip[];
+  tile_symbols?: string[];
+  lookback_days?: number;
 }
 
 export interface HistoricalBreadthRecord {
@@ -425,6 +472,7 @@ export interface CapitalFlowGroup {
   turnover_share_pct: number;
   turnover_share_delta_1d: number;
   turnover_share_delta_5d: number;
+  turnover_share_delta_21d?: number;
   return_5d_pct: number;
   return_1m_pct: number;
   return_3m_pct: number;
@@ -432,6 +480,7 @@ export interface CapitalFlowGroup {
   rotation_state: string;
   deal_net_cr?: number;
   leaders: string[];
+  liquid_names?: number;
 }
 
 export interface StockAccumulator {
@@ -440,6 +489,7 @@ export interface StockAccumulator {
   sector: string;
   industry: string;
   cmp: number;
+  mcap_cr?: number;
   day_pct: number;
   turnover_cr: number;
   turnover_expansion_pct: number;
@@ -454,6 +504,12 @@ export interface StockAccumulator {
 
 export interface CapitalFlowResponse {
   as_of: string;
+  universe?: {
+    min_mcap_cr: number;
+    min_adv_cr: number;
+    min_price: number;
+    stock_count: number;
+  };
   top_inflows_1d: CapitalFlowGroup[];
   top_outflows_1d: CapitalFlowGroup[];
   top_inflows_5d: CapitalFlowGroup[];
