@@ -541,16 +541,48 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
 
 PRICE_COLS = ["open_price", "high_price", "low_price", "close_price", "last_price", "avg_price"]
 
+_TRUE_STRINGS = frozenset({"true", "1", "yes"})
+
+
+def _as_bool(series: pd.Series) -> pd.Series:
+    """Coerce a mixed bool/str/numeric/nullable-boolean column to strict `bool`, never raising.
+
+    Real `True`/`False` (including numpy/pandas nullable-boolean elements) pass through as-is.
+    `NA`/`None`/`NaN` map to `False` (not applied, rather than crashing or silently applying).
+    Numbers map via `== 1`. Strings are matched case-insensitively after stripping whitespace
+    against {"true", "1", "yes"}; anything else — including the string "False" — is `False`, so
+    a stray "False" can never be mistaken for truthy.
+    """
+    def _one(v):
+        if isinstance(v, (bool, np.bool_)):
+            return bool(v)
+        if pd.isna(v):
+            return False
+        if isinstance(v, (int, float, np.integer, np.floating)):
+            return float(v) == 1.0
+        return str(v).strip().lower() in _TRUE_STRINGS
+
+    return series.map(_one).astype(bool)
+
 
 def _adjustment_factor_tables(adjustments: pd.DataFrame) -> dict:
     """Per-symbol (sorted ex_dates, suffix products) built from applied, factor-bearing rows.
 
     `suffix[i]` is the product of `factor` over events `i..n-1` (sorted by `ex_date`), with a
     trailing 1.0 appended so `suffix[n]` (no remaining events) is the identity factor.
+
+    `applied`, `factor`, and `ex_date` are all coerced defensively (`_as_bool`, `pd.to_numeric`,
+    `pd.to_datetime`, all with unparseable values mapping to False/NaN/NaT rather than raising)
+    since this reads reconciled data that may carry string/nullable-boolean/non-numeric values.
     """
-    applied = adjustments[adjustments["applied"].astype(bool) & adjustments["factor"].notna()]
+    applied_mask = _as_bool(adjustments["applied"])
+    factor = pd.to_numeric(adjustments["factor"], errors="coerce")
+    ex_date = pd.to_datetime(adjustments["ex_date"], errors="coerce")
+    usable = adjustments[["symbol"]].assign(applied=applied_mask, factor=factor, ex_date=ex_date)
+    usable = usable[usable["applied"] & usable["factor"].notna() & usable["ex_date"].notna()]
+
     tables: dict = {}
-    for symbol, grp in applied.groupby("symbol"):
+    for symbol, grp in usable.groupby("symbol"):
         grp = grp.sort_values("ex_date")
         ex_dates = grp["ex_date"].to_numpy(dtype="datetime64[ns]")
         factors = grp["factor"].to_numpy(dtype="float64")
@@ -583,45 +615,63 @@ def cumulative_price_factor(prices: pd.DataFrame, adjustments: pd.DataFrame) -> 
 
 
 def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of `prices` with cumulative `price_factor`, `adj_<col>` for each of
-    `PRICE_COLS`, `adj_volume`, `adj_delivery_qty`, and `adj_prev_close`.
+    """Return a copy of `prices` with cumulative `price_factor`, `adj_<col>` for each present
+    column of `PRICE_COLS`, `adj_volume`, `adj_delivery_qty` (when `delivery_qty` is present),
+    and `adj_prev_close`.
 
     `adj_prev_close` is the previous row's `adj_close_price` within the same symbol (rows
-    ordered by `trade_date`); the first row per symbol falls back to `prev_close * price_factor`.
-    Any pre-existing `adj_*`/`price_factor` columns are dropped first so re-applying is
-    idempotent (same output columns, freshly recomputed from the raw OHLCV columns).
+    ordered by `trade_date`); the first row per symbol falls back to `prev_close * price_factor`
+    when `prev_close` is present, else stays `NaN`. Any pre-existing `adj_*`/`price_factor`
+    columns are dropped first so re-applying is idempotent (same output columns, freshly
+    recomputed from the raw OHLCV columns).
+
+    `last_price`, `avg_price`, `delivery_qty`, and `prev_close` are optional: columns absent
+    from `prices` are simply skipped rather than raising `KeyError`. `prices.index` may contain
+    duplicate labels — this works on a positional copy internally and restores the original
+    index (including any duplicates) on the returned frame, in the original row order.
     """
     stale = [c for c in prices.columns if c.startswith("adj_") or c == "price_factor"]
-    df = prices.drop(columns=stale).copy()
+    orig_index = prices.index
+    df = prices.drop(columns=stale).reset_index(drop=True)
 
     factor = cumulative_price_factor(df, adjustments)
     df["price_factor"] = factor.astype("float64")
 
     for col in PRICE_COLS:
-        df[f"adj_{col}"] = (df[col].astype("float64") * df["price_factor"]).astype("float64")
-    df["adj_volume"] = (df["volume"].astype("float64") / df["price_factor"]).astype("float64")
-    df["adj_delivery_qty"] = (df["delivery_qty"].astype("float64") / df["price_factor"]).astype("float64")
+        if col in df.columns:
+            df[f"adj_{col}"] = (df[col].astype("float64") * df["price_factor"]).astype("float64")
+    if "volume" in df.columns:
+        df["adj_volume"] = (df["volume"].astype("float64") / df["price_factor"]).astype("float64")
+    if "delivery_qty" in df.columns:
+        df["adj_delivery_qty"] = (df["delivery_qty"].astype("float64") / df["price_factor"]).astype("float64")
 
-    ordered = df.sort_values(["symbol", "trade_date"], kind="stable")
-    prev_adj_close = ordered.groupby("symbol")["adj_close_price"].shift(1)
-    first_row_fill = ordered["prev_close"].astype("float64") * ordered["price_factor"]
-    adj_prev_close = prev_adj_close.fillna(first_row_fill)
-    df["adj_prev_close"] = adj_prev_close.reindex(df.index).astype("float64")
+    if "adj_close_price" in df.columns:
+        ordered = df.sort_values(["symbol", "trade_date"], kind="stable")
+        prev_adj_close = ordered.groupby("symbol")["adj_close_price"].shift(1)
+        if "prev_close" in df.columns:
+            first_row_fill = ordered["prev_close"].astype("float64") * ordered["price_factor"]
+            adj_prev_close = prev_adj_close.fillna(first_row_fill)
+        else:
+            adj_prev_close = prev_adj_close
+        df["adj_prev_close"] = adj_prev_close.reindex(df.index).astype("float64")
 
+    df.index = orig_index
     return df
 
 
 def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
-    """Copy of `adjusted` where each of `PRICE_COLS`, `prev_close`, `volume`, `delivery_qty` is
-    replaced by its `adj_` counterpart, and all `adj_*`/`price_factor` columns are dropped —
-    giving `calc_indicators` a frame with the usual (unprefixed) OHLCV column names."""
+    """Copy of `adjusted` where each present column among `PRICE_COLS`, `prev_close`, `volume`,
+    `delivery_qty` is replaced by its `adj_` counterpart (columns whose `adj_` counterpart is
+    absent are left untouched), and all `adj_*`/`price_factor` columns are dropped — giving
+    `calc_indicators` a frame with the usual (unprefixed) OHLCV column names."""
     df = adjusted.copy()
     swap = {**{col: f"adj_{col}" for col in PRICE_COLS},
             "prev_close": "adj_prev_close",
             "volume": "adj_volume",
             "delivery_qty": "adj_delivery_qty"}
     for target, source in swap.items():
-        df[target] = df[source].astype("float64")
+        if source in df.columns:
+            df[target] = df[source].astype("float64")
 
     drop_cols = [c for c in df.columns if c.startswith("adj_") or c == "price_factor"]
     return df.drop(columns=drop_cols)

@@ -57,3 +57,66 @@ def test_reapplying_drops_stale_columns():
     once = apply_adjustments(PRICES, ADJ)
     twice = apply_adjustments(once, ADJ)
     assert list(once.columns) == list(twice.columns)
+
+
+def test_applied_as_strings_matches_bool_and_ignores_false_string():
+    # The ignored (applied=False) row is given a real, non-null factor with an ex_date after
+    # every TCC price row, so a "False" string wrongly parsed as truthy (Python's bool("False")
+    # is True) would visibly change the cumulative factor rather than being masked by a null
+    # factor or a too-early ex_date.
+    adj_bool = ADJ.copy()
+    adj_bool["factor"] = [1 / 3, 0.2, 0.5]
+    adj_bool["ex_date"] = pd.to_datetime(["2026-08-21", "2026-09-04", "2026-09-05"])
+    adj_bool["applied"] = [True, True, False]
+
+    adj_str = adj_bool.copy()
+    adj_str["applied"] = ["True", "True", "False"]
+
+    bool_result = cumulative_price_factor(PRICES, adj_bool).tolist()
+    str_result = cumulative_price_factor(PRICES, adj_str).tolist()
+    assert str_result == bool_result
+    # sanity: the False-string row's factor must really be excluded, not just coincidentally equal
+    assert [round(x, 6) for x in bool_result] == [round(1 / 3, 6)] * 2 + [1.0, 1.0] + [0.2, 0.2, 1.0]
+
+
+def test_applied_as_nullable_boolean_with_na_is_not_applied():
+    adj_na = ADJ.copy()
+    adj_na["applied"] = pd.array([True, True, pd.NA], dtype="boolean")
+    result = cumulative_price_factor(PRICES, adj_na).tolist()
+    expected = cumulative_price_factor(PRICES, ADJ).tolist()
+    assert result == expected
+
+
+def test_duplicate_index_label_preserved():
+    # Reverse the row order (interleaving symbols) so the internal symbol/trade_date sort used
+    # for adj_prev_close actually permutes rows relative to the input order/index — on
+    # already-sorted input the sort would be a no-op and wouldn't exercise the reindex-with-
+    # duplicate-labels path at all.
+    shuffled = PRICES.iloc[::-1].reset_index(drop=True)
+    baseline = apply_adjustments(shuffled, ADJ)
+
+    dup_index = pd.Index([0, 1, 2, 3, 4, 5, 5])
+    prices_dup = shuffled.copy()
+    prices_dup.index = dup_index
+
+    result = apply_adjustments(prices_dup, ADJ)
+
+    assert list(result.index) == list(dup_index)
+    assert result["adj_close_price"].tolist() == baseline["adj_close_price"].tolist()
+    assert result["adj_prev_close"].tolist() == baseline["adj_prev_close"].tolist()
+
+
+def test_missing_optional_columns_do_not_crash():
+    prices_min = PRICES.drop(columns=["last_price", "avg_price", "delivery_qty"])
+
+    result = apply_adjustments(prices_min, ADJ)
+
+    assert "adj_last_price" not in result.columns
+    assert "adj_avg_price" not in result.columns
+    assert "adj_delivery_qty" not in result.columns
+
+    baseline = apply_adjustments(PRICES, ADJ)
+    assert result["adj_close_price"].tolist() == baseline["adj_close_price"].tolist()
+
+    ind = indicator_input(result)
+    assert not any(c.startswith("adj_") for c in ind.columns)
