@@ -20,6 +20,7 @@ from index_history import INDEX_COLUMNS, build_index_features, load_all_index_hi
 
 from migrations import run_migrations
 from outcomes import calculate_outcome
+from price_views import ohlcv_columns
 from reference_history import load_reference_history
 from signal_service import apply_stable_identity, update_signal_ledger
 from watchlist_service import persist_candidate_snapshot
@@ -67,7 +68,22 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame | None, ledger: pd.DataF
         if not exists:
             return
         if prices is None or prices.empty:
-            prices = db.execute("SELECT * FROM prices_daily WHERE symbol IN (SELECT unnest(?))", [symbols]).fetchdf()
+            # calculate_outcome() compares close/high/low across dates (entry vs
+            # forward window), so feed it adjusted prices when available --
+            # aliased back onto the raw column names it expects.
+            cols = ohlcv_columns(db)
+            prices = db.execute(
+                f"""
+                SELECT symbol, trade_date,
+                       {cols['open_price']} AS open_price,
+                       {cols['high_price']} AS high_price,
+                       {cols['low_price']} AS low_price,
+                       {cols['close_price']} AS close_price,
+                       {cols['volume']} AS volume
+                FROM prices_daily WHERE symbol IN (SELECT unnest(?))
+                """,
+                [symbols],
+            ).fetchdf()
         if prices.empty:
             return
 

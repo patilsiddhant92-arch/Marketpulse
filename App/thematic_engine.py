@@ -19,6 +19,11 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+try:
+    from Scripts.price_views import ohlcv_columns
+except ModuleNotFoundError:
+    from price_views import ohlcv_columns  # type: ignore
+
 # The 44 Official NSE Indices (28 Thematic + 16 Sectoral)
 CANONICAL_44_INDICES = {
     # Thematic (28)
@@ -345,11 +350,12 @@ def get_index_constituents(db_path: Path, user_db_path: Path, index_name: str) -
 
         # Query latest performance for these matched stocks
         sym_placeholders = ",".join(["?"] * len(matched_symbols))
+        price_cols = ohlcv_columns(con, alias="p.")
         sql = f"""
         WITH latest AS (SELECT max(trade_date) AS max_d FROM prices_daily)
         SELECT p.symbol, coalesce(m.security_name, p.symbol) AS company_name, m.sector, m.industry,
-               p.close_price,
-               round(((p.close_price - p.prev_close) / NULLIF(p.prev_close, 0)) * 100.0, 2) AS day_pct,
+               {price_cols['close_price']} AS close_price,
+               round((({price_cols['close_price']} - {price_cols['prev_close']}) / NULLIF({price_cols['prev_close']}, 0)) * 100.0, 2) AS day_pct,
                p.turnover_cr,
                i.rs_percentile, i.ema_10, i.ema_20, i.ema_50, i.ema_200,
                r.market_cap_cr

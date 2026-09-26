@@ -30,6 +30,11 @@ try:
 except ModuleNotFoundError:
     from Scripts.config import DB_PATH  # type: ignore
 
+try:
+    from price_views import ohlcv_columns
+except ModuleNotFoundError:
+    from Scripts.price_views import ohlcv_columns  # type: ignore
+
 
 def classify_midsml_regime(
     adv_pct: float,
@@ -129,9 +134,11 @@ def query_midsml_breadth(
         d5_str = date_list[-1] if len(date_list) >= 5 else None
 
         # Compute metrics across these dates for ranks 101 to 500
-        sql = """
+        price_cols = ohlcv_columns(con, alias="p.")
+        date_in_clause = ", ".join(f"'{d}'" for d in date_list)
+        sql = f"""
         WITH ranked AS (
-            SELECT 
+            SELECT
                 symbol,
                 market_cap_cr,
                 ROW_NUMBER() OVER (ORDER BY market_cap_cr DESC) as mcap_rank
@@ -139,7 +146,7 @@ def query_midsml_breadth(
             WHERE market_cap_cr IS NOT NULL
               AND symbol NOT LIKE '%-RE' AND symbol NOT LIKE '%_RE'
         )
-        SELECT 
+        SELECT
             i.trade_date,
             r.mcap_rank,
             i.symbol,
@@ -149,13 +156,13 @@ def query_midsml_breadth(
             i.ema_50,
             i.ema_200,
             i.away_52w_high_pct,
-            (p.close_price - p.prev_close) as chg
+            ({price_cols['close_price']} - {price_cols['prev_close']}) as chg
         FROM indicators_daily i
         JOIN ranked r ON r.symbol = i.symbol
         LEFT JOIN prices_daily p ON p.symbol = i.symbol AND p.trade_date = i.trade_date
-        WHERE i.trade_date IN ({})
+        WHERE i.trade_date IN ({date_in_clause})
           AND r.mcap_rank BETWEEN 101 AND 500
-        """.format(", ".join(f"'{d}'" for d in date_list))
+        """
 
         raw_df = con.execute(sql).fetchdf()
         if raw_df.empty:

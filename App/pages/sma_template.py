@@ -41,6 +41,11 @@ except ModuleNotFoundError:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from cache_manager import get_cached, set_cached, cache_key  # type: ignore
 
+try:
+    from Scripts.price_views import ohlcv_columns
+except ModuleNotFoundError:
+    from price_views import ohlcv_columns  # type: ignore
+
 
 CHECKS = (
     ("price_gt_150_200", "Price > 150 SMA and 200 SMA"),
@@ -136,16 +141,18 @@ def scan_template(db_path: Path, min_mcap: float, min_avg_vol: float = 0.0) -> p
             ).fetchdf()
 
         # Fallback for databases or test fixtures without pre-computed SMAs
+        price_cols = ohlcv_columns(db)
+        adj_close = price_cols["close_price"]
         return db.execute(
             f"""
             WITH latest AS (
                 SELECT max(trade_date) d FROM indicators_daily
             ),
             p_win1 AS (
-                SELECT symbol, trade_date, close_price,
-                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
-                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW) AS sma_150,
-                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200
+                SELECT symbol, trade_date, {adj_close} AS close_price,
+                       avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
+                       avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW) AS sma_150,
+                       avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200
                 FROM prices_daily
             ),
             p_win2 AS (

@@ -16,6 +16,11 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+try:
+    from Scripts.price_views import ohlcv_columns
+except ModuleNotFoundError:
+    from price_views import ohlcv_columns  # type: ignore
+
 # Default DB Path
 DEFAULT_DB_PATH = Path("Database/marketpulse.duckdb")
 
@@ -57,72 +62,101 @@ def fetch_deal_attribution_df(db_path: Path | None = None, min_deal_cr: float = 
     if not target_db.exists():
         return pd.DataFrame()
 
-    query = """
-    WITH buy_deals AS (
-        SELECT 
-            d.trade_date as deal_date,
-            d.symbol,
-            d.client_name,
-            d.price as deal_price,
-            d.deal_value_cr,
-            d.clientele,
-            d.clientele_sub
-        FROM deals d
-        WHERE d.side = 'BUY' 
-          AND (d.is_prop = False OR d.is_prop IS NULL)
-          AND (d.is_hft = False OR d.is_hft IS NULL)
-          AND d.deal_value_cr >= ?
-          AND d.symbol NOT LIKE '%-RE'
-          AND d.symbol NOT LIKE '%_RE'
-    ),
-    daily_series AS (
-        SELECT 
-            b.deal_date,
-            b.symbol,
-            b.client_name,
-            b.deal_price,
-            b.deal_value_cr,
-            b.clientele,
-            b.clientele_sub,
-            p.trade_date,
-            p.open_price,
-            p.high_price,
-            p.low_price,
-            p.close_price,
-            row_number() OVER (PARTITION BY b.symbol, b.deal_date, b.client_name, b.deal_price ORDER BY p.trade_date) - 1 as sess_idx
-        FROM buy_deals b
-        JOIN prices_daily p ON p.symbol = b.symbol AND p.trade_date >= b.deal_date
-    ),
-    deal_summary AS (
-        SELECT 
-            deal_date,
-            symbol,
-            client_name,
-            deal_price,
-            deal_value_cr,
-            clientele,
-            clientele_sub,
-            max(sess_idx) as holding_days,
-            -- returns at key forward horizons
-            max(CASE WHEN sess_idx = 5 THEN (close_price / deal_price - 1) * 100 END) as ret_5d,
-            max(CASE WHEN sess_idx = 10 THEN (close_price / deal_price - 1) * 100 END) as ret_10d,
-            max(CASE WHEN sess_idx = 20 THEN (close_price / deal_price - 1) * 100 END) as ret_20d,
-            max(CASE WHEN sess_idx = 60 THEN (close_price / deal_price - 1) * 100 END) as ret_60d,
-            -- latest close / CMP
-            arg_max(close_price, sess_idx) as cmp,
-            round((arg_max(close_price, sess_idx) / deal_price - 1) * 100, 1) as ret_current,
-            -- max peak runup within 60 sessions
-            round((max(CASE WHEN sess_idx <= 60 THEN high_price END) / deal_price - 1) * 100, 1) as max_runup_pct,
-            round((min(CASE WHEN sess_idx <= 60 THEN low_price END) / deal_price - 1) * 100, 1) as max_drawdown_pct,
-            -- days taken to hit peak high
-            arg_max(sess_idx, CASE WHEN sess_idx <= 60 THEN high_price END) as days_to_peak
-        FROM daily_series
-        GROUP BY deal_date, symbol, client_name, deal_price, deal_value_cr, clientele, clientele_sub
-    )
-    SELECT * FROM deal_summary ORDER BY deal_date DESC
-    """
-
     with duckdb.connect(str(target_db), read_only=True) as con:
+        cols = ohlcv_columns(con, alias="p.")
+        # Forward returns are measured against the deal price, which was struck
+        # on the historical (raw) price scale. Rescale it onto the adjusted
+        # scale using the cumulative price_factor as of the deal date, so a
+        # split/bonus between the deal and today doesn't show up as a fake
+        # return.
+        query = f"""
+        WITH buy_deals AS (
+            SELECT
+                d.trade_date as deal_date,
+                d.symbol,
+                d.client_name,
+                d.price as deal_price,
+                d.deal_value_cr,
+                d.clientele,
+                d.clientele_sub
+            FROM deals d
+            WHERE d.side = 'BUY'
+              AND (d.is_prop = False OR d.is_prop IS NULL)
+              AND (d.is_hft = False OR d.is_hft IS NULL)
+              AND d.deal_value_cr >= ?
+              AND d.symbol NOT LIKE '%-RE'
+              AND d.symbol NOT LIKE '%_RE'
+        ),
+        daily_series AS (
+            SELECT
+                b.deal_date,
+                b.symbol,
+                b.client_name,
+                b.deal_price,
+                b.deal_value_cr,
+                b.clientele,
+                b.clientele_sub,
+                p.trade_date,
+                {cols['open_price']} AS open_price,
+                {cols['high_price']} AS high_price,
+                {cols['low_price']} AS low_price,
+                {cols['close_price']} AS close_price,
+                {cols['price_factor']} AS price_factor,
+                row_number() OVER (PARTITION BY b.symbol, b.deal_date, b.client_name, b.deal_price ORDER BY p.trade_date) - 1 as sess_idx
+            FROM buy_deals b
+            JOIN prices_daily p ON p.symbol = b.symbol AND p.trade_date >= b.deal_date
+        ),
+        deal_base AS (
+            SELECT
+                deal_date,
+                symbol,
+                client_name,
+                deal_price,
+                deal_value_cr,
+                clientele,
+                clientele_sub,
+                max(sess_idx) as holding_days,
+                max(CASE WHEN sess_idx = 0 THEN price_factor END) as factor_on_deal_date,
+                -- close at key forward horizons
+                max(CASE WHEN sess_idx = 5 THEN close_price END) as close_5d,
+                max(CASE WHEN sess_idx = 10 THEN close_price END) as close_10d,
+                max(CASE WHEN sess_idx = 20 THEN close_price END) as close_20d,
+                max(CASE WHEN sess_idx = 60 THEN close_price END) as close_60d,
+                -- latest close / CMP
+                arg_max(close_price, sess_idx) as cmp,
+                -- max peak runup within 60 sessions
+                max(CASE WHEN sess_idx <= 60 THEN high_price END) as peak_60d,
+                min(CASE WHEN sess_idx <= 60 THEN low_price END) as trough_60d,
+                -- days taken to hit peak high
+                arg_max(sess_idx, CASE WHEN sess_idx <= 60 THEN high_price END) as days_to_peak
+            FROM daily_series
+            GROUP BY deal_date, symbol, client_name, deal_price, deal_value_cr, clientele, clientele_sub
+        ),
+        deal_summary AS (
+            SELECT
+                deal_date,
+                symbol,
+                client_name,
+                deal_price,
+                deal_value_cr,
+                clientele,
+                clientele_sub,
+                holding_days,
+                -- returns at key forward horizons (deal_price rescaled onto the adjusted basis)
+                (close_5d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_5d,
+                (close_10d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_10d,
+                (close_20d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_20d,
+                (close_60d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_60d,
+                cmp,
+                round((cmp / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100, 1) as ret_current,
+                round((peak_60d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100, 1) as max_runup_pct,
+                round((trough_60d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100, 1) as max_drawdown_pct,
+                days_to_peak
+            FROM deal_base
+        )
+        SELECT * FROM deal_summary ORDER BY deal_date DESC
+        """
+
         df = con.execute(query, [float(min_deal_cr)]).fetchdf()
 
     if df.empty:
