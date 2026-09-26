@@ -19,6 +19,11 @@ from price_adjustment import ParsedAction, parse_purpose
     ("FV SPLIT RS.10 TO RS.2", "split", 0.2),
     ("FV SPLIT FROM RS 5/- TO RE 1/-", "split", 0.2),
     ("CONSOLIDATION OF SHARES FROM RS 1 TO RS 10", "consolidation", 10.0),
+    ("SUB - DIVISION FROM RS 10 TO RS 1", "split", 0.1),
+    ("SUB DIVISION OF SHARES FROM RS 10 TO RS 2", "split", 0.2),
+    ("BONUS 1:1 AND RIGHTS 1:2", "bonus", 0.5),
+    ("CONSOLIDATION OF SHARES FROM RS 5 TO RS 10 AND RIGHTS 1:1", "consolidation", 2.0),
+    ("BONUS ISSUE 1:2", "bonus", 2 / 3),
 ])
 def test_adjusting_actions(text, kind, factor):
     p = parse_purpose(text)
@@ -37,6 +42,8 @@ def test_adjusting_actions(text, kind, factor):
     ("AGM/DIV-RS 0.50 PER SH", "dividend"),
     ("ANNUAL GENERAL MEETING", "other"),
     ("", "other"),
+    ("INTERIM DIVIDEND - RS 5 PER SHARE", "dividend"),
+    ("RIGHTS ISSUE", "rights"),
 ])
 def test_non_adjusting_actions(text, kind):
     p = parse_purpose(text)
