@@ -1378,9 +1378,9 @@ def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
     a frame with the usual (unprefixed) OHLCV column names.
 
     `price_factor` is deliberately *kept* (not dropped): `calc_indicators` needs it to rescale
-    the raw, NSE-reported 52-week high/low (which are never back-adjusted) onto the same
-    adjusted-price scale as the OHLCV columns above, before computing `away_52w_high_pct` and
-    everything derived from it.
+    the NSE-reported 52-week high/low (adjusted by NSE only up to each file's date, so on that
+    row's raw scale) onto today's adjusted-price scale used by the OHLCV columns above, before
+    computing `away_52w_high_pct` and everything derived from it.
     """
     df = adjusted.copy()
     swap = {**{col: f"adj_{col}" for col in PRICE_COLS},

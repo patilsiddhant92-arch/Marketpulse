@@ -758,10 +758,12 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         indicators = indicators.drop(columns=["high_52w"], errors="ignore").merge(high52, on="symbol", how="left")
         low52 = enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
         indicators = indicators.drop(columns=["low_52w"], errors="ignore").merge(low52, on="symbol", how="left")
-    # NSE's reported 52-week high/low are never back-adjusted for corporate actions, but
-    # `close_price` etc. here are (calc_indicators receives `indicator_input(prices)`, i.e.
-    # split/bonus-adjusted OHLCV). Rescale the NSE-sourced high_52w/low_52w by each row's
-    # cumulative price_factor so away_52w_high_pct/away_52w_low_pct (and everything derived
+    # NSE's reported 52-week high/low (joined as-of each row's date) are adjusted by NSE only
+    # up to that file's date: they sit on the price scale of the file date, i.e. the raw scale
+    # of that row. `close_price` etc. here are back-adjusted to today's scale (calc_indicators
+    # receives `indicator_input(prices)`, i.e. split/bonus-adjusted OHLCV). Multiplying by each
+    # row's cumulative price_factor (product of the events after that row) moves the NSE values
+    # onto today's scale too, so away_52w_high_pct/away_52w_low_pct (and everything derived
     # from them: near_52w_high, trend_template's tt_off_low/tt_near_high, pivot_proximity_score,
     # vcp_score/vcp_state) compare like-for-like scales. high_252d/low_252d below are already
     # computed from the adjusted OHLCV, so they need no rescaling.
