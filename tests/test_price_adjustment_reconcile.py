@@ -200,6 +200,20 @@ def test_combined_factor_match_works_with_mcap_fv_split_and_bc_bonus():
     assert s[s["applied"]]["confidence"].tolist() == ["confirmed", "confirmed"]
 
 
+def test_same_day_split_and_bonus_with_equal_factors_are_not_duplicates():
+    # Real CGCL 2024-03-05: FV split 2 -> 1 (0.5) AND bonus 1:1 (0.5) on the same day. The
+    # duplicate-announcement guard must not collapse a split and a bonus just because their
+    # factors coincide -- both apply (combined 0.25, matching the gap).
+    bc = pd.DataFrame([_a("CGCL", "2024-03-05", "split", 0.5, "bc"),
+                       _a("CGCL", "2024-03-05", "bonus", 0.5, "bc")])
+    gaps = pd.DataFrame({"symbol": ["CGCL"], "ex_date": pd.to_datetime(["2024-03-05"]), "gap_ratio": [0.26]})
+    out = reconcile(bc, pd.DataFrame(), gaps, pd.DataFrame())
+    applied = out[(out["symbol"] == "CGCL") & out["applied"]]
+    assert sorted(applied["kind"]) == ["bonus", "split"]
+    assert (applied["confidence"] == "confirmed").all()
+    assert not (out["kind"] == "unexplained_gap").any()
+
+
 def test_gap_matching_neither_single_nor_combined_factor_stays_unexplained():
     bc = pd.DataFrame([_a("ODDCO", "2026-02-13", "split", 0.2, "bc"),
                        _a("ODDCO", "2026-02-13", "bonus", 1 / 3, "bc")])

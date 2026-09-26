@@ -803,8 +803,19 @@ def _dup_wins(candidate: dict, incumbent: dict) -> bool:
     return False
 
 
+_KIND_FAMILY = {"bonus": "bonus", "split": "face_value", "consolidation": "face_value"}
+
+
+def _kinds_compatible(k1, k2) -> bool:
+    """Two applied rows can only be duplicates of one event if they're the same kind of event: a
+    same-day split and bonus with coinciding factors (CGCL 2024-03-05: FV 2 -> 1 and BONUS 1:1,
+    both 0.5) are two real events. A brand-new override row (kind "override") matches any kind."""
+    f1, f2 = _KIND_FAMILY.get(k1), _KIND_FAMILY.get(k2)
+    return f1 is None or f2 is None or f1 == f2
+
+
 def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) -> list[dict]:
-    """Collapse applied duplicates of the same symbol/date-window/factor to a single row.
+    """Collapse applied duplicates of the same symbol/date-window/factor/kind family to a single row.
 
     Plain duplicates (e.g. two bc announcements of the same bonus) keep the earliest. An override
     or suppression always outranks a plain row regardless of date, per `_dup_wins`, so an override
@@ -821,7 +832,8 @@ def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) 
         kept: list[int] = []
         for i in idxs_sorted:
             dup_of = next((j for j in kept if _near(rows[i]["ex_date"], rows[j]["ex_date"], window_days)
-                          and _same_factor(rows[i]["factor"], rows[j]["factor"], factor_tol)), None)
+                          and _same_factor(rows[i]["factor"], rows[j]["factor"], factor_tol)
+                          and _kinds_compatible(rows[i]["kind"], rows[j]["kind"])), None)
             if dup_of is None:
                 kept.append(i)
             elif _dup_wins(rows[i], rows[dup_of]):
