@@ -175,3 +175,63 @@ def load_all_market_activity_history(root: Path) -> pd.DataFrame:
         paths.extend(daily.glob("MA*.csv"))
     return parse_market_activity_history(paths)
 
+
+
+EXTRA_INDEX_COLUMNS = ["volume", "turnover_cr", "pe", "pb", "div_yield"]
+
+
+def parse_ind_close_all(path: Path) -> pd.DataFrame:
+    raw = pd.read_csv(path, dtype=str)
+    raw.columns = [str(c).strip() for c in raw.columns]
+    num = lambda col: pd.to_numeric(raw[col].astype(str).str.replace(",", "").str.strip().replace({"-": None}), errors="coerce")
+    out = pd.DataFrame({
+        "trade_date": pd.to_datetime(raw["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce"),
+        "index_name": raw["Index Name"].astype(str).str.strip(),
+        "open_price": num("Open Index Value"),
+        "high_price": num("High Index Value"),
+        "low_price": num("Low Index Value"),
+        "close_price": num("Closing Index Value"),
+        "change_value": num("Points Change"),
+        "return_1d_pct": num("Change(%)"),
+        "volume": num("Volume"),
+        "turnover_cr": num("Turnover (Rs. Cr.)"),
+        "pe": num("P/E"),
+        "pb": num("P/B"),
+        "div_yield": num("Div Yield"),
+    })
+    out["previous_close"] = out["close_price"] - out["change_value"]
+    out = out.dropna(subset=["trade_date", "close_price"])
+    return out[INDEX_COLUMNS + EXTRA_INDEX_COLUMNS]
+
+
+def load_index_name_map(path: Path) -> dict[str, str]:
+    if path is None or not Path(path).exists():
+        return {}
+    m = pd.read_csv(path, dtype=str)
+    return dict(zip(m["source_name"].str.strip(), m["canonical_name"].str.strip()))
+
+
+def load_all_index_history(root: Path, name_map_path: Path | None = None) -> pd.DataFrame:
+    root = Path(root)
+    name_map_path = name_map_path or (root / "Input" / "reference" / "index_name_map.csv")
+    folders = [root / "Input" / "archive", root / "Input" / "archive" / "backfill" / "index", root / "Input" / "daily"]
+    frames = []
+    for folder in folders:
+        if folder.exists():
+            for p in sorted(folder.glob("ind_close_all_*.csv")):
+                try:
+                    frames.append(parse_ind_close_all(p))
+                except Exception as exc:
+                    print(f"Skipped {p.name}: {exc}")
+    close_all = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=INDEX_COLUMNS + EXTRA_INDEX_COLUMNS)
+    name_map = load_index_name_map(name_map_path)
+    close_all["index_name"] = close_all["index_name"].map(lambda n: name_map.get(n, n))
+    close_all = close_all.drop_duplicates(["trade_date", "index_name"], keep="last")
+    ma = load_all_market_activity_history(root)
+    if ma is not None and not ma.empty:
+        ma = ma.copy()
+        ma["trade_date"] = pd.to_datetime(ma["trade_date"]).dt.normalize()
+        have = set(zip(close_all["trade_date"], close_all["index_name"]))
+        ma = ma[[(d, n) not in have for d, n in zip(ma["trade_date"], ma["index_name"])]]
+        close_all = pd.concat([close_all, ma], ignore_index=True)
+    return close_all.sort_values(["trade_date", "index_name"]).reset_index(drop=True)
