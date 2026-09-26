@@ -65,24 +65,24 @@ export interface MarketRegimeResponse {
 
 export interface CandidateSetup {
   symbol: string;
-  sector: string;
+  sector: string | null;
   queue: string;
-  cmp: number;
-  change_1d_pct: number;
+  cmp: number | null;
+  change_1d_pct: number | null;
   pattern_state: string;
-  rvol: number;
-  dist_to_pivot_pct: number;
-  risk_pct: number;
-  reward_to_risk: number;
-  trigger_price: number;
-  invalidation_price: number;
-  mcap_cr: number;
+  rvol: number | null;
+  dist_to_pivot_pct: number | null;
+  risk_pct: number | null;
+  trigger_price: number | null;
+  invalidation_price: number | null;
+  mcap_cr: number | null;
   why_now: string;
-  rs_percentile: number;
-  delivery_pct: number;
-  theme?: string;
-  deal_flow?: string;
-  squeeze_pct?: number;
+  rs_percentile: number | null;
+  delivery_pct: number | null;
+  theme?: string | null;
+  deal_flow?: string | null;
+  squeeze_pct?: number | null;
+  trigger_date?: string;
 }
 
 export interface SectorLeaderSummary {

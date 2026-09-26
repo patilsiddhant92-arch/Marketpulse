@@ -7,9 +7,11 @@ comprehensive momentum screener filters, deduplicated VCP workbench, and histori
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
+from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -335,6 +337,51 @@ def get_market_regime():
 # =========================================================================
 # 2. Executive Cockpit / Action Desk Candidate Setups API
 # =========================================================================
+def _opt_float(val: Any, ndigits: int = 2) -> float | None:
+    """Missing stays missing: None/NaN/inf/non-numeric -> None."""
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return round(f, ndigits)
+
+
+def cockpit_row(row: Mapping[str, Any], queue: str) -> dict[str, Any] | None:
+    sym = str(row.get("symbol") or "").strip().upper()
+    if not sym:
+        return None
+    cmp_val = _opt_float(row.get("cmp") if row.get("cmp") is not None else row.get("close_price"))
+    trigger = _opt_float(row.get("trigger_price"))
+    stop = _opt_float(row.get("stop_loss"))
+    risk = _opt_float(row.get("risk_pct"))
+    if queue == "darvas_10ema":
+        # Current trigger = EMA10 (below price) and stop = EMA10*0.985 carry no information.
+        trigger = stop = risk = None
+    dist = round((trigger / cmp_val - 1.0) * 100.0, 2) if trigger and cmp_val else None
+    return {
+        "symbol": sym,
+        "sector": str(row.get("sector") or "") or None,
+        "queue": queue,
+        "cmp": cmp_val,
+        "change_1d_pct": _opt_float(row.get("day_pct")),
+        "pattern_state": str(row.get("setup_type") or queue),
+        "rvol": _opt_float(row.get("rvol")),
+        "dist_to_pivot_pct": dist,
+        "risk_pct": risk if (risk is not None and risk > 0) else None,
+        "trigger_price": trigger,
+        "invalidation_price": stop,
+        "mcap_cr": _opt_float(row.get("market_cap_cr")),
+        "why_now": str(row.get("why_now") or ""),
+        "rs_percentile": _opt_float(row.get("rs_percentile"), 1),
+        "delivery_pct": _opt_float(row.get("delivery_pct"), 1),
+        "theme": str(row.get("theme") or "") or None,
+        "deal_flow": str(row.get("deal_flow") or "") or None,
+        "squeeze_pct": _opt_float(row.get("squeeze_pct")),
+    }
+
+
 @app.get("/api/candidates/cockpit")
 def get_cockpit_candidates(queue: str = Query("primary", enum=["primary", "vcp", "darvas_10ema", "darvas_squeeze", "all"])):
     """Fetch primary candidate setups strictly adhering to VCP, Darvas, and Stage 2 invariants."""
@@ -350,51 +397,10 @@ def get_cockpit_candidates(queue: str = Query("primary", enum=["primary", "vcp",
     def _extract_rows(df: pd.DataFrame, q_name: str):
         if df.empty:
             return
-        for _, row in df.iterrows():
-            sym = str(row.get("symbol", "")).strip().upper()
-            if not sym:
-                continue
-            
-            # Formatting fields with safety deadbands (Rule 4)
-            cmp_val = _sanitize_float(row.get("cmp") or row.get("close_price") or row.get("close"))
-            open_val = _sanitize_float(row.get("open_price"))
-            chg_pct = round(((cmp_val - open_val) / open_val * 100), 2) if open_val > 0 else _sanitize_float(row.get("change_pct") or row.get("return_1d_pct"))
-            dist_pivot = _sanitize_float(row.get("pivot_distance_pct") or row.get("distance_to_trigger_pct") or row.get("dist_pivot_pct"))
-            risk_pct = _sanitize_float(row.get("initial_risk_pct") or row.get("risk_pct"))
-            rvol_val = _sanitize_float(row.get("rvol"), 1.0)
-            rr_val = _sanitize_float(row.get("reward_to_risk") or row.get("rr"), 2.0)
-            
-            sq_raw = row.get("squeeze_pct") if ("squeeze_pct" in row and pd.notna(row.get("squeeze_pct"))) else row.get("darvas_squeeze_pct")
-            if sq_raw is not None and pd.notna(sq_raw):
-                try:
-                    f = float(sq_raw)
-                    sq_val = round(f, 2) if not (np.isnan(f) or np.isinf(f)) else None
-                except (ValueError, TypeError):
-                    sq_val = None
-            else:
-                sq_val = None
-            
-            records.append({
-                "symbol": sym,
-                "sector": str(row.get("sector", "") or "General"),
-                "queue": q_name,
-                "cmp": cmp_val,
-                "change_1d_pct": chg_pct,
-                "pattern_state": str(row.get("pattern_state") or row.get("state") or q_name),
-                "rvol": round(rvol_val, 2),
-                "dist_to_pivot_pct": round(dist_pivot, 2),
-                "risk_pct": round(risk_pct, 2) if risk_pct > 0 else 3.5,
-                "reward_to_risk": round(rr_val, 1),
-                "trigger_price": _sanitize_float(row.get("trigger_price") or row.get("pivot_price")),
-                "invalidation_price": _sanitize_float(row.get("stop_price") or row.get("invalidation_price") or row.get("stop_loss")),
-                "mcap_cr": _sanitize_float(row.get("market_cap_cr") or row.get("mcap_cr")),
-                "why_now": str(row.get("why_now", "")),
-                "rs_percentile": _sanitize_float(row.get("rs_percentile")),
-                "delivery_pct": _sanitize_float(row.get("delivery_pct")),
-                "theme": str(row.get("theme", "—")),
-                "deal_flow": str(row.get("deal_flow", "—")),
-                "squeeze_pct": sq_val,
-            })
+        for rec in df.to_dict("records"):
+            shaped = cockpit_row(rec, q_name)
+            if shaped is not None:
+                records.append(shaped)
 
     # Map requested queue to action desk keys
     if queue in ("darvas_squeeze", "darvas"):
@@ -425,7 +431,7 @@ def get_cockpit_candidates(queue: str = Query("primary", enum=["primary", "vcp",
         ))
 
     return {
-        "as_of": data.get("as_of"),
+        "as_of": str(pd.to_datetime(data["trade_date"]).date()) if data.get("trade_date") is not None else None,
         "total_count": len(records),
         "candidates": records,
     }

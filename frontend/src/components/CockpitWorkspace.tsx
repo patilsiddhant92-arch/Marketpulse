@@ -3,6 +3,7 @@ import { CandidateSetup } from '../types';
 import { Copy, Check, Filter, ArrowUpDown, ArrowUp, ArrowDown, Star, Target, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
 import { InfoTooltip, renderRvolBadge } from '../utils/benchmarks';
+import { DASH, signedPct, num } from '../utils/nullable';
 
 interface Props {
   selectedSymbol: string | null;
@@ -203,9 +204,6 @@ export const CockpitWorkspace: React.FC<Props> = ({
                 <th onClick={() => handleSort('risk_pct')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
                   <InfoTooltip param="risk" label="Risk %" /> {renderSortArrow('risk_pct')}
                 </th>
-                <th onClick={() => handleSort('reward_to_risk')} className="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white">
-                  <InfoTooltip param="rr" label="R:R" /> {renderSortArrow('reward_to_risk')}
-                </th>
                 <th className="py-2 px-3 font-semibold">Why Now / Setup Rationale</th>
                 <th className="py-2 px-3 text-center">Action</th>
               </tr>
@@ -215,7 +213,7 @@ export const CockpitWorkspace: React.FC<Props> = ({
                 const isSelected = selectedSymbol === c.symbol;
                 return (
                   <tr
-                    key={c.symbol}
+                    key={`${c.queue}-${c.symbol}`}
                     onClick={() => onSelectSymbol(c.symbol)}
                     className={`cursor-pointer transition hover:bg-[#151f2b]/80 ${
                       isSelected ? 'bg-[#152336] border-l-2 border-[#f0be58]' : ''
@@ -238,12 +236,12 @@ export const CockpitWorkspace: React.FC<Props> = ({
                       {c.sector}
                     </td>
                     <td className="py-2 px-3 text-right font-medium text-[#f1f4f8]">
-                      ₹{c.cmp.toFixed(2)}
+                      ₹{num(c.cmp)}
                     </td>
                     <td className={`py-2 px-3 text-right font-semibold ${
-                      c.change_1d_pct >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'
+                      c.change_1d_pct == null ? 'text-[#94a3b8]' : c.change_1d_pct >= 0 ? 'text-[#10b981]' : 'text-[#f43f5e]'
                     }`}>
-                      {c.change_1d_pct >= 0 ? `+${c.change_1d_pct.toFixed(2)}%` : `${c.change_1d_pct.toFixed(2)}%`}
+                      {signedPct(c.change_1d_pct)}
                     </td>
                     <td className="py-2 px-3 font-sans">
                       <span className="px-2 py-0.5 rounded text-[10px] font-semibold border border-[#3a2f18] bg-[#3a2f18]/60 text-[#f0be58]">
@@ -252,29 +250,24 @@ export const CockpitWorkspace: React.FC<Props> = ({
                     </td>
                     {queue === 'darvas_squeeze' && (
                       <td className="py-2 px-3 text-right font-semibold text-[#f0be58]">
-                        {c.squeeze_pct !== undefined && c.squeeze_pct !== null ? `${c.squeeze_pct.toFixed(1)}%` : '—'}
+                        {c.squeeze_pct !== undefined && c.squeeze_pct !== null ? `${c.squeeze_pct.toFixed(1)}%` : DASH}
                       </td>
                     )}
                     <td className="py-2 px-3 text-right">
                       {renderRvolBadge(c.rvol)}
                     </td>
                     <td className="py-2 px-3 text-right">
-                      <span className={c.dist_to_pivot_pct >= -2.5 && c.dist_to_pivot_pct <= 0.5 ? 'text-[#34d399] font-bold' : c.dist_to_pivot_pct > 3.0 ? 'text-[#fda4af]' : 'text-[#f0be58]'}>
-                        {c.dist_to_pivot_pct >= 0 ? `+${c.dist_to_pivot_pct.toFixed(1)}%` : `${c.dist_to_pivot_pct.toFixed(1)}%`}
+                      <span className={c.dist_to_pivot_pct == null ? 'text-[#94a3b8]' : c.dist_to_pivot_pct >= -2.5 && c.dist_to_pivot_pct <= 0.5 ? 'text-[#34d399] font-bold' : c.dist_to_pivot_pct > 3.0 ? 'text-[#fda4af]' : 'text-[#f0be58]'}>
+                        {signedPct(c.dist_to_pivot_pct, 1)}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right">
-                      <span className={c.risk_pct <= 5.0 ? 'text-[#34d399] font-semibold' : c.risk_pct > 8.0 ? 'text-[#f43f5e] font-bold' : 'text-[#fda4af]'}>
-                        {c.risk_pct.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-right">
-                      <span className={c.reward_to_risk >= 3.0 ? 'text-[#34d399] font-bold' : 'text-[#10b981]'}>
-                        {c.reward_to_risk.toFixed(1)}R
+                      <span className={c.risk_pct == null ? 'text-[#94a3b8]' : c.risk_pct <= 5.0 ? 'text-[#34d399] font-semibold' : c.risk_pct > 8.0 ? 'text-[#f43f5e] font-bold' : 'text-[#fda4af]'}>
+                        {c.risk_pct == null ? DASH : `${num(c.risk_pct, 1)}%`}
                       </span>
                     </td>
                     <td className="py-2 px-3 font-sans text-[11px] text-[#98a7ba] truncate max-w-[280px]">
-                      {c.why_now || 'Stage 2 consolidation with volume dry-up near pivot level.'}
+                      {c.why_now || DASH}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <button
