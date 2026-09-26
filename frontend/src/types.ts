@@ -129,19 +129,25 @@ export interface MomentumCandidate {
 
 export interface VcpCandidate {
   symbol: string;
-  cmp: number;
-  wave_sequence: string;
-  vdu_ratio: number;
+  cmp: number | null;
+  wave_sequence: string | null;
+  vdu_ratio: number | null;
   vdu_confirmed: boolean;
-  pivot_entry: number;
-  stop_loss: number;
-  risk_pct: number;
-  dist_to_pivot_pct: number;
-  suggested_shares_for_10k_risk: number;
-  suggested_shares_for_25k_risk: number;
-  suggested_shares_for_50k_risk: number;
-  rs_percentile?: number;
-  sector?: string;
+  pivot_entry: number | null;
+  stop_loss: number | null;
+  risk_pct: number | null;
+  dist_to_pivot_pct: number | null;
+  suggested_shares_for_10k_risk: number | null;
+  suggested_shares_for_25k_risk: number | null;
+  suggested_shares_for_50k_risk: number | null;
+  rs_percentile?: number | null;
+  sector?: string | null;
+}
+
+export interface VcpScreenerResponse {
+  as_of?: string | null;
+  total_count: number;
+  candidates: VcpCandidate[];
 }
 
 export interface TierDealRecord {

@@ -793,6 +793,38 @@ def get_momentum_screener(
 # =========================================================================
 # 4. Manas Arora VCP & Technical Workbench API
 # =========================================================================
+def vcp_row(r: Mapping[str, Any]) -> dict[str, Any] | None:
+    sym = str(r.get("symbol") or "").strip().upper()
+    if not sym:
+        return None
+    entry = _opt_float(r.get("trigger_price"))
+    stop = _opt_float(r.get("stop_loss"))
+    vdu = _opt_float(r.get("vdu_ratio"))
+    vdu_active = r.get("vdu_active")
+    why = _opt_str(r.get("why_now")) or ""
+    per_share = (entry - stop) if (entry is not None and stop is not None and entry > stop) else None
+
+    def shares(risk_rupees: float) -> int | None:
+        return int(risk_rupees / per_share) if per_share else None
+
+    return {
+        "symbol": sym,
+        "cmp": _opt_float(r.get("cmp")),
+        "wave_sequence": why.split("·")[0].strip() or None,
+        "vdu_ratio": vdu,
+        "vdu_confirmed": bool(vdu_active) if (vdu_active is not None and not pd.isna(vdu_active)) else bool(vdu is not None and vdu <= 0.80),
+        "pivot_entry": entry,
+        "stop_loss": stop,
+        "risk_pct": _opt_float(r.get("risk_pct")),
+        "dist_to_pivot_pct": _opt_float(r.get("pivot_distance_pct"), 1),
+        "suggested_shares_for_10k_risk": shares(10_000),
+        "suggested_shares_for_25k_risk": shares(25_000),
+        "suggested_shares_for_50k_risk": shares(50_000),
+        "rs_percentile": _opt_float(r.get("rs_percentile"), 1),
+        "sector": _opt_str(r.get("sector")),
+    }
+
+
 @app.get("/api/screener/vcp")
 def get_vcp_screener():
     """
@@ -807,90 +839,14 @@ def get_vcp_screener():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    vcp_results = []
-    if not vcp_df.empty:
-        for _, r in vcp_df.iterrows():
-            sym = str(r["symbol"]).strip().upper()
-            cmp_val = _sanitize_float(r.get("cmp") or r.get("close_price"))
-            pivot = _sanitize_float(r.get("pivot_price") or r.get("trigger_price"))
-            stop = _sanitize_float(r.get("stop_price") or r.get("stop_loss"))
-            risk = _sanitize_float(r.get("initial_risk_pct") or r.get("risk_pct"), 4.0)
-            dist = _sanitize_float(r.get("pivot_distance_pct") or r.get("distance_to_trigger_pct"))
-            why = str(r.get("why_now", ""))
-
-            wave_seq = why.split("·")[0].strip() if "·" in why else "3T VCP Contraction"
-            vdu_confirmed = "VDU ✓" in why or "VDU" in why
-            vdu_ratio = 0.65 if vdu_confirmed else 0.85
-            entry_p = pivot if pivot > 0 else (cmp_val * 1.02)
-            stop_p = stop if stop > 0 else (cmp_val * 0.96)
-            per_share_risk = max(1.0, entry_p - stop_p)
-
-            vcp_results.append({
-                "symbol": sym,
-                "cmp": cmp_val,
-                "wave_sequence": wave_seq,
-                "vdu_ratio": vdu_ratio,
-                "vdu_confirmed": vdu_confirmed,
-                "pivot_entry": round(entry_p, 2),
-                "stop_loss": round(stop_p, 2),
-                "risk_pct": round(risk if risk > 0 else ((entry_p - stop_p) / entry_p * 100), 1),
-                "dist_to_pivot_pct": round(dist, 1),
-                "suggested_shares_for_10k_risk": int(10000 / per_share_risk),
-                "suggested_shares_for_25k_risk": int(25000 / per_share_risk),
-                "suggested_shares_for_50k_risk": int(50000 / per_share_risk),
-                "rs_percentile": _sanitize_float(r.get("rs_percentile")),
-                "sector": str(r.get("sector", "General")),
-            })
-
-    if not vcp_results:
-        # Fallback to direct indicators_daily query for Stage 2 coiling setups
-        with get_db() as con:
-            fallback_df = con.execute("""
-                SELECT 
-                    c.symbol,
-                    COALESCE(m.industry, m.sector, 'General') AS sector,
-                    c.close_price AS cmp,
-                    c.rs_percentile,
-                    c.away_52w_high_pct,
-                    c.vcp_score,
-                    c.nr7, c.inside_bar,
-                    c.ema_10, c.ema_20, c.ema_50, c.ema_200
-                FROM indicators_daily c
-                LEFT JOIN stocks_master m ON c.symbol = m.symbol
-                WHERE c.trade_date = (SELECT max(trade_date) FROM indicators_daily)
-                  AND c.close_price > 20.0
-                  AND (c.ema_200 IS NULL OR c.close_price > c.ema_200)
-                  AND c.away_52w_high_pct >= -25.0
-                  AND (COALESCE(c.vcp_score, 0) >= 35 OR c.nr7 = true OR c.inside_bar = true)
-                ORDER BY c.rs_percentile DESC NULLS LAST, c.away_52w_high_pct DESC
-                LIMIT 40
-            """).fetchdf()
-            for _, r in fallback_df.iterrows():
-                sym = str(r["symbol"]).strip().upper()
-                cmp_val = _sanitize_float(r["cmp"])
-                pivot = round(cmp_val * 1.025, 2)
-                stop = round(cmp_val * 0.965, 2)
-                per_share_risk = max(1.0, pivot - stop)
-                vcp_results.append({
-                    "symbol": sym,
-                    "cmp": cmp_val,
-                    "wave_sequence": "3T VCP Contraction (15% → 7% → 3%)",
-                    "vdu_ratio": 0.72,
-                    "vdu_confirmed": True,
-                    "pivot_entry": pivot,
-                    "stop_loss": stop,
-                    "risk_pct": 3.5,
-                    "dist_to_pivot_pct": 2.5,
-                    "suggested_shares_for_10k_risk": int(10000 / per_share_risk),
-                    "suggested_shares_for_25k_risk": int(25000 / per_share_risk),
-                    "suggested_shares_for_50k_risk": int(50000 / per_share_risk),
-                    "rs_percentile": _sanitize_float(r["rs_percentile"]),
-                    "sector": str(r["sector"]),
-                })
-
-    vcp_results.sort(key=lambda x: (abs(x["dist_to_pivot_pct"]), x["risk_pct"]))
-
+    vcp_results = [row for row in (vcp_row(rec) for rec in vcp_df.to_dict("records")) if row is not None] if not vcp_df.empty else []
+    vcp_results.sort(key=lambda x: (
+        abs(x["dist_to_pivot_pct"]) if x["dist_to_pivot_pct"] is not None else 9999.0,
+        x["risk_pct"] if x["risk_pct"] is not None else 9999.0,
+    ))
+    trade_date = data.get("trade_date")
     return {
+        "as_of": str(pd.to_datetime(trade_date).date()) if trade_date is not None else None,
         "total_count": len(vcp_results),
         "candidates": vcp_results,
     }

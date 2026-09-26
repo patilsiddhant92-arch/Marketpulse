@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { VcpCandidate } from '../types';
 import { Layers, Calculator, ShieldCheck, Activity, Copy, Check, Star, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
+import { DASH, num } from '../utils/nullable';
 
 interface Props {
   selectedSymbol: string | null;
@@ -27,7 +28,7 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
 
   useEffect(() => {
     setLoading(true);
-    fetch('http://127.0.0.1:8000/api/screener/vcp')
+    fetch('/api/screener/vcp')
       .then((res) => res.json())
       .then((data) => {
         const list = data.candidates || [];
@@ -116,7 +117,7 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
             </div>
           ) : sortedCandidates.length === 0 ? (
             <div className="p-8 text-center text-[#98a7ba] text-xs">
-              No stocks currently meet strict 3T/4T progressive VCP &amp; VDU criteria. Cash discipline active.
+              No VCP setups in the pool today.
             </div>
           ) : (
             <table className="w-full text-left border-collapse text-xs">
@@ -172,33 +173,35 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
                         </a>
                       </td>
                       <td className="py-2 px-3 text-right font-medium text-[#f1f4f8]">
-                        ₹{c.cmp.toFixed(2)}
+                        {c.cmp == null ? DASH : `₹${num(c.cmp)}`}
                       </td>
                       <td className="py-2 px-3 font-sans">
                         <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#182b46] text-[#74a9ff] border border-[#2b4c7e]">
-                          {c.wave_sequence}
+                          {c.wave_sequence ?? DASH}
                         </span>
                       </td>
                       <td className="py-2 px-3 text-right">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          c.vdu_confirmed
+                          c.vdu_ratio == null
+                            ? 'text-[#94a3b8]'
+                            : c.vdu_confirmed
                             ? 'bg-[#163526] text-[#45d483] border border-[#235338]'
                             : 'text-[#f0be58]'
                         }`}>
-                          {c.vdu_ratio.toFixed(2)} {c.vdu_confirmed ? '✓' : ''}
+                          {c.vdu_ratio == null ? DASH : `${num(c.vdu_ratio)} ${c.vdu_confirmed ? '✓' : ''}`}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-right text-[#f0be58] font-bold">
-                        ₹{c.pivot_entry.toFixed(2)}
+                      <td className={`py-2 px-3 text-right font-bold ${c.pivot_entry == null ? 'text-[#94a3b8]' : 'text-[#f0be58]'}`}>
+                        {c.pivot_entry == null ? DASH : `₹${num(c.pivot_entry)}`}
                       </td>
-                      <td className="py-2 px-3 text-right text-[#f43f5e]">
-                        ₹{c.stop_loss.toFixed(2)}
+                      <td className={`py-2 px-3 text-right ${c.stop_loss == null ? 'text-[#94a3b8]' : 'text-[#f43f5e]'}`}>
+                        {c.stop_loss == null ? DASH : `₹${num(c.stop_loss)}`}
                       </td>
-                      <td className="py-2 px-3 text-right text-[#45d483] font-semibold">
-                        {c.risk_pct.toFixed(1)}%
+                      <td className={`py-2 px-3 text-right font-semibold ${c.risk_pct == null ? 'text-[#94a3b8]' : 'text-[#45d483]'}`}>
+                        {c.risk_pct == null ? DASH : `${num(c.risk_pct, 1)}%`}
                       </td>
-                      <td className="py-2 px-3 text-right text-[#38bdf8]">
-                        {c.dist_to_pivot_pct >= 0 ? `+${c.dist_to_pivot_pct.toFixed(1)}%` : `${c.dist_to_pivot_pct.toFixed(1)}%`}
+                      <td className={`py-2 px-3 text-right ${c.dist_to_pivot_pct == null ? 'text-[#94a3b8]' : 'text-[#38bdf8]'}`}>
+                        {c.dist_to_pivot_pct == null ? DASH : (c.dist_to_pivot_pct >= 0 ? `+${num(c.dist_to_pivot_pct, 1)}%` : `${num(c.dist_to_pivot_pct, 1)}%`)}
                       </td>
                       <td className="py-2 px-3 text-center">
                         <button
@@ -236,15 +239,15 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
               <div className="space-y-2 mb-4 font-mono text-xs">
                 <div className="p-2.5 rounded-lg bg-[#101721] border border-[#1f2b3c] flex justify-between">
                   <span className="text-[#98a7ba]">Pivot Breakout Entry:</span>
-                  <span className="font-bold text-[#f0be58]">₹{selectedCandidate.pivot_entry.toFixed(2)}</span>
+                  <span className="font-bold text-[#f0be58]">{selectedCandidate.pivot_entry == null ? DASH : `₹${num(selectedCandidate.pivot_entry)}`}</span>
                 </div>
                 <div className="p-2.5 rounded-lg bg-[#101721] border border-[#1f2b3c] flex justify-between">
                   <span className="text-[#98a7ba]">Stop Loss Swing Low:</span>
-                  <span className="font-bold text-[#f43f5e]">₹{selectedCandidate.stop_loss.toFixed(2)}</span>
+                  <span className="font-bold text-[#f43f5e]">{selectedCandidate.stop_loss == null ? DASH : `₹${num(selectedCandidate.stop_loss)}`}</span>
                 </div>
                 <div className="p-2.5 rounded-lg bg-[#101721] border border-[#1f2b3c] flex justify-between">
                   <span className="text-[#98a7ba]">Controlled Trade Risk:</span>
-                  <span className="font-bold text-[#45d483]">{selectedCandidate.risk_pct.toFixed(2)}% (Target 3-5%)</span>
+                  <span className="font-bold text-[#45d483]">{selectedCandidate.risk_pct == null ? DASH : `${num(selectedCandidate.risk_pct)}% (Target 3-5%)`}</span>
                 </div>
               </div>
 
@@ -270,18 +273,27 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
                 </div>
 
                 <div className="pt-2 border-t border-[#1f2b3c] font-mono text-xs space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-[#98a7ba]">Suggested Shares:</span>
-                    <span className="font-bold text-base text-[#45d483]">
-                      {Math.floor(riskBudget / Math.max(1, selectedCandidate.pivot_entry - selectedCandidate.stop_loss))} Qty
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-[#98a7ba]">Total Position Value:</span>
-                    <span className="text-[#f1f4f8]">
-                      ₹{(Math.floor(riskBudget / Math.max(1, selectedCandidate.pivot_entry - selectedCandidate.stop_loss)) * selectedCandidate.pivot_entry).toLocaleString()}
-                    </span>
-                  </div>
+                  {(() => {
+                    const { pivot_entry: pivot, stop_loss: stop } = selectedCandidate;
+                    const canSize = pivot != null && stop != null && pivot > stop;
+                    const qty = canSize ? Math.floor(riskBudget / (pivot - stop)) : null;
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-[#98a7ba]">Suggested Shares:</span>
+                          <span className="font-bold text-base text-[#45d483]">
+                            {qty == null ? DASH : `${qty.toLocaleString('en-IN')} Qty`}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-[#98a7ba]">Total Position Value:</span>
+                          <span className="text-[#f1f4f8]">
+                            {qty == null ? DASH : `₹${(qty * pivot!).toLocaleString('en-IN')}`}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
