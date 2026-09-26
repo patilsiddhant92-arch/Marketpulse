@@ -1,8 +1,11 @@
 export interface ExposureGate {
-  recommended_pct: number;
-  state: string;
-  badge: string;
-  guidance: string;
+  band: string | null;
+  band_low: number | null;
+  band_high: number | null;
+  recommended_pct: number | null;
+  state: string | null;
+  badge: string | null;
+  guidance: string | null;
   is_actionable: boolean;
   execution_playbook?: string;
   action_bias?: string;
@@ -56,8 +59,7 @@ export interface MarketRegimeResponse {
   breadth: MarketBreadth;
   leading_themes: LeadingTheme[];
   setups_summary?: {
-    darvas_count: number;
-    vcp_count: number;
+    stage2_pool_count: number;
   };
 }
 

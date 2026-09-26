@@ -80,6 +80,48 @@ def validate_symbol(raw: str) -> str:
     return sym
 
 
+_BAND_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def parse_exposure_band(pct: Any) -> tuple[float | None, float | None]:
+    """'50% - 75%' -> (50.0, 75.0); '25%' -> (25.0, 25.0); junk -> (None, None)."""
+    nums = [float(n) for n in _BAND_NUM_RE.findall(str(pct or ""))]
+    if not nums:
+        return (None, None)
+    return (min(nums), max(nums))
+
+
+def playbook_for_band(band_low: float | None, ab50_pct: float | None) -> dict[str, str]:
+    if band_low is None:
+        return {
+            "execution_playbook": "Exposure inputs are missing for this session; do not size new positions until Data Health is green.",
+            "action_bias": "Unknown — exposure inputs missing",
+            "max_position_size": "—",
+            "risk_per_trade": "—",
+        }
+    breadth = f"{ab50_pct:.1f}%" if ab50_pct is not None else "n/a"
+    if band_low >= 75.0:
+        return {
+            "execution_playbook": f"Risk-on: {breadth} of stocks above their 50 EMA. Trade clean Stage 2 pivots and breakouts at standard size; trail stops below the 10/20 EMA.",
+            "action_bias": "Bullish / Trend Following",
+            "max_position_size": "15%–20%",
+            "risk_per_trade": "1.0%",
+        }
+    if band_low >= 50.0:
+        return {
+            "execution_playbook": f"Selective: {breadth} of stocks above their 50 EMA. Prefer tight Darvas/VCP setups near pivot; avoid extended chases.",
+            "action_bias": "Selective / Coiled Setups Only",
+            "max_position_size": "8%–10%",
+            "risk_per_trade": "0.5%–0.75%",
+        }
+    return {
+        "execution_playbook": f"Defensive: {breadth} of stocks above their 50 EMA. Mostly cash; only the strongest leaders, and protect open winners with trailing stops.",
+        "action_bias": "Defensive / Heavy Cash",
+        "max_position_size": "5%–7%",
+        "risk_per_trade": "0.25%–0.5%",
+    }
+
+
 def get_db(read_only: bool = True) -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(DB_PATH), read_only=read_only)
 
@@ -125,12 +167,12 @@ def get_health():
 def get_market_regime():
     """Market exposure gate, India VIX, Nifty breadth, tape counts, and leading sector themes."""
     from App.pages.action_desk import compute_exposure_gate
-    from App.ui.market_health import load_exposure_inputs, resolve_india_vix
+    from App.ui.market_health import load_exposure_gate_args, resolve_india_vix
 
     with get_db() as con:
         trade_date = con.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()[0]
         vix_val, vix_1d_pct = resolve_india_vix(con, trade_date)
-        exp_inputs = load_exposure_inputs(con, trade_date=trade_date)
+        exp_inputs = load_exposure_gate_args(con, trade_date=trade_date)
 
         # Pull exact row from breadth_daily for rich tape & volume metrics
         b_df = con.execute(
@@ -174,7 +216,7 @@ def get_market_regime():
             chg_50_5d = 0.0
             chg_200_20d = 0.0
 
-        c_52w_h = int(exp_inputs.get("count_52w_highs") or near_52_cnt)
+        c_52w_h = int(exp_inputs.get("count_52w_highs") or 0)
         c_52w_l = int(exp_inputs.get("count_52w_lows") or 0)
 
         gate = compute_exposure_gate(
@@ -203,7 +245,7 @@ def get_market_regime():
                 })
 
         # Count active setups
-        darvas_sq_count = con.execute(
+        stage2_pool_count = con.execute(
             """
             SELECT count(DISTINCT symbol)
             FROM indicators_daily
@@ -212,40 +254,22 @@ def get_market_regime():
             [trade_date]
         ).fetchone()[0] or 0
 
-    raw_pct = gate.get("pct", 50.0)
-    if isinstance(raw_pct, str):
-        raw_pct = raw_pct.replace("%", "").strip()
-    exp_num = _sanitize_float(raw_pct, 50.0)
-
-    # Actionable trading execution guidance
-    if exp_num >= 75.0:
-        execution_playbook = "Aggressive Risk-On: Full market participation. Trade clean Stage 2 pivots & breakouts with standard 1.0R position sizing. Trail stops below 10/20 EMA."
-        action_bias = "Bullish / Trend Following"
-        max_pos = "15%–20%"
-        risk_per_trade = "1.0%"
-    elif exp_num >= 40.0:
-        execution_playbook = f"Selective Allocation ({int(exp_num)}% Exposure): Breadth is sub-40% (>50 EMA {ab50_pct:.1f}%). Prioritize tightly coiled Stage 2 VCP & Darvas breakouts with strict 3%–5% stops. Avoid extended chases; focus on RS 80+ leaders."
-        action_bias = "Selective / Coiled Setups Only"
-        max_pos = "8%–10%"
-        risk_per_trade = "0.5%–0.75%"
-    else:
-        execution_playbook = "Defensive / Capital Preservation: Broad market distribution. Sit in cash; only trade pristine high-RS relative strength leaders or hold existing winners with trailing stops."
-        action_bias = "Defensive / Heavy Cash"
-        max_pos = "5%–7%"
-        risk_per_trade = "0.25%–0.5%"
+    band = str(gate.get("pct") or "")
+    band_low, band_high = parse_exposure_band(band)
+    playbook = playbook_for_band(band_low, ab50_pct if not b_df.empty else None)
 
     return {
         "as_of": str(pd.to_datetime(trade_date).date()),
         "exposure_gate": {
-            "recommended_pct": exp_num,
-            "state": gate.get("state", "Caution"),
-            "badge": gate.get("badge", f"{int(exp_num)}% Exposure"),
-            "guidance": gate.get("guidance", "Selective setups only"),
-            "is_actionable": exp_num > 0,
-            "execution_playbook": execution_playbook,
-            "action_bias": action_bias,
-            "max_position_size": max_pos,
-            "risk_per_trade": risk_per_trade,
+            "band": band or None,
+            "band_low": band_low,
+            "band_high": band_high,
+            "recommended_pct": band_low,
+            "state": gate.get("state"),
+            "badge": gate.get("badge"),
+            "guidance": gate.get("guidance"),
+            "is_actionable": bool(band_low and band_low > 0),
+            **playbook,
         },
         "vix": {
             "current": _sanitize_float(vix_val),
@@ -276,8 +300,7 @@ def get_market_regime():
         },
         "leading_themes": themes,
         "setups_summary": {
-            "darvas_count": darvas_sq_count,
-            "vcp_count": int(b_df.iloc[0].get("vcp_candidates") or 0) if not b_df.empty else 0,
+            "stage2_pool_count": stage2_pool_count,
         },
     }
 

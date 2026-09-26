@@ -26,10 +26,13 @@ export const ExposureGateHeader: React.FC<Props> = ({
 
   const { exposure_gate, vix, breadth, leading_themes, tape, setups_summary } = regime;
 
+  const low = exposure_gate.band_low;
   const exposureTone =
-    exposure_gate.recommended_pct >= 70
+    low == null
+      ? 'text-[#94a3b8] border-[#263447] bg-[#151f2b]/60'
+      : low >= 75
       ? 'text-[#45d483] border-[#163526] bg-[#163526]/60'
-      : exposure_gate.recommended_pct >= 40
+      : low >= 50
       ? 'text-[#f0be58] border-[#3a2f18] bg-[#3a2f18]/60'
       : 'text-[#f27c84] border-[#3a2027] bg-[#3a2027]/60';
 
@@ -54,7 +57,7 @@ export const ExposureGateHeader: React.FC<Props> = ({
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-wider font-bold">
-                {exposure_gate.state} Regime ({exposure_gate.recommended_pct}% Max Exposure)
+                {exposure_gate.state ?? 'Unknown'} · Exposure {exposure_gate.band ?? '—'}
               </span>
               {exposure_gate.max_position_size && (
                 <span className="text-[9px] px-1 py-0.2 rounded bg-[#080c14] font-mono">
@@ -166,10 +169,12 @@ export const ExposureGateHeader: React.FC<Props> = ({
             title="Click to view Action Desk primary queues"
           >
             <Zap className="w-3.5 h-3.5 text-[#f0be58]" />
-            <span>Setups:</span>
-            <span className="text-white">{setups_summary.darvas_count} Darvas</span>
-            <span className="text-[#64748b]">·</span>
-            <span className="text-[#45d483]">{setups_summary.vcp_count} VCP</span>
+            <span
+              className="text-white"
+              title="Stocks above their 200 EMA and within 25% of the 52-week high"
+            >
+              Stage-2 pool: {setups_summary.stage2_pool_count}
+            </span>
             <ChevronRight className="w-3 h-3 text-[#74a9ff]" />
           </button>
         )}
