@@ -86,6 +86,24 @@ def test_collect_keeps_both_actions_of_a_multi_action_purpose(tmp_path):
     assert sorted(a[a["symbol"] == "GLOBE"]["kind"].tolist()) == ["bonus", "split"]
 
 
+BC_ONE_BAD_LINE = """SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE
+EQ,GOODLUCK,Goodluck India Ltd,2026-08-21,,,2026-08-21,,,BONUS 2:1
+EQ,BADCO,Bad Co, Ltd,2026-08-21,,,2026-08-21,,,DIV - RS 2 PER SH
+EQ,KIRLPNU,Kirloskar Pneumatic,2026-08-18,,,2026-08-18,,,FVSPLT FRM RS 2 TO RE 1
+"""
+
+
+def test_malformed_bc_line_is_skipped_not_the_whole_file(tmp_path, capsys):
+    # Real case: PR210824.zip -- "Expected 10 fields in line 162, saw 11" used to drop the file.
+    z = _zip(tmp_path, "PR210824.zip", "bc21082024.csv", BC_ONE_BAD_LINE)
+    a = collect_bc_actions([z])
+    assert set(a["symbol"]) == {"GOODLUCK", "KIRLPNU"}
+    out = capsys.readouterr().out
+    warnings = [line for line in out.splitlines() if "PR210824.zip" in line]
+    assert len(warnings) == 1
+    assert "1 malformed line" in warnings[0]
+
+
 def test_db_table_expands_multi_action_purpose():
     df = pd.DataFrame({"symbol": ["GLOBE"], "ex_date": pd.to_datetime(["2021-08-03"]),
                        "action_type": ["bonus"], "description": ["BONUS 1:1 AND FV SPLIT FROM RS 10 TO RS 2"]})

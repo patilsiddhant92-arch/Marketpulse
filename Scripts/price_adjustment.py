@@ -146,14 +146,43 @@ def _parse_date(value) -> pd.Timestamp:
     return pd.NaT
 
 
+def _read_bc_csv(text: str) -> tuple[pd.DataFrame, int]:
+    """Parse bc CSV text; malformed lines (wrong field count) are skipped, not fatal.
+
+    Returns `(frame, n_skipped)`. The fast C parser is tried first; only if it rejects the text
+    is it re-read with the python engine and an `on_bad_lines` callback that drops and counts
+    each bad line, so one stray comma no longer discards a whole day's actions.
+    """
+    try:
+        return pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False), 0
+    except pd.errors.ParserError:
+        bad: list[list[str]] = []
+
+        def _skip(line: list[str]):
+            bad.append(line)
+            return None
+
+        df = pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False, engine="python", on_bad_lines=_skip)
+        return df, len(bad)
+
+
 def read_bc_member(zf: zipfile.ZipFile) -> pd.DataFrame:
+    """The bc CSV member of a PR zip as a string frame (empty if absent). The number of malformed
+    lines skipped while parsing is recorded in `frame.attrs["skipped_lines"]`."""
     names = [n for n in zf.namelist() if _BC_MEMBER.match(Path(n).name)]
     if not names:
         return pd.DataFrame()
     text = zf.read(names[0]).decode("utf-8-sig", errors="replace")
     if not text.strip():
         return pd.DataFrame()
-    return pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False)
+    df, skipped = _read_bc_csv(text)
+    df.attrs["skipped_lines"] = skipped
+    return df
+
+
+def _warn_skipped_lines(zip_name: str, skipped: int) -> None:
+    if skipped:
+        print(f"Warning: {zip_name}: skipped {skipped} malformed line{'s' if skipped != 1 else ''} in its bc CSV")
 
 
 def _action_rows(symbols, ex_dates, purposes, source: str) -> pd.DataFrame:
@@ -199,7 +228,9 @@ def collect_bc_actions(zip_paths: list[Path]) -> pd.DataFrame:
     for p in zip_paths:
         try:
             with zipfile.ZipFile(p) as zf:
-                frames.append(actions_from_bc_frame(read_bc_member(zf)))
+                raw = read_bc_member(zf)
+            _warn_skipped_lines(Path(p).name, raw.attrs.get("skipped_lines", 0))
+            frames.append(actions_from_bc_frame(raw))
         except (zipfile.BadZipFile, OSError, pd.errors.ParserError) as exc:
             print(f"Skipped {Path(p).name}: {exc}")
     if not frames:
