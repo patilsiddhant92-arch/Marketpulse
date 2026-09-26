@@ -3,7 +3,7 @@ import { MomentumCandidate, SectorLeaderSummary, IndustryLeaderSummary } from '.
 import { Copy, Check, Filter, Zap, ArrowUpDown, ArrowUp, ArrowDown, Star, RefreshCw, X, Layers, Briefcase, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
 import { InfoTooltip, renderRvolBadge, renderDeliveryBadge, renderRsBadge } from '../utils/benchmarks';
-import { DASH, signedPct } from '../utils/nullable';
+import { DASH, signedPct, num } from '../utils/nullable';
 
 interface Props {
   selectedSymbol: string | null;
@@ -550,7 +550,7 @@ export const MomentumWorkspace: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center justify-between text-[9px] font-bold text-[#38bdf8] uppercase tracking-wider mb-0.5">
                     <span>Sector #{idx + 1}</span>
-                    <span className="text-[#98a7ba] font-mono">RS {s.avg_rs.toFixed(0)}</span>
+                    <span className="text-[#98a7ba] font-mono">RS {num(s.avg_rs, 0)}</span>
                   </div>
                   <div className="text-xs font-bold text-white truncate" title={s.sector}>
                     {s.sector}
@@ -577,7 +577,7 @@ export const MomentumWorkspace: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center justify-between text-[9px] font-bold text-[#a855f7] uppercase tracking-wider mb-0.5">
                     <span>Industry #{idx + 1}</span>
-                    <span className="text-[#98a7ba] font-mono">RS {ind.avg_rs.toFixed(0)}</span>
+                    <span className="text-[#98a7ba] font-mono">RS {num(ind.avg_rs, 0)}</span>
                   </div>
                   <div className="text-xs font-bold text-white truncate" title={ind.industry}>
                     {ind.industry}

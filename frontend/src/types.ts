@@ -94,7 +94,7 @@ export interface CockpitResponse {
 export interface SectorLeaderSummary {
   sector: string;
   stock_count: number;
-  avg_rs: number;
+  avg_rs: number | null;
   symbols: string[];
   tv_str: string;
 }
@@ -103,7 +103,7 @@ export interface IndustryLeaderSummary {
   industry: string;
   sector: string;
   stock_count: number;
-  avg_rs: number;
+  avg_rs: number | null;
   symbols: string[];
   tv_str: string;
 }

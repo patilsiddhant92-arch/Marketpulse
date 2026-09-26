@@ -754,11 +754,11 @@ def get_momentum_screener(
             sec_list.append({
                 "sector": str(sname),
                 "stock_count": len(syms),
-                "avg_rs": round(_sanitize_float(grp["rs_percentile"].mean()), 1),
+                "avg_rs": _opt_float(grp["rs_percentile"].mean(), 1),
                 "symbols": syms[:10],
                 "tv_str": ",".join(f"NSE:{s}" for s in syms),
             })
-        sec_list.sort(key=lambda x: (x["stock_count"], x["avg_rs"]), reverse=True)
+        sec_list.sort(key=lambda x: (x["stock_count"], x["avg_rs"] if x["avg_rs"] is not None else -1.0), reverse=True)
         top_sectors = sec_list[:3]
         sector_distribution = sec_list
 
@@ -771,11 +771,11 @@ def get_momentum_screener(
                 "industry": str(iname),
                 "sector": str(sname),
                 "stock_count": len(syms),
-                "avg_rs": round(_sanitize_float(grp["rs_percentile"].mean()), 1),
+                "avg_rs": _opt_float(grp["rs_percentile"].mean(), 1),
                 "symbols": syms[:10],
                 "tv_str": ",".join(f"NSE:{s}" for s in syms),
             })
-        ind_list.sort(key=lambda x: (x["stock_count"], x["avg_rs"]), reverse=True)
+        ind_list.sort(key=lambda x: (x["stock_count"], x["avg_rs"] if x["avg_rs"] is not None else -1.0), reverse=True)
         top_industries = ind_list[:3]
 
     return {
