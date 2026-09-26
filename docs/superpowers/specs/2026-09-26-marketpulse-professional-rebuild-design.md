@@ -263,11 +263,11 @@ Each step gets its own implementation plan (writing-plans) and lands as small PR
 
 Live data / broker execution; portfolio & journal UI (D1); official FII/DII (K17); shareholding / pledge; mobile layout; ML models in production (research only).
 
-## 14. Open items for user review
+## 14. Resolved items (user accepted 2026-09-26)
 
-1. Darvas 10 EMA trigger/stop definition (§7.2).
-2. Taxonomy display names — keep user naming (Broad Sector › Sector › Broad Industry › Industry) with NSE names in tooltips (§4.3).
-3. Initial environment zones (§6.1.2) — accepted as starting points to be calibrated?
+1. Darvas 10 EMA geometry: trigger = prior session high, stop = pullback low (min low since the 10 EMA touch). Implemented with the Desk rebuild; until then the hotfix shows "—".
+2. Taxonomy display names: Broad Sector › Sector › Broad Industry › Industry, NSE official names in tooltips.
+3. Environment zones in §6.1.2 are starting points, calibrated in the evidence engine before release.
 
 ---
 
