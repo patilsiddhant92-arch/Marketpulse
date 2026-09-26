@@ -132,3 +132,48 @@ def test_override_far_from_any_event_is_added():
     assert added["applied"] and added["ex_date"] == pd.Timestamp("2026-02-01") and math.isclose(added["factor"], 0.6)
     original = faraway[faraway["ex_date"] == pd.Timestamp("2026-01-01")].iloc[0]
     assert original["applied"] and original["confidence"] == "single_source"
+
+
+# --- Task 10: announcement revisions (latest published version wins) ----------------------------
+
+def _pub(sym, d, kind, factor, published, description):
+    row = _a(sym, d, kind, factor, "bc")
+    row.update({"published": pd.Timestamp(published), "description": description})
+    return row
+
+
+# Real GLOBE (2021) sequence: two earlier versions with ex 2021-07-29, final split + bonus ex 2021-08-03.
+GLOBE_BC = [
+    _pub("GLOBE", "2021-07-29", "bonus", 2 / 3, "2021-07-20", "BONUS1:2/FVSPLIT10TO2"),
+    _pub("GLOBE", "2021-07-29", "split", 0.2, "2021-07-20", "BONUS1:2/FVSPLIT10TO2"),
+    _pub("GLOBE", "2021-07-29", "bonus", 1 / 3, "2021-07-23", "BONUS2:1/FVSPLIT10TO2"),
+    _pub("GLOBE", "2021-07-29", "split", 0.2, "2021-07-23", "BONUS2:1/FVSPLIT10TO2"),
+    _pub("GLOBE", "2021-08-03", "split", 0.2, "2021-07-30", "FVSPLT FRM RS 10 TO RS 2"),
+    _pub("GLOBE", "2021-08-03", "bonus", 1 / 3, "2021-07-30", "BONUS 2:1"),
+]
+
+
+def test_revised_announcements_keep_only_latest_published_version():
+    out = reconcile(pd.DataFrame(GLOBE_BC), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    globe = out[out["symbol"] == "GLOBE"]
+    applied = globe[globe["applied"]].sort_values("kind").reset_index(drop=True)
+    assert applied["kind"].tolist() == ["bonus", "split"]
+    assert (applied["ex_date"] == pd.Timestamp("2021-08-03")).all()
+    assert math.isclose(applied.loc[0, "factor"], 1 / 3) and math.isclose(applied.loc[1, "factor"], 0.2)
+    # The superseded versions are gone entirely, not merely un-applied.
+    assert len(globe) == 2
+
+
+def test_genuinely_separate_bonuses_six_months_apart_both_survive():
+    bc = pd.DataFrame([_pub("TWICE", "2025-01-10", "bonus", 0.5, "2025-01-02", "BONUS 1:1"),
+                       _pub("TWICE", "2025-07-10", "bonus", 0.5, "2025-07-01", "BONUS 1:1")])
+    out = reconcile(bc, pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    applied = out[(out["symbol"] == "TWICE") & out["applied"]]
+    assert applied["ex_date"].tolist() == [pd.Timestamp("2025-01-10"), pd.Timestamp("2025-07-10")]
+
+
+def test_revision_collapse_leaves_non_adjusting_kinds_alone():
+    bc = pd.DataFrame([_pub("DIVCO", "2025-01-10", "dividend", None, "2025-01-02", "DIV - RS 1"),
+                       _pub("DIVCO", "2025-01-20", "dividend", None, "2025-01-15", "DIV - RS 2")])
+    out = reconcile(bc, pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    assert len(out[out["symbol"] == "DIVCO"]) == 2

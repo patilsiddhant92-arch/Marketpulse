@@ -223,28 +223,66 @@ def actions_from_bc_frame(raw: pd.DataFrame) -> pd.DataFrame:
     return _action_rows(syms, ex, df["PURPOSE"].tolist(), "bc")
 
 
+# Optional extra column on bc action frames: the date an announcement was published (the trade
+# date encoded in its PR zip name). Consumers that only know `ACTION_COLUMNS` may ignore it.
+PUBLISHED = "published"
+BC_ACTION_COLUMNS = ACTION_COLUMNS + [PUBLISHED]
+_PR_ZIP_NAME = re.compile(r"(?i)^PR(\d{2})(\d{2})(\d{2})")
+
+
+def published_date_from_zip_name(name: str) -> pd.Timestamp:
+    """`PRddmmyy.zip` -> that trade date; NaT when the name doesn't follow the pattern."""
+    m = _PR_ZIP_NAME.match(Path(str(name)).name)
+    if not m:
+        return pd.NaT
+    dd, mm, yy = m.groups()
+    return pd.to_datetime(f"20{yy}-{mm}-{dd}", format="%Y-%m-%d", errors="coerce")
+
+
+def _dedupe_bc_actions(actions: pd.DataFrame) -> pd.DataFrame:
+    """One row per (symbol, ex_date, description, kind), keeping the FIRST-published copy.
+
+    NSE republishes the same announcement in successive daily bc files; the date a version first
+    appeared is when it superseded any earlier version, so that is the `published` date kept.
+    A missing `published` falls back to the row's ex_date.
+    """
+    if actions.empty:
+        return actions.reset_index(drop=True)
+    out = actions.copy()
+    if PUBLISHED not in out.columns:
+        out[PUBLISHED] = pd.NaT
+    out[PUBLISHED] = pd.to_datetime(out[PUBLISHED], errors="coerce").fillna(pd.to_datetime(out["ex_date"], errors="coerce"))
+    out = out.sort_values(PUBLISHED, kind="stable", na_position="last")
+    out = out.drop_duplicates(["symbol", "ex_date", "description", "kind"])
+    return out.sort_index().reset_index(drop=True)
+
+
 def collect_bc_actions(zip_paths: list[Path]) -> pd.DataFrame:
+    """bc actions from every PR zip (`BC_ACTION_COLUMNS`: `ACTION_COLUMNS` + `published`)."""
     frames = []
     for p in zip_paths:
         try:
             with zipfile.ZipFile(p) as zf:
                 raw = read_bc_member(zf)
             _warn_skipped_lines(Path(p).name, raw.attrs.get("skipped_lines", 0))
-            frames.append(actions_from_bc_frame(raw))
+            frames.append(actions_from_bc_frame(raw).assign(**{PUBLISHED: published_date_from_zip_name(Path(p).name)}))
         except (zipfile.BadZipFile, OSError, pd.errors.ParserError) as exc:
             print(f"Skipped {Path(p).name}: {exc}")
     if not frames:
-        return pd.DataFrame(columns=ACTION_COLUMNS)
-    out = pd.concat(frames, ignore_index=True)
-    return out.drop_duplicates(["symbol", "ex_date", "description", "kind"]).reset_index(drop=True)
+        return pd.DataFrame(columns=BC_ACTION_COLUMNS)
+    return _dedupe_bc_actions(pd.concat(frames, ignore_index=True))
 
 
 def actions_from_corporate_actions_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Re-parse the live `corporate_actions` table. It carries no publication date, so each
+    row's `published` is its ex_date."""
     if df is None or df.empty:
-        return pd.DataFrame(columns=ACTION_COLUMNS)
+        return pd.DataFrame(columns=BC_ACTION_COLUMNS)
     ex = pd.to_datetime(df["ex_date"], errors="coerce").dt.normalize()
     syms = df["symbol"].astype(str).str.strip().str.upper().tolist()
-    return _action_rows(syms, ex.tolist(), df["description"].fillna("").tolist(), "bc")
+    out = _action_rows(syms, ex.tolist(), df["description"].fillna("").tolist(), "bc")
+    out[PUBLISHED] = out["ex_date"]
+    return out
 
 
 def find_pr_zips(root: Path) -> list[Path]:
@@ -567,8 +605,49 @@ def _apply_overrides(rows: list[dict], overrides: pd.DataFrame, window_days: flo
     return rows
 
 
+REVISION_WINDOW_DAYS = 30
+
+
+def collapse_revisions(bc: pd.DataFrame, window_days: int = REVISION_WINDOW_DAYS) -> pd.DataFrame:
+    """Keep only the latest published version of each revised adjusting announcement.
+
+    NSE republishes an action in successive daily bc files and sometimes revises it (GLOBE 2021:
+    `BONUS1:2/FVSPLIT10TO2` ex 07-29, then `BONUS2:1/FVSPLIT10TO2` ex 07-29, then the final
+    `FVSPLT FRM RS 10 TO RS 2` + `BONUS 2:1` ex 08-03). For each symbol + adjusting kind, actions
+    whose ex_dates chain within `window_days` calendar days of each other form one group; only
+    the action from the group's latest `published` date survives (ties on that date: the latest
+    ex_date). Non-adjusting kinds are untouched. A missing `published` counts as the ex_date.
+    Row order of the survivors is preserved.
+    """
+    if bc is None or bc.empty or PUBLISHED not in bc.columns:
+        return bc
+    bc = bc.reset_index(drop=True)
+    ex_date = pd.to_datetime(bc["ex_date"], errors="coerce")
+    published = pd.to_datetime(bc[PUBLISHED], errors="coerce").fillna(ex_date)
+    adjusting = bc["kind"].isin(ADJUSTING_KINDS) & ex_date.notna()
+    if not adjusting.any():
+        return bc
+    sub = pd.DataFrame({"symbol": bc["symbol"], "kind": bc["kind"], "ex_date": ex_date,
+                        "published": published})[adjusting]
+    sub = sub.sort_values(["symbol", "kind", "ex_date"], kind="stable")
+    new_group = ((sub["symbol"] != sub["symbol"].shift()) | (sub["kind"] != sub["kind"].shift())
+                 | (sub["ex_date"].diff().dt.days > window_days))
+    sub["_group"] = new_group.cumsum()
+    winners = sub.sort_values(["_group", "published", "ex_date"], kind="stable").groupby("_group").tail(1).index
+    keep = ~adjusting
+    keep[winners] = True
+    return bc[keep]
+
+
 def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, overrides: pd.DataFrame,
              window_days: int = 5, factor_tol: float = 0.02, gap_tol: float = 0.2) -> pd.DataFrame:
+    """Reconcile bc / mcap / gap evidence (plus manual overrides) into `ADJUSTMENT_COLUMNS` rows.
+
+    When `bc` carries a `published` column, revised announcements are first collapsed to their
+    latest published version (`collapse_revisions`); without it (legacy callers) every bc row is
+    taken as-is.
+    """
+    bc = collapse_revisions(_empty_or(bc, ACTION_COLUMNS))
     bc = _empty_or(bc, ACTION_COLUMNS)
     mcap = _empty_or(mcap, ACTION_COLUMNS)
     gaps = _empty_or(gaps, GAP_COLUMNS)
@@ -841,8 +920,8 @@ def adjust_prices(prices: pd.DataFrame, root: Path,
     zips = find_pr_zips(root)
     bc = collect_bc_actions(zips)
     if extra_actions is not None and not extra_actions.empty:
-        bc = pd.concat([bc, extra_actions[ACTION_COLUMNS]], ignore_index=True)
-        bc = bc.drop_duplicates(["symbol", "ex_date", "description", "kind"]).reset_index(drop=True)
+        extra = extra_actions[[c for c in BC_ACTION_COLUMNS if c in extra_actions.columns]]
+        bc = _dedupe_bc_actions(pd.concat([bc, extra], ignore_index=True))
     mcap_frames = read_mcap_frames(root, zips)
 
     changes_path = root / "Input" / "reference" / "symbolchange.csv"

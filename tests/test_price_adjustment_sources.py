@@ -104,6 +104,45 @@ def test_malformed_bc_line_is_skipped_not_the_whole_file(tmp_path, capsys):
     assert "1 malformed line" in warnings[0]
 
 
+def test_collect_records_published_date_from_zip_name_first_seen_wins(tmp_path):
+    # The same announcement republished on later days keeps the date it was FIRST published,
+    # independent of the order the zips are listed in (sorted names aren't chronological).
+    z_late = _zip(tmp_path, "PR010926.zip", "bc01092026.csv", BC_2026)
+    z_early = _zip(tmp_path, "PR200826.zip", "bc20082026.csv", BC_2026)
+    a = collect_bc_actions([z_late, z_early])
+    assert "published" in a.columns
+    goodluck = a[a["symbol"] == "GOODLUCK"]
+    assert len(goodluck) == 1
+    assert goodluck.iloc[0]["published"] == pd.Timestamp("2026-08-20")
+
+
+def test_db_table_published_defaults_to_ex_date():
+    df = pd.DataFrame({"symbol": ["TCC"], "ex_date": pd.to_datetime(["2026-09-04"]),
+                       "action_type": ["other"], "description": ["FVSPLT FRM RS 10 TO RS 2"]})
+    a = actions_from_corporate_actions_table(df).iloc[0]
+    assert a["published"] == pd.Timestamp("2026-09-04")
+
+
+def test_globe_revision_sequence_from_zips_end_to_end(tmp_path):
+    from price_adjustment import reconcile
+
+    hdr = "SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE\n"
+    v1 = hdr + "EQ,GLOBE,Globe Textiles (I) Ltd.,30/07/2021, , ,29/07/2021, , ,BONUS1:2/FVSPLIT10TO2\n"
+    v2 = hdr + "EQ,GLOBE,Globe Textiles (I) Ltd.,30/07/2021, , ,29/07/2021, , ,BONUS2:1/FVSPLIT10TO2\n"
+    v3 = hdr + ("EQ,GLOBE,Globe Textiles (I) Ltd.,04/08/2021, , ,03/08/2021, , ,FVSPLT FRM RS 10 TO RS 2\n"
+                "EQ,GLOBE,Globe Textiles (I) Ltd.,04/08/2021, , ,03/08/2021, , ,BONUS 2:1\n")
+    zips = [_zip(tmp_path, "PR140721.zip", "bc140721.csv", v1),
+            _zip(tmp_path, "PR200721.zip", "bc200721.csv", v2),
+            _zip(tmp_path, "PR260721.zip", "bc260721.csv", v2),
+            _zip(tmp_path, "PR270721.zip", "bc270721.csv", v3),
+            _zip(tmp_path, "PR020821.zip", "bc020821.csv", v3)]
+    out = reconcile(collect_bc_actions(zips), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    applied = out[out["applied"]].sort_values("kind").reset_index(drop=True)
+    assert applied["kind"].tolist() == ["bonus", "split"]
+    assert (applied["ex_date"] == pd.Timestamp("2021-08-03")).all()
+    assert math.isclose(applied.loc[0, "factor"], 1 / 3) and math.isclose(applied.loc[1, "factor"], 0.2)
+
+
 def test_db_table_expands_multi_action_purpose():
     df = pd.DataFrame({"symbol": ["GLOBE"], "ex_date": pd.to_datetime(["2021-08-03"]),
                        "action_type": ["bonus"], "description": ["BONUS 1:1 AND FV SPLIT FROM RS 10 TO RS 2"]})
