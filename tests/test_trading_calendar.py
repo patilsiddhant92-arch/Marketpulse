@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from trading_calendar import build_calendar, expected_latest_session, observed_sessions, parse_holiday_payload
 
@@ -43,3 +43,16 @@ def test_expected_latest_session_skips_weekend_and_holiday():
     assert expected_latest_session(datetime(2026, 10, 5, 19, 0), set(), holidays) == date(2026, 10, 5)
     # Sunday Muhurat session already observed → that Sunday
     assert expected_latest_session(datetime(2026, 11, 8, 20, 0), {date(2026, 11, 8)}, set()) == date(2026, 11, 8)
+
+
+def test_expected_latest_session_respects_special_sessions():
+    # Repro: Monday 9-Nov with holiday, Sunday 8-Nov is Muhurat session
+    # Should return Sunday Muhurat session, not skip it as a weekend
+    assert expected_latest_session(datetime(2026, 11, 9, 20, 0), {date(2026, 11, 8)}, {date(2026, 11, 9)}) == date(2026, 11, 8)
+
+
+def test_expected_latest_session_with_timezone_aware():
+    # Monday 5-Oct 13:00 UTC = 18:30 IST (after close, current day)
+    assert expected_latest_session(datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc), set(), set()) == date(2026, 10, 5)
+    # Monday 5-Oct 11:00 UTC = 16:30 IST (before close, previous day)
+    assert expected_latest_session(datetime(2026, 10, 5, 11, 0, tzinfo=timezone.utc), set(), set()) == date(2026, 10, 2)

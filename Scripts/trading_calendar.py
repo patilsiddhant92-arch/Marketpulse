@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -52,10 +53,15 @@ def build_calendar(start: date, end: date, sessions: set[date], holidays: set[da
 
 
 def expected_latest_session(now: datetime, sessions: set[date], holidays: set[date], close_hour: int = 18) -> date:
+    """Find the most recent valid trading session.
+
+    Naive datetimes are interpreted as IST wall-clock time.
+    """
+    if now.tzinfo is not None:
+        now = now.astimezone(ZoneInfo("Asia/Kolkata"))
+
     day = now.date() if now.hour >= close_hour else now.date() - timedelta(days=1)
-    if day in sessions:
-        return day
-    while day.weekday() >= 5 or day in holidays:
+    while not (day in sessions or (day.weekday() < 5 and day not in holidays)):
         day -= timedelta(days=1)
     return day
 
