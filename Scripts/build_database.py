@@ -28,7 +28,7 @@ from config import (
     SECTOR_FILE,
     WATCHLIST_BUCKETS,
 )
-from index_history import build_index_features, load_all_market_activity_history
+from index_history import build_index_features, load_all_index_history, load_all_market_activity_history
 from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
 from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
 from index_constituents import load_membership_csv, ensure_index_constituents
@@ -1252,13 +1252,13 @@ def write_database(
 
     # 1. Ingest index_daily from all MA files
     try:
-        index_raw = load_all_market_activity_history(ROOT_DIR)
+        index_raw = load_all_index_history(ROOT_DIR)
         if not index_raw.empty:
             index_features = build_index_features(index_raw)
             con.register("index_daily_df", index_features)
             con.execute("CREATE TABLE index_daily AS SELECT * FROM index_daily_df")
             con.execute("CREATE INDEX idx_index_daily_date_name ON index_daily(trade_date, index_name)")
-            print(f"Ingested index_daily: {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
+            print(f"Ingested index_daily (ind_close_all + MA fallback): {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
     except Exception as exc:
         print(f"Warning: index_daily ingestion skipped ({exc})")
 

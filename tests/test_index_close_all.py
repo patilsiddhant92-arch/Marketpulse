@@ -53,6 +53,15 @@ def test_derive_name_map_is_one_to_one():
     assert canon_rows.iloc[0]["source_name"] == "Nifty 50"
 
 
+def test_features_keep_extra_columns(tmp_path):
+    from index_history import build_index_features
+
+    p = tmp_path / "ind_close_all_25092026.csv"
+    p.write_text(CSV)
+    feats = build_index_features(parse_ind_close_all(p))
+    assert {"volume", "pe", "ema_200", "return_20d_pct"} <= set(feats.columns)
+
+
 def test_load_all_prefers_close_all_and_fills_from_ma(tmp_path, monkeypatch):
     daily = tmp_path / "Input" / "daily"
     daily.mkdir(parents=True)

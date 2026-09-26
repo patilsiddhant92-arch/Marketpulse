@@ -34,7 +34,7 @@ from build_database import (
     read_sector,
     write_database,
 )
-from index_history import build_index_features, load_all_market_activity_history
+from index_history import build_index_features, load_all_index_history
 from sector_metrics import compute_sector_metrics
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
 from reference_history import load_reference_history
@@ -85,11 +85,11 @@ def load_index_for_metrics(root_dir: Path, table_loader: Callable[[str], pd.Data
     sector metrics are computed, so it lacks the newest session.
     """
     try:
-        raw = load_all_market_activity_history(root_dir)
+        raw = load_all_index_history(root_dir)
         if raw is not None and not raw.empty:
             return build_index_features(raw)
     except Exception as exc:
-        print(f"Warning: MA-based index features unavailable ({exc}); using stored index_daily")
+        print(f"Warning: index history unavailable ({exc}); using stored index_daily")
     try:
         return table_loader("index_daily")
     except Exception:
