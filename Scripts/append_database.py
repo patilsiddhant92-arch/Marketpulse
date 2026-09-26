@@ -24,6 +24,7 @@ from build_database import (
     calc_indicators,
     enrich_deals,
     make_screener_results,
+    parse_file_date,
     read_52_week,
     read_all_deals,
     read_bhavcopy,
@@ -45,6 +46,8 @@ from price_adjustment import (
     summarize_adjustments,
 )
 from reference_history import load_reference_history
+
+NEW_PRICES_FILENAME_SLACK_DAYS = 10
 
 
 @dataclass(frozen=True)
@@ -78,7 +81,13 @@ def _load_extra_actions() -> pd.DataFrame | None:
 
 
 def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataFrame:
-    """Any bhavcopy in daily, archive, or downloads newer than DB max is appended."""
+    """Any bhavcopy in daily, archive, or downloads newer than DB max is appended.
+
+    Files whose filename date is well before the DB max are skipped unparsed: NSE's DATE1
+    session is never later than the filename date (holiday duplicates and the Muhurat file
+    carry an earlier session), so they cannot hold new rows. The slack keeps the rule safe
+    against an odd file dated a little earlier than its session.
+    """
     from config import ARCHIVE_DIR, INPUT_DIR
 
     paths = set(Path(DAILY_DIR).glob("sec_bhavdata_full_*.csv"))
@@ -86,8 +95,12 @@ def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataF
     downloads = Path(INPUT_DIR) / "downloads"
     if downloads.exists():
         paths |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
+    cutoff = latest_date - pd.Timedelta(days=NEW_PRICES_FILENAME_SLACK_DAYS)
     frames = []
     for path in sorted(paths):
+        file_date = parse_file_date(path)
+        if file_date is not None and file_date < cutoff:
+            continue
         frame = read_bhavcopy(path, universe)
         if frame.empty:
             continue
