@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import csv
+import fnmatch
+import io
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -34,31 +37,55 @@ def _number(value):
         return None
 
 
-def parse_market_activity(path: Path, trade_date: date | pd.Timestamp) -> pd.DataFrame:
-    rows = []
+def _market_activity_records(path: Path, trade_date: date | pd.Timestamp) -> list[tuple]:
+    """Index rows of one MA file as INDEX_COLUMNS-ordered tuples.
+
+    Hot loop (MA files are ~3k csv rows, of which only the index block qualifies): only
+    the eight fields that matter are touched, so non-index rows cost a single len() check.
+    Semantics match the original per-field ``str(v).strip()`` + ``_number`` parse exactly
+    (``_number`` strips again after dropping commas, so pre-stripping is redundant).
+
+    When the file has no quote characters (true for every NSE MA file seen), a csv record
+    cannot span lines and has at most ``commas + 1`` fields, so lines with fewer than 7
+    commas can never yield the >= 8 fields needed and are dropped before csv parsing.
+    The kept lines are re-parsed through the same newline="" csv path, so stray ``\\r``
+    record breaks behave exactly as before.
+    """
+    trade_ts = pd.Timestamp(trade_date).normalize()
+    records = []
     with Path(path).open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
-        reader = csv.reader(handle)
-        for raw in reader:
-            values = [str(value).strip() for value in raw]
-            if len(values) < 8 or values[1].strip().upper() in {"INDEX", ""}:
+        text = handle.read()
+    if '"' not in text:
+        text = "\n".join(line for line in text.split("\n") if line.count(",") >= 7)
+    with io.StringIO(text, newline="") as handle:
+        for raw in csv.reader(handle):
+            if len(raw) < 8:
                 continue
-            previous, opening, high, low, close, change = (_number(value) for value in values[2:8])
-            if not values[1] or any(value is None for value in (previous, opening, high, low, close, change)):
+            name = raw[1].strip()
+            if name.upper() in {"INDEX", ""}:
                 continue
-            rows.append(
-                {
-                    "trade_date": pd.Timestamp(trade_date).normalize(),
-                    "index_name": values[1],
-                    "previous_close": previous,
-                    "open_price": opening,
-                    "high_price": high,
-                    "low_price": low,
-                    "close_price": close,
-                    "change_value": change,
-                    "return_1d_pct": round((close / previous - 1.0) * 100, 10) if previous else None,
-                }
+            try:
+                previous, opening, high, low, close, change = (float(value.replace(",", "").strip()) for value in raw[2:8])
+            except ValueError:
+                continue
+            records.append(
+                (
+                    trade_ts,
+                    name,
+                    previous,
+                    opening,
+                    high,
+                    low,
+                    close,
+                    change,
+                    round((close / previous - 1.0) * 100, 10) if previous else None,
+                )
             )
-    return pd.DataFrame(rows, columns=INDEX_COLUMNS)
+    return records
+
+
+def parse_market_activity(path: Path, trade_date: date | pd.Timestamp) -> pd.DataFrame:
+    return pd.DataFrame(_market_activity_records(path, trade_date), columns=INDEX_COLUMNS)
 
 
 def parse_market_macro(path: Path, trade_date: date | pd.Timestamp) -> dict[str, Any]:
@@ -146,47 +173,117 @@ def _parse_ma_date(path: Path) -> date | None:
 
 
 def parse_market_activity_history(paths) -> pd.DataFrame:
-    frames = []
+    # All files' rows go into ONE DataFrame (the old per-file frame + concat cost more
+    # than the parsing itself); row order, dedup and sort are unchanged.
+    records = []
     for path in sorted(set(paths)):
         trade_day = _parse_ma_date(Path(path))
         if trade_day is None:
             continue
-        frame = parse_market_activity(path, trade_day)
-        if not frame.empty:
-            frames.append(frame)
-    if not frames:
+        records.extend(_market_activity_records(path, trade_day))
+    if not records:
         return pd.DataFrame(columns=INDEX_COLUMNS)
     return (
-        pd.concat(frames, ignore_index=True)
+        pd.DataFrame(records, columns=INDEX_COLUMNS)
         .drop_duplicates(["trade_date", "index_name"], keep="last")
         .sort_values(["trade_date", "index_name"])
         .reset_index(drop=True)
     )
 
 
-def load_all_market_activity_history(root: Path) -> pd.DataFrame:
-    """Find and parse all MA files from downloads, archive, and daily."""
+_GLOB_FLAGS = re.IGNORECASE if os.name == "nt" else 0  # pathlib glob is case-insensitive on Windows
+_MA_GLOB = re.compile(fnmatch.translate("MA*.csv"), _GLOB_FLAGS)
+_IND_CLOSE_ALL_GLOB = re.compile(fnmatch.translate("ind_close_all_*.csv"), _GLOB_FLAGS)
+
+
+def _list_matching(folder: Path | str, pattern: re.Pattern) -> list[tuple[str, int, int]]:
+    """``folder.glob(<single-level pattern>)`` as (path str, size, mtime_ns) tuples.
+
+    os.scandir hands back stat data without an extra syscall on Windows and plain strings
+    avoid pathlib overhead, keeping the memo's file-set signature cheap (~2k files).
+    """
+    listed = []
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                if pattern.match(entry.name):
+                    try:
+                        st = entry.stat()
+                    except OSError:
+                        continue
+                    listed.append((entry.path, st.st_size, st.st_mtime_ns))
+    except OSError:
+        return []
+    return listed
+
+
+def _market_activity_entries(root: Path) -> list[tuple[str, int, int]]:
     root = Path(root)
-    paths = []
+    entries: list[tuple[str, int, int]] = []
     downloads = root / "Input" / "downloads"
     archive = root / "Input" / "archive"
     daily = root / "Input" / "daily"
-    if downloads.exists():
-        paths.extend(downloads.glob("*/MA*.csv"))
+    if downloads.exists():  # downloads/*/MA*.csv
+        try:
+            with os.scandir(downloads) as it:
+                subdirs = [entry.path for entry in it if entry.is_dir()]
+        except OSError:
+            subdirs = []
+        for sub in subdirs:
+            entries.extend(_list_matching(sub, _MA_GLOB))
     if archive.exists():
-        paths.extend(archive.glob("MA*.csv"))
+        entries.extend(_list_matching(archive, _MA_GLOB))
     if daily.exists():
-        paths.extend(daily.glob("MA*.csv"))
-    return parse_market_activity_history(paths)
+        entries.extend(_list_matching(daily, _MA_GLOB))
+    return entries
+
+
+def _market_activity_paths(root: Path) -> list[Path]:
+    return [Path(path) for path, _size, _mtime in _market_activity_entries(root)]
+
+
+def load_all_market_activity_history(root: Path) -> pd.DataFrame:
+    """Find and parse all MA files from downloads, archive, and daily."""
+    return parse_market_activity_history(_market_activity_paths(root))
 
 
 
 EXTRA_INDEX_COLUMNS = ["volume", "turnover_cr", "pe", "pb", "div_yield"]
+_IND_CLOSE_ALL_NUMERIC = {
+    "open_price": "Open Index Value",
+    "high_price": "High Index Value",
+    "low_price": "Low Index Value",
+    "close_price": "Closing Index Value",
+    "change_value": "Points Change",
+    "return_1d_pct": "Change(%)",
+    "volume": "Volume",
+    "turnover_cr": "Turnover (Rs. Cr.)",
+    "pe": "P/E",
+    "pb": "P/B",
+    "div_yield": "Div Yield",
+}
 
 
-def parse_ind_close_all(path: Path) -> pd.DataFrame:
+def _read_ind_close_all_raw(path: Path) -> pd.DataFrame:
     raw = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
     raw.columns = [str(c).strip() for c in raw.columns]
+    return raw
+
+
+def _ind_close_all_frames_to_rows(paths: list[Path], raws: list[pd.DataFrame], emit) -> pd.DataFrame:
+    """Vectorised ind_close_all parse over one or many already-read files.
+
+    Every step is element-wise (strip / comma-drop / to_numeric / to_datetime), so running
+    it once over the concatenated raw rows gives exactly the per-file result; the only
+    per-file logic (filename-authoritative date, 0-row warning) is applied by file id.
+    ``emit(file_index, message)`` receives the warnings in per-file order.
+    """
+    if len(raws) == 1:
+        raw = raws[0]
+        file_id = np.zeros(len(raw), dtype=np.int64)
+    else:
+        raw = pd.concat(raws, ignore_index=True)
+        file_id = np.repeat(np.arange(len(raws), dtype=np.int64), [len(r) for r in raws])
 
     def num(col):
         if col not in raw.columns:
@@ -194,44 +291,106 @@ def parse_ind_close_all(path: Path) -> pd.DataFrame:
         return pd.to_numeric(raw[col].astype(str).str.replace(",", "").str.strip().replace({"-": None}), errors="coerce")
 
     trade_date = pd.to_datetime(raw["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce")
-
-    name_match = _IND_CLOSE_ALL_RE.search(Path(path).name)
-    if name_match:
+    first_parsed = trade_date.groupby(file_id).first() if len(trade_date) else pd.Series(dtype="datetime64[ns]")
+    for i, path in enumerate(paths):
+        name_match = _IND_CLOSE_ALL_RE.search(Path(path).name)
+        if not name_match or i not in first_parsed.index or pd.isna(first_parsed.loc[i]):
+            continue
         dd, mm, yyyy = name_match.groups()
         filename_date = pd.Timestamp(year=int(yyyy), month=int(mm), day=int(dd))
-        parsed_dates = trade_date.dropna().unique()
-        if len(parsed_dates) and pd.Timestamp(parsed_dates[0]) != filename_date:
+        parsed_first = pd.Timestamp(first_parsed.loc[i])
+        if parsed_first != filename_date:
             # NSE occasionally writes "Index Date" as MM-DD-YYYY instead of this file's
             # usual DD-MM-YYYY (all three known cases are April 2023). The filename date
             # is authoritative -- trusting the column would misdate every row and, worse,
             # can silently collide with (and overwrite) a genuinely different session.
-            print(
+            emit(
+                i,
                 f"WARNING: {Path(path).name} Index Date parsed as "
-                f"{pd.Timestamp(parsed_dates[0]).date().isoformat()} but the filename implies "
-                f"{filename_date.date().isoformat()}; using the filename date for all rows"
+                f"{parsed_first.date().isoformat()} but the filename implies "
+                f"{filename_date.date().isoformat()}; using the filename date for all rows",
             )
-            trade_date = pd.Series(filename_date, index=raw.index)
+            if len(raws) == 1:
+                trade_date = pd.Series(filename_date, index=raw.index)
+            else:
+                trade_date = trade_date.mask(file_id == i, filename_date)
 
-    out = pd.DataFrame({
-        "trade_date": trade_date,
-        "index_name": raw["Index Name"].astype(str).str.strip(),
-        "open_price": num("Open Index Value"),
-        "high_price": num("High Index Value"),
-        "low_price": num("Low Index Value"),
-        "close_price": num("Closing Index Value"),
-        "change_value": num("Points Change"),
-        "return_1d_pct": num("Change(%)"),
-        "volume": num("Volume"),
-        "turnover_cr": num("Turnover (Rs. Cr.)"),
-        "pe": num("P/E"),
-        "pb": num("P/B"),
-        "div_yield": num("Div Yield"),
-    })
+    columns = {"trade_date": trade_date, "index_name": raw["Index Name"].astype(str).str.strip()}
+    columns.update({out_col: num(src_col) for out_col, src_col in _IND_CLOSE_ALL_NUMERIC.items()})
+    out = pd.DataFrame(columns)
     out["previous_close"] = out["close_price"] - out["change_value"]
-    out = out.dropna(subset=["trade_date", "close_price"])
-    if out.empty:
-        print(f"WARNING: {Path(path).name} yielded 0 rows")
+    keep = (out["trade_date"].notna() & out["close_price"].notna()).to_numpy()
+    out = out[keep]
+    kept_per_file = np.bincount(file_id[keep], minlength=len(raws))
+    for i, path in enumerate(paths):
+        if kept_per_file[i] == 0:
+            emit(i, f"WARNING: {Path(path).name} yielded 0 rows")
     return out[INDEX_COLUMNS + EXTRA_INDEX_COLUMNS]
+
+
+def parse_ind_close_all(path: Path) -> pd.DataFrame:
+    raw = _read_ind_close_all_raw(path)
+    return _ind_close_all_frames_to_rows([Path(path)], [raw], lambda _i, message: print(message))
+
+
+def _ind_close_all_listing(root: Path) -> list[list[tuple[str, int, int]]]:
+    """Per-folder (archive, archive/backfill/index, daily) ind_close_all entries."""
+    root = Path(root)
+    folders = [root / "Input" / "archive", root / "Input" / "archive" / "backfill" / "index", root / "Input" / "daily"]
+    return [_list_matching(folder, _IND_CLOSE_ALL_GLOB) for folder in folders if folder.exists()]
+
+
+def _ind_close_all_paths_from_listing(listing: list[list[tuple[str, int, int]]]) -> list[Path]:
+    # Same order as the original ``sorted(folder.glob(...))`` per folder.
+    return [path for folder_entries in listing for path in sorted(Path(entry[0]) for entry in folder_entries)]
+
+
+def _ind_close_all_entries(root: Path) -> list[tuple[Path, int, int]]:
+    listing = _ind_close_all_listing(root)
+    stats = {Path(entry[0]): entry for folder_entries in listing for entry in folder_entries}
+    return [(path, stats[path][1], stats[path][2]) for path in _ind_close_all_paths_from_listing(listing)]
+
+
+def _load_ind_close_all_files(paths: list[Path]) -> list[pd.DataFrame]:
+    """Read + parse every ind_close_all file; warnings/skips print in file order."""
+    messages: list[tuple[int, int, str]] = []
+
+    def emit(i: int, message: str) -> None:
+        messages.append((i, len(messages), message))
+
+    ok_paths: list[Path] = []
+    ok_order: list[int] = []
+    raws: list[pd.DataFrame] = []
+    for i, p in enumerate(paths):
+        try:
+            raw = _read_ind_close_all_raw(p)
+            for required in ("Index Date", "Index Name"):
+                if required not in raw.columns:
+                    raise KeyError(required)
+        except Exception as exc:
+            emit(i, f"Skipped {p.name}: {exc}")
+            continue
+        ok_paths.append(p)
+        ok_order.append(i)
+        raws.append(raw)
+
+    frames: list[pd.DataFrame] = []
+    if raws:
+        try:
+            frames = [_ind_close_all_frames_to_rows(ok_paths, raws, lambda j, message: emit(ok_order[j], message))]
+        except Exception:
+            # Heterogeneous files (e.g. duplicate headers) that can't be batched: fall back
+            # to the original one-file-at-a-time parse.
+            messages[:] = [m for m in messages if m[2].startswith("Skipped ")]
+            frames = []
+            for j, (p, raw) in enumerate(zip(ok_paths, raws)):
+                try:
+                    frames.append(_ind_close_all_frames_to_rows([p], [raw], lambda _k, message, j=j: emit(ok_order[j], message)))
+                except Exception as exc:
+                    emit(ok_order[j], f"Skipped {p.name}: {exc}")
+    for _i, _seq, message in sorted(messages):
+        print(message)
+    return frames
 
 
 def load_index_name_map(path: Path) -> dict[str, str]:
@@ -241,19 +400,53 @@ def load_index_name_map(path: Path) -> dict[str, str]:
     return dict(zip(m["source_name"].str.strip(), m["canonical_name"].str.strip()))
 
 
+# In-process memo: build_database / append_database / materialize call
+# load_all_index_history several times per run over ~2k unchanged files.
+_INDEX_HISTORY_CACHE: dict[tuple[str, str], tuple[tuple, pd.DataFrame]] = {}
+
+
+def clear_index_history_cache() -> None:
+    _INDEX_HISTORY_CACHE.clear()
+
+
+def _stat_signature(path: Path) -> tuple:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return (str(path), None, None)
+    return (str(path), st.st_size, st.st_mtime_ns)
+
+
 def load_all_index_history(root: Path, name_map_path: Path | None = None) -> pd.DataFrame:
+    """ind_close_all history (+ MA fallback rows), memoised per process.
+
+    Repeated calls with the same root/name map and an unchanged input file set (names,
+    sizes, mtimes of every ind_close_all / MA file and the name map) return a copy of the
+    cached frame instead of re-parsing ~2k CSVs.
+    """
     root = Path(root)
-    name_map_path = name_map_path or (root / "Input" / "reference" / "index_name_map.csv")
-    folders = [root / "Input" / "archive", root / "Input" / "archive" / "backfill" / "index", root / "Input" / "daily"]
-    frames = []
-    for folder in folders:
-        if folder.exists():
-            for p in sorted(folder.glob("ind_close_all_*.csv")):
-                try:
-                    frames.append(parse_ind_close_all(p))
-                except Exception as exc:
-                    print(f"Skipped {p.name}: {exc}")
-    ma = load_all_market_activity_history(root)
+    name_map_path = Path(name_map_path or (root / "Input" / "reference" / "index_name_map.csv"))
+    listing = _ind_close_all_listing(root)
+    ma_loader = load_all_market_activity_history
+    signature = (
+        tuple(tuple(sorted(folder_entries)) for folder_entries in listing),
+        tuple(sorted(_market_activity_entries(root))),
+        _stat_signature(name_map_path),
+        ma_loader,
+    )
+    key = (str(root.resolve()), str(name_map_path.resolve()))
+    cached = _INDEX_HISTORY_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return cached[1].copy()
+    close_all_paths = _ind_close_all_paths_from_listing(listing)
+    result = _load_all_index_history_uncached(close_all_paths, name_map_path, lambda: ma_loader(root))
+    _INDEX_HISTORY_CACHE[key] = (signature, result.copy())
+    return result
+
+
+def _load_all_index_history_uncached(close_all_paths: list[Path], name_map_path: Path, load_ma) -> pd.DataFrame:
+    frames = _load_ind_close_all_files(close_all_paths)
+    ma = load_ma()
     if frames:
         close_all = pd.concat(frames, ignore_index=True)
         name_map = load_index_name_map(name_map_path)
@@ -262,8 +455,9 @@ def load_all_index_history(root: Path, name_map_path: Path | None = None) -> pd.
         if ma is not None and not ma.empty:
             ma = ma.copy()
             ma["trade_date"] = pd.to_datetime(ma["trade_date"]).dt.normalize()
-            have = set(zip(close_all["trade_date"], close_all["index_name"]))
-            ma = ma[[(d, n) not in have for d, n in zip(ma["trade_date"], ma["index_name"])]]
+            have = pd.MultiIndex.from_arrays([close_all["trade_date"], close_all["index_name"]])
+            wanted = pd.MultiIndex.from_arrays([ma["trade_date"], ma["index_name"]])
+            ma = ma[~wanted.isin(have)]
             close_all = pd.concat([close_all, ma], ignore_index=True)
     else:
         # No ind_close_all archive files at all: start straight from the MA fallback
