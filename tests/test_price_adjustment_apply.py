@@ -47,7 +47,9 @@ def test_adjusted_series_has_no_fake_crash_and_real_ex_date_move():
 
 def test_indicator_input_swaps_in_adjusted_values():
     ind = indicator_input(apply_adjustments(PRICES, ADJ))
-    assert not any(c.startswith("adj_") for c in ind.columns) and "price_factor" not in ind.columns
+    # adj_* are dropped (already swapped in under their unprefixed names), but price_factor is
+    # kept: calc_indicators needs it to rescale the raw NSE 52-week high/low onto adjusted scale.
+    assert not any(c.startswith("adj_") for c in ind.columns) and "price_factor" in ind.columns
     t = ind[ind.symbol == "TCC"].set_index("trade_date")
     assert math.isclose(t.loc["2026-09-03", "close_price"], 102.0)
     assert math.isclose(t.loc["2026-09-04", "prev_close"], 102.0)

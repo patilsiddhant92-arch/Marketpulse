@@ -251,6 +251,23 @@ def actions_from_mcap(frames: pd.DataFrame, tol: float = 0.01) -> pd.DataFrame:
 ADJUSTMENT_COLUMNS = ["symbol", "ex_date", "kind", "factor", "source", "confidence", "applied", "description"]
 GAP_COLUMNS = ["symbol", "ex_date", "gap_ratio"]
 OVERRIDE_COLUMNS = ["symbol", "ex_date", "factor", "note"]
+_ADJUSTMENT_DTYPES = {
+    "symbol": "object", "ex_date": "datetime64[ns]", "kind": "object", "factor": "float64",
+    "source": "object", "confidence": "object", "applied": "bool", "description": "object",
+}
+
+
+def empty_adjustments_frame() -> pd.DataFrame:
+    """A zero-row `ADJUSTMENT_COLUMNS` frame with explicit, correct dtypes per column.
+
+    `pd.DataFrame(columns=ADJUSTMENT_COLUMNS)` alone gives every column `object` dtype (there
+    is no data to infer from), which duckdb's pandas scanner can resolve to the wrong SQL type
+    (observed: INTEGER) for an empty `price_adjustments` table -- breaking later typed queries
+    (e.g. `WHERE ex_date >= DATE '...'`) once real rows are appended in a later run. Building
+    the frame with real per-column dtypes up front avoids that.
+    """
+    return pd.DataFrame({col: pd.Series([], dtype=dtype) for col, dtype in _ADJUSTMENT_DTYPES.items()},
+                        columns=ADJUSTMENT_COLUMNS)
 
 
 def gap_candidates(prices: pd.DataFrame, low: float = 0.6, high: float = 1.6) -> pd.DataFrame:
@@ -535,6 +552,8 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
     # up within window_days/factor_tol of each other after overrides are in play.
     rows = _dedupe_duplicates(rows, window_days, factor_tol)
 
+    if not rows:
+        return empty_adjustments_frame()
     out = pd.DataFrame(rows, columns=ADJUSTMENT_COLUMNS)
     return out.sort_values(["symbol", "ex_date"]).reset_index(drop=True)
 
@@ -614,6 +633,17 @@ def cumulative_price_factor(prices: pd.DataFrame, adjustments: pd.DataFrame) -> 
     return pd.Series(result, index=prices.index, name="price_factor")
 
 
+def drop_stale_adjustment_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop any pre-existing `adj_*`/`price_factor` columns from `df`.
+
+    Shared by `apply_adjustments` (so re-applying is idempotent) and by callers that reload a
+    previously-adjusted `prices_daily` frame (e.g. `append_database`, before merging in new
+    rows and recomputing adjustments from scratch).
+    """
+    stale = [c for c in df.columns if c.startswith("adj_") or c == "price_factor"]
+    return df.drop(columns=stale) if stale else df
+
+
 def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of `prices` with cumulative `price_factor`, `adj_<col>` for each present
     column of `PRICE_COLS`, `adj_volume`, `adj_delivery_qty` (when `delivery_qty` is present),
@@ -630,9 +660,8 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
     duplicate labels — this works on a positional copy internally and restores the original
     index (including any duplicates) on the returned frame, in the original row order.
     """
-    stale = [c for c in prices.columns if c.startswith("adj_") or c == "price_factor"]
     orig_index = prices.index
-    df = prices.drop(columns=stale).reset_index(drop=True)
+    df = drop_stale_adjustment_columns(prices).reset_index(drop=True)
 
     factor = cumulative_price_factor(df, adjustments)
     df["price_factor"] = factor.astype("float64")
@@ -659,27 +688,55 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
     return df
 
 
-def _rename_action_symbols(actions: pd.DataFrame, changes: pd.DataFrame) -> pd.DataFrame:
-    """Rename `actions["symbol"]` per the symbol-change history, keyed on `ex_date`.
+def _rename_symbols(df: pd.DataFrame, changes: pd.DataFrame, date_col: str) -> pd.DataFrame:
+    """Rename `df["symbol"]` per the symbol-change history, keyed on `df[date_col]`.
 
     This deliberately re-implements just the renaming half of `universe.apply_symbol_changes`
     rather than calling it: that helper also drop_duplicates(["symbol", "trade_date"], keep="first")
     to collapse same-day price rows, which is correct for OHLCV rows but would silently discard a
-    second, distinct corporate action landing on the same symbol/date (actions are keyed on
-    (symbol, ex_date, kind, factor, description, source), not just (symbol, date)). Renaming here
-    with no merge/dedupe step avoids that data loss.
+    second, distinct corporate action (or mcap snapshot) landing on the same symbol/date -- these
+    frames are keyed on more than just (symbol, date). Renaming here with no merge/dedupe step
+    avoids that data loss.
+
+    `date_col` is `"ex_date"` for action frames (bc/mcap-derived events) and `"file_date"` for
+    the raw mcap snapshot frame (so a symbol's mcap history stays one continuous series across a
+    rename, instead of being split into two unrelated per-symbol groups in `actions_from_mcap`).
     """
-    if changes is None or changes.empty or actions is None or actions.empty:
-        return actions
-    out = actions.copy()
+    if changes is None or changes.empty or df is None or df.empty:
+        return df
+    out = df.copy()
     ordered = changes.sort_values("change_date", na_position="last")
     for _, row in ordered.iterrows():
         old, new, change_date = row["old_symbol"], row["new_symbol"], row["change_date"]
         mask = out["symbol"] == old
         if pd.notna(change_date):
-            mask &= out["ex_date"] < change_date
+            mask &= out[date_col] < change_date
         out.loc[mask, "symbol"] = new
     return out.reset_index(drop=True)
+
+
+def _suppress_future_ex_dates(adjustments: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """Un-apply any applied event dated after its symbol's most recent session in `prices`.
+
+    NSE corporate-action text can be filed with an ex_date that hasn't happened yet as of the
+    price history on hand (e.g. announced ahead of time). Applying such an event today would
+    back-adjust the *entire* price history for that symbol before the event has actually taken
+    effect. Symbols absent from `prices` (no known last session) are left untouched -- there is
+    nothing to compare the ex_date against.
+    """
+    if adjustments is None or adjustments.empty:
+        return adjustments
+    out = adjustments.copy()
+    if prices is None or prices.empty:
+        return out
+    last_session = prices.groupby("symbol")["trade_date"].max()
+    applied = _as_bool(out["applied"])
+    ex_date = pd.to_datetime(out["ex_date"], errors="coerce")
+    symbol_last_session = out["symbol"].map(last_session)
+    future = applied & symbol_last_session.notna() & (ex_date > symbol_last_session)
+    out.loc[future, "applied"] = False
+    out.loc[future, "confidence"] = "pending_ex_date"
+    return out
 
 
 def adjust_prices(prices: pd.DataFrame, root: Path,
@@ -698,18 +755,24 @@ def adjust_prices(prices: pd.DataFrame, root: Path,
     if extra_actions is not None and not extra_actions.empty:
         bc = pd.concat([bc, extra_actions[ACTION_COLUMNS]], ignore_index=True)
         bc = bc.drop_duplicates(["symbol", "ex_date", "description"]).reset_index(drop=True)
-    mcap = actions_from_mcap(read_mcap_frames(root, zips))
+    mcap_frames = read_mcap_frames(root, zips)
 
     changes_path = root / "Input" / "reference" / "symbolchange.csv"
     if changes_path.exists():
         from symbol_changes import parse_symbol_changes
         changes = parse_symbol_changes(changes_path)
-        bc = _rename_action_symbols(bc, changes)
-        mcap = _rename_action_symbols(mcap, changes)
+        bc = _rename_symbols(bc, changes, "ex_date")
+        # Rename the raw mcap snapshot rows (keyed on each row's own file_date) *before*
+        # actions_from_mcap groups by symbol, so a symbol's mcap history isn't split into two
+        # unrelated groups across a rename that straddles it.
+        mcap_frames = _rename_symbols(mcap_frames, changes, "file_date")
+
+    mcap = actions_from_mcap(mcap_frames)
 
     gaps = gap_candidates(prices)
     overrides = load_overrides(root / "Input" / "reference" / "adjustments_override.yaml")
     adjustments = reconcile(bc, mcap, gaps, overrides)
+    adjustments = _suppress_future_ex_dates(adjustments, prices)
     return apply_adjustments(prices, adjustments), adjustments
 
 
@@ -730,8 +793,14 @@ def summarize_adjustments(adjustments: pd.DataFrame) -> str:
 def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
     """Copy of `adjusted` where each present column among `PRICE_COLS`, `prev_close`, `volume`,
     `delivery_qty` is replaced by its `adj_` counterpart (columns whose `adj_` counterpart is
-    absent are left untouched), and all `adj_*`/`price_factor` columns are dropped — giving
-    `calc_indicators` a frame with the usual (unprefixed) OHLCV column names."""
+    absent are left untouched), and all `adj_*` columns are dropped — giving `calc_indicators`
+    a frame with the usual (unprefixed) OHLCV column names.
+
+    `price_factor` is deliberately *kept* (not dropped): `calc_indicators` needs it to rescale
+    the raw, NSE-reported 52-week high/low (which are never back-adjusted) onto the same
+    adjusted-price scale as the OHLCV columns above, before computing `away_52w_high_pct` and
+    everything derived from it.
+    """
     df = adjusted.copy()
     swap = {**{col: f"adj_{col}" for col in PRICE_COLS},
             "prev_close": "adj_prev_close",
@@ -741,5 +810,5 @@ def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
         if source in df.columns:
             df[target] = df[source].astype("float64")
 
-    drop_cols = [c for c in df.columns if c.startswith("adj_") or c == "price_factor"]
+    drop_cols = [c for c in df.columns if c.startswith("adj_")]
     return df.drop(columns=drop_cols)

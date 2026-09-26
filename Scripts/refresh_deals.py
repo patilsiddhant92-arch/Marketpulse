@@ -23,6 +23,7 @@ from build_database import (
 )
 from sector_metrics import compute_sector_metrics
 from config import ARCHIVE_DIR, DB_PATH
+from price_adjustment import empty_adjustments_frame
 
 
 def _is_empty_deal_file(path: Path) -> bool:
@@ -141,6 +142,14 @@ def refresh_deals(clean: bool = True, fetch: bool = False) -> None:
         enrichment = _load_table("daily_enrichment")
     except Exception:
         enrichment = pd.DataFrame()
+    try:
+        price_adjustments = _load_table("price_adjustments")
+    except Exception:
+        # write_database always (re)creates price_adjustments from whatever is passed in and
+        # doesn't preserve it across writes; if the table isn't there yet (e.g. an older
+        # database, pre-dating this feature), fall back to an empty typed frame rather than
+        # silently wiping out any adjustments a real build had already recorded.
+        price_adjustments = empty_adjustments_frame()
 
     prices["trade_date"] = pd.to_datetime(prices["trade_date"])
     indicators["trade_date"] = pd.to_datetime(indicators["trade_date"])
@@ -192,6 +201,7 @@ def refresh_deals(clean: bool = True, fetch: bool = False) -> None:
         sector_rotation,
         screener_results,
         sector_metrics_daily,
+        price_adjustments=price_adjustments,
     )
 
     with duckdb.connect(str(DB_PATH), read_only=True) as con:

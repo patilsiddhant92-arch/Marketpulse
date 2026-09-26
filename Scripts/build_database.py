@@ -29,7 +29,7 @@ from config import (
     WATCHLIST_BUCKETS,
 )
 from index_history import build_index_features, load_all_index_history
-from price_adjustment import ADJUSTMENT_COLUMNS, adjust_prices, indicator_input, summarize_adjustments
+from price_adjustment import adjust_prices, empty_adjustments_frame, indicator_input, summarize_adjustments
 from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
 from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
 from index_constituents import load_membership_csv, ensure_index_constituents
@@ -758,6 +758,17 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         indicators = indicators.drop(columns=["high_52w"], errors="ignore").merge(high52, on="symbol", how="left")
         low52 = enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
         indicators = indicators.drop(columns=["low_52w"], errors="ignore").merge(low52, on="symbol", how="left")
+    # NSE's reported 52-week high/low are never back-adjusted for corporate actions, but
+    # `close_price` etc. here are (calc_indicators receives `indicator_input(prices)`, i.e.
+    # split/bonus-adjusted OHLCV). Rescale the NSE-sourced high_52w/low_52w by each row's
+    # cumulative price_factor so away_52w_high_pct/away_52w_low_pct (and everything derived
+    # from them: near_52w_high, trend_template's tt_off_low/tt_near_high, pivot_proximity_score,
+    # vcp_score/vcp_state) compare like-for-like scales. high_252d/low_252d below are already
+    # computed from the adjusted OHLCV, so they need no rescaling.
+    if "price_factor" in indicators.columns:
+        _price_factor_52w = pd.to_numeric(indicators["price_factor"], errors="coerce").fillna(1.0)
+        indicators["high_52w"] = indicators["high_52w"] * _price_factor_52w
+        indicators["low_52w"] = indicators["low_52w"] * _price_factor_52w
     # Fallback: use computed 252d range when official 52W missing (older history)
     if "high_252d" in indicators.columns:
         indicators["high_52w"] = indicators["high_52w"].fillna(indicators["high_252d"])
@@ -1219,7 +1230,7 @@ def write_database(
     price_adjustments: pd.DataFrame | None = None,
 ) -> None:
     if price_adjustments is None:
-        price_adjustments = pd.DataFrame(columns=ADJUSTMENT_COLUMNS)
+        price_adjustments = empty_adjustments_frame()
     if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
         sector_metrics_daily = pd.DataFrame(
             columns=[

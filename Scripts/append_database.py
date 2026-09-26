@@ -37,7 +37,13 @@ from build_database import (
 from index_history import build_index_features, load_all_index_history
 from sector_metrics import compute_sector_metrics
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
-from price_adjustment import actions_from_corporate_actions_table, adjust_prices, indicator_input, summarize_adjustments
+from price_adjustment import (
+    actions_from_corporate_actions_table,
+    adjust_prices,
+    drop_stale_adjustment_columns,
+    indicator_input,
+    summarize_adjustments,
+)
 from reference_history import load_reference_history
 
 
@@ -148,13 +154,12 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     prices = pd.concat([existing_prices, new_prices], ignore_index=True)
     prices["trade_date"] = pd.to_datetime(prices["trade_date"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
-    stale_adj_cols = [c for c in prices.columns if c.startswith("adj_") or c == "price_factor"]
-    if stale_adj_cols:
-        prices = prices.drop(columns=stale_adj_cols)
+    prices = drop_stale_adjustment_columns(prices)
 
     try:
         extra_actions = actions_from_corporate_actions_table(_load_table("corporate_actions"))
-    except Exception:
+    except Exception as exc:
+        print(f"Warning: corporate_actions table unavailable ({exc}); no extra actions fed to adjust_prices.")
         extra_actions = None
     prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
     print(summarize_adjustments(price_adjustments))
