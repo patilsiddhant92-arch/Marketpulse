@@ -5,7 +5,8 @@ Loads `prices_daily` (and, if present, `corporate_actions`) read-only from a Duc
 counts by confidence/applied, the applied events table, the largest `unexplained_gap` rows, and
 a raw-vs-adjusted close comparison for a handful of named symbols around their ex-date.
 
-Writes nothing -- the DB connection is opened `read_only=True` and no output file is produced.
+Writes nothing -- the DB connection is opened `read_only=True`, `adjust_prices` runs with
+`cache_dir=None` (no parse cache is read or written), and no output file is produced.
 
 Usage:
   python Scripts/adjustment_report.py [--db PATH] [--root PATH] [--symbols SYM,SYM,...]
@@ -174,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
     extra_actions = _load_extra_actions(db_path)
 
     started = time.perf_counter()
-    adjusted, adjustments = adjust_prices(prices, root, extra_actions=extra_actions)
+    # cache_dir=None: the report must stay strictly read-only, so it neither reads nor writes
+    # adjust_prices' per-file parse cache under <root>/Input/archive/.adjust_cache.
+    adjusted, adjustments = adjust_prices(prices, root, extra_actions=extra_actions, cache_dir=None)
     elapsed = time.perf_counter() - started
 
     _print_counts(adjustments)

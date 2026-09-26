@@ -1,7 +1,10 @@
 """Split / bonus / consolidation price adjustment from official NSE data."""
 from __future__ import annotations
 
+import csv
 import io
+import os
+import pickle
 import re
 import zipfile
 from dataclasses import dataclass
@@ -135,15 +138,27 @@ _BC_MEMBER = re.compile(r"(?i)^bc\d{6,8}\.csv$")
 _ACTION_SERIES = {"EQ", "BE", "BZ", "SM", "ST"}
 
 
-def _parse_date(value) -> pd.Timestamp:
-    text = str(value or "").strip()
-    if not text:
-        return pd.NaT
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y", "%d-%m-%Y"):
-        ts = pd.to_datetime(text, format=fmt, errors="coerce")
-        if not pd.isna(ts):
-            return ts.normalize()
-    return pd.NaT
+_DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y", "%d-%m-%Y")
+
+
+def _parse_dates(values: pd.Series) -> pd.Series:
+    """Parse bc date strings (any of `_DATE_FORMATS`, surrounding whitespace ignored).
+
+    Vectorised: each format is tried column-wise (`errors="coerce"`) and the results combined
+    with `combine_first`, over the distinct strings only (bc dates repeat a lot) -- replacing a
+    per-row, per-format `pd.to_datetime` loop that took ~2.5 minutes on the real bc history.
+    Returns a `datetime64[ns]` series aligned with `values` (NaT where nothing parses)."""
+    text = values.fillna("").astype(str).str.strip()
+    uniq = pd.Series(pd.unique(text.to_numpy(dtype=object)), dtype=object)
+    parsed = pd.Series(pd.NaT, index=uniq.index, dtype="datetime64[ns]")
+    for fmt in _DATE_FORMATS:
+        missing = parsed.isna()
+        if not missing.any():
+            break
+        attempt = pd.to_datetime(uniq[missing], format=fmt, errors="coerce").astype("datetime64[ns]")
+        parsed = parsed.combine_first(attempt)
+    lookup = pd.Series(parsed.dt.normalize().to_numpy(), index=uniq.to_numpy())
+    return pd.Series(lookup.reindex(text.to_numpy()).to_numpy(), index=values.index, dtype="datetime64[ns]")
 
 
 def _read_bc_csv(text: str) -> tuple[pd.DataFrame, int]:
@@ -185,42 +200,78 @@ def _warn_skipped_lines(zip_name: str, skipped: int) -> None:
         print(f"Warning: {zip_name}: skipped {skipped} malformed line{'s' if skipped != 1 else ''} in its bc CSV")
 
 
+def _expand_actions(events: pd.DataFrame, source: str) -> pd.DataFrame:
+    """`events` (symbol, ex_date, description[, extra columns]) -> one row per parsed action.
+
+    A multi-action purpose ("BONUS2:1/FVSPLIT10TO2") expands into several rows sharing symbol,
+    ex_date, description, source and any extra column (e.g. `published`). Rows without a symbol
+    or ex_date are dropped. Each distinct description is parsed once.
+    """
+    extra = [c for c in events.columns if c not in ("symbol", "ex_date", "description")]
+    columns = ACTION_COLUMNS + extra
+    events = events[events["symbol"].fillna("").astype(str).ne("") & events["ex_date"].notna()]
+    if events.empty:
+        return pd.DataFrame(columns=columns)
+    descriptions = pd.unique(events["description"].to_numpy(dtype=object))
+    parsed = [(d, i, act.kind, act.factor) for d in descriptions for i, act in enumerate(parse_purpose_all(d))]
+    table = pd.DataFrame(parsed, columns=["description", "_order", "kind", "factor"])
+    table["factor"] = table["factor"].astype("float64")
+    out = events.reset_index(drop=True).reset_index(names="_row").merge(table, on="description", how="left")
+    out = out.sort_values(["_row", "_order"], kind="stable")
+    out["source"] = source
+    return out[columns].reset_index(drop=True)
+
+
 def _action_rows(symbols, ex_dates, purposes, source: str) -> pd.DataFrame:
     """One row per parsed action: a multi-action purpose ("BONUS2:1/FVSPLIT10TO2") expands into
-    several rows sharing symbol, ex_date, description and source. Each distinct purpose text is
-    parsed once."""
-    rows = []
-    parsed_cache: dict[str, list[ParsedAction]] = {}
-    for sym, ex, purpose in zip(symbols, ex_dates, purposes):
-        if not sym or pd.isna(ex):
-            continue
-        description = str(purpose).strip()
-        parsed = parsed_cache.get(description)
-        if parsed is None:
-            parsed = parsed_cache[description] = parse_purpose_all(description)
-        for act in parsed:
-            rows.append({"symbol": sym, "ex_date": ex, "kind": act.kind, "factor": act.factor,
-                         "description": description, "source": source})
-    return pd.DataFrame(rows, columns=ACTION_COLUMNS)
+    several rows sharing symbol, ex_date, description and source."""
+    events = pd.DataFrame({"symbol": list(symbols), "ex_date": pd.to_datetime(pd.Series(list(ex_dates), dtype=object)),
+                           "description": [str(p).strip() for p in purposes]})
+    return _expand_actions(events, source)
 
 
-def _first_date(row: dict, keys: tuple[str, ...]) -> pd.Timestamp:
-    """Return the first parseable date among `keys` in `row`, else NaT."""
-    for key in keys:
-        parsed = _parse_date(row.get(key))
-        if not pd.isna(parsed):
-            return parsed
-    return pd.NaT
+_BC_DATE_KEYS = ("EX_DT", "RECORD_DT", "BC_STRT_DT")
+_BC_RAW_COLUMNS = ["SYMBOL", *_BC_DATE_KEYS, "PURPOSE"]
+
+
+def _bc_raw_rows(raw: pd.DataFrame) -> pd.DataFrame:
+    """Series-filtered bc rows, still as strings (`_BC_RAW_COLUMNS`; absent columns -> "").
+
+    This cheap per-file step is what the parse cache stores; date parsing and purpose parsing run
+    once over all files' rows together (`_bc_events`), so neither pays per-file pandas overhead
+    and purpose-parsing changes never need a cache rebuild.
+    """
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=_BC_RAW_COLUMNS)
+    df = raw.rename(columns=lambda c: str(c).strip().upper())
+    df = df[df.get("SERIES", pd.Series("", index=df.index)).astype(str).str.strip().str.upper().isin(_ACTION_SERIES)]
+    if df.empty or "SYMBOL" not in df.columns or "PURPOSE" not in df.columns:
+        return pd.DataFrame(columns=_BC_RAW_COLUMNS)
+    return pd.DataFrame({c: (df[c].fillna("").astype(str) if c in df.columns else "") for c in _BC_RAW_COLUMNS},
+                        index=df.index).reset_index(drop=True)
+
+
+def _bc_events(rows: pd.DataFrame) -> pd.DataFrame:
+    """`_bc_raw_rows` output -> (symbol, ex_date, description[, extra columns]); ex_date is the
+    first of EX_DT / RECORD_DT / BC_STRT_DT that parses. Rows without symbol or date are dropped."""
+    extra = [c for c in rows.columns if c not in _BC_RAW_COLUMNS]
+    if rows.empty:
+        return pd.DataFrame(columns=["symbol", "ex_date", "description", *extra])
+    ex = pd.Series(pd.NaT, index=rows.index, dtype="datetime64[ns]")
+    for key in _BC_DATE_KEYS:
+        missing = ex.isna()
+        if missing.any():
+            ex = ex.combine_first(_parse_dates(rows.loc[missing, key]))
+    out = pd.DataFrame({"symbol": rows["SYMBOL"].astype(str).str.strip().str.upper(), "ex_date": ex,
+                        "description": rows["PURPOSE"].astype(str).str.strip()})
+    for c in extra:
+        out[c] = rows[c]
+    out = out[out["symbol"].ne("") & out["ex_date"].notna()]
+    return out.reset_index(drop=True)
 
 
 def actions_from_bc_frame(raw: pd.DataFrame) -> pd.DataFrame:
-    if raw is None or raw.empty:
-        return pd.DataFrame(columns=ACTION_COLUMNS)
-    df = raw.rename(columns=lambda c: str(c).strip().upper())
-    df = df[df.get("SERIES", pd.Series("", index=df.index)).astype(str).str.strip().str.upper().isin(_ACTION_SERIES)]
-    ex = [_first_date(r, ("EX_DT", "RECORD_DT", "BC_STRT_DT")) for r in df.to_dict("records")]
-    syms = df["SYMBOL"].astype(str).str.strip().str.upper().tolist()
-    return _action_rows(syms, ex, df["PURPOSE"].tolist(), "bc")
+    return _expand_actions(_bc_events(_bc_raw_rows(raw)), "bc")
 
 
 # Optional extra column on bc action frames: the date an announcement was published (the trade
@@ -239,38 +290,175 @@ def published_date_from_zip_name(name: str) -> pd.Timestamp:
     return pd.to_datetime(f"20{yy}-{mm}-{dd}", format="%Y-%m-%d", errors="coerce")
 
 
-def _dedupe_bc_actions(actions: pd.DataFrame) -> pd.DataFrame:
-    """One row per (symbol, ex_date, description, kind), keeping the FIRST-published copy.
+def _first_published(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """One row per `keys`, keeping the FIRST-published copy (missing `published` -> ex_date).
 
     NSE republishes the same announcement in successive daily bc files; the date a version first
     appeared is when it superseded any earlier version, so that is the `published` date kept.
-    A missing `published` falls back to the row's ex_date.
+    Survivors keep their original relative order.
     """
-    if actions.empty:
-        return actions.reset_index(drop=True)
-    out = actions.copy()
+    if frame.empty:
+        return frame.reset_index(drop=True)
+    out = frame.copy()
     if PUBLISHED not in out.columns:
         out[PUBLISHED] = pd.NaT
-    out[PUBLISHED] = pd.to_datetime(out[PUBLISHED], errors="coerce").fillna(pd.to_datetime(out["ex_date"], errors="coerce"))
-    out = out.sort_values(PUBLISHED, kind="stable", na_position="last")
-    out = out.drop_duplicates(["symbol", "ex_date", "description", "kind"])
+    ex_date = pd.to_datetime(out["ex_date"], errors="coerce")
+    out[PUBLISHED] = pd.to_datetime(out[PUBLISHED], errors="coerce").fillna(ex_date).astype("datetime64[ns]")
+    out = out.sort_values(PUBLISHED, kind="stable", na_position="last").drop_duplicates(keys)
     return out.sort_index().reset_index(drop=True)
 
 
-def collect_bc_actions(zip_paths: list[Path]) -> pd.DataFrame:
-    """bc actions from every PR zip (`BC_ACTION_COLUMNS`: `ACTION_COLUMNS` + `published`)."""
-    frames = []
+def _dedupe_bc_actions(actions: pd.DataFrame) -> pd.DataFrame:
+    """One row per (symbol, ex_date, description, kind), keeping the first-published copy."""
+    return _first_published(actions, ["symbol", "ex_date", "description", "kind"])
+
+
+# --------------------------------------------------------------------------
+# Per-file source parsing with an optional on-disk cache
+# --------------------------------------------------------------------------
+
+_MCAP_COLUMNS = ["file_date", "symbol", "face_value", "issue_size"]
+# Bump whenever the per-file parse output (`_parse_pr_zip` / `_parse_mcap_csv`) changes shape
+# or meaning: every existing cache entry then reads as stale and is rebuilt.
+_CACHE_VERSION = 1
+
+
+class _DefaultCacheDir:
+    """Sentinel for `adjust_prices(cache_dir=...)`: use `default_cache_dir(root)`."""
+
+    def __repr__(self) -> str:
+        return "<root>/Input/archive/.adjust_cache"
+
+
+DEFAULT_CACHE_DIR = _DefaultCacheDir()
+
+
+def default_cache_dir(root: Path) -> Path:
+    """Where `adjust_prices` caches per-file parses by default (git-ignored with Input/archive/)."""
+    return Path(root) / "Input" / "archive" / ".adjust_cache"
+
+
+def _parse_pr_zip(path: Path) -> dict:
+    """Open a PR zip ONCE and parse both its bc member (as `_bc_events` rows) and any mcap
+    member(s). `skipped` counts malformed bc lines dropped while parsing."""
+    with zipfile.ZipFile(path) as zf:
+        raw = read_bc_member(zf)
+        mcap = [_mcap_frame(zf.read(n).decode("utf-8-sig", errors="replace")) for n in zf.namelist()
+                if Path(n).name.lower().startswith("mcap") and n.lower().endswith(".csv")]
+    return {"bc": _bc_raw_rows(raw), "skipped": int(raw.attrs.get("skipped_lines", 0)),
+            "mcap": pd.concat(mcap, ignore_index=True) if mcap else pd.DataFrame(columns=_MCAP_COLUMNS)}
+
+
+def _parse_mcap_csv(path: Path) -> dict:
+    return {"mcap": _mcap_frame(Path(path).read_text(encoding="utf-8-sig", errors="replace"))}
+
+
+_CACHE_STORE = "parse_cache.pkl"
+
+
+def _read_cache_entry(store_file: Path):
+    with open(store_file, "rb") as fh:
+        return pickle.load(fh)
+
+
+def _write_cache_entry(store_file: Path, store) -> None:
+    store_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = store_file.with_name(store_file.name + f".{os.getpid()}.tmp")
+    with open(tmp, "wb") as fh:
+        pickle.dump(store, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, store_file)  # atomic: readers never see a half-written store
+
+
+class _ParseCache:
+    """Per-file parse cache: one entry per source file, keyed by file name + size + mtime.
+
+    All entries live in ONE pickle (`<cache_dir>/parse_cache.pkl`) rather than one file per
+    source: on this Windows box the first open of each freshly written file costs ~20 ms
+    (on-access scanning), so 1,900 small entry files made the first warm run ~100 s, while one
+    ~95 MB store reads in ~2 s. Semantics are still per file: a missing or stale entry (size /
+    mtime / cache-version mismatch) is re-parsed on its own; an unreadable or corrupt store is
+    ignored and rebuilt. `cache_dir=None` disables caching entirely -- no reads, no writes.
+    Entries whose source file no longer exists are dropped when the store is rewritten.
+    """
+
+    def __init__(self, cache_dir: Path | None):
+        self.store_file = None if cache_dir is None else Path(cache_dir) / _CACHE_STORE
+        self.entries: dict = {}
+        self.dirty = False
+        if self.store_file is None:
+            return
+        try:
+            store = _read_cache_entry(self.store_file)
+            if isinstance(store, dict) and store.get("version") == _CACHE_VERSION and isinstance(store.get("entries"), dict):
+                self.entries = store["entries"]
+        except Exception:  # noqa: BLE001 - missing/corrupt/incompatible store: start empty
+            self.entries = {}
+
+    @staticmethod
+    def _entry_key(path: Path) -> str:
+        # The same file name can live in several input dirs (archive, backfill, downloads/...).
+        return os.path.normcase(os.path.abspath(path))
+
+    def load(self, path: Path, parser) -> dict:
+        if self.store_file is None:
+            return parser(path)
+        st = Path(path).stat()
+        key = (_CACHE_VERSION, Path(path).name, st.st_size, st.st_mtime_ns)
+        entry_key = self._entry_key(path)
+        entry = self.entries.get(entry_key)
+        if isinstance(entry, dict) and entry.get("key") == key and isinstance(entry.get("data"), dict):
+            return entry["data"]
+        data = parser(path)
+        self.entries[entry_key] = {"key": key, "data": data}
+        self.dirty = True
+        return data
+
+    def save(self) -> None:
+        if self.store_file is None or not self.dirty:
+            return
+        self.entries = {k: v for k, v in self.entries.items() if os.path.exists(k)}
+        try:
+            _write_cache_entry(self.store_file, {"version": _CACHE_VERSION, "entries": self.entries})
+            self.dirty = False
+        except OSError as exc:  # a cache write failure never fails the run
+            print(f"Warning: could not write price-adjustment parse cache {self.store_file}: {exc}")
+
+
+def _load_pr_zips(zip_paths: list[Path], cache: _ParseCache) -> list[tuple[Path, dict]]:
+    """Parse (or load from cache) every PR zip once; unreadable zips are reported and skipped."""
+    entries = []
     for p in zip_paths:
         try:
-            with zipfile.ZipFile(p) as zf:
-                raw = read_bc_member(zf)
-            _warn_skipped_lines(Path(p).name, raw.attrs.get("skipped_lines", 0))
-            frames.append(actions_from_bc_frame(raw).assign(**{PUBLISHED: published_date_from_zip_name(Path(p).name)}))
+            entries.append((Path(p), cache.load(Path(p), _parse_pr_zip)))
         except (zipfile.BadZipFile, OSError, pd.errors.ParserError) as exc:
             print(f"Skipped {Path(p).name}: {exc}")
+    return entries
+
+
+def _bc_actions_from_entries(entries: list[tuple[Path, dict]]) -> pd.DataFrame:
+    frames, published = [], []
+    for path, data in entries:
+        _warn_skipped_lines(path.name, data.get("skipped", 0))
+        bc = data.get("bc")
+        if bc is not None and not bc.empty:
+            frames.append(bc)
+            published.append(np.repeat(published_date_from_zip_name(path.name).to_datetime64(), len(bc)))
     if not frames:
         return pd.DataFrame(columns=BC_ACTION_COLUMNS)
-    return _dedupe_bc_actions(pd.concat(frames, ignore_index=True))
+    rows = pd.concat(frames, ignore_index=True)
+    rows[PUBLISHED] = np.concatenate(published).astype("datetime64[ns]")
+    events = _first_published(_bc_events(rows), ["symbol", "ex_date", "description"])
+    return _expand_actions(events, "bc")
+
+
+def collect_bc_actions(zip_paths: list[Path], cache_dir: Path | None = None) -> pd.DataFrame:
+    """bc actions from every PR zip (`BC_ACTION_COLUMNS`: `ACTION_COLUMNS` + `published`), one
+    row per (symbol, ex_date, description, kind) with its first-published date."""
+    cache = _ParseCache(cache_dir)
+    try:
+        return _bc_actions_from_entries(_load_pr_zips(zip_paths, cache))
+    finally:
+        cache.save()
 
 
 def actions_from_corporate_actions_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -299,75 +487,129 @@ CLEAN_BONUS_RATIOS = (1.25, 4 / 3, 1.5, 5 / 3, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 11.
 MCAP_SOURCES = ("mcap_fv", "mcap_issue")
 
 
+def _norm_col(c) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(c).strip().lower()).strip("_")
+
+
 def _mcap_frame(text: str) -> pd.DataFrame:
-    df = pd.read_csv(io.StringIO(text), dtype=str, skipinitialspace=True)
-    df.columns = [re.sub(r"[^a-z0-9]+", "_", str(c).strip().lower()).strip("_") for c in df.columns]
-    fv_col = next((c for c in df.columns if c.startswith("face_value")), None)
-    is_col = next((c for c in df.columns if c.startswith("issue_size")), None)
-    if not fv_col or not is_col or "symbol" not in df.columns:
-        return pd.DataFrame(columns=["file_date", "symbol", "face_value", "issue_size"])
+    """One mcap CSV -> (file_date, symbol, face_value, issue_size), summary rows (blank series)
+    dropped. Only the needed columns are read; numbers are parsed by the C reader (falling back
+    to a coercing string parse if a numeric column holds junk); the trade date -- one value per
+    file -- is parsed over its distinct strings only."""
+    header = next(csv.reader(io.StringIO(text.split("\n", 1)[0])), [])
+    want: dict[str, int] = {}
+    for i, name in enumerate(_norm_col(c) for c in header):
+        key = ("face_value" if name.startswith("face_value") else "issue_size" if name.startswith("issue_size")
+               else name if name in ("trade_date", "symbol", "series") else None)
+        if key is not None:
+            want.setdefault(key, i)
+    if not {"trade_date", "symbol", "face_value", "issue_size"} <= want.keys():
+        return pd.DataFrame(columns=_MCAP_COLUMNS)
+    names = {i: k for k, i in want.items()}
+    usecols = sorted(names)
+    text_cols = {want[k]: str for k in ("trade_date", "symbol", "series") if k in want}
+    try:
+        df = pd.read_csv(io.StringIO(text), usecols=usecols, skipinitialspace=True, thousands=",",
+                         dtype={**text_cols, want["face_value"]: "float64", want["issue_size"]: "float64"})
+        df.columns = [names[i] for i in usecols]
+    except ValueError:
+        df = pd.read_csv(io.StringIO(text), usecols=usecols, skipinitialspace=True, dtype=str)
+        df.columns = [names[i] for i in usecols]
+        for col in ("face_value", "issue_size"):
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", "").str.strip(), errors="coerce")
     if "series" in df.columns:
         df = df[df["series"].fillna("").astype(str).str.strip() != ""]
-    num = lambda s: pd.to_numeric(s.astype(str).str.replace(",", "").str.strip(), errors="coerce")
+    dates = df["trade_date"].fillna("").astype(str).str.strip()
+    uniq = pd.unique(dates.to_numpy(dtype=object))
+    parsed = pd.Series(pd.to_datetime(pd.Series(uniq, dtype=object), format="%d %b %Y", errors="coerce")
+                       .astype("datetime64[ns]").to_numpy(), index=uniq)
     return pd.DataFrame({
-        "file_date": pd.to_datetime(df["trade_date"].astype(str).str.strip(), format="%d %b %Y", errors="coerce"),
-        "symbol": df["symbol"].astype(str).str.strip().str.upper(),
-        "face_value": num(df[fv_col]),
-        "issue_size": num(df[is_col]),
-    }).dropna(subset=["file_date"])
+        "file_date": parsed.reindex(dates.to_numpy()).to_numpy(),
+        "symbol": df["symbol"].astype(str).str.strip().str.upper().to_numpy(),
+        "face_value": df["face_value"].astype("float64").to_numpy(),
+        "issue_size": df["issue_size"].astype("float64").to_numpy(),
+    }).dropna(subset=["file_date"]).reset_index(drop=True)
 
 
-def read_mcap_frames(root: Path, zip_paths: list[Path]) -> pd.DataFrame:
+def _mcap_csv_paths(root: Path) -> list[Path]:
+    """Loose mcap CSVs, ordered so duplicate copies like "mcap04082026 (2).csv" come before the
+    canonical "mcap04082026.csv" (de-duplication with keep="last" then keeps the canonical)."""
     root = Path(root)
     paths = set((root / "Input" / "archive").glob("mcap*.csv")) | set((root / "Input" / "daily").glob("mcap*.csv"))
     downloads = root / "Input" / "downloads"
     if downloads.exists():
         paths |= set(downloads.rglob("mcap*.csv"))
+    return sorted(paths, key=lambda x: (" (" not in x.name, x.name))
+
+
+def _mcap_frames_from(root: Path, zip_entries: list[tuple[Path, dict]], cache: _ParseCache) -> pd.DataFrame:
     frames = []
-    # Sort paths to prefer canonical names: duplicate copies like "mcap04082026 (2).csv" come before "mcap04082026.csv",
-    # so deduplication with keep="last" preserves the canonical file's data
-    for p in sorted(paths, key=lambda x: (" (" not in x.name, x.name)):
+    for p in _mcap_csv_paths(root):
         try:
-            frames.append(_mcap_frame(Path(p).read_text(encoding="utf-8-sig", errors="replace")))
-        except Exception as exc:
+            frames.append(cache.load(p, _parse_mcap_csv)["mcap"])
+        except Exception as exc:  # noqa: BLE001 - one bad loose CSV must not stop the run
             print(f"Skipped {Path(p).name}: {exc}")
-    for z in zip_paths:
-        try:
-            with zipfile.ZipFile(z) as zf:
-                for n in zf.namelist():
-                    if Path(n).name.lower().startswith("mcap") and n.lower().endswith(".csv"):
-                        frames.append(_mcap_frame(zf.read(n).decode("utf-8-sig", errors="replace")))
-        except (zipfile.BadZipFile, OSError) as exc:
-            print(f"Skipped {Path(z).name}: {exc}")
+    frames.extend(data["mcap"] for _, data in zip_entries if data.get("mcap") is not None and not data["mcap"].empty)
+    frames = [f for f in frames if not f.empty]
     if not frames:
-        return pd.DataFrame(columns=["file_date", "symbol", "face_value", "issue_size"])
+        return pd.DataFrame(columns=_MCAP_COLUMNS)
     out = pd.concat(frames, ignore_index=True)
-    return out.drop_duplicates(["file_date", "symbol"], keep="last").sort_values(["symbol", "file_date"]).reset_index(drop=True)
+    out = out.drop_duplicates(["file_date", "symbol"], keep="last")
+    return out.sort_values(["symbol", "file_date"], kind="stable").reset_index(drop=True)
+
+
+def read_mcap_frames(root: Path, zip_paths: list[Path], cache_dir: Path | None = None) -> pd.DataFrame:
+    """Every mcap snapshot row (loose CSVs + PR-zip members), one per (file_date, symbol)."""
+    cache = _ParseCache(cache_dir)
+    try:
+        return _mcap_frames_from(root, _load_pr_zips(zip_paths, cache), cache)
+    finally:
+        cache.save()
 
 
 def actions_from_mcap(frames: pd.DataFrame, tol: float = 0.01) -> pd.DataFrame:
-    rows = []
+    """Face-value changes (mcap_fv) and clean issue-size multiples (mcap_issue) between each
+    symbol's consecutive valid snapshots (rows with a NaN face value / issue size are skipped;
+    a snapshot is only compared with a predecessor that has a positive face value and issue size).
+
+    Vectorised: sort + `groupby.shift` instead of a per-row loop.
+    """
     if frames is None or frames.empty:
         return pd.DataFrame(columns=ACTION_COLUMNS)
-    f = frames.sort_values(["symbol", "file_date"])
-    for sym, g in f.groupby("symbol", sort=False):
-        g = g.dropna(subset=["face_value", "issue_size"])
-        prev = None
-        for cur in g.itertuples(index=False):
-            if prev is not None and prev.face_value > 0 and prev.issue_size > 0:
-                if cur.face_value != prev.face_value:
-                    factor = cur.face_value / prev.face_value
-                    kind = "consolidation" if factor > 1 else "split"
-                    rows.append({"symbol": sym, "ex_date": cur.file_date, "kind": kind, "factor": factor,
-                                 "description": f"FV {prev.face_value}->{cur.face_value}", "source": "mcap_fv"})
-                else:
-                    r = cur.issue_size / prev.issue_size
-                    match = next((c for c in CLEAN_BONUS_RATIOS if abs(r / c - 1) <= tol), None)
-                    if match is not None:
-                        rows.append({"symbol": sym, "ex_date": cur.file_date, "kind": "bonus", "factor": 1 / match,
-                                     "description": f"ISSUE x{match:.2f}", "source": "mcap_issue"})
-            prev = cur
-    return pd.DataFrame(rows, columns=ACTION_COLUMNS)
+    f = frames.dropna(subset=["face_value", "issue_size"]).sort_values(["symbol", "file_date"], kind="stable")
+    if f.empty:
+        return pd.DataFrame(columns=ACTION_COLUMNS)
+    grouped = f.groupby("symbol", sort=False)
+    prev_fv = grouped["face_value"].shift(1).to_numpy(dtype="float64")
+    prev_is = grouped["issue_size"].shift(1).to_numpy(dtype="float64")
+    cur_fv = f["face_value"].to_numpy(dtype="float64")
+    cur_is = f["issue_size"].to_numpy(dtype="float64")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        valid = (prev_fv > 0) & (prev_is > 0)  # NaN (no predecessor) compares False
+        fv_change = valid & (cur_fv != prev_fv)
+        ratio = cur_is / prev_is
+        match = np.full(len(f), np.nan)
+        for c in reversed(CLEAN_BONUS_RATIOS):  # reversed: the first ratio in tuple order wins
+            match = np.where(np.abs(ratio / c - 1) <= tol, c, match)
+    bonus = valid & ~fv_change & ~np.isnan(match)
+    event = fv_change | bonus
+    if not event.any():
+        return pd.DataFrame(columns=ACTION_COLUMNS)
+    idx = np.flatnonzero(event)
+    fv_factor = cur_fv[idx] / prev_fv[idx]
+    is_fv = fv_change[idx]
+    factor = np.where(is_fv, fv_factor, 1 / match[idx])
+    kind = np.where(is_fv, np.where(fv_factor > 1, "consolidation", "split"), "bonus")
+    description = [f"FV {p}->{c}" if fv else f"ISSUE x{m:.2f}"
+                   for fv, p, c, m in zip(is_fv, prev_fv[idx], cur_fv[idx], match[idx])]
+    return pd.DataFrame({
+        "symbol": f["symbol"].to_numpy()[idx],
+        "ex_date": f["file_date"].to_numpy()[idx],
+        "kind": kind.astype(object),
+        "factor": factor.astype("float64"),
+        "description": description,
+        "source": np.where(is_fv, "mcap_fv", "mcap_issue").astype(object),
+    }, columns=ACTION_COLUMNS)
 
 
 # --------------------------------------------------------------------------
@@ -928,15 +1170,38 @@ def _rename_symbols(df: pd.DataFrame, changes: pd.DataFrame, date_col: str) -> p
     """
     if changes is None or changes.empty or df is None or df.empty:
         return df
-    out = df.copy()
-    ordered = changes.sort_values("change_date", na_position="last")
-    for _, row in ordered.iterrows():
-        old, new, change_date = row["old_symbol"], row["new_symbol"], row["change_date"]
-        mask = out["symbol"] == old
+    out = df.reset_index(drop=True)
+    symbols = out["symbol"].to_numpy(dtype=object).copy()
+    dates = pd.to_datetime(out[date_col], errors="coerce").to_numpy(dtype="datetime64[ns]")
+    ordered = changes.sort_values("change_date", na_position="last", kind="stable")
+    involved = set(ordered["old_symbol"]) | set(ordered["new_symbol"])
+    # Vectorised: instead of one full-frame comparison per change (O(changes x rows), ~6 minutes
+    # on the real mcap history), track the row positions currently holding each involved symbol
+    # and move them between symbols in change_date order -- same sequential semantics, so a
+    # chain A->B->C still lands on C.
+    candidates = np.flatnonzero(pd.Series(symbols).isin(involved).to_numpy())
+    positions: dict = {}
+    if len(candidates):
+        for sym, pos in pd.Series(candidates).groupby(symbols[candidates], sort=False):
+            positions[sym] = pos.to_numpy()
+    empty = np.array([], dtype=np.int64)
+    for old, new, change_date in zip(ordered["old_symbol"], ordered["new_symbol"], ordered["change_date"]):
+        pos = positions.get(old)
+        if pos is None or len(pos) == 0:
+            continue
         if pd.notna(change_date):
-            mask &= out[date_col] < change_date
-        out.loc[mask, "symbol"] = new
-    return out.reset_index(drop=True)
+            move = dates[pos] < pd.Timestamp(change_date).to_datetime64().astype("datetime64[ns]")
+        else:
+            move = np.ones(len(pos), dtype=bool)
+        if not move.any():
+            continue
+        positions[old] = pos[~move]
+        positions[new] = np.concatenate([positions.get(new, empty), pos[move]])
+    for sym, pos in positions.items():
+        symbols[pos] = sym
+    out = out.copy()
+    out["symbol"] = symbols
+    return out
 
 
 def _suppress_future_ex_dates(adjustments: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
@@ -963,23 +1228,33 @@ def _suppress_future_ex_dates(adjustments: pd.DataFrame, prices: pd.DataFrame) -
     return out
 
 
-def adjust_prices(prices: pd.DataFrame, root: Path,
-                  extra_actions: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def adjust_prices(prices: pd.DataFrame, root: Path, extra_actions: pd.DataFrame | None = None,
+                  cache_dir: Path | None | _DefaultCacheDir = DEFAULT_CACHE_DIR) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Detect split/bonus/consolidation events from official NSE data under `root`, reconcile
     them against `prices`, and return `(adjusted_prices, adjustments)`.
 
     `extra_actions` (e.g. the live `corporate_actions` table, re-parsed via
     `actions_from_corporate_actions_table`) is merged into the bc-sourced actions before symbol
-    renaming and reconciliation, de-duplicated on `(symbol, ex_date, description)` same as
-    `collect_bc_actions`.
+    renaming and reconciliation, de-duplicated on `(symbol, ex_date, description, kind)` same as
+    `collect_bc_actions` (first-published copy kept; a missing `published` counts as ex_date).
+
+    `cache_dir` holds per-file parses of the PR zips / mcap CSVs, keyed by file name + size +
+    mtime (stale or corrupt entries are rebuilt). By default it is `default_cache_dir(root)`
+    (`<root>/Input/archive/.adjust_cache`); pass `None` to disable caching entirely -- no reads,
+    no writes -- e.g. for strictly read-only callers.
     """
     root = Path(root)
+    if isinstance(cache_dir, _DefaultCacheDir):
+        cache_dir = default_cache_dir(root)
     zips = find_pr_zips(root)
-    bc = collect_bc_actions(zips)
+    cache = _ParseCache(cache_dir)
+    zip_entries = _load_pr_zips(zips, cache)  # each PR zip is opened (or cache-loaded) once
+    mcap_frames = _mcap_frames_from(root, zip_entries, cache)
+    cache.save()
+    bc = _bc_actions_from_entries(zip_entries)
     if extra_actions is not None and not extra_actions.empty:
         extra = extra_actions[[c for c in BC_ACTION_COLUMNS if c in extra_actions.columns]]
         bc = _dedupe_bc_actions(pd.concat([bc, extra], ignore_index=True))
-    mcap_frames = read_mcap_frames(root, zips)
 
     changes_path = root / "Input" / "reference" / "symbolchange.csv"
     if changes_path.exists():

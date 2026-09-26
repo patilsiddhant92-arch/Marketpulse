@@ -53,6 +53,29 @@ def test_main_runs_read_only_dry_run_against_tmp_db(tmp_path, capsys):
     assert tables == {"prices_daily", "corporate_actions"}
 
 
+def test_main_never_writes_the_parse_cache_under_root(tmp_path):
+    # The report must stay strictly read-only: adjust_prices is called with cache_dir=None, so no
+    # Input/archive/.adjust_cache appears even when there are PR zips / mcap files to parse.
+    import zipfile
+
+    from adjustment_report import main
+
+    db_path = tmp_path / "tiny.duckdb"
+    _seed_db(db_path)
+    archive = tmp_path / "Input" / "archive"
+    archive.mkdir(parents=True)
+    with zipfile.ZipFile(archive / "PR210826.zip", "w") as zf:
+        zf.writestr("bc21082026.csv",
+                    "SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE\n"
+                    "EQ,GOODLUCK,Goodluck India Ltd,2026-08-21,,,2026-08-21,,,BONUS 2:1\n")
+    before = {p for p in tmp_path.rglob("*")}
+
+    assert main(["--db", str(db_path), "--root", str(tmp_path)]) == 0
+
+    assert not (archive / ".adjust_cache").exists()
+    assert {p for p in tmp_path.rglob("*")} == before
+
+
 def test_main_returns_nonzero_when_db_missing(tmp_path):
     from adjustment_report import main
 
