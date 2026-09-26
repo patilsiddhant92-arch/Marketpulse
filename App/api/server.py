@@ -662,8 +662,8 @@ def get_momentum_screener(
             c.return_5d_pct AS return_5d_pct,
             c.return_1m_pct AS return_1m_pct,
             c.return_3m_pct AS return_3m_pct,
-            COALESCE(c.rs_percentile, 50) AS rs_percentile,
-            ROUND(COALESCE(c.away_10ema_pct, 0.0), 2) AS away_10ema_pct,
+            c.rs_percentile AS rs_percentile,
+            ROUND(c.away_10ema_pct, 2) AS away_10ema_pct,
             CASE
                 WHEN c.away_10ema_pct >= 0 AND c.away_10ema_pct <= 2 THEN '0_2%'
                 WHEN c.away_10ema_pct > 2 AND c.away_10ema_pct <= 5 THEN '2_5%'
@@ -676,7 +676,7 @@ def get_momentum_screener(
             c.volume,
             c.avg_volume_20d,
             c.rvol,
-            COALESCE(c.delivery_pct, 45.0) AS delivery_pct,
+            c.delivery_pct AS delivery_pct,
             COALESCE(m.market_cap_cr, 0.0) AS mcap_cr,
             c.ema_10, c.ema_20, c.ema_50, c.ema_200,
             COALESCE(c.delivery_spike, false) AS delivery_spike,
@@ -714,15 +714,15 @@ def get_momentum_screener(
             "return_5d_pct": _sanitize_float(r["return_5d_pct"]),
             "return_1m_pct": _sanitize_float(r["return_1m_pct"]),
             "return_3m_pct": _sanitize_float(r["return_3m_pct"]),
-            "rs_percentile": _sanitize_float(r["rs_percentile"]),
-            "away_10ema_pct": round(_sanitize_float(r["away_10ema_pct"]), 2),
+            "rs_percentile": _opt_float(r["rs_percentile"], 1),
+            "away_10ema_pct": _opt_float(r["away_10ema_pct"]),
             "bucket": str(r["bucket"]),
             "dist_52w_high_pct": round(_sanitize_float(r["dist_52w_high_pct"]), 2),
             "dist_52w_low_pct": round(_sanitize_float(r["dist_52w_low_pct"]), 2),
             "volume": int(r["volume"] or 0),
             "avg_volume_20d": int(r["avg_volume_20d"] or 0),
             "rvol": round(_sanitize_float(r["rvol"], 1.0), 2),
-            "delivery_pct": round(_sanitize_float(r["delivery_pct"]), 1),
+            "delivery_pct": _opt_float(r["delivery_pct"], 1),
             "mcap_cr": _sanitize_float(r["mcap_cr"]),
             "bullish_stack": bool(r["ema_10"] > r["ema_20"] > r["ema_50"] > r["ema_200"]),
             "delivery_spike": bool(r["delivery_spike"] or r.get("trigger_delivery_spike", False)),
@@ -754,7 +754,7 @@ def get_momentum_screener(
             sec_list.append({
                 "sector": str(sname),
                 "stock_count": len(syms),
-                "avg_rs": round(grp["rs_percentile"].mean(), 1),
+                "avg_rs": round(_sanitize_float(grp["rs_percentile"].mean()), 1),
                 "symbols": syms[:10],
                 "tv_str": ",".join(f"NSE:{s}" for s in syms),
             })
@@ -771,7 +771,7 @@ def get_momentum_screener(
                 "industry": str(iname),
                 "sector": str(sname),
                 "stock_count": len(syms),
-                "avg_rs": round(grp["rs_percentile"].mean(), 1),
+                "avg_rs": round(_sanitize_float(grp["rs_percentile"].mean()), 1),
                 "symbols": syms[:10],
                 "tv_str": ",".join(f"NSE:{s}" for s in syms),
             })

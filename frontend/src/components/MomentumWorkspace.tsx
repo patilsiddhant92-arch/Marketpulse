@@ -3,6 +3,7 @@ import { MomentumCandidate, SectorLeaderSummary, IndustryLeaderSummary } from '.
 import { Copy, Check, Filter, Zap, ArrowUpDown, ArrowUp, ArrowDown, Star, RefreshCw, X, Layers, Briefcase, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
 import { InfoTooltip, renderRvolBadge, renderDeliveryBadge, renderRsBadge } from '../utils/benchmarks';
+import { DASH, signedPct } from '../utils/nullable';
 
 interface Props {
   selectedSymbol: string | null;
@@ -749,7 +750,9 @@ export const MomentumWorkspace: React.FC<Props> = ({
                     <td className="py-2 px-3 text-right">
                       <span
                         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold ${
-                          c.away_10ema_pct >= 0 && c.away_10ema_pct <= 2
+                          c.away_10ema_pct == null
+                            ? 'text-[#94a3b8]'
+                            : c.away_10ema_pct >= 0 && c.away_10ema_pct <= 2
                             ? 'bg-[#10b981]/15 text-[#34d399] border border-[#10b981]/30'
                             : c.away_10ema_pct > 2 && c.away_10ema_pct <= 5
                             ? 'bg-[#0284c7]/15 text-[#38bdf8] border border-[#0284c7]/30'
@@ -759,9 +762,9 @@ export const MomentumWorkspace: React.FC<Props> = ({
                         }`}
                         title={`Coil Bucket: ${c.bucket || '0_2%'}`}
                       >
-                        {c.away_10ema_pct >= 0 ? `+${c.away_10ema_pct.toFixed(2)}%` : `${c.away_10ema_pct.toFixed(2)}%`}
-                        {c.away_10ema_pct >= 0 && c.away_10ema_pct <= 2 && <span className="text-[9px]">🎯</span>}
-                        {c.away_10ema_pct > 10 && <span className="text-[9px]">⚠️</span>}
+                        {signedPct(c.away_10ema_pct)}
+                        {c.away_10ema_pct != null && c.away_10ema_pct >= 0 && c.away_10ema_pct <= 2 && <span className="text-[9px]">🎯</span>}
+                        {c.away_10ema_pct != null && c.away_10ema_pct > 10 && <span className="text-[9px]">⚠️</span>}
                       </span>
                     </td>
                     <td className={`py-2 px-3 text-right ${
@@ -775,7 +778,7 @@ export const MomentumWorkspace: React.FC<Props> = ({
                       {c.return_1m_pct >= 0 ? `+${c.return_1m_pct.toFixed(1)}%` : `${c.return_1m_pct.toFixed(1)}%`}
                     </td>
                     <td className="py-2 px-3 text-right">
-                      {renderRsBadge(c.rs_percentile)}
+                      {c.rs_percentile == null ? DASH : renderRsBadge(c.rs_percentile)}
                     </td>
                     <td className="py-2 px-3 text-right text-[#f0be58] font-medium">
                       {c.dist_52w_high_pct >= 0 ? `+${c.dist_52w_high_pct.toFixed(1)}%` : `${c.dist_52w_high_pct.toFixed(1)}%`}
@@ -793,7 +796,7 @@ export const MomentumWorkspace: React.FC<Props> = ({
                       {renderRvolBadge(c.rvol)}
                     </td>
                     <td className="py-2 px-3 text-right">
-                      {renderDeliveryBadge(c.delivery_pct, undefined, c.delivery_spike)}
+                      {c.delivery_pct == null ? DASH : renderDeliveryBadge(c.delivery_pct, undefined, c.delivery_spike)}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <div className="flex items-center justify-center gap-1">

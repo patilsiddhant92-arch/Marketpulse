@@ -117,15 +117,15 @@ export interface MomentumCandidate {
   return_5d_pct: number;
   return_1m_pct: number;
   return_3m_pct: number;
-  rs_percentile: number;
-  away_10ema_pct: number;
+  rs_percentile: number | null;
+  away_10ema_pct: number | null;
   bucket: string;
   dist_52w_high_pct: number;
   dist_52w_low_pct: number;
   volume?: number;
   avg_volume_20d?: number;
   rvol: number;
-  delivery_pct: number;
+  delivery_pct: number | null;
   mcap_cr: number;
   bullish_stack: boolean;
   delivery_spike?: boolean;
