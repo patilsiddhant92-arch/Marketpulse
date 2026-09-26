@@ -165,3 +165,75 @@ def find_pr_zips(root: Path) -> list[Path]:
     if downloads.exists():
         found |= set(downloads.rglob("PR*.zip"))
     return sorted(found)
+
+
+CLEAN_BONUS_RATIOS = (1.25, 4 / 3, 1.5, 5 / 3, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 11.0)
+
+
+def _mcap_frame(text: str) -> pd.DataFrame:
+    df = pd.read_csv(io.StringIO(text), dtype=str, skipinitialspace=True)
+    df.columns = [re.sub(r"[^a-z0-9]+", "_", str(c).strip().lower()).strip("_") for c in df.columns]
+    fv_col = next((c for c in df.columns if c.startswith("face_value")), None)
+    is_col = next((c for c in df.columns if c.startswith("issue_size")), None)
+    if not fv_col or not is_col or "symbol" not in df.columns:
+        return pd.DataFrame(columns=["file_date", "symbol", "face_value", "issue_size"])
+    if "series" in df.columns:
+        df = df[df["series"].fillna("").astype(str).str.strip() != ""]
+    num = lambda s: pd.to_numeric(s.astype(str).str.replace(",", "").str.strip(), errors="coerce")
+    return pd.DataFrame({
+        "file_date": pd.to_datetime(df["trade_date"].astype(str).str.strip(), format="%d %b %Y", errors="coerce"),
+        "symbol": df["symbol"].astype(str).str.strip().str.upper(),
+        "face_value": num(df[fv_col]),
+        "issue_size": num(df[is_col]),
+    }).dropna(subset=["file_date"])
+
+
+def read_mcap_frames(root: Path, zip_paths: list[Path]) -> pd.DataFrame:
+    root = Path(root)
+    paths = set((root / "Input" / "archive").glob("mcap*.csv")) | set((root / "Input" / "daily").glob("mcap*.csv"))
+    downloads = root / "Input" / "downloads"
+    if downloads.exists():
+        paths |= set(downloads.rglob("mcap*.csv"))
+    frames = []
+    for p in sorted(paths):
+        try:
+            frames.append(_mcap_frame(Path(p).read_text(encoding="utf-8-sig", errors="replace")))
+        except Exception as exc:
+            print(f"Skipped {Path(p).name}: {exc}")
+    for z in zip_paths:
+        try:
+            with zipfile.ZipFile(z) as zf:
+                for n in zf.namelist():
+                    if Path(n).name.lower().startswith("mcap") and n.lower().endswith(".csv"):
+                        frames.append(_mcap_frame(zf.read(n).decode("utf-8-sig", errors="replace")))
+        except (zipfile.BadZipFile, OSError) as exc:
+            print(f"Skipped {Path(z).name}: {exc}")
+    if not frames:
+        return pd.DataFrame(columns=["file_date", "symbol", "face_value", "issue_size"])
+    out = pd.concat(frames, ignore_index=True)
+    return out.drop_duplicates(["file_date", "symbol"], keep="last").sort_values(["symbol", "file_date"]).reset_index(drop=True)
+
+
+def actions_from_mcap(frames: pd.DataFrame, tol: float = 0.01) -> pd.DataFrame:
+    rows = []
+    if frames is None or frames.empty:
+        return pd.DataFrame(columns=ACTION_COLUMNS)
+    f = frames.sort_values(["symbol", "file_date"])
+    for sym, g in f.groupby("symbol", sort=False):
+        g = g.dropna(subset=["face_value", "issue_size"])
+        prev = None
+        for cur in g.itertuples(index=False):
+            if prev is not None and prev.face_value > 0 and prev.issue_size > 0:
+                if cur.face_value != prev.face_value:
+                    factor = cur.face_value / prev.face_value
+                    kind = "consolidation" if factor > 1 else "split"
+                    rows.append({"symbol": sym, "ex_date": cur.file_date, "kind": kind, "factor": factor,
+                                 "description": f"FV {prev.face_value}->{cur.face_value}", "source": "mcap"})
+                else:
+                    r = cur.issue_size / prev.issue_size
+                    match = next((c for c in CLEAN_BONUS_RATIOS if abs(r / c - 1) <= tol), None)
+                    if match is not None:
+                        rows.append({"symbol": sym, "ex_date": cur.file_date, "kind": "bonus", "factor": 1 / match,
+                                     "description": f"ISSUE x{match:.2f}", "source": "mcap"})
+            prev = cur
+    return pd.DataFrame(rows, columns=ACTION_COLUMNS)
