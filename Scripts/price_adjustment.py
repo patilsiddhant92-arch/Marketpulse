@@ -168,6 +168,7 @@ def find_pr_zips(root: Path) -> list[Path]:
 
 
 CLEAN_BONUS_RATIOS = (1.25, 4 / 3, 1.5, 5 / 3, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 11.0)
+MCAP_SOURCES = ("mcap_fv", "mcap_issue")
 
 
 def _mcap_frame(text: str) -> pd.DataFrame:
@@ -195,7 +196,9 @@ def read_mcap_frames(root: Path, zip_paths: list[Path]) -> pd.DataFrame:
     if downloads.exists():
         paths |= set(downloads.rglob("mcap*.csv"))
     frames = []
-    for p in sorted(paths):
+    # Sort paths to prefer canonical names: duplicate copies like "mcap04082026 (2).csv" come before "mcap04082026.csv",
+    # so deduplication with keep="last" preserves the canonical file's data
+    for p in sorted(paths, key=lambda x: (" (" not in x.name, x.name)):
         try:
             frames.append(_mcap_frame(Path(p).read_text(encoding="utf-8-sig", errors="replace")))
         except Exception as exc:
@@ -228,12 +231,12 @@ def actions_from_mcap(frames: pd.DataFrame, tol: float = 0.01) -> pd.DataFrame:
                     factor = cur.face_value / prev.face_value
                     kind = "consolidation" if factor > 1 else "split"
                     rows.append({"symbol": sym, "ex_date": cur.file_date, "kind": kind, "factor": factor,
-                                 "description": f"FV {prev.face_value}->{cur.face_value}", "source": "mcap"})
+                                 "description": f"FV {prev.face_value}->{cur.face_value}", "source": "mcap_fv"})
                 else:
                     r = cur.issue_size / prev.issue_size
                     match = next((c for c in CLEAN_BONUS_RATIOS if abs(r / c - 1) <= tol), None)
                     if match is not None:
                         rows.append({"symbol": sym, "ex_date": cur.file_date, "kind": "bonus", "factor": 1 / match,
-                                     "description": f"ISSUE x{match:.2f}", "source": "mcap"})
+                                     "description": f"ISSUE x{match:.2f}", "source": "mcap_issue"})
             prev = cur
     return pd.DataFrame(rows, columns=ACTION_COLUMNS)
