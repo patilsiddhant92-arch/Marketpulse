@@ -460,32 +460,82 @@ def _row(symbol, ex_date, kind, factor, source, confidence, applied, description
 _MERGE_SOURCE = {"bonus": "mcap_issue", "split": "mcap_fv", "consolidation": "mcap_fv"}
 
 
-def _find_match(candidates: pd.DataFrame, used: set, symbol, ex_date, factor, window_days: float, factor_tol: float,
+def _records_by_symbol(df: pd.DataFrame) -> dict:
+    """{symbol: [(index label, row dict), ...]} in frame order -- one pass instead of a boolean
+    mask over the whole frame per lookup."""
+    out: dict = {}
+    for idx, rec in zip(df.index, df.to_dict("records")):
+        out.setdefault(rec["symbol"], []).append((idx, rec))
+    return out
+
+
+def _find_match(by_symbol: dict, used: set, symbol, ex_date, factor, window_days: float, factor_tol: float,
                 allowed_source: str | None = None):
     """Return the index of the first unused candidate row matching symbol/date/factor, else None."""
-    pool = candidates[candidates["symbol"] == symbol]
-    if allowed_source is not None:
-        pool = pool[pool["source"] == allowed_source]
-    for idx, row in pool.iterrows():
-        if idx in used:
+    for idx, row in by_symbol.get(symbol, ()):
+        if idx in used or (allowed_source is not None and row["source"] != allowed_source):
             continue
         if _near(ex_date, row["ex_date"], window_days) and _same_factor(factor, row["factor"], factor_tol):
             return idx
     return None
 
 
-def _find_gap_match(gaps: pd.DataFrame, used: set, symbol, ex_date, factor, window_days: float, gap_tol: float):
-    for idx, row in gaps[gaps["symbol"] == symbol].iterrows():
-        if idx in used:
-            continue
-        if _near(ex_date, row["ex_date"], window_days) and _gap_agrees(row["gap_ratio"], factor, gap_tol):
-            return idx
-    return None
+class _GapMatcher:
+    """Consumes price-gap candidates as evidence for adjusting events.
 
+    An event is gap-confirmed by an unused gap near its ex_date whose ratio agrees with the
+    event's own factor, or -- failing that -- with the PRODUCT of the factors of every pooled
+    (applied-candidate) event of that symbol within `window_days` of the gap. A same-day split +
+    bonus (DELPHIFX 2026-02-13: split 0.2 x bonus 1/3, raw gap 0.073) moves the close by the
+    combined factor, never by either one alone. A gap matched through the product is consumed
+    once and confirms every event in that product.
+    """
 
-def _has_bc_rights(bc: pd.DataFrame, symbol, ex_date, window_days: float) -> bool:
-    rights = bc[(bc["symbol"] == symbol) & (bc["kind"] == "rights")]
-    return any(_near(ex_date, r["ex_date"], window_days) for _, r in rights.iterrows())
+    def __init__(self, gaps: pd.DataFrame, window_days: float, gap_tol: float):
+        self.records = list(zip(gaps.index, gaps.to_dict("records")))
+        self.by_symbol: dict = {}
+        for idx, rec in self.records:
+            self.by_symbol.setdefault(rec["symbol"], []).append((idx, rec))
+        self.window_days, self.gap_tol = window_days, gap_tol
+        self.used: set = set()
+        self.pool: dict = {}  # symbol -> [(key, ex_date, factor)]
+        self.group_confirmed: set = set()
+
+    def add_to_pool(self, key, symbol, ex_date, factor) -> None:
+        if not pd.isna(factor) and not pd.isna(ex_date):
+            self.pool.setdefault(symbol, []).append((key, ex_date, float(factor)))
+
+    def _candidates(self, symbol, ex_date):
+        return [(idx, g) for idx, g in self.by_symbol.get(symbol, ())
+                if idx not in self.used and _near(ex_date, g["ex_date"], self.window_days)]
+
+    def match_single(self, symbol, ex_date, factor):
+        """Consume and return the first unused gap agreeing with `factor` alone, else None."""
+        for idx, g in self._candidates(symbol, ex_date):
+            if _gap_agrees(g["gap_ratio"], factor, self.gap_tol):
+                self.used.add(idx)
+                return idx
+        return None
+
+    def confirm(self, key, symbol, ex_date, factor) -> bool:
+        """True if the event is gap-confirmed (own factor first, then the combined factor)."""
+        if key in self.group_confirmed:
+            return True
+        if self.match_single(symbol, ex_date, factor) is not None:
+            return True
+        for idx, g in self._candidates(symbol, ex_date):
+            group = [p for p in self.pool.get(symbol, ()) if _near(p[1], g["ex_date"], self.window_days)]
+            if len(group) < 2 or not any(p[0] == key for p in group):
+                continue
+            if _gap_agrees(g["gap_ratio"], float(np.prod([p[2] for p in group])), self.gap_tol):
+                self.used.add(idx)
+                self.group_confirmed.update(p[0] for p in group)
+                return True
+        return False
+
+    def unused(self):
+        """Unconsumed gaps, in the gap frame's order."""
+        return [(idx, g) for idx, g in self.records if idx not in self.used]
 
 
 def _is_override_row(r: dict) -> bool:
@@ -653,63 +703,70 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
     gaps = _empty_or(gaps, GAP_COLUMNS)
     overrides = _empty_or(overrides, OVERRIDE_COLUMNS)
 
-    mcap_used: set = set()
-    gap_used: set = set()
-    rows: list[dict] = []
+    bc_records = bc.to_dict("records")
+    mcap_records = list(zip(mcap.index, mcap.to_dict("records")))
+    mcap_by_symbol = _records_by_symbol(mcap)
+    rights_dates: dict = {}
+    for b in bc_records:
+        if b["kind"] == "rights":
+            rights_dates.setdefault(b["symbol"], []).append(b["ex_date"])
+    gap_matcher = _GapMatcher(gaps, window_days, gap_tol)
 
-    for _, b in bc.iterrows():
-        symbol, ex_date, kind, factor = b["symbol"], b["ex_date"], b["kind"], b["factor"]
-        description = b.get("description", "")
-        if kind in ADJUSTING_KINDS and not pd.isna(factor):
-            m_idx = _find_match(mcap, mcap_used, symbol, ex_date, factor, window_days, factor_tol,
-                                allowed_source=_MERGE_SOURCE.get(kind))
+    def _is_adjusting(b: dict) -> bool:
+        return b["kind"] in ADJUSTING_KINDS and not pd.isna(b["factor"])
+
+    # Pass 1: kind-safe bc<->mcap merges (independent of gap evidence), so the pool of distinct
+    # applied-candidate events for combined-factor gap matching is known before any gap is used.
+    mcap_used: set = set()
+    merged_with: dict = {}
+    for i, b in enumerate(bc_records):
+        if _is_adjusting(b):
+            m_idx = _find_match(mcap_by_symbol, mcap_used, b["symbol"], b["ex_date"], b["factor"], window_days,
+                                factor_tol, allowed_source=_MERGE_SOURCE.get(b["kind"]))
             if m_idx is not None:
                 mcap_used.add(m_idx)
-                source = "bc+" + str(mcap.loc[m_idx, "source"])
-                g_idx = _find_gap_match(gaps, gap_used, symbol, ex_date, factor, window_days, gap_tol)
-                if g_idx is not None:
-                    gap_used.add(g_idx)
-                rows.append(_row(symbol, ex_date, kind, factor, source, "confirmed", True, description))
-            else:
-                g_idx = _find_gap_match(gaps, gap_used, symbol, ex_date, factor, window_days, gap_tol)
-                if g_idx is not None:
-                    gap_used.add(g_idx)
-                    confidence = "confirmed"
-                else:
-                    confidence = "single_source"
-                rows.append(_row(symbol, ex_date, kind, factor, "bc", confidence, True, description))
-        else:
-            rows.append(_row(symbol, ex_date, kind, float("nan"), "bc", "not_adjusting", False, description))
+                merged_with[i] = m_idx
+            gap_matcher.add_to_pool(("bc", i), b["symbol"], b["ex_date"], b["factor"])
+    for idx, m in mcap_records:
+        if idx not in mcap_used and m["source"] == "mcap_fv":
+            gap_matcher.add_to_pool(("mcap", idx), m["symbol"], m["ex_date"], m["factor"])
 
-    for idx, m in mcap.iterrows():
+    # Pass 2: rows, consuming gaps in the historical order (bc rows first, then unmerged mcap).
+    rows: list[dict] = []
+    for i, b in enumerate(bc_records):
+        symbol, ex_date, kind, factor = b["symbol"], b["ex_date"], b["kind"], b["factor"]
+        description = b.get("description", "")
+        if not _is_adjusting(b):
+            rows.append(_row(symbol, ex_date, kind, float("nan"), "bc", "not_adjusting", False, description))
+            continue
+        gap_confirmed = gap_matcher.confirm(("bc", i), symbol, ex_date, factor)
+        if i in merged_with:
+            source = "bc+" + str(mcap.loc[merged_with[i], "source"])
+            rows.append(_row(symbol, ex_date, kind, factor, source, "confirmed", True, description))
+        else:
+            confidence = "confirmed" if gap_confirmed else "single_source"
+            rows.append(_row(symbol, ex_date, kind, factor, "bc", confidence, True, description))
+
+    for idx, m in mcap_records:
         if idx in mcap_used:
             continue
         symbol, ex_date, kind, factor, src = m["symbol"], m["ex_date"], m["kind"], m["factor"], m["source"]
         description = m.get("description", "")
         if src == "mcap_fv":
-            g_idx = _find_gap_match(gaps, gap_used, symbol, ex_date, factor, window_days, gap_tol)
-            if g_idx is not None:
-                gap_used.add(g_idx)
-                confidence = "confirmed"
-            else:
-                confidence = "single_source"
+            confidence = "confirmed" if gap_matcher.confirm(("mcap", idx), symbol, ex_date, factor) else "single_source"
             rows.append(_row(symbol, ex_date, kind, factor, "mcap_fv", confidence, True, description))
         else:  # mcap_issue
-            rights_conflict = _has_bc_rights(bc, symbol, ex_date, window_days)
-            g_idx = _find_gap_match(gaps, gap_used, symbol, ex_date, factor, window_days, gap_tol)
-            if g_idx is not None:
-                # The gap is explained either way: by the confirmed bonus, or by the conflicting
-                # rights issue. Either way it should not also surface as an unexplained_gap.
-                gap_used.add(g_idx)
+            rights_conflict = any(_near(ex_date, d, window_days) for d in rights_dates.get(symbol, ()))
+            # The gap is explained either way: by the confirmed bonus, or by the conflicting
+            # rights issue. Either way it should not also surface as an unexplained_gap.
+            g_idx = gap_matcher.match_single(symbol, ex_date, factor)
             if g_idx is not None and not rights_conflict:
                 rows.append(_row(symbol, ex_date, kind, factor, "mcap_issue", "confirmed", True, description))
             else:
                 confidence = "rights_conflict" if rights_conflict else "unconfirmed"
                 rows.append(_row(symbol, ex_date, kind, factor, "mcap_issue", confidence, False, description))
 
-    for idx, g in gaps.iterrows():
-        if idx in gap_used:
-            continue
+    for _, g in gap_matcher.unused():
         rows.append(_row(g["symbol"], g["ex_date"], "unexplained_gap", g["gap_ratio"], "gap", "unconfirmed", False, ""))
 
     rows = _dedupe_duplicates(rows, window_days, factor_tol)

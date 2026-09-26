@@ -172,6 +172,44 @@ def test_genuinely_separate_bonuses_six_months_apart_both_survive():
     assert applied["ex_date"].tolist() == [pd.Timestamp("2025-01-10"), pd.Timestamp("2025-07-10")]
 
 
+def test_same_day_split_and_bonus_gap_matches_combined_factor():
+    # DELPHIFX 2026-02-13: split 0.2 + bonus 1/3 on the same day; the raw close gap (0.073) is
+    # the combined 1/15, not either factor alone. It must confirm both events, not surface as an
+    # unexplained_gap.
+    bc = pd.DataFrame([_a("DELPHIFX", "2026-02-13", "split", 0.2, "bc"),
+                       _a("DELPHIFX", "2026-02-13", "bonus", 1 / 3, "bc")])
+    gaps = pd.DataFrame({"symbol": ["DELPHIFX"], "ex_date": pd.to_datetime(["2026-02-13"]), "gap_ratio": [0.073]})
+    out = reconcile(bc, pd.DataFrame(), gaps, pd.DataFrame())
+    d = out[out["symbol"] == "DELPHIFX"]
+    assert not (d["kind"] == "unexplained_gap").any()
+    applied = d[d["applied"]]
+    assert sorted(applied["kind"]) == ["bonus", "split"]
+    assert (applied["confidence"] == "confirmed").all()
+
+
+def test_combined_factor_match_works_with_mcap_fv_split_and_bc_bonus():
+    # SILVERTUC-like: the split is corroborated by the mcap face-value change (merged into the bc
+    # row), the bonus is bc-only; the one gap (0.105 ~ 0.5 * 0.2) confirms the pair.
+    bc = pd.DataFrame([_a("SILVERTUC", "2026-03-06", "bonus", 0.5, "bc"),
+                       _a("SILVERTUC", "2026-03-06", "split", 0.2, "bc")])
+    mcap = pd.DataFrame([_a("SILVERTUC", "2026-03-06", "split", 0.2, "mcap_fv")])
+    gaps = pd.DataFrame({"symbol": ["SILVERTUC"], "ex_date": pd.to_datetime(["2026-03-06"]), "gap_ratio": [0.105]})
+    out = reconcile(bc, mcap, gaps, pd.DataFrame())
+    s = out[out["symbol"] == "SILVERTUC"]
+    assert not (s["kind"] == "unexplained_gap").any()
+    assert s[s["applied"]]["confidence"].tolist() == ["confirmed", "confirmed"]
+
+
+def test_gap_matching_neither_single_nor_combined_factor_stays_unexplained():
+    bc = pd.DataFrame([_a("ODDCO", "2026-02-13", "split", 0.2, "bc"),
+                       _a("ODDCO", "2026-02-13", "bonus", 1 / 3, "bc")])
+    gaps = pd.DataFrame({"symbol": ["ODDCO"], "ex_date": pd.to_datetime(["2026-02-13"]), "gap_ratio": [0.45]})
+    out = reconcile(bc, pd.DataFrame(), gaps, pd.DataFrame())
+    o = out[out["symbol"] == "ODDCO"]
+    assert (o["kind"] == "unexplained_gap").sum() == 1
+    assert (o[o["applied"]]["confidence"] == "single_source").all()
+
+
 def test_revision_collapse_leaves_non_adjusting_kinds_alone():
     bc = pd.DataFrame([_pub("DIVCO", "2025-01-10", "dividend", None, "2025-01-02", "DIV - RS 1"),
                        _pub("DIVCO", "2025-01-20", "dividend", None, "2025-01-15", "DIV - RS 2")])
