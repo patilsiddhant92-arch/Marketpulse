@@ -659,6 +659,74 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
     return df
 
 
+def _rename_action_symbols(actions: pd.DataFrame, changes: pd.DataFrame) -> pd.DataFrame:
+    """Rename `actions["symbol"]` per the symbol-change history, keyed on `ex_date`.
+
+    This deliberately re-implements just the renaming half of `universe.apply_symbol_changes`
+    rather than calling it: that helper also drop_duplicates(["symbol", "trade_date"], keep="first")
+    to collapse same-day price rows, which is correct for OHLCV rows but would silently discard a
+    second, distinct corporate action landing on the same symbol/date (actions are keyed on
+    (symbol, ex_date, kind, factor, description, source), not just (symbol, date)). Renaming here
+    with no merge/dedupe step avoids that data loss.
+    """
+    if changes is None or changes.empty or actions is None or actions.empty:
+        return actions
+    out = actions.copy()
+    ordered = changes.sort_values("change_date", na_position="last")
+    for _, row in ordered.iterrows():
+        old, new, change_date = row["old_symbol"], row["new_symbol"], row["change_date"]
+        mask = out["symbol"] == old
+        if pd.notna(change_date):
+            mask &= out["ex_date"] < change_date
+        out.loc[mask, "symbol"] = new
+    return out.reset_index(drop=True)
+
+
+def adjust_prices(prices: pd.DataFrame, root: Path,
+                  extra_actions: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Detect split/bonus/consolidation events from official NSE data under `root`, reconcile
+    them against `prices`, and return `(adjusted_prices, adjustments)`.
+
+    `extra_actions` (e.g. the live `corporate_actions` table, re-parsed via
+    `actions_from_corporate_actions_table`) is merged into the bc-sourced actions before symbol
+    renaming and reconciliation, de-duplicated on `(symbol, ex_date, description)` same as
+    `collect_bc_actions`.
+    """
+    root = Path(root)
+    zips = find_pr_zips(root)
+    bc = collect_bc_actions(zips)
+    if extra_actions is not None and not extra_actions.empty:
+        bc = pd.concat([bc, extra_actions[ACTION_COLUMNS]], ignore_index=True)
+        bc = bc.drop_duplicates(["symbol", "ex_date", "description"]).reset_index(drop=True)
+    mcap = actions_from_mcap(read_mcap_frames(root, zips))
+
+    changes_path = root / "Input" / "reference" / "symbolchange.csv"
+    if changes_path.exists():
+        from symbol_changes import parse_symbol_changes
+        changes = parse_symbol_changes(changes_path)
+        bc = _rename_action_symbols(bc, changes)
+        mcap = _rename_action_symbols(mcap, changes)
+
+    gaps = gap_candidates(prices)
+    overrides = load_overrides(root / "Input" / "reference" / "adjustments_override.yaml")
+    adjustments = reconcile(bc, mcap, gaps, overrides)
+    return apply_adjustments(prices, adjustments), adjustments
+
+
+def summarize_adjustments(adjustments: pd.DataFrame) -> str:
+    """One-line human summary of a reconciled adjustments frame, printed by both the full build
+    and the daily append after `adjust_prices` runs."""
+    if adjustments is None or adjustments.empty:
+        return "Price adjustments: 0 applied (0 confirmed), 0 unconfirmed gaps, 0 non-adjusting actions"
+    applied = _as_bool(adjustments["applied"])
+    n_applied = int(applied.sum())
+    n_confirmed = int((adjustments["confidence"] == "confirmed").sum())
+    n_unconfirmed_gaps = int((adjustments["kind"] == "unexplained_gap").sum())
+    n_not_adjusting = int((adjustments["confidence"] == "not_adjusting").sum())
+    return (f"Price adjustments: {n_applied} applied ({n_confirmed} confirmed), "
+            f"{n_unconfirmed_gaps} unconfirmed gaps, {n_not_adjusting} non-adjusting actions")
+
+
 def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
     """Copy of `adjusted` where each present column among `PRICE_COLS`, `prev_close`, `volume`,
     `delivery_qty` is replaced by its `adj_` counterpart (columns whose `adj_` counterpart is

@@ -37,6 +37,7 @@ from build_database import (
 from index_history import build_index_features, load_all_index_history
 from sector_metrics import compute_sector_metrics
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
+from price_adjustment import actions_from_corporate_actions_table, adjust_prices, indicator_input, summarize_adjustments
 from reference_history import load_reference_history
 
 
@@ -147,6 +148,16 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     prices = pd.concat([existing_prices, new_prices], ignore_index=True)
     prices["trade_date"] = pd.to_datetime(prices["trade_date"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+    stale_adj_cols = [c for c in prices.columns if c.startswith("adj_") or c == "price_factor"]
+    if stale_adj_cols:
+        prices = prices.drop(columns=stale_adj_cols)
+
+    try:
+        extra_actions = actions_from_corporate_actions_table(_load_table("corporate_actions"))
+    except Exception:
+        extra_actions = None
+    prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
+    print(summarize_adjustments(price_adjustments))
 
     sector = read_sector()
     mcap = read_market_cap()
@@ -159,7 +170,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     # Recompute derived tables from the merged price table. This avoids stale rolling
     # indicators while still skipping the slow archive CSV parse.
     reference_history = load_reference_history(ROOT_DIR)
-    indicators = calc_indicators(prices, reference_history if not reference_history.empty else enrichment)
+    indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
     deals_raw = read_all_deals()
     deals = enrich_deals(deals_raw, prices, indicators, master)
     latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
@@ -179,7 +190,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
 
     backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
     shutil.copy2(DB_PATH, backup)
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
     new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
     msg = f"Append update complete through {new_max}. Backup: {backup.name}"
     print(msg)

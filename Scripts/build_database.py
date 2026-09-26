@@ -29,6 +29,7 @@ from config import (
     WATCHLIST_BUCKETS,
 )
 from index_history import build_index_features, load_all_index_history
+from price_adjustment import ADJUSTMENT_COLUMNS, adjust_prices, indicator_input, summarize_adjustments
 from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
 from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
 from index_constituents import load_membership_csv, ensure_index_constituents
@@ -1215,7 +1216,10 @@ def write_database(
     screener_results: pd.DataFrame,
     sector_metrics_daily: pd.DataFrame | None = None,
     reference_history: pd.DataFrame | None = None,
+    price_adjustments: pd.DataFrame | None = None,
 ) -> None:
+    if price_adjustments is None:
+        price_adjustments = pd.DataFrame(columns=ADJUSTMENT_COLUMNS)
     if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
         sector_metrics_daily = pd.DataFrame(
             columns=[
@@ -1238,6 +1242,7 @@ def write_database(
         "sector_rotation": sector_rotation,
         "screener_results": screener_results,
         "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
+        "price_adjustments": price_adjustments,
     }.items():
         con.register(f"{name}_df", frame)
         con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
@@ -1354,6 +1359,8 @@ def main() -> None:
     if not args.quiet:
         print("2/8: Reading historical price files (archive + daily)...")
     prices = build_prices(universe)
+    prices, price_adjustments = adjust_prices(prices, ROOT_DIR)
+    print(summarize_adjustments(price_adjustments))
     if not args.quiet:
         print("3/8: Reading market cap, price band, PE, and 52-week reference files...")
     mcap = read_market_cap()
@@ -1367,7 +1374,7 @@ def main() -> None:
     if not args.quiet:
         print("5/8: Calculating indicators...")
     reference_history = load_reference_history(ROOT_DIR)
-    indicators = calc_indicators(prices, reference_history if not reference_history.empty else enrichment)
+    indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
     if not args.quiet:
         print("6/8: Reading and enriching deal flow...")
     deals_raw = read_all_deals()
@@ -1403,7 +1410,7 @@ def main() -> None:
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
     if not args.quiet:
         print("8/8: Writing database file...")
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
     if not args.quiet:
         print("MarketPulse database built successfully (FULL history rebuild).")
         print(f"Database: {DB_PATH}")
