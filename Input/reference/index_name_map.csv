@@ -1,0 +1,135 @@
+source_name,canonical_name,overlap_days
+India VIX,India VIX,429
+NIFTY Alpha Low-Volatility 30,NIFTY AlphaLowVol,429
+NIFTY Alpha Quality Low-Volatility 30,Nifty AQL 30,429
+NIFTY Alpha Quality Value Low-Volatility 30,Nifty AQLV 30,429
+NIFTY LargeMidcap 250,NIFTY LARGEMID250,429
+NIFTY Midcap 100,NIFTY MIDCAP 100,429
+NIFTY Midcap150 Quality 50,NIFTY M150 QLTY50,429
+NIFTY Quality Low-Volatility 30,Nifty Qlty LV 30,429
+NIFTY SME EMERGE,Nifty SME Emerge,216
+NIFTY Smallcap 100,NIFTY SMLCAP 100,429
+NIFTY100 Alpha 30,Nifty100 Alpha 30,429
+NIFTY100 ESG,NIFTY100 ESG,429
+NIFTY100 Enhanced ESG,Nifty100 Enh ESG,429
+NIFTY100 Quality 30,NIFTY100 Qualty30,429
+NIFTY200 Quality 30,NIFTY200 QUALTY30,429
+NIFTY50 Equal Weight,NIFTY50 EQL Wgt,429
+NIFTY500 Value 50,Nifty500 Value 50,429
+Nifty 10 yr Benchmark G-Sec (Clean Price),Nifty GS 10Yr Cln,20
+Nifty 100,Nifty 100,429
+Nifty 200,Nifty 200,429
+Nifty 4-8 yr G-Sec Index,Nifty GS 4 8Yr,5
+Nifty 50,Nifty 50,429
+Nifty 500,Nifty 500,429
+Nifty Alpha 50,NIFTY Alpha 50,429
+Nifty Auto,Nifty Auto,429
+Nifty BHARAT Bond Index - April 2025,BHARATBOND-APR25,16
+Nifty BHARAT Bond Index - April 2030,BHARATBOND-APR30,5
+Nifty BHARAT Bond Index - April 2031,BHARATBOND-APR31,9
+Nifty BHARAT Bond Index - April 2032,BHARATBOND-APR32,25
+Nifty BHARAT Bond Index - April 2033,BHARATBOND-APR33,41
+Nifty Bank,Nifty Bank,429
+Nifty CPSE,Nifty CPSE,429
+Nifty Capital Markets,Nifty Capital Mkt,429
+Nifty Cement,Nifty Cement,97
+Nifty Chemicals,Nifty Chemicals,218
+Nifty Commodities,Nifty Commodities,429
+Nifty Conglomerate 50,NiftyConglomerate,156
+Nifty Consumer Durables,NIFTY CONSR DURBL,429
+Nifty Core Housing,Nifty CoreHousing,429
+Nifty Dividend Opportunities 50,Nifty Div Opps 50,429
+Nifty EV & New Age Automotive,Nifty EV,429
+Nifty Energy,Nifty Energy,429
+Nifty FMCG,Nifty FMCG,429
+Nifty Financial Services,Nifty Fin Service,429
+Nifty Financial Services 25/50,Nifty FinSrv25 50,429
+Nifty Financial Services Ex-Bank,Nifty FinSerExBnk,429
+Nifty Growth Sectors 15,Nifty GrowSect 15,429
+Nifty Healthcare Index,NIFTY HEALTHCARE,429
+Nifty High Beta 50,Nifty HighBeta 50,429
+Nifty Housing,Nifty Housing,429
+Nifty IPO,Nifty IPO,429
+Nifty IT,Nifty IT,429
+Nifty India Consumption,Nifty Consumption,429
+Nifty India Corporate Group Index - Tata Group 25% Cap,Nifty Tata 25 Cap,429
+Nifty India Defence,Nifty Ind Defence,429
+Nifty India Digital,NIFTY IND DIGITAL,429
+Nifty India FPI 150,Nifty FPI 150,218
+Nifty India Infrastructure & Logistics,Nifty InfraLog,218
+Nifty India Internet,Nifty Internet,218
+Nifty India Manufacturing,NIFTY INDIA MFG,429
+Nifty India New Age Consumption,Nifty New Consump,429
+Nifty India Railways PSU,Nifty RailwaysPSU,156
+Nifty India Select 5 Corporate Groups (MAATR),Nifty Corp MAATR,429
+Nifty India Tourism,Nifty Ind Tourism,429
+Nifty Infrastructure,Nifty Infra,429
+Nifty Low Volatility 50,Nifty Low Vol 50,429
+Nifty MNC,Nifty MNC,429
+Nifty Media,Nifty Media,429
+Nifty Metal,Nifty Metal,429
+Nifty Microcap 250,NIFTY MICROCAP250,429
+Nifty MidSmall Financial Services,Nifty MS Fin Serv,429
+Nifty MidSmall Healthcare,Nifty MidSml Hlth,429
+Nifty MidSmall IT & Telecom,Nifty MS IT Telcm,429
+Nifty MidSmall India Consumption,Nifty MS Ind Cons,429
+Nifty MidSmallcap 400,NIFTY MIDSML 400,429
+Nifty MidSmallcap400 50:50,Nifty MidSmall 50 50,97
+Nifty MidSmallcap400 Momentum Quality 100,NiftyMS400 MQ 100,429
+Nifty Midcap 150,NIFTY MIDCAP 150,429
+Nifty Midcap 50,Nifty Midcap 50,429
+Nifty Midcap Liquid 15,Nifty Mid Liq 15,429
+Nifty Midcap Select,NIFTY MID SELECT,429
+Nifty Midcap150 Momentum 50,NiftyM150Momntm50,429
+Nifty Mobility,Nifty Mobility,429
+Nifty Next 50,Nifty Next 50,429
+Nifty Non-Cyclical Consumer,Nifty NonCyc Cons,429
+Nifty Oil & Gas,NIFTY OIL AND GAS,429
+Nifty PSE,Nifty PSE,429
+Nifty PSU Bank,Nifty PSU Bank,429
+Nifty Pharma,Nifty Pharma,429
+Nifty Private Bank,Nifty Pvt Bank,429
+Nifty REITs & Realty,Nifty REITs Realty,97
+Nifty Realty,Nifty Realty,429
+Nifty Rural,Nifty Rural,429
+Nifty Services Sector,Nifty Serv Sector,429
+Nifty Shariah 25,Nifty Shariah 25,429
+Nifty Smallcap 250,NIFTY SMLCAP 250,429
+Nifty Smallcap 50,NIFTY SMLCAP 50,429
+Nifty Smallcap 500,Nifty Smallcap 500,97
+Nifty Smallcap250 Momentum Quality 100,NiftySml250MQ 100,429
+Nifty Smallcap250 Quality 50,Nifty Sml250 Q50,429
+Nifty Top 10 Equal Weight,Nifty Top 10 EW,429
+Nifty Top 15 Equal Weight,Nifty Top 15 EW,429
+Nifty Top 20 Equal Weight,Nifty Top 20 EW,429
+Nifty Total Market,NIFTY TOTAL MKT,429
+Nifty Total Market Momentum Quality 50,Nifty TMMQ 50,218
+Nifty Transportation & Logistics,Nifty Trans Logis,429
+Nifty Waves,Nifty Waves,217
+Nifty100 ESG Sector Leaders,Nifty100ESGSecLdr,429
+Nifty100 Equal Weight,NIFTY100 EQL Wgt,429
+Nifty100 Liquid 15,Nifty100 Liq 15,429
+Nifty100 Low Volatility 30,NIFTY100 LowVol30,429
+Nifty200 Alpha 30,Nifty200 Alpha 30,429
+Nifty200 Momentum 30,Nifty200Momentm30,429
+Nifty200 Value 30,Nifty200 Value 30,429
+Nifty50 Dividend Points,Nifty50 Div Point,397
+Nifty50 PR 1x Inverse,Nifty50 PR 1x Inv,429
+Nifty50 PR 2x Leverage,Nifty50 PR 2x Lev,429
+Nifty50 Shariah,Nifty50 Shariah,429
+Nifty50 TR 1x Inverse,Nifty50 TR 1x Inv,429
+Nifty50 TR 2x Leverage,Nifty50 TR 2x Lev,429
+Nifty50 Value 20,Nifty50 Value 20,429
+Nifty500 Equal Weight,Nifty500 EW,429
+Nifty500 Flexicap Quality 30,Nifty500 Flexicap,218
+Nifty500 Healthcare,Nifty500 Health,218
+Nifty500 LargeMidSmall Equal-Cap Weighted,Nifty500 LMS Eql,429
+Nifty500 Low Volatility 50,Nifty500 LowVol50,377
+Nifty500 Momentum 50,Nifty500Momentm50,429
+Nifty500 Multicap 50:25:25,NIFTY500 MULTICAP,429
+Nifty500 Multicap India Manufacturing 50:30:20,Nifty Multi Mfg,429
+Nifty500 Multicap Infrastructure 50:30:20,Nifty Multi Infra,429
+Nifty500 Multicap Momentum Quality 50,Nifty Multi MQ 50,429
+Nifty500 Multifactor MQVLv 50,Nifty500 MQVLv50,378
+Nifty500 Quality 50,Nifty500 Qlty50,377
+Nifty500 Shariah,Nifty500 Shariah,429
