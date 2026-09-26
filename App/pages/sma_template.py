@@ -149,7 +149,7 @@ def scan_template(db_path: Path, min_mcap: float, min_avg_vol: float = 0.0) -> p
                 SELECT max(trade_date) d FROM indicators_daily
             ),
             p_win1 AS (
-                SELECT symbol, trade_date, {adj_close} AS close_price,
+                SELECT symbol, trade_date,
                        avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
                        avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW) AS sma_150,
                        avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200
