@@ -726,6 +726,50 @@ def _near(a, b, window_days: int) -> bool:
     return abs((pd.Timestamp(a) - pd.Timestamp(b)).days) <= window_days
 
 
+MAX_HALT_DAYS = 60
+
+
+def _sessions_by_symbol(sessions: pd.DataFrame | None) -> dict:
+    """{symbol: sorted unique datetime64[ns] trade dates} from a (symbol, trade_date) frame."""
+    if sessions is None or len(sessions) == 0:
+        return {}
+    frame = pd.DataFrame({"symbol": sessions["symbol"].to_numpy(dtype=object),
+                          "trade_date": pd.to_datetime(sessions["trade_date"], errors="coerce").to_numpy(dtype="datetime64[ns]")})
+    frame = frame.dropna().drop_duplicates().sort_values(["symbol", "trade_date"], kind="stable")
+    dates = frame["trade_date"].to_numpy(dtype="datetime64[ns]")
+    return {sym: dates[pos] for sym, pos in frame.groupby("symbol", sort=False).indices.items()}
+
+
+class _Nearness:
+    """Same-event-date test for one symbol: within `window_days` calendar days, or -- across a
+    trading halt -- no session of that symbol in [earlier, later) (both dates then back-adjust
+    exactly the same price rows), provided the symbol trades again on/after the later date and
+    the halt is at most `MAX_HALT_DAYS` long.
+
+    A consolidation typically halts trading from its record/ex-date until the new ISIN lists
+    (SHEKHAWATI: bc ex 2024-08-28, last session 08-27, resumes 09-10 where the price gap and the
+    mcap face-value change appear; VERTOZ 2025-06-25 -> 07-11). Calendar windows alone would treat
+    the bc and mcap/gap evidence as two events and apply the factor twice.
+    """
+
+    def __init__(self, window_days: float, sessions: pd.DataFrame | None = None):
+        self.window_days = window_days
+        self.sessions = _sessions_by_symbol(sessions)
+
+    def __call__(self, symbol, a, b) -> bool:
+        if _near(a, b, self.window_days):
+            return True
+        arr = self.sessions.get(symbol)
+        if arr is None or pd.isna(a) or pd.isna(b):
+            return False
+        lo, hi = sorted((pd.Timestamp(a), pd.Timestamp(b)))
+        if (hi - lo).days > MAX_HALT_DAYS:
+            return False
+        i = np.searchsorted(arr, lo.to_datetime64().astype("datetime64[ns]"), side="left")
+        j = np.searchsorted(arr, hi.to_datetime64().astype("datetime64[ns]"), side="left")
+        return bool(i == j and j < len(arr))
+
+
 def _same_factor(f1, f2, tol: float) -> bool:
     if pd.isna(f1) or pd.isna(f2) or f2 == 0:
         return False
@@ -760,12 +804,13 @@ def _records_by_symbol(df: pd.DataFrame) -> dict:
 
 
 def _find_match(by_symbol: dict, used: set, symbol, ex_date, factor, window_days: float, factor_tol: float,
-                allowed_source: str | None = None):
+                allowed_source: str | None = None, near: _Nearness | None = None):
     """Return the index of the first unused candidate row matching symbol/date/factor, else None."""
+    near = near or _Nearness(window_days)
     for idx, row in by_symbol.get(symbol, ()):
         if idx in used or (allowed_source is not None and row["source"] != allowed_source):
             continue
-        if _near(ex_date, row["ex_date"], window_days) and _same_factor(factor, row["factor"], factor_tol):
+        if near(symbol, ex_date, row["ex_date"]) and _same_factor(factor, row["factor"], factor_tol):
             return idx
     return None
 
@@ -781,7 +826,8 @@ class _GapMatcher:
     once and confirms every event in that product.
     """
 
-    def __init__(self, gaps: pd.DataFrame, window_days: float, gap_tol: float):
+    def __init__(self, gaps: pd.DataFrame, window_days: float, gap_tol: float, near: _Nearness | None = None):
+        self.near = near or _Nearness(window_days)
         self.records = list(zip(gaps.index, gaps.to_dict("records")))
         self.by_symbol: dict = {}
         for idx, rec in self.records:
@@ -797,7 +843,7 @@ class _GapMatcher:
 
     def _candidates(self, symbol, ex_date):
         return [(idx, g) for idx, g in self.by_symbol.get(symbol, ())
-                if idx not in self.used and _near(ex_date, g["ex_date"], self.window_days)]
+                if idx not in self.used and self.near(symbol, ex_date, g["ex_date"])]
 
     def match_single(self, symbol, ex_date, factor):
         """Consume and return the first unused gap agreeing with `factor` alone, else None."""
@@ -814,7 +860,7 @@ class _GapMatcher:
         if self.match_single(symbol, ex_date, factor) is not None:
             return True
         for idx, g in self._candidates(symbol, ex_date):
-            group = [p for p in self.pool.get(symbol, ()) if _near(p[1], g["ex_date"], self.window_days)]
+            group = [p for p in self.pool.get(symbol, ()) if self.near(symbol, p[1], g["ex_date"])]
             if len(group) < 2 or not any(p[0] == key for p in group):
                 continue
             if _gap_agrees(g["gap_ratio"], float(np.prod([p[2] for p in group])), self.gap_tol):
@@ -862,7 +908,8 @@ def _kinds_compatible(k1, k2) -> bool:
     return f1 is None or f2 is None or f1 == f2
 
 
-def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) -> list[dict]:
+def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float,
+                       near: _Nearness | None = None) -> list[dict]:
     """Collapse applied duplicates of the same symbol/date-window/factor/kind family to a single row.
 
     Plain duplicates (e.g. two bc announcements of the same bonus) keep the earliest. An override
@@ -870,6 +917,7 @@ def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) 
     that lands within window_days/factor_tol of an untouched event isn't silently dropped by the
     "keep the earliest" rule.
     """
+    near = near or _Nearness(window_days)
     by_symbol: dict[str, list[int]] = {}
     for i, r in enumerate(rows):
         if r["applied"]:
@@ -879,7 +927,7 @@ def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float) 
         idxs_sorted = sorted(idxs, key=lambda i: rows[i]["ex_date"])
         kept: list[int] = []
         for i in idxs_sorted:
-            dup_of = next((j for j in kept if _near(rows[i]["ex_date"], rows[j]["ex_date"], window_days)
+            dup_of = next((j for j in kept if near(rows[i]["symbol"], rows[i]["ex_date"], rows[j]["ex_date"])
                           and _same_factor(rows[i]["factor"], rows[j]["factor"], factor_tol)
                           and _kinds_compatible(rows[i]["kind"], rows[j]["kind"])), None)
             if dup_of is None:
@@ -992,8 +1040,13 @@ def collapse_revisions(bc: pd.DataFrame, window_days: int = REVISION_WINDOW_DAYS
 
 
 def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, overrides: pd.DataFrame,
-             window_days: int = 5, factor_tol: float = 0.02, gap_tol: float = 0.2) -> pd.DataFrame:
+             window_days: int = 5, factor_tol: float = 0.02, gap_tol: float = 0.2,
+             sessions: pd.DataFrame | None = None) -> pd.DataFrame:
     """Reconcile bc / mcap / gap evidence (plus manual overrides) into `ADJUSTMENT_COLUMNS` rows.
+
+    `sessions` (symbol, trade_date -- normally the price rows) widens "same event date" across a
+    trading halt for bc<->mcap merging, gap confirmation and the duplicate guard (`_Nearness`);
+    without it, only the `window_days` calendar window applies.
 
     When `bc` carries a `published` column, revised announcements are first collapsed to their
     latest published version (`collapse_revisions`); without it (legacy callers) every bc row is
@@ -1012,7 +1065,8 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
     for b in bc_records:
         if b["kind"] == "rights":
             rights_dates.setdefault(b["symbol"], []).append(b["ex_date"])
-    gap_matcher = _GapMatcher(gaps, window_days, gap_tol)
+    near = _Nearness(window_days, sessions)
+    gap_matcher = _GapMatcher(gaps, window_days, gap_tol, near=near)
 
     def _is_adjusting(b: dict) -> bool:
         return b["kind"] in ADJUSTING_KINDS and not pd.isna(b["factor"])
@@ -1024,7 +1078,7 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
     for i, b in enumerate(bc_records):
         if _is_adjusting(b):
             m_idx = _find_match(mcap_by_symbol, mcap_used, b["symbol"], b["ex_date"], b["factor"], window_days,
-                                factor_tol, allowed_source=_MERGE_SOURCE.get(b["kind"]))
+                                factor_tol, allowed_source=_MERGE_SOURCE.get(b["kind"]), near=near)
             if m_idx is not None:
                 mcap_used.add(m_idx)
                 merged_with[i] = m_idx
@@ -1071,12 +1125,12 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
     for _, g in gap_matcher.unused():
         rows.append(_row(g["symbol"], g["ex_date"], "unexplained_gap", g["gap_ratio"], "gap", "unconfirmed", False, ""))
 
-    rows = _dedupe_duplicates(rows, window_days, factor_tol)
+    rows = _dedupe_duplicates(rows, window_days, factor_tol, near=near)
     rows = _apply_overrides(rows, overrides, window_days)
     # Re-run the duplicate guard: an override can retarget a row's ex_date onto another applied
     # row's neighborhood, so this is what guarantees no two applied rows for the same symbol end
     # up within window_days/factor_tol of each other after overrides are in play.
-    rows = _dedupe_duplicates(rows, window_days, factor_tol)
+    rows = _dedupe_duplicates(rows, window_days, factor_tol, near=near)
 
     if not rows:
         return empty_adjustments_frame()
@@ -1343,7 +1397,7 @@ def adjust_prices(prices: pd.DataFrame, root: Path, extra_actions: pd.DataFrame 
 
     gaps = gap_candidates(keyed)
     overrides = load_overrides(root / "Input" / "reference" / "adjustments_override.yaml")
-    adjustments = reconcile(bc, mcap, gaps, overrides)
+    adjustments = reconcile(bc, mcap, gaps, overrides, sessions=keyed[["symbol", "trade_date"]])
     adjustments = _suppress_future_ex_dates(adjustments, keyed)
     adjusted = apply_adjustments(keyed, adjustments)
     if canonical is not None:

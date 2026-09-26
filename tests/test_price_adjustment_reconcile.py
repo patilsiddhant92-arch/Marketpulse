@@ -229,3 +229,62 @@ def test_revision_collapse_leaves_non_adjusting_kinds_alone():
                        _pub("DIVCO", "2025-01-20", "dividend", None, "2025-01-15", "DIV - RS 2")])
     out = reconcile(bc, pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
     assert len(out[out["symbol"] == "DIVCO"]) == 2
+
+
+def _halt_sessions(symbol, last_before, first_after):
+    """Sessions around a trading halt: five days up to `last_before`, five from `first_after`."""
+    before = pd.bdate_range(end=last_before, periods=5)
+    after = pd.bdate_range(start=first_after, periods=5)
+    return pd.DataFrame({"symbol": symbol, "trade_date": before.append(after)})
+
+
+def test_consolidation_across_trading_halt_is_one_event():
+    """SHEKHAWATI 2024: bc 'CNSLDATN RE 1 TO RS 10' ex 2024-08-28; trading halts after 08-27 and
+    resumes 09-10, where both the price gap (86.43 / 8.82) and the mcap face-value change land.
+    Without session awareness the 13-day calendar distance made them two applied events (x100)."""
+    bc = pd.DataFrame([_a("SHEKHAWATI", "2024-08-28", "consolidation", 10.0, "bc")])
+    mcap = pd.DataFrame([_a("SHEKHAWATI", "2024-09-10", "consolidation", 10.0, "mcap_fv")])
+    gaps = pd.DataFrame({"symbol": ["SHEKHAWATI"], "ex_date": pd.to_datetime(["2024-09-10"]),
+                         "gap_ratio": [86.43 / 8.82]})
+    sessions = _halt_sessions("SHEKHAWATI", "2024-08-27", "2024-09-10")
+
+    out = reconcile(bc, mcap, gaps, pd.DataFrame(), sessions=sessions)
+
+    applied = out[out["applied"]]
+    assert len(applied) == 1
+    assert applied.iloc[0]["source"] == "bc+mcap_fv" and applied.iloc[0]["confidence"] == "confirmed"
+    assert not (out["kind"] == "unexplained_gap").any()
+
+
+def test_bc_consolidation_across_halt_is_gap_confirmed_without_mcap():
+    bc = pd.DataFrame([_a("VERTOZ", "2025-06-25", "consolidation", 10.0, "bc")])
+    gaps = pd.DataFrame({"symbol": ["VERTOZ"], "ex_date": pd.to_datetime(["2025-07-11"]),
+                         "gap_ratio": [87.11 / 9.17]})
+    sessions = _halt_sessions("VERTOZ", "2025-06-24", "2025-07-11")
+
+    out = reconcile(bc, pd.DataFrame(), gaps, pd.DataFrame(), sessions=sessions)
+
+    assert out[out["applied"]]["confidence"].tolist() == ["confirmed"]
+    assert not (out["kind"] == "unexplained_gap").any()
+
+
+def test_events_with_sessions_between_them_stay_separate():
+    """Same evidence, but the stock kept trading between the two dates: that is not a halt, so the
+    calendar window alone decides (two events, gap unexplained for the bc one)."""
+    bc = pd.DataFrame([_a("TRADES", "2024-08-28", "consolidation", 10.0, "bc")])
+    mcap = pd.DataFrame([_a("TRADES", "2024-09-10", "consolidation", 10.0, "mcap_fv")])
+    sessions = pd.DataFrame({"symbol": "TRADES", "trade_date": pd.bdate_range("2024-08-20", "2024-09-20")})
+
+    out = reconcile(bc, mcap, pd.DataFrame(), pd.DataFrame(), sessions=sessions)
+
+    assert len(out[out["applied"]]) == 2  # unchanged calendar-window behaviour
+
+
+def test_halt_longer_than_limit_is_not_bridged():
+    bc = pd.DataFrame([_a("LONGHALT", "2024-01-10", "consolidation", 10.0, "bc")])
+    mcap = pd.DataFrame([_a("LONGHALT", "2024-04-15", "consolidation", 10.0, "mcap_fv")])
+    sessions = _halt_sessions("LONGHALT", "2024-01-09", "2024-04-15")
+
+    out = reconcile(bc, mcap, pd.DataFrame(), pd.DataFrame(), sessions=sessions)
+
+    assert len(out[out["applied"]]) == 2

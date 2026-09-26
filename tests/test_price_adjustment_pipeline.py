@@ -194,6 +194,36 @@ def test_adjust_prices_applies_new_symbol_events_to_old_symbol_price_rows(tmp_pa
     assert not (adjustments["kind"] == "unexplained_gap").any()
 
 
+def test_adjust_prices_bridges_a_consolidation_trading_halt(tmp_path):
+    """SHEKHAWATI shape end to end: bc 'CNSLDATN RE 1 TO RS 10' ex 2024-08-28, last session
+    08-27, trading resumes 09-10 with the mcap face-value change and the price gap. The factor
+    must be applied once (x10), not once per source (x100)."""
+    archive = tmp_path / "Input" / "archive"
+    archive.mkdir(parents=True)
+    with zipfile.ZipFile(archive / "PR220824.zip", "w") as zf:
+        zf.writestr(
+            "bc22082024.csv",
+            "SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE\n"
+            "EQ,SHEK,Shek Ltd,2024-08-28,,,2024-08-28,,,CNSLDATN RE 1 TO RS 10\n",
+        )
+    (archive / "mcap27082024.csv").write_text(
+        MCAP_HDR + "27 AUG 2024,SHEK,EQ,SHEK LTD,Listed,27 AUG 2024,1.00,100000000,8.82,1.0\n")
+    (archive / "mcap10092024.csv").write_text(
+        MCAP_HDR + "10 SEP 2024,SHEK,EQ,SHEK LTD,Listed,10 SEP 2024,10.00,10000000,86.43,1.0\n")
+    dates = pd.to_datetime(["2024-08-23", "2024-08-26", "2024-08-27", "2024-09-10", "2024-09-11"])
+    closes = [8.89, 9.00, 8.82, 86.43, 84.70]
+    prices = pd.DataFrame({"symbol": "SHEK", "trade_date": dates, "open_price": closes, "high_price": closes,
+                           "low_price": closes, "close_price": closes, "volume": 1000.0})
+
+    adjusted, adjustments = adjust_prices(prices, tmp_path, cache_dir=None)
+
+    assert adjusted["price_factor"].tolist() == [10.0, 10.0, 10.0, 1.0, 1.0]
+    assert math.isclose(adjusted.loc[2, "adj_close_price"], 88.2, rel_tol=1e-9)
+    applied = adjustments[adjustments["applied"]]
+    assert len(applied) == 1 and applied.iloc[0]["confidence"] == "confirmed"
+    assert not (adjustments["kind"] == "unexplained_gap").any()
+
+
 def test_calc_indicators_rescales_nse_52w_by_price_factor():
     # Reproduces the GOODLUCK scale-mismatch bug: calc_indicators receives already-adjusted
     # OHLCV (via indicator_input) plus price_factor, but the NSE-reported 52w high/low in
