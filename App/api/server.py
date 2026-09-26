@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -58,14 +59,25 @@ app = FastAPI(
     version="3.1.0",
 )
 
-# Enable CORS for local development and embedded webviews
+# Same-origin in production (FastAPI serves frontend/dist). Only the Vite dev server needs CORS.
+DEV_ORIGINS = ["http://127.0.0.1:5173", "http://localhost:5173"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=DEV_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "PUT"],
     allow_headers=["*"],
 )
+
+_SYMBOL_RE = re.compile(r"^[A-Z0-9&\-_.]{1,20}$")
+
+
+def validate_symbol(raw: str) -> str:
+    """Upper-case and validate an NSE symbol; raise 422 for anything else."""
+    sym = str(raw or "").strip().upper()
+    if not _SYMBOL_RE.fullmatch(sym):
+        raise HTTPException(status_code=422, detail=f"Invalid symbol: {raw!r}")
+    return sym
 
 
 def get_db(read_only: bool = True) -> duckdb.DuckDBPyConnection:
@@ -431,6 +443,9 @@ def get_momentum_screener(
     weekly_rsi_60 = bool(_arg_val(weekly_rsi_60, False))
     preset = _arg_val(preset, None)
     debug_symbol = _arg_val(debug_symbol, None)
+    debug_params: list[str] = []
+    if debug_symbol:
+        debug_symbol = validate_symbol(debug_symbol)
     limit = int(_arg_val(limit, 300))
 
     # Trigger conditions (evaluated across the trailing lookback window)
@@ -490,7 +505,8 @@ def get_momentum_screener(
         trigger_where.append("(i.delivery_spike = true AND i.price_up_delivery_up = true)")
 
     if debug_symbol:
-        trigger_where.append(f"i.symbol = '{debug_symbol.strip().upper()}'")
+        trigger_where.append("i.symbol = ?")
+        debug_params.append(debug_symbol)
 
     # Current Day filters (evaluated on latest session c)
     current_where = [
@@ -546,7 +562,8 @@ def get_momentum_screener(
         current_where.append("(c.rsi_14 >= 60 AND COALESCE(c.rsi_14_w, 50) >= 60)")
 
     if debug_symbol:
-        current_where.append(f"c.symbol = '{debug_symbol.strip().upper()}'")
+        current_where.append("c.symbol = ?")
+        debug_params.append(debug_symbol)
 
     sql = f"""
         WITH dates AS (
@@ -614,7 +631,8 @@ def get_momentum_screener(
     """
 
     with get_db() as con:
-        df = con.execute(sql).fetchdf()
+        assert sql.count("?") == len(debug_params), "momentum SQL placeholders out of sync"
+        df = con.execute(sql, debug_params).fetchdf()
 
     candidates = []
     for _, r in df.iterrows():
