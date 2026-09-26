@@ -1036,6 +1036,55 @@ def build_breadth_daily(indicators: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
+def _aggregate_rotation_groups(d: pd.DataFrame, col: str, has_prev_close: bool) -> pd.DataFrame:
+    """Per (trade_date, group) breadth/return aggregates, vectorised.
+
+    Matches the former per-group apply exactly: NaN-skipping means, EMA comparisons that
+    count NaN as "not above", and every output column as float64.
+    """
+    close = pd.to_numeric(d["close_price"], errors="coerce")
+    work = pd.DataFrame(
+        {
+            "trade_date": d["trade_date"],
+            col: d[col],
+            "symbol": d["symbol"],
+            "return_5d_pct": d["return_5d_pct"],
+            "return_1m_pct": d["return_1m_pct"],
+            "return_3m_pct": d["return_3m_pct"],
+            "rs_percentile": d["rs_percentile"],
+            "above_10": (close > d["ema_10"]).astype(float),
+            "above_50": (close > d["ema_50"]).astype(float),
+            "above_200": (close > d["ema_200"]).astype(float),
+            "near_52w_highs": d["near_52w_high"].astype(float),
+            "vcp_candidates": d["is_vcp"].astype(float),
+            "turnover_cr": d["turnover_cr"],
+            "adv": (close > d["prev_close"]).astype(float) if has_prev_close else 0.0,
+        },
+        index=d.index,
+    )
+    g = work.groupby(["trade_date", col])
+    out = g.agg(
+        stocks=("symbol", "nunique"),
+        return_5d_pct=("return_5d_pct", "mean"),
+        return_1m_pct=("return_1m_pct", "mean"),
+        return_3m_pct=("return_3m_pct", "mean"),
+        rs_percentile=("rs_percentile", "mean"),
+        above_10ema_pct=("above_10", "mean"),
+        above_50ema_pct=("above_50", "mean"),
+        above_200ema_pct=("above_200", "mean"),
+        near_52w_highs=("near_52w_highs", "sum"),
+        vcp_candidates=("vcp_candidates", "sum"),
+        turnover_cr=("turnover_cr", "sum"),
+        adv=("adv", "sum"),
+    )
+    for pct in ("above_10ema_pct", "above_50ema_pct", "above_200ema_pct"):
+        out[pct] = out[pct] * 100
+    stocks = out["stocks"].astype(float)
+    out["adv_pct"] = np.where(stocks > 0, out["adv"] / stocks.where(stocks > 0) * 100, 0.0) if has_prev_close else 0.0
+    out = out.drop(columns="adv").astype(float)
+    return out.reset_index()
+
+
 def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
     master_cols = ["symbol", "broad_sector", "sector", "broad_industry", "industry"]
     if "market_cap_cr" in master.columns:
@@ -1054,29 +1103,7 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
         d = d[d[col].astype(str).str.strip() != ""]
         if d.empty:
             continue
-        grouped = d.groupby(["trade_date", col]).apply(
-            lambda g: pd.Series(
-                {
-                    "stocks": g["symbol"].nunique(),
-                    "return_5d_pct": g["return_5d_pct"].mean(),
-                    "return_1m_pct": g["return_1m_pct"].mean(),
-                    "return_3m_pct": g["return_3m_pct"].mean(),
-                    "rs_percentile": g["rs_percentile"].mean(),
-                    "above_10ema_pct": (g["close_price"] > g["ema_10"]).mean() * 100,
-                    "above_50ema_pct": (g["close_price"] > g["ema_50"]).mean() * 100,
-                    "above_200ema_pct": (g["close_price"] > g["ema_200"]).mean() * 100,
-                    "near_52w_highs": g["near_52w_high"].sum(),
-                    "vcp_candidates": g["is_vcp"].sum(),
-                    "turnover_cr": g["turnover_cr"].sum(),
-                    "adv_pct": (
-                        (g["close_price"] > g["prev_close"]).sum() / g["symbol"].nunique() * 100
-                        if has_prev_close and g["symbol"].nunique()
-                        else 0.0
-                    ),
-                }
-            ),
-            include_groups=False,
-        ).reset_index().rename(columns={col: "group_name"})
+        grouped = _aggregate_rotation_groups(d, col, has_prev_close).rename(columns={col: "group_name"})
         grouped["level"] = level_name
         grouped["rotation_score"] = (
             grouped["rs_percentile"].fillna(0) * 0.40

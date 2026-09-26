@@ -165,10 +165,9 @@ def map_symbols_to_indices(
         sym: grp for sym, grp in membership.groupby("symbol", sort=False)
     }
 
-    out = []
-    for sym in syms:
-        if sym in grouped:
-            out.append(resolve_sector_index(sym, grouped[sym], master_by_sym.get(sym)))
-        else:
-            out.append(resolve_sector_index(sym, membership.iloc[0:0], master_by_sym.get(sym)))
-    return pd.Series(out, index=syms.index, dtype=object)
+    # Resolve once per distinct symbol: callers pass one row per (symbol, session).
+    resolved: dict[str, str | None] = {}
+    empty = membership.iloc[0:0]
+    for sym in syms.unique():
+        resolved[sym] = resolve_sector_index(sym, grouped.get(sym, empty), master_by_sym.get(sym))
+    return pd.Series([resolved[sym] for sym in syms], index=syms.index, dtype=object)
