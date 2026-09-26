@@ -1,6 +1,7 @@
 """NSE trading calendar: observed sessions (from archives) + official holiday list."""
 from __future__ import annotations
 
+import csv
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,10 @@ import pandas as pd
 HOLIDAY_API = "https://www.nseindia.com/api/holiday-master?type=trading"
 _BHAV_RE = re.compile(r"sec_bhavdata_full_(\d{2})(\d{2})(\d{4})")
 
+# (path, size, mtime) -> parsed DATE1, so repeated calls (e.g. summarize() during a
+# single backfill run) don't re-read every bhavcopy file from disk.
+_DATE1_CACHE: dict[tuple[str, int, int], date | None] = {}
+
 
 def parse_holiday_payload(payload: dict, segment: str = "CM") -> list[date]:
     rows = payload.get(segment)
@@ -21,16 +26,60 @@ def parse_holiday_payload(payload: dict, segment: str = "CM") -> list[date]:
     return sorted(set(out))
 
 
+def _read_bhav_date1(path: Path) -> date | None:
+    """Read the DATE1 value from the first data row of a sec_bhavdata_full_*.csv file.
+
+    NSE sometimes serves a byte-identical copy of the prior session's bhavcopy under a
+    non-trading day's filename (weekends, weekday holidays through 2024, and the Muhurat
+    session), so the filename date cannot be trusted — DATE1 is the actual trade date.
+    """
+    try:
+        stat = path.stat()
+        cache_key = (str(path), stat.st_size, int(stat.st_mtime))
+    except OSError:
+        return None
+    if cache_key in _DATE1_CACHE:
+        return _DATE1_CACHE[cache_key]
+
+    result: date | None = None
+    try:
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+            reader = csv.reader(handle, skipinitialspace=True)
+            header = next(reader, None)
+            if header is not None:
+                columns = [str(c).strip().upper() for c in header]
+                if "DATE1" in columns:
+                    idx = columns.index("DATE1")
+                    row = next(reader, None)
+                    if row is not None and idx < len(row):
+                        value = row[idx].strip()
+                        if value:
+                            result = datetime.strptime(value, "%d-%b-%Y").date()
+    except (OSError, ValueError, StopIteration):
+        result = None
+
+    _DATE1_CACHE[cache_key] = result
+    return result
+
+
 def observed_sessions(manifest: dict[tuple[str, str], dict], bhav_dirs: list[Path]) -> set[date]:
-    sessions = {date.fromisoformat(d) for (d, kind), rec in manifest.items() if kind == "bhav" and rec.get("status") == "ok"}
+    """Sessions actually observed in the downloaded bhavcopy archives.
+
+    A `manifest` "ok" record is not sufficient by itself: NSE's CDN returned HTTP 200
+    with a duplicate prior-session file on many non-trading days (see module docstring
+    of `_read_bhav_date1`), so the session date comes from the file's internal DATE1,
+    not the filename or the manifest status. A manifest-listed file that is missing on
+    disk contributes nothing.
+    """
+    sessions: set[date] = set()
     for folder in bhav_dirs:
+        folder = Path(folder)
         if not folder.exists():
             continue
         for path in folder.rglob("sec_bhavdata_full_*.csv"):
-            m = _BHAV_RE.search(path.name)
-            if m:
-                dd, mm, yyyy = m.groups()
-                sessions.add(date(int(yyyy), int(mm), int(dd)))
+            d = _read_bhav_date1(path)
+            if d is not None:
+                sessions.add(d)
     return sessions
 
 

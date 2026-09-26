@@ -61,7 +61,19 @@ def test_refresh_reference_files_holidays_failure_does_not_block_symbolchange(tm
 # summarize
 # ---------------------------------------------------------------------------
 
-def test_summarize():
+_BHAV_HEADER = "SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE, TTL_TRD_QNTY, TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER\n"
+
+
+def _bhav_csv(date1_str: str) -> str:
+    return _BHAV_HEADER + f"20MICRONS, EQ, {date1_str}, 35.20, 36.00, 36.80, 35.25, 35.65, 35.80, 35.96, 49077, 17.65, 370, 36031, 73.42\n"
+
+
+def test_summarize(tmp_path):
+    # calendar_reasons now reflects DATE1 inside the bhavcopy files, not the manifest's
+    # "ok" status alone (see trading_calendar.observed_sessions) -- so the two "session"
+    # dates need real files on disk whose internal DATE1 matches the filename date.
+    (tmp_path / "sec_bhavdata_full_24092026.csv").write_text(_bhav_csv("24-Sep-2026"))
+    (tmp_path / "sec_bhavdata_full_25092026.csv").write_text(_bhav_csv("25-Sep-2026"))
     manifest = {
         ("2026-09-24", "bhav"): {"status": "ok"},
         ("2026-09-25", "bhav"): {"status": "ok"},
@@ -69,7 +81,7 @@ def test_summarize():
         ("2026-09-24", "pr"): {"status": "error"},
     }
     holidays = {date(2026, 10, 2)}
-    summary = summarize(manifest, holidays, date(2026, 9, 24), date(2026, 9, 27), [])
+    summary = summarize(manifest, holidays, date(2026, 9, 24), date(2026, 9, 27), [tmp_path])
     assert summary["by_kind_status"]["bhav:ok"] == 2
     assert summary["first_last_ok"]["bhav"] == ["2026-09-24", "2026-09-25"]
     assert summary["calendar_reasons"] == {"session": 2, "weekend": 2}

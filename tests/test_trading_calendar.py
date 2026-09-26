@@ -14,11 +14,35 @@ def test_parse_holidays_prefers_cm_segment():
     assert parse_holiday_payload({"XX": [{"tradingDate": "01-May-2026"}]}) == [date(2026, 5, 1)]
 
 
-def test_observed_sessions_from_manifest_and_files(tmp_path):
-    (tmp_path / "sec_bhavdata_full_25092026.csv").write_text("x")
-    manifest = {("2026-09-24", "bhav"): {"status": "ok"}, ("2026-09-23", "bhav"): {"status": "error"},
-                ("2026-09-22", "index"): {"status": "ok"}}
-    assert observed_sessions(manifest, [tmp_path]) == {date(2026, 9, 24), date(2026, 9, 25)}
+_BHAV_HEADER = "SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE, TTL_TRD_QNTY, TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER\n"
+
+
+def _bhav_csv(date1_str: str) -> str:
+    return _BHAV_HEADER + f"20MICRONS, EQ, {date1_str}, 35.20, 36.00, 36.80, 35.25, 35.65, 35.80, 35.96, 49077, 17.65, 370, 36031, 73.42\n"
+
+
+def test_observed_sessions_uses_internal_date1_not_filename(tmp_path):
+    # NSE served a duplicate copy of Friday's bhavcopy under a Sunday-dated filename;
+    # the file's internal DATE1 (not the filename) says which day was actually traded.
+    (tmp_path / "sec_bhavdata_full_05012020.csv").write_text(_bhav_csv("03-Jan-2020"))
+    manifest = {("2020-01-05", "bhav"): {"status": "ok"}}
+    sessions = observed_sessions(manifest, [tmp_path])
+    assert date(2020, 1, 5) not in sessions
+    assert date(2020, 1, 3) in sessions
+
+
+def test_observed_sessions_muhurat_date1(tmp_path):
+    # sec_bhavdata_full_05112021.csv is named for Friday 5-Nov-2021 but its DATE1 holds
+    # the Thursday 4-Nov-2021 Diwali Muhurat session.
+    (tmp_path / "sec_bhavdata_full_05112021.csv").write_text(_bhav_csv("04-Nov-2021"))
+    manifest = {("2021-11-05", "bhav"): {"status": "ok"}}
+    sessions = observed_sessions(manifest, [tmp_path])
+    assert date(2021, 11, 4) in sessions
+
+
+def test_observed_sessions_manifest_ok_without_file_is_ignored(tmp_path):
+    manifest = {("2026-09-24", "bhav"): {"status": "ok"}}
+    assert observed_sessions(manifest, [tmp_path]) == set()
 
 
 def test_build_calendar_reasons():

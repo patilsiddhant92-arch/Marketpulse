@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import csv
+import re
 from datetime import date
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+_IND_CLOSE_ALL_RE = re.compile(r"ind_close_all_(\d{2})(\d{2})(\d{4})\.csv$", re.IGNORECASE)
 
 
 INDEX_COLUMNS = [
@@ -190,8 +193,27 @@ def parse_ind_close_all(path: Path) -> pd.DataFrame:
             return pd.Series(np.nan, index=raw.index, dtype="float64")
         return pd.to_numeric(raw[col].astype(str).str.replace(",", "").str.strip().replace({"-": None}), errors="coerce")
 
+    trade_date = pd.to_datetime(raw["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce")
+
+    name_match = _IND_CLOSE_ALL_RE.search(Path(path).name)
+    if name_match:
+        dd, mm, yyyy = name_match.groups()
+        filename_date = pd.Timestamp(year=int(yyyy), month=int(mm), day=int(dd))
+        parsed_dates = trade_date.dropna().unique()
+        if len(parsed_dates) and pd.Timestamp(parsed_dates[0]) != filename_date:
+            # NSE occasionally writes "Index Date" as MM-DD-YYYY instead of this file's
+            # usual DD-MM-YYYY (all three known cases are April 2023). The filename date
+            # is authoritative -- trusting the column would misdate every row and, worse,
+            # can silently collide with (and overwrite) a genuinely different session.
+            print(
+                f"WARNING: {Path(path).name} Index Date parsed as "
+                f"{pd.Timestamp(parsed_dates[0]).date().isoformat()} but the filename implies "
+                f"{filename_date.date().isoformat()}; using the filename date for all rows"
+            )
+            trade_date = pd.Series(filename_date, index=raw.index)
+
     out = pd.DataFrame({
-        "trade_date": pd.to_datetime(raw["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce"),
+        "trade_date": trade_date,
         "index_name": raw["Index Name"].astype(str).str.strip(),
         "open_price": num("Open Index Value"),
         "high_price": num("High Index Value"),

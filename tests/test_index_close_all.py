@@ -122,6 +122,76 @@ def test_load_all_with_no_ind_close_all_files_falls_back_to_ma_and_stays_numeric
     assert pd.api.types.is_float_dtype(feats["close_price"])
 
 
+def test_parse_ind_close_all_uses_filename_date_when_index_date_column_disagrees(tmp_path):
+    """NSE's ind_close_all_10042023.csv has "Index Date = 04-10-2023" (MM-DD-YYYY, not the
+    file's usual DD-MM-YYYY), which parses under %d-%m-%Y as 2023-10-04 -- the wrong date,
+    and one that collides with the real 2023-10-04 file. The filename date (2023-04-10)
+    must win."""
+    p = tmp_path / "ind_close_all_10042023.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,17400.00,17450.00,17350.00,17430.00,10.00,0.06\n"
+    )
+    df = parse_ind_close_all(p)
+    assert str(df["trade_date"].iloc[0].date()) == "2023-04-10"
+
+
+def test_parse_ind_close_all_prints_warning_on_filename_mismatch(tmp_path, capsys):
+    p = tmp_path / "ind_close_all_10042023.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,17400.00,17450.00,17350.00,17430.00,10.00,0.06\n"
+    )
+    parse_ind_close_all(p)
+    out = capsys.readouterr().out
+    assert "ind_close_all_10042023.csv" in out
+    assert "2023-04-10" in out and "2023-10-04" in out
+
+
+def test_parse_ind_close_all_keeps_todays_behaviour_when_filename_and_index_date_agree(tmp_path):
+    p = tmp_path / "ind_close_all_04102023.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,19100.00,19150.00,19050.00,19125.00,20.00,0.10\n"
+    )
+    df = parse_ind_close_all(p)
+    assert str(df["trade_date"].iloc[0].date()) == "2023-10-04"
+
+
+def test_parse_ind_close_all_keeps_todays_behaviour_without_filename_date(tmp_path):
+    p = tmp_path / "some_other_name.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,25-09-2026,25000.00,25100.00,24900.00,25050.00,50.00,0.20\n"
+    )
+    df = parse_ind_close_all(p)
+    assert str(df["trade_date"].iloc[0].date()) == "2026-09-25"
+
+
+def test_load_all_index_history_keeps_both_april_and_october_2023_dates(tmp_path):
+    """Regression for Finding B: loading the mis-dated April file alongside the real
+    October file must not let one overwrite the other via drop_duplicates(keep='last')."""
+    daily = tmp_path / "Input" / "daily"
+    daily.mkdir(parents=True)
+    (daily / "ind_close_all_10042023.csv").write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,17400.00,17450.00,17350.00,17430.00,10.00,0.06\n"
+    )
+    (daily / "ind_close_all_04102023.csv").write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,19100.00,19150.00,19050.00,19125.00,20.00,0.10\n"
+    )
+    out = load_all_index_history(tmp_path).set_index(["trade_date", "index_name"])
+    assert out.loc[(pd.Timestamp("2023-04-10"), "Nifty 50"), "close_price"] == 17430.0
+    assert out.loc[(pd.Timestamp("2023-10-04"), "Nifty 50"), "close_price"] == 19125.0
+
+
 def test_load_all_prefers_close_all_and_fills_from_ma(tmp_path, monkeypatch):
     daily = tmp_path / "Input" / "daily"
     daily.mkdir(parents=True)
