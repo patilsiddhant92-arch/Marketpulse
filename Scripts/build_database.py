@@ -226,9 +226,9 @@ def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
     if universe is None:
         changes_path = INPUT_DIR / "reference" / "symbolchange.csv"
         if changes_path.exists():
-            from symbol_changes import parse_symbol_changes, resolve_current_symbol
+            from symbol_changes import parse_symbol_changes
             from universe import apply_symbol_changes
-            prices = apply_symbol_changes(prices, resolve_current_symbol(parse_symbol_changes(changes_path)))
+            prices = apply_symbol_changes(prices, parse_symbol_changes(changes_path))
     return prices
 
 

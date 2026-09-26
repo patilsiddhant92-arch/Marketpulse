@@ -54,9 +54,52 @@ def test_apply_changes_and_universe_history():
         "trade_date": pd.to_datetime(["2021-09-24", "2025-09-24", "2021-09-24"]),
         "close_price": [10.5, 20.0, 5.0],
     })
-    merged = apply_symbol_changes(prices, {"OLDCO": "NEWCO"})
+    changes = pd.DataFrame({
+        "old_symbol": ["OLDCO"],
+        "new_symbol": ["NEWCO"],
+        "change_date": [pd.NaT],
+    })
+    merged = apply_symbol_changes(prices, changes)
     assert sorted(merged["symbol"]) == ["DELISTED", "NEWCO", "NEWCO"]
     uh = build_universe_history(merged, active_symbols={"NEWCO"}).set_index("symbol")
     assert uh.loc["NEWCO", "status"] == "active" and uh.loc["NEWCO", "sessions"] == 2
     assert str(uh.loc["NEWCO", "first_date"].date()) == "2021-09-24"
     assert uh.loc["DELISTED", "status"] == "inactive" and uh.loc["DELISTED", "last_series"] == "BE"
+
+
+def test_apply_changes_does_not_merge_recycled_ticker():
+    # OLDCO -> NEWCO on 2023-01-01. A later, unrelated company reuses "OLDCO" in 2025;
+    # those rows must stay OLDCO, not be swept into NEWCO.
+    prices = pd.DataFrame({
+        "symbol": ["OLDCO", "OLDCO"],
+        "series": ["EQ", "EQ"],
+        "trade_date": pd.to_datetime(["2021-09-24", "2025-06-01"]),
+        "close_price": [10.5, 30.0],
+    })
+    changes = pd.DataFrame({
+        "old_symbol": ["OLDCO"],
+        "new_symbol": ["NEWCO"],
+        "change_date": pd.to_datetime(["2023-01-01"]),
+    })
+    merged = apply_symbol_changes(prices, changes).set_index("trade_date")
+    assert merged.loc[pd.Timestamp("2021-09-24"), "symbol"] == "NEWCO"
+    assert merged.loc[pd.Timestamp("2025-06-01"), "symbol"] == "OLDCO"
+
+
+def test_apply_changes_chain_is_chronological():
+    # A->B on 2023-01-01, B->C on 2025-01-01. An A row from 2022 and a B row from 2024
+    # both end up as C once the later rename is applied.
+    prices = pd.DataFrame({
+        "symbol": ["A", "B"],
+        "series": ["EQ", "EQ"],
+        "trade_date": pd.to_datetime(["2022-06-01", "2024-06-01"]),
+        "close_price": [1.0, 2.0],
+    })
+    changes = pd.DataFrame({
+        "old_symbol": ["A", "B"],
+        "new_symbol": ["B", "C"],
+        "change_date": pd.to_datetime(["2023-01-01", "2025-01-01"]),
+    })
+    merged = apply_symbol_changes(prices, changes).set_index("trade_date")
+    assert merged.loc[pd.Timestamp("2022-06-01"), "symbol"] == "C"
+    assert merged.loc[pd.Timestamp("2024-06-01"), "symbol"] == "C"
