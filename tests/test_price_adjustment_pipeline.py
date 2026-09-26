@@ -139,6 +139,61 @@ def test_mcap_rename_keeps_symbol_history_continuous_across_rename(tmp_path):
     assert math.isclose(row.iloc[0]["factor"], 1 / 3)
 
 
+def _seed_renamed_split_root(tmp_path):
+    """Real-world shape (HEG -> HEGAM, 2026-09-22): a 1:5 split with ex-date 2024-10-18 filed
+    under the OLD symbol, and a later rename OLD -> NEW that the daily append never applies to
+    the price rows (they stay under OLD)."""
+    archive = tmp_path / "Input" / "archive"
+    archive.mkdir(parents=True)
+    reference = tmp_path / "Input" / "reference"
+    reference.mkdir(parents=True)
+    with zipfile.ZipFile(archive / "PR141024.zip", "w") as zf:
+        zf.writestr(
+            "bc14102024.csv",
+            "SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE\n"
+            "EQ,OLD,Old Co Ltd,2024-10-18,,,2024-10-18,,,FACE VALUE SPLIT (SUB-DIVISION) - FROM RS 10/- PER SHARE TO RS 2/- PER SHARE\n",
+        )
+    (reference / "symbolchange.csv").write_text("Old Co Ltd,OLD,NEW,22-SEP-2026\n")
+
+
+def test_adjust_prices_applies_new_symbol_events_to_old_symbol_price_rows(tmp_path):
+    _seed_renamed_split_root(tmp_path)
+    dates = pd.to_datetime(["2024-10-15", "2024-10-16", "2024-10-17", "2024-10-18", "2024-10-21", "2024-10-22"])
+    closes = [2000.0, 2010.0, 2020.0, 405.0, 410.0, 412.0]
+    old = pd.DataFrame({
+        "symbol": "OLD", "trade_date": dates, "open_price": closes, "high_price": closes,
+        "low_price": closes, "close_price": closes, "volume": 1000.0,
+    })
+    other = pd.DataFrame({
+        "symbol": "ZZZ", "trade_date": dates, "open_price": 50.0, "high_price": 50.0,
+        "low_price": 50.0, "close_price": 50.0, "volume": 10.0,
+    })
+    prices = pd.concat([other, old], ignore_index=True)
+    prices.index = prices.index + 100  # a non-default index must survive unchanged
+
+    adjusted, adjustments = adjust_prices(prices, tmp_path, cache_dir=None)
+
+    # Returned frame keeps the original symbols, row order and index.
+    assert adjusted.index.equals(prices.index)
+    assert adjusted["symbol"].tolist() == prices["symbol"].tolist()
+    assert "NEW" not in set(adjusted["symbol"])
+
+    o = adjusted[adjusted["symbol"] == "OLD"].set_index("trade_date")
+    for day, close in zip(dates[:3], closes[:3]):
+        assert math.isclose(o.loc[day, "adj_close_price"], close * 0.2, rel_tol=1e-9)
+        assert math.isclose(o.loc[day, "price_factor"], 0.2, rel_tol=1e-9)
+        assert math.isclose(o.loc[day, "adj_volume"], 5000.0, rel_tol=1e-9)
+    for day, close in zip(dates[3:], closes[3:]):
+        assert math.isclose(o.loc[day, "adj_close_price"], close, rel_tol=1e-9)
+    assert (adjusted.loc[adjusted["symbol"] == "ZZZ", "price_factor"] == 1.0).all()
+
+    split = adjustments[(adjustments["ex_date"] == pd.Timestamp("2024-10-18")) & (adjustments["kind"] == "split")]
+    assert len(split) == 1
+    assert split.iloc[0]["symbol"] == "NEW"
+    assert bool(split.iloc[0]["applied"])
+    assert not (adjustments["kind"] == "unexplained_gap").any()
+
+
 def test_calc_indicators_rescales_nse_52w_by_price_factor():
     # Reproduces the GOODLUCK scale-mismatch bug: calc_indicators receives already-adjusted
     # OHLCV (via indicator_input) plus price_factor, but the NSE-reported 52w high/low in

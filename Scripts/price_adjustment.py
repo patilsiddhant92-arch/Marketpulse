@@ -1310,6 +1310,7 @@ def adjust_prices(prices: pd.DataFrame, root: Path, extra_actions: pd.DataFrame 
         bc = _dedupe_bc_actions(pd.concat([bc, extra], ignore_index=True))
 
     changes_path = root / "Input" / "reference" / "symbolchange.csv"
+    changes = None
     if changes_path.exists():
         from symbol_changes import parse_symbol_changes
         changes = parse_symbol_changes(changes_path)
@@ -1321,11 +1322,35 @@ def adjust_prices(prices: pd.DataFrame, root: Path, extra_actions: pd.DataFrame 
 
     mcap = actions_from_mcap(mcap_frames)
 
-    gaps = gap_candidates(prices)
+    # Events are keyed on the *current* symbol (renamed above), but price rows may still carry
+    # an old one: the full build renames them via universe.apply_symbol_changes, the daily
+    # append does not, so a rename between full builds (e.g. HEG -> HEGAM) would otherwise
+    # leave the old rows unadjusted and the event matched against no prices at all. Gap
+    # detection, future-ex-date suppression and the cumulative factor therefore run on a
+    # canonical symbol per row (same rule: rows dated before change_date take the new symbol);
+    # the returned frame keeps the original symbol values, row order and index.
+    canonical = _canonical_price_symbols(prices, changes)
+    keyed = prices if canonical is None else prices.assign(symbol=canonical)
+
+    gaps = gap_candidates(keyed)
     overrides = load_overrides(root / "Input" / "reference" / "adjustments_override.yaml")
     adjustments = reconcile(bc, mcap, gaps, overrides)
-    adjustments = _suppress_future_ex_dates(adjustments, prices)
-    return apply_adjustments(prices, adjustments), adjustments
+    adjustments = _suppress_future_ex_dates(adjustments, keyed)
+    adjusted = apply_adjustments(keyed, adjustments)
+    if canonical is not None:
+        adjusted["symbol"] = prices["symbol"].array  # positional: same row order as `prices`
+    return adjusted, adjustments
+
+
+def _canonical_price_symbols(prices: pd.DataFrame, changes: pd.DataFrame | None) -> np.ndarray | None:
+    """Per-row current symbol for `prices` under the symbol-change history, or None when no
+    row's symbol changes (so callers can keep using `prices` as-is)."""
+    if changes is None or changes.empty or prices is None or prices.empty:
+        return None
+    renamed = _rename_symbols(prices[["symbol", "trade_date"]], changes, "trade_date")["symbol"].to_numpy(dtype=object)
+    if (renamed == prices["symbol"].to_numpy(dtype=object)).all():
+        return None
+    return renamed
 
 
 def summarize_adjustments(adjustments: pd.DataFrame) -> str:
