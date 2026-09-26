@@ -70,7 +70,9 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame | None, ledger: pd.DataF
         if prices is None or prices.empty:
             # calculate_outcome() compares close/high/low across dates (entry vs
             # forward window), so feed it adjusted prices when available --
-            # aliased back onto the raw column names it expects.
+            # aliased back onto the raw column names it expects. price_factor lets it
+            # put the ledger's trigger/invalidation prices (written on the scale of the
+            # signal's last_seen_date) onto the same adjusted scale.
             cols = ohlcv_columns(db)
             prices = db.execute(
                 f"""
@@ -79,7 +81,8 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame | None, ledger: pd.DataF
                        {cols['high_price']} AS high_price,
                        {cols['low_price']} AS low_price,
                        {cols['close_price']} AS close_price,
-                       {cols['volume']} AS volume
+                       {cols['volume']} AS volume,
+                       {cols['price_factor']} AS price_factor
                 FROM prices_daily WHERE symbol IN (SELECT unnest(?))
                 """,
                 [symbols],

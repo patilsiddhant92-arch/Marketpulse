@@ -70,3 +70,40 @@ def test_materialize_decision_tables_creates_candidate_snapshot(tmp_path):
     with duckdb.connect(str(path), read_only=True) as db:
         assert db.execute("SELECT count(*) FROM candidate_daily").fetchone()[0] == 1
         assert db.execute("SELECT count(*) FROM watchlist_candidates").fetchone()[0] == 1
+
+
+def test_write_outcomes_rescales_ledger_prices_after_a_later_split(tmp_path):
+    """signal_ledger prices are on the last_seen_date scale; a 1:2 split afterwards halves the
+    adjusted history. _write_outcomes must select price_factor so calculate_outcome rescales the
+    invalidation price instead of firing a false time_to_failure."""
+    import Scripts.materialize_decision_tables as mdt
+    from Scripts.migrations import run_migrations
+
+    path = tmp_path / "marketpulse.duckdb"
+    run_migrations(path)
+    days = pd.bdate_range("2026-08-03", periods=8)
+    raw_close = [100, 101, 102, 103, 52, 52.5, 53, 53.5]  # split ex on day 5
+    factor = [0.5] * 4 + [1.0] * 4
+    prices = pd.DataFrame({
+        "symbol": "AAA", "trade_date": days.date,
+        "open_price": raw_close, "high_price": [c + 1 for c in raw_close],
+        "low_price": [c - 1 for c in raw_close], "close_price": raw_close, "volume": 1000.0,
+        "price_factor": factor,
+    })
+    for col in ("open_price", "high_price", "low_price", "close_price"):
+        prices[f"adj_{col}"] = prices[col] * prices["price_factor"]
+    with duckdb.connect(str(path)) as db:
+        db.register("p", prices)
+        db.execute("CREATE TABLE prices_daily AS SELECT * FROM p")
+    ledger = pd.DataFrame([{
+        "signal_id": "sig1", "symbol": "AAA", "first_seen_date": days[0].date(),
+        "last_seen_date": days[1].date(), "trigger_price": 102.0, "invalidation_price": 95.0,
+    }])
+
+    mdt._write_outcomes(path, None, ledger)
+
+    with duckdb.connect(str(path), read_only=True) as db:
+        rows = db.execute(
+            "SELECT horizon_sessions, resolved, time_to_failure_sessions FROM signal_outcomes "
+            "WHERE signal_id = 'sig1' AND horizon_sessions = 5").fetchall()
+    assert rows == [(5, True, None)]
