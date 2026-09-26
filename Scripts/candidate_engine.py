@@ -9,11 +9,11 @@ import numpy as np
 import pandas as pd
 
 try:
-    from events import event_risk_for_date
+    from events import event_risk_for_date, prepare_event_sessions, prepare_events
     from decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
     from true_rs import BENCH_NIFTY50
 except ModuleNotFoundError:
-    from Scripts.events import event_risk_for_date
+    from Scripts.events import event_risk_for_date, prepare_event_sessions, prepare_events
     from Scripts.decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
     from Scripts.true_rs import BENCH_NIFTY50
 
@@ -208,6 +208,14 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
             nifty_3m_ret = _num(nifty_match.iloc[0], "return_63d_pct", 0.0)
 
     sessions = pd.to_datetime(indicators["trade_date"], errors="coerce").dropna().drop_duplicates().sort_values().tolist()
+    # Normalise events / the session calendar once instead of once per stock (the
+    # per-row full-table upper()/to_datetime was ~85% of scoring time). If preparation
+    # fails, pass the raw frame so each row fails and degrades exactly as before.
+    try:
+        prepared_events = prepare_events(events)
+    except (KeyError, ValueError, TypeError):
+        prepared_events = events
+    prepared_sessions = prepare_event_sessions(sessions)
     output = []
     for _, source in rows.iterrows():
         row = source.to_dict()
@@ -249,7 +257,7 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
         if _num(row, "atr_pct_primary", _num(row, "atr_pct", 0)) > 8:
             risk_penalty += 20
         geometry = calculate_risk_geometry(row)
-        event = _row_event(events, pd.Series({**row, "symbol": row.get("symbol")}), as_of, sessions)
+        event = _row_event(prepared_events, pd.Series({**row, "symbol": row.get("symbol")}), as_of, prepared_sessions)
         if event.get("event_risk") == "high":
             risk_penalty += 20
         elif event.get("event_risk") == "warn":
