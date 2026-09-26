@@ -7,6 +7,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -536,3 +537,91 @@ def reconcile(bc: pd.DataFrame, mcap: pd.DataFrame, gaps: pd.DataFrame, override
 
     out = pd.DataFrame(rows, columns=ADJUSTMENT_COLUMNS)
     return out.sort_values(["symbol", "ex_date"]).reset_index(drop=True)
+
+
+PRICE_COLS = ["open_price", "high_price", "low_price", "close_price", "last_price", "avg_price"]
+
+
+def _adjustment_factor_tables(adjustments: pd.DataFrame) -> dict:
+    """Per-symbol (sorted ex_dates, suffix products) built from applied, factor-bearing rows.
+
+    `suffix[i]` is the product of `factor` over events `i..n-1` (sorted by `ex_date`), with a
+    trailing 1.0 appended so `suffix[n]` (no remaining events) is the identity factor.
+    """
+    applied = adjustments[adjustments["applied"].astype(bool) & adjustments["factor"].notna()]
+    tables: dict = {}
+    for symbol, grp in applied.groupby("symbol"):
+        grp = grp.sort_values("ex_date")
+        ex_dates = grp["ex_date"].to_numpy(dtype="datetime64[ns]")
+        factors = grp["factor"].to_numpy(dtype="float64")
+        suffix = np.append(np.cumprod(factors[::-1])[::-1], 1.0)
+        tables[symbol] = (ex_dates, suffix)
+    return tables
+
+
+def cumulative_price_factor(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Series:
+    """Cumulative back-adjustment factor per price row: product of `factor` over applied events
+    of that row's symbol with `ex_date > trade_date`; 1.0 when no such events exist.
+
+    Vectorised: grouped once per symbol (via `DataFrame.groupby(...).indices`, O(n)), then a
+    `numpy.searchsorted` against that symbol's sorted ex_dates locates each row's suffix-product
+    lookup — no per-row Python loop over the (potentially multi-million-row) price table.
+    """
+    tables = _adjustment_factor_tables(adjustments)
+    result = np.ones(len(prices), dtype="float64")
+    if tables:
+        trade_dates = prices["trade_date"].to_numpy(dtype="datetime64[ns]")
+        positions_by_symbol = prices.groupby("symbol").indices
+        for symbol, (ex_dates, suffix) in tables.items():
+            positions = positions_by_symbol.get(symbol)
+            if positions is None or len(positions) == 0:
+                continue
+            positions = np.asarray(positions)
+            idx = np.searchsorted(ex_dates, trade_dates[positions], side="right")
+            result[positions] = suffix[idx]
+    return pd.Series(result, index=prices.index, name="price_factor")
+
+
+def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of `prices` with cumulative `price_factor`, `adj_<col>` for each of
+    `PRICE_COLS`, `adj_volume`, `adj_delivery_qty`, and `adj_prev_close`.
+
+    `adj_prev_close` is the previous row's `adj_close_price` within the same symbol (rows
+    ordered by `trade_date`); the first row per symbol falls back to `prev_close * price_factor`.
+    Any pre-existing `adj_*`/`price_factor` columns are dropped first so re-applying is
+    idempotent (same output columns, freshly recomputed from the raw OHLCV columns).
+    """
+    stale = [c for c in prices.columns if c.startswith("adj_") or c == "price_factor"]
+    df = prices.drop(columns=stale).copy()
+
+    factor = cumulative_price_factor(df, adjustments)
+    df["price_factor"] = factor.astype("float64")
+
+    for col in PRICE_COLS:
+        df[f"adj_{col}"] = (df[col].astype("float64") * df["price_factor"]).astype("float64")
+    df["adj_volume"] = (df["volume"].astype("float64") / df["price_factor"]).astype("float64")
+    df["adj_delivery_qty"] = (df["delivery_qty"].astype("float64") / df["price_factor"]).astype("float64")
+
+    ordered = df.sort_values(["symbol", "trade_date"], kind="stable")
+    prev_adj_close = ordered.groupby("symbol")["adj_close_price"].shift(1)
+    first_row_fill = ordered["prev_close"].astype("float64") * ordered["price_factor"]
+    adj_prev_close = prev_adj_close.fillna(first_row_fill)
+    df["adj_prev_close"] = adj_prev_close.reindex(df.index).astype("float64")
+
+    return df
+
+
+def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
+    """Copy of `adjusted` where each of `PRICE_COLS`, `prev_close`, `volume`, `delivery_qty` is
+    replaced by its `adj_` counterpart, and all `adj_*`/`price_factor` columns are dropped —
+    giving `calc_indicators` a frame with the usual (unprefixed) OHLCV column names."""
+    df = adjusted.copy()
+    swap = {**{col: f"adj_{col}" for col in PRICE_COLS},
+            "prev_close": "adj_prev_close",
+            "volume": "adj_volume",
+            "delivery_qty": "adj_delivery_qty"}
+    for target, source in swap.items():
+        df[target] = df[source].astype("float64")
+
+    drop_cols = [c for c in df.columns if c.startswith("adj_") or c == "price_factor"]
+    return df.drop(columns=drop_cols)
