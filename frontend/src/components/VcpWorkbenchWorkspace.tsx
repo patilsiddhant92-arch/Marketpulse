@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { VcpCandidate } from '../types';
+import { VcpCandidate, VcpScreenerResponse } from '../types';
 import { Layers, Calculator, ShieldCheck, Activity, Copy, Check, Star, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
 import { DASH, num } from '../utils/nullable';
@@ -16,6 +16,7 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
   onAddToBasket,
 }) => {
   const [candidates, setCandidates] = useState<VcpCandidate[]>([]);
+  const [asOf, setAsOf] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [riskBudget, setRiskBudget] = useState<number>(25000);
   const [copied, setCopied] = useState<boolean>(false);
@@ -30,9 +31,10 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
     setLoading(true);
     fetch('/api/screener/vcp')
       .then((res) => res.json())
-      .then((data) => {
+      .then((data: VcpScreenerResponse) => {
         const list = data.candidates || [];
         setCandidates(list);
+        setAsOf(data.as_of ?? null);
         if (list.length > 0 && !selectedSymbol) {
           onSelectSymbol(list[0].symbol);
         }
@@ -95,6 +97,9 @@ export const VcpWorkbenchWorkspace: React.FC<Props> = ({
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#98a7ba] font-mono">
             {candidates.length} VCP Setups Confirmed
+          </span>
+          <span className="text-[10px] text-[#98a7ba] font-mono">
+            As of {asOf ?? DASH}
           </span>
 
           <button

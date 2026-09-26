@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CandidateSetup } from '../types';
+import { CandidateSetup, CockpitResponse } from '../types';
 import { Copy, Check, Filter, ArrowUpDown, ArrowUp, ArrowDown, Star, Target, ExternalLink } from 'lucide-react';
 import { sortData, SortConfig } from '../utils/tableSort';
 import { InfoTooltip, renderRvolBadge } from '../utils/benchmarks';
@@ -18,6 +18,7 @@ export const CockpitWorkspace: React.FC<Props> = ({
 }) => {
   const [queue, setQueue] = useState<string>('primary');
   const [candidates, setCandidates] = useState<CandidateSetup[]>([]);
+  const [asOf, setAsOf] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
   const [sortConfig, setSortConfig] = useState<SortConfig<CandidateSetup>>({
@@ -37,9 +38,10 @@ export const CockpitWorkspace: React.FC<Props> = ({
     setLoading(true);
     fetch(`http://127.0.0.1:8000/api/candidates/cockpit?queue=${queue}`)
       .then((res) => res.json())
-      .then((data) => {
+      .then((data: CockpitResponse) => {
         const list = data.candidates || [];
         setCandidates(list);
+        setAsOf(data.as_of ?? null);
         if (list.length > 0 && !selectedSymbol) {
           onSelectSymbol(list[0].symbol);
         }
@@ -148,6 +150,9 @@ export const CockpitWorkspace: React.FC<Props> = ({
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#98a7ba] font-mono">
             {candidates.length} Qualified Setups
+          </span>
+          <span className="text-[10px] text-[#98a7ba] font-mono">
+            As of {asOf ?? DASH}
           </span>
 
           <button

@@ -85,6 +85,12 @@ export interface CandidateSetup {
   trigger_date?: string;
 }
 
+export interface CockpitResponse {
+  as_of: string | null;
+  total_count: number;
+  candidates: CandidateSetup[];
+}
+
 export interface SectorLeaderSummary {
   sector: string;
   stock_count: number;
