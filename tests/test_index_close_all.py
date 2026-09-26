@@ -73,6 +73,55 @@ def test_features_keep_extra_columns(tmp_path):
     assert {"volume", "pe", "ema_200", "return_20d_pct"} <= set(feats.columns)
 
 
+def test_parse_ind_close_all_without_optional_columns_still_parses_closes(tmp_path):
+    """The 5 EXTRA_INDEX_COLUMNS-sourced fields (Volume, Turnover, P/E, P/B, Div Yield)
+    are optional: a CSV missing them must still parse the core OHLC/close columns,
+    with the missing fields coming back as NaN instead of raising a KeyError."""
+    csv = (
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,25-09-2026,25000.00,25100.00,24900.00,25050.00,50.00,0.20\n"
+    )
+    p = tmp_path / "ind_close_all_25092026.csv"
+    p.write_text(csv)
+    df = parse_ind_close_all(p)
+    row = df.set_index("index_name").loc["Nifty 50"]
+    assert row["close_price"] == 25050.0
+    assert row["previous_close"] == 25000.0
+    assert pd.isna(row["volume"]) and pd.isna(row["pe"]) and pd.isna(row["pb"]) and pd.isna(row["div_yield"])
+
+
+def test_load_all_with_no_ind_close_all_files_falls_back_to_ma_and_stays_numeric(tmp_path, monkeypatch):
+    """When there are no ind_close_all_*.csv files at all, load_all_index_history must
+    start from the MA fallback frame directly (not concat it onto an empty, object-dtype
+    placeholder) and coerce trade_date/numeric columns, so build_index_features doesn't
+    blow up on a zero-close row (e.g. a Nifty50 Div Point row) treated as object dtype."""
+    import index_history
+
+    ma = pd.DataFrame({
+        "trade_date": ["2026-09-24", "2026-09-25"],
+        "index_name": ["Nifty50 Div Point", "Nifty50 Div Point"],
+        "previous_close": ["0.0", "0.0"],
+        "open_price": ["0.0", "0.0"],
+        "high_price": ["0.0", "0.0"],
+        "low_price": ["0.0", "0.0"],
+        "close_price": ["0.0", "0.0"],
+        "change_value": ["0.0", "0.0"],
+        "return_1d_pct": [None, None],
+    })
+    monkeypatch.setattr(index_history, "load_all_market_activity_history", lambda root: ma)
+
+    out = index_history.load_all_index_history(tmp_path)
+    assert pd.api.types.is_float_dtype(out["close_price"])
+    assert pd.api.types.is_datetime64_any_dtype(out["trade_date"])
+
+    from index_history import build_index_features
+
+    feats = build_index_features(out)
+    assert len(feats) == 2
+    assert pd.api.types.is_float_dtype(feats["close_price"])
+
+
 def test_load_all_prefers_close_all_and_fills_from_ma(tmp_path, monkeypatch):
     daily = tmp_path / "Input" / "daily"
     daily.mkdir(parents=True)

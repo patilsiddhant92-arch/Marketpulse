@@ -8,7 +8,7 @@ import pandas as pd
 
 def parse_symbol_changes(path: Path) -> pd.DataFrame:
     raw = pd.read_csv(path, header=None, dtype=str, names=["company", "old_symbol", "new_symbol", "change_date"],
-                      skipinitialspace=True, on_bad_lines="skip")
+                      skipinitialspace=True, on_bad_lines="skip", encoding_errors="replace")
     raw["old_symbol"] = raw["old_symbol"].astype(str).str.strip().str.upper()
     raw["new_symbol"] = raw["new_symbol"].astype(str).str.strip().str.upper()
     raw["change_date"] = pd.to_datetime(raw["change_date"].astype(str).str.strip(), format="%d-%b-%Y", errors="coerce")

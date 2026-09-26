@@ -18,13 +18,13 @@ echo.
 set "RC=%ERRORLEVEL%"
 if "%RC%"=="2" (
   echo.
-  echo Some files failed to download (network/NSE throttling). Run this file again to retry only the missing ones.
+  echo Some files failed to download - network or NSE throttling. Run this file again to retry only the missing ones.
   pause
   exit /b 2
 )
 if not "%RC%"=="0" (
   echo.
-  echo Backfill failed (exit code %RC%). Read the message above.
+  echo Backfill failed - exit code %RC%. Read the message above.
   pause
   exit /b %RC%
 )

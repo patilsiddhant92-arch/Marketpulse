@@ -21,9 +21,15 @@ def load_manifest(path: Path) -> dict[tuple[str, str], dict]:
     if not path.exists():
         return latest
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
+        if not line.strip():
+            continue
+        try:
             rec = json.loads(line)
-            latest[(rec["date"], rec["kind"])] = rec
+        except json.JSONDecodeError:
+            # Truncated/partial last line (e.g. interrupted mid-write): skip it rather
+            # than fail the whole load; the entry will simply be re-fetched.
+            continue
+        latest[(rec["date"], rec["kind"])] = rec
     return latest
 
 
@@ -35,12 +41,22 @@ def _days(start: date, end: date, skip_weekends: bool):
         d += timedelta(days=1)
 
 
+def _is_final_not_published(day: date, today: date) -> bool:
+    """A 404 is final (never retried) only once NSE would certainly have published by now:
+    the day is a weekend, or it is at least 3 calendar days in the past. A 404 for a recent
+    weekday is treated as still-pending (data not yet archived) and retried next run."""
+    return day.weekday() >= 5 or (today - day).days >= 3
+
+
 def run_backfill(start: date, end: date, kinds: list[str], *, session, out_dir: Path,
-                 pause: float = 1.2, sleep=time.sleep, skip_weekends: bool = False) -> dict[str, int]:
+                 pause: float = 1.2, sleep=time.sleep, skip_weekends: bool = False,
+                 max_consecutive_errors: int = 25, today: date | None = None) -> dict[str, int]:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "manifest.jsonl"
     done = load_manifest(manifest_path)
-    counts = {"ok": 0, "not_published": 0, "error": 0, "skipped": 0}
+    today = today or date.today()
+    counts = {"ok": 0, "not_published": 0, "pending": 0, "error": 0, "skipped": 0, "aborted": 0}
+    consecutive_errors = 0
     with manifest_path.open("a", encoding="utf-8") as log:
         for day in _days(start, end, skip_weekends):
             for kind in kinds:
@@ -49,7 +65,10 @@ def run_backfill(start: date, end: date, kinds: list[str], *, session, out_dir: 
                     counts["skipped"] += 1
                     continue
                 result = fetch(session, KINDS[kind](day), sleep=sleep)
-                rec = {"date": day.isoformat(), "kind": kind, "status": result.status, "bytes": 0,
+                status = result.status
+                if status == "not_published" and not _is_final_not_published(day, today):
+                    status = "pending"
+                rec = {"date": day.isoformat(), "kind": kind, "status": status, "bytes": 0,
                        "sha256": "", "detail": result.detail, "at": datetime.now().isoformat(timespec="seconds")}
                 if result.status == "ok":
                     dest = out_dir / kind / archive_filename(kind, day)
@@ -59,7 +78,14 @@ def run_backfill(start: date, end: date, kinds: list[str], *, session, out_dir: 
                     rec["sha256"] = hashlib.sha256(result.data).hexdigest()
                 log.write(json.dumps(rec) + "\n")
                 log.flush()
-                counts[result.status] += 1
+                counts[status] += 1
+                if status == "error":
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        counts["aborted"] = 1
+                        return counts
+                else:
+                    consecutive_errors = 0
                 sleep(pause)
     return counts
 
@@ -77,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                           [k.strip() for k in args.kinds.split(",") if k.strip()],
                           session=make_session(), out_dir=BACKFILL_DIR, skip_weekends=args.skip_weekends)
     print(json.dumps(counts))
-    return 0 if counts["error"] == 0 else 2
+    return 0 if counts["error"] == 0 and not counts.get("aborted") else 2
 
 
 if __name__ == "__main__":

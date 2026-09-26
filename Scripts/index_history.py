@@ -6,6 +6,7 @@ import csv
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -181,9 +182,14 @@ EXTRA_INDEX_COLUMNS = ["volume", "turnover_cr", "pe", "pb", "div_yield"]
 
 
 def parse_ind_close_all(path: Path) -> pd.DataFrame:
-    raw = pd.read_csv(path, dtype=str)
+    raw = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
     raw.columns = [str(c).strip() for c in raw.columns]
-    num = lambda col: pd.to_numeric(raw[col].astype(str).str.replace(",", "").str.strip().replace({"-": None}), errors="coerce")
+
+    def num(col):
+        if col not in raw.columns:
+            return pd.Series(np.nan, index=raw.index, dtype="float64")
+        return pd.to_numeric(raw[col].astype(str).str.replace(",", "").str.strip().replace({"-": None}), errors="coerce")
+
     out = pd.DataFrame({
         "trade_date": pd.to_datetime(raw["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce"),
         "index_name": raw["Index Name"].astype(str).str.strip(),
@@ -201,6 +207,8 @@ def parse_ind_close_all(path: Path) -> pd.DataFrame:
     })
     out["previous_close"] = out["close_price"] - out["change_value"]
     out = out.dropna(subset=["trade_date", "close_price"])
+    if out.empty:
+        print(f"WARNING: {Path(path).name} yielded 0 rows")
     return out[INDEX_COLUMNS + EXTRA_INDEX_COLUMNS]
 
 
@@ -223,15 +231,27 @@ def load_all_index_history(root: Path, name_map_path: Path | None = None) -> pd.
                     frames.append(parse_ind_close_all(p))
                 except Exception as exc:
                     print(f"Skipped {p.name}: {exc}")
-    close_all = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=INDEX_COLUMNS + EXTRA_INDEX_COLUMNS)
-    name_map = load_index_name_map(name_map_path)
-    close_all["index_name"] = close_all["index_name"].map(lambda n: name_map.get(n, n))
-    close_all = close_all.drop_duplicates(["trade_date", "index_name"], keep="last")
     ma = load_all_market_activity_history(root)
-    if ma is not None and not ma.empty:
-        ma = ma.copy()
-        ma["trade_date"] = pd.to_datetime(ma["trade_date"]).dt.normalize()
-        have = set(zip(close_all["trade_date"], close_all["index_name"]))
-        ma = ma[[(d, n) not in have for d, n in zip(ma["trade_date"], ma["index_name"])]]
-        close_all = pd.concat([close_all, ma], ignore_index=True)
+    if frames:
+        close_all = pd.concat(frames, ignore_index=True)
+        name_map = load_index_name_map(name_map_path)
+        close_all["index_name"] = close_all["index_name"].map(lambda n: name_map.get(n, n))
+        close_all = close_all.drop_duplicates(["trade_date", "index_name"], keep="last")
+        if ma is not None and not ma.empty:
+            ma = ma.copy()
+            ma["trade_date"] = pd.to_datetime(ma["trade_date"]).dt.normalize()
+            have = set(zip(close_all["trade_date"], close_all["index_name"]))
+            ma = ma[[(d, n) not in have for d, n in zip(ma["trade_date"], ma["index_name"])]]
+            close_all = pd.concat([close_all, ma], ignore_index=True)
+    else:
+        # No ind_close_all archive files at all: start straight from the MA fallback
+        # frame instead of concatenating it onto an empty, object-dtype placeholder
+        # (that promoted every numeric column to object and broke downstream math).
+        close_all = ma if ma is not None and not ma.empty else pd.DataFrame(columns=INDEX_COLUMNS)
+
+    close_all["trade_date"] = pd.to_datetime(close_all["trade_date"], errors="coerce").dt.normalize()
+    numeric_columns = [c for c in INDEX_COLUMNS if c not in ("trade_date", "index_name")] + EXTRA_INDEX_COLUMNS
+    for col in numeric_columns:
+        if col in close_all.columns:
+            close_all[col] = pd.to_numeric(close_all[col], errors="coerce")
     return close_all.sort_values(["trade_date", "index_name"]).reset_index(drop=True)

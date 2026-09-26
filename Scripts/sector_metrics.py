@@ -7,6 +7,11 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+try:
+    from true_rs import BENCH_NIFTY50
+except ModuleNotFoundError:
+    from Scripts.true_rs import BENCH_NIFTY50
+
 
 LEVEL_COLUMNS = {
     "Broad Sector": "broad_sector",
@@ -57,8 +62,8 @@ def _benchmark_returns(index_daily: pd.DataFrame, dates: Iterable[pd.Timestamp])
         return pd.DataFrame(columns=["trade_date", "bench_21d", "bench_63d"])
     frame = index_daily.copy()
     frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.normalize()
-    names = frame.get("index_name", pd.Series("", index=frame.index)).astype(str).str.upper()
-    nifty = frame[names.str.contains("NIFTY 50", na=False)].copy()
+    names = frame.get("index_name", pd.Series("", index=frame.index)).astype(str).str.strip().str.upper()
+    nifty = frame[names == BENCH_NIFTY50.upper()].copy()
     if nifty.empty:
         return pd.DataFrame(columns=["trade_date", "bench_21d", "bench_63d"])
     for days, column in ((21, "bench_21d"), (63, "bench_63d")):

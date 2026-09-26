@@ -104,6 +104,7 @@ def test_main_happy_path_calls_collaborators_in_order(tmp_path, monkeypatch):
     assert (tmp_path / "last_run_summary.json").exists()
     summary = json.loads((tmp_path / "last_run_summary.json").read_text())
     assert "by_kind_status" in summary
+    assert summary["name_map"] == "ok"
 
 
 def test_main_returns_2_when_backfill_has_errors(tmp_path, monkeypatch):
@@ -142,3 +143,29 @@ def test_main_skip_flags_skip_reference_and_name_map(tmp_path, monkeypatch):
 
     assert rc == 0
     assert calls == ["make_session", "run_backfill"]
+    summary = json.loads((tmp_path / "last_run_summary.json").read_text())
+    assert summary["name_map"] == "skipped"
+
+
+def test_main_records_name_map_failure_without_aborting(tmp_path, monkeypatch):
+    """build_index_name_map.main() raising must not blow up the whole run; the failure
+    is recorded in the summary and the rest of the launcher still completes."""
+    monkeypatch.setattr(run_archive_backfill, "make_session", lambda: "SESSION")
+    monkeypatch.setattr(run_archive_backfill, "refresh_reference_files", lambda session, ref_dir: {})
+    monkeypatch.setattr(
+        run_archive_backfill,
+        "run_backfill",
+        lambda start, end, kinds, *, session, out_dir, **kw: {"ok": 1, "not_published": 0, "error": 0, "skipped": 0},
+    )
+
+    def raise_name_map():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(build_index_name_map, "main", raise_name_map)
+    monkeypatch.setattr(run_archive_backfill, "BACKFILL_DIR", tmp_path)
+
+    rc = main(["--from", "2026-09-24", "--to", "2026-09-27"])
+
+    assert rc == 0
+    summary = json.loads((tmp_path / "last_run_summary.json").read_text())
+    assert summary["name_map"] == "failed: boom"

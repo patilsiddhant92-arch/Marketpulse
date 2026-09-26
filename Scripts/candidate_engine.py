@@ -11,9 +11,11 @@ import pandas as pd
 try:
     from events import event_risk_for_date
     from decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
+    from true_rs import BENCH_NIFTY50
 except ModuleNotFoundError:
     from Scripts.events import event_risk_for_date
     from Scripts.decision_policy import DecisionPolicy, EligibilityResult, evaluate_candidate_eligibility
+    from Scripts.true_rs import BENCH_NIFTY50
 
 
 SCORE_VERSION = "focused-v2"
@@ -200,7 +202,8 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
     # Benchmark return (Nifty 50)
     nifty_3m_ret = 0.0
     if not index_today.empty:
-        nifty_match = index_today[index_today["index_name"].astype(str).str.upper().str.contains("NIFTY 50")]
+        nifty_names = index_today["index_name"].astype(str).str.strip().str.upper()
+        nifty_match = index_today[nifty_names == BENCH_NIFTY50.upper()]
         if not nifty_match.empty and "return_63d_pct" in nifty_match.columns:
             nifty_3m_ret = _num(nifty_match.iloc[0], "return_63d_pct", 0.0)
 

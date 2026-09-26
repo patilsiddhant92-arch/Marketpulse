@@ -94,15 +94,22 @@ def main(argv: list[str] | None = None) -> int:
     counts = run_backfill(start, end, kinds, session=session, out_dir=BACKFILL_DIR)
     print(json.dumps({"backfill": counts}))
 
+    name_map_status = "skipped"
     if not args.skip_name_map:
-        rc = build_index_name_map.main()
-        if rc:
-            print(f"build_index_name_map exited with code {rc} (non-fatal)")
+        try:
+            rc = build_index_name_map.main()
+            name_map_status = "ok" if not rc else f"failed: exit code {rc}"
+            if rc:
+                print(f"build_index_name_map exited with code {rc} (non-fatal)")
+        except Exception as exc:  # noqa: BLE001 - recorded, not fatal
+            name_map_status = f"failed: {exc}"
+            print(f"build_index_name_map raised {exc} (non-fatal)")
 
     holidays = load_holidays(ref_dir / "nse_holidays.json")
     bhav_dirs = [ARCHIVE_DIR, BACKFILL_DIR / "bhav", DAILY_DIR]
     manifest = load_manifest(BACKFILL_DIR / "manifest.jsonl")
     summary = summarize(manifest, holidays, start, end, bhav_dirs)
+    summary["name_map"] = name_map_status
     print(json.dumps(summary, indent=1))
     BACKFILL_DIR.mkdir(parents=True, exist_ok=True)
     (BACKFILL_DIR / "last_run_summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")

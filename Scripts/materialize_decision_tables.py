@@ -16,7 +16,7 @@ if str(SCRIPTS) not in sys.path:
 from candidate_engine import score_candidates
 
 from decision_policy import DecisionPolicy
-from index_history import build_index_features, load_all_index_history, parse_market_activity_history
+from index_history import INDEX_COLUMNS, build_index_features, load_all_index_history
 
 from migrations import run_migrations
 from outcomes import calculate_outcome
@@ -109,8 +109,8 @@ def materialize_decision_tables(db_path: Path, as_of: date | None = None, policy
         index_daily = load_all_index_history(root)
         if not index_daily.empty:
             with duckdb.connect(str(db_path)) as db:
-                db.register("index_rows", index_daily)
-                db.execute("INSERT INTO index_daily SELECT * FROM index_rows ON CONFLICT DO NOTHING")
+                db.register("index_rows", index_daily[INDEX_COLUMNS])
+                db.execute("INSERT INTO index_daily BY NAME SELECT * FROM index_rows ON CONFLICT DO NOTHING")
     index_features = build_index_features(index_daily)
 
     events = _load(db_path, "security_events")

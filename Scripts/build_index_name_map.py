@@ -17,6 +17,8 @@ def _norm_name(name: str) -> str:
 
 
 def derive_name_map(close_all: pd.DataFrame, ma: pd.DataFrame, min_overlap: int = 5, tol: float = 0.01) -> pd.DataFrame:
+    close_all = close_all[close_all["close_price"] != 0]
+    ma = ma[ma["close_price"] != 0]
     a = close_all[["trade_date", "index_name", "close_price"]].rename(columns={"index_name": "source_name", "close_price": "c1"})
     b = ma[["trade_date", "index_name", "close_price"]].rename(columns={"index_name": "canonical_name", "close_price": "c2"})
     j = a.merge(b, on="trade_date")
