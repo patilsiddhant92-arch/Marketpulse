@@ -56,6 +56,13 @@ def _classify_names(names: pd.Series) -> pd.Series:
     return names.map(uniq).fillna("OTHER")
 
 
+def _norm_types(values) -> str:
+    """'Bulk', 'Block+Bulk', ... -> sorted unique '+'-joined deal types."""
+    if isinstance(values, str):
+        values = [values]
+    return "+".join(sorted({t for v in values for t in str(v).split("+") if t and t != "nan"}))
+
+
 def normalise_deals(deals: pd.DataFrame | None) -> pd.DataFrame:
     """Clean + collapse deal prints. Columns: trade_date, symbol, client, side, quantity, price,
     value_cr, clientele, deal_types."""
@@ -82,10 +89,13 @@ def normalise_deals(deals: pd.DataFrame | None) -> pd.DataFrame:
     d["clientele"] = cl.where(cl.isin(CLASSES), "OTHER").astype(str)
     d["deal_type"] = d.get("deal_type", pd.Series("", index=d.index)).astype("string").fillna("").astype(str)
     key = ["trade_date", "symbol", "client", "side", "quantity", "price"]
-    types = d.groupby(key, sort=False)["deal_type"].agg(lambda s: "+".join(sorted({t for x in s for t in str(x).split("+") if t})))
-    first = d.drop_duplicates(key, keep="first").set_index(key)
-    first["deal_types"] = types
-    out = first.reset_index()
+    d["deal_types"] = d["deal_type"].map(_norm_types)
+    dup = d.duplicated(key, keep=False).to_numpy()
+    if dup.any():  # only the (few) prints reported in more than one file need merging
+        merged = d[dup].groupby(key, sort=False)["deal_type"].agg(_norm_types).rename("_merged").reset_index()
+        d = d.merge(merged, on=key, how="left")
+        d["deal_types"] = d["_merged"].where(d["_merged"].notna(), d["deal_types"])
+    out = d.drop_duplicates(key, keep="first").reset_index(drop=True)
     out["value_cr"] = out["quantity"] * out["price"] / 1e7
     return out[cols].reset_index(drop=True)
 
@@ -163,8 +173,8 @@ def build_deal_session_net(
         n_prints=("side", "size"), buy_qty=("buy_qty", "sum"), sell_qty=("sell_qty", "sum"),
         buy_value_cr=("buy_val", "sum"), sell_value_cr=("sell_val", "sum"),
         gross_qty=("quantity", "sum"), gross_qty_px=("gross_qty_px", "sum"),
-        deal_types=("deal_types", lambda x: "+".join(sorted({t for v in x for t in str(v).split("+") if t}))),
     )
+    s["deal_types"] = p.groupby(keys)["deal_types"].agg(_norm_types)
     p["net_val"] = p["buy_val"] - p["sell_val"]
     by_class = p.pivot_table(index=keys, columns="clientele", values="net_val", aggfunc="sum", fill_value=0.0)
     for c in CLASSES:

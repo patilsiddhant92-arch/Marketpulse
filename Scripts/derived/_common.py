@@ -35,13 +35,15 @@ def normalise_dates(s: pd.Series) -> pd.Series:
 
 
 def clean_symbols(frame: pd.DataFrame, col: str = "symbol") -> pd.DataFrame:
-    """Upper-case/strip symbols and drop aggregate rows such as TOTAL."""
+    """Upper-case/strip symbols and drop aggregate rows such as TOTAL (cleans uniques only)."""
     if frame is None or frame.empty or col not in frame.columns:
         return frame
-    sym = frame[col].astype("string").str.strip().str.upper()
-    keep = (sym.notna() & ~sym.isin(NON_SECURITY_SYMBOLS)).to_numpy(dtype=bool)
+    codes, uniques = pd.factorize(frame[col], use_na_sentinel=True)
+    clean = pd.Index(uniques).astype(str).str.strip().str.upper()
+    bad = clean.isin(NON_SECURITY_SYMBOLS)
+    keep = (codes >= 0) & ~np.asarray(bad)[np.where(codes >= 0, codes, 0)]
     out = frame.loc[keep].copy()
-    out[col] = sym[keep].astype(str).to_numpy()
+    out[col] = np.asarray(clean, dtype=object)[codes[keep]]
     return out
 
 
