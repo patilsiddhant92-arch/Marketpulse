@@ -1,12 +1,14 @@
 import { GroupHealthChip, groupRowContext } from '../context/GroupContext';
 import { useGroupNav } from '../today/parts';
 import { X } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { isUnavailable } from '../api/client';
 import { useApiQuery } from '../api/query';
 import type { DeskWatchRow, DiffRow } from '../api/types';
+import { copyText } from '../lib/clipboard';
 import { cn } from '../lib/cn';
 import { fmtDateShort, fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
+import { formatTradingViewList } from '../lib/tradingview';
 import { useShell } from '../shell/ShellContext';
 import { Chip } from '../ui/Chip';
 import { EmptyState } from '../ui/EmptyState';
@@ -153,6 +155,14 @@ export function WatchlistPanel({ className }: { className?: string }) {
   const q = useApiQuery('desk/watchlist', { query: { symbols, limit: 1000 } }, { enabled: shell.watchlist.length > 0 });
   const rows = q.data?.rows ?? [];
   const inSetup = rows.filter((r) => (r.queues?.length ?? 0) > 0).length;
+  const [copied, setCopied] = useState<string | null>(null);
+  /** The old staging basket's "Copy for TradingView" / "CSV" buttons. */
+  const copy = async (kind: 'tv' | 'csv') => {
+    const text = kind === 'tv' ? formatTradingViewList([{ title: 'Watchlist', symbols: shell.watchlist }]).text : shell.watchlist.join(', ');
+    const ok = await copyText(text);
+    setCopied(ok ? (kind === 'tv' ? 'TV copied' : 'CSV copied') : 'Copy failed');
+    window.setTimeout(() => setCopied(null), 2000);
+  };
   return (
     <Panel
       title="Watchlist"
@@ -164,9 +174,18 @@ export function WatchlistPanel({ className }: { className?: string }) {
       }
       actions={
         shell.watchlist.length > 0 ? (
-          <button type="button" onClick={() => shell.openCharts(shell.watchlist)} className="rounded px-1.5 py-0.5 text-2xs text-info hover:bg-info/10">
-            Charts
-          </button>
+          <span className="inline-flex items-center gap-0.5 text-2xs">
+            {copied && <span role="status" className="text-up">{copied}</span>}
+            <button type="button" onClick={() => void copy('tv')} title="Copy the watchlist for TradingView (###Watchlist,NSE:…)" className="rounded px-1.5 py-0.5 text-info hover:bg-info/10">
+              TV
+            </button>
+            <button type="button" onClick={() => void copy('csv')} title="Copy the symbols comma-separated" className="rounded px-1.5 py-0.5 text-info hover:bg-info/10">
+              CSV
+            </button>
+            <button type="button" onClick={() => shell.openCharts(shell.watchlist)} className="rounded px-1.5 py-0.5 text-info hover:bg-info/10">
+              Charts
+            </button>
+          </span>
         ) : undefined
       }
       className={className}
