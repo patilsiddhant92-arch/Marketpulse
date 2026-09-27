@@ -299,6 +299,13 @@ def deals_session(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(1000.
     return envelope(_call(deals.session, as_of, min_mcap_cr), offset, limit)
 
 
+@router.get("/deals/houses", response_model=m.Envelope[m.HouseRow],
+            description="Every deal client with its print summary and next-open track record.")
+def deals_houses(as_of: Optional[date] = AsOf, session_only: bool = False,
+                 offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(deals.houses, as_of, session_only), offset, limit)
+
+
 @router.get("/deals/house/{house_id}", response_model=m.Envelope[m.HousePrintRow])
 def deals_house(house_id: str = Path(..., max_length=200), as_of: Optional[date] = AsOf,
                 offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
@@ -306,8 +313,8 @@ def deals_house(house_id: str = Path(..., max_length=200), as_of: Optional[date]
 
 
 @router.get("/deals/followthrough", response_model=m.Envelope[m.FollowThroughRow])
-def deals_followthrough(as_of: Optional[date] = AsOf) -> dict[str, Any]:
-    return envelope(_call(deals.followthrough, as_of))
+def deals_followthrough(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(1000.0, ge=0)) -> dict[str, Any]:
+    return envelope(_call(deals.followthrough, as_of, min_mcap_cr))
 
 
 # --------------------------------------------------------------------------

@@ -156,8 +156,11 @@ def collapsed_prints_sql(where: str) -> str:
     """
 
 
-def deal_net_recent(con: Any, symbols: Iterable[str], as_of: date, sessions: int = 10) -> dict[str, float | None]:
-    """Net (buy − sell) ₹Cr of collapsed deal prints over the last `sessions` sessions <= as_of."""
+def deal_net_recent(con: Any, symbols: Iterable[str], as_of: date, sessions: int = 10,
+                    exclude_prop: bool = False) -> dict[str, float | None]:
+    """Net (buy − sell) ₹Cr of collapsed deal prints over the last `sessions` sessions <= as_of.
+
+    `exclude_prop` drops PROP (proprietary / churn) clients, as group_daily and deal_session_net do."""
     ph, syms = _in_list(symbols)
     if not syms or not db.table_exists(con, "deals"):
         return {}
@@ -170,7 +173,7 @@ def deal_net_recent(con: Any, symbols: Iterable[str], as_of: date, sessions: int
         f"""
         WITH p AS ({collapsed_prints_sql("AND d.symbol IN (" + ph + ") AND d.trade_date BETWEEN ? AND ?")})
         SELECT symbol, sum(CASE WHEN side LIKE '%BUY%' THEN value_cr WHEN side LIKE '%SELL%' THEN -value_cr END) AS net_cr
-        FROM p GROUP BY symbol
+        FROM p {"WHERE coalesce(upper(clientele), '') <> 'PROP' AND NOT is_prop" if exclude_prop else ""} GROUP BY symbol
         """,
         [*syms, start, as_of],
     )

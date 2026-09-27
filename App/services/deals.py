@@ -1,16 +1,27 @@
-"""Deals: session net, house pages, follow-through (spec §7.5).
+"""Deals: session net, houses, follow-through (spec §7.5).
 
-`deal_session_net` (data layer §4.5) is the source of truth for per-symbol
-session nets and event types. Until it exists, `session` aggregates the raw
-`deals` table with duplicate bulk ∩ block prints collapsed (spec §4.4) —
-status "partial", event_type NULL. House pages always read collapsed prints.
-Forward returns are next-open entries with exits bounded to `as_of`
-(no look-ahead in time travel).
+`deal_session_net` (data layer §4.5, Scripts/derived/deal_session_net.py) is the source
+of truth for per-symbol session nets and event types. Until it exists the same frame is
+**computed live** from the raw `deals` table with the builder's rules (status "partial"):
+
+  * prints collapsed on (trade_date, symbol, client, side, quantity, price) — a print in
+    both the bulk and block files counts once (spec §4.4)
+  * PROP clients are excluded from the net used for events, ADV ratio and persistence
+  * event type, first match wins: transfer_interse · placement · churn · accumulate ·
+    fresh · distribute (rules in EVENT_RULES)
+  * ADV = 20-day average traded value as of the previous session (deal day excluded)
+
+Forward returns: entry at the next session's open after the deal (deals are disclosed
+after the close), exits at the close T+5 / T+20; never past `as_of` (time travel safe).
+Excess = stock return − NIFTY MIDSML 400 over the same entry/exit sessions.
 """
 from __future__ import annotations
 
 from datetime import date
 from typing import Any
+
+import numpy as np
+import pandas as pd
 
 from App.services import db, universe
 from App.services.common import STATUS_PARTIAL, Result, no_session, unavailable
@@ -18,64 +29,243 @@ from App.services.common import STATUS_PARTIAL, Result, no_session, unavailable
 DEAL_METRICS = ["deal_net_cr", "deal_vs_adv", "buying_houses", "persistence_days", "deal_vwap_vs_cmp",
                 "deal_price_vs_close", "deal_event_type"]
 MIN_HOUSE_BETS = 5
+MIN_FOLLOW_N = 30
+PERSISTENCE_SESSIONS = 10
+MIDSML400 = "NIFTY MIDSML 400"
 
+TRANSFER_QTY_TOL = 0.01
+TRANSFER_PRICE_TOL = 0.0025
+MATCH_SHARE_MIN = 0.5
+CHURN_SHARE_MIN = 0.5
+INSTITUTIONAL = ("FII", "DII")
+
+EVENT_RULES: list[dict[str, str]] = [
+    {"event_type": "transfer_interse",
+     "rule": "Matched BUY/SELL prints between different clients (qty within ±1%, price within ±0.25% — print by print, "
+             "or in aggregate when one seller is split across several buyers) cover ≥ 50% of the session's buy value, "
+             "and the matched buyers are not all FII/DII."},
+    {"event_type": "placement",
+     "rule": "Same match, but every matched buyer is FII or DII (institutions absorbing a promoter/corporate block)."},
+    {"event_type": "churn",
+     "rule": "Same-client round trips or PROP prints are ≥ 50% of gross deal value, or net value excluding PROP is zero."},
+    {"event_type": "accumulate",
+     "rule": "Net value excluding PROP > 0 and another net-buy session in the prior 9 market sessions."},
+    {"event_type": "fresh", "rule": "Net value excluding PROP > 0 with no net-buy session in the prior 9 market sessions."},
+    {"event_type": "distribute", "rule": "Net value excluding PROP < 0."},
+]
+RULE_TEXT = {r["event_type"]: r["rule"] for r in EVENT_RULES}
+
+# Frame column -> deal_session_net candidates (SCHEMA.md names first).
 _DSN_FIELDS: dict[str, tuple[str, ...]] = {
-    "buy_cr": ("buy_cr", "buy_value_cr"),
-    "sell_cr": ("sell_cr", "sell_value_cr"),
-    "net_cr": ("net_cr", "net_value_cr"),
+    "prints": ("n_prints", "prints"),
+    "deal_types": ("deal_types",),
+    "buy_cr": ("buy_value_cr", "buy_cr"),
+    "sell_cr": ("sell_value_cr", "sell_cr"),
+    "net_cr": ("net_value_cr", "net_cr"),
+    "net_ex_prop_cr": ("net_value_cr_ex_prop", "net_ex_prop_cr"),
+    "fii_net_cr": ("net_value_cr_fii", "fii_net_cr", "fpi_net_cr"),
+    "dii_net_cr": ("net_value_cr_dii", "dii_net_cr"),
+    "prop_net_cr": ("net_value_cr_prop", "prop_net_cr"),
+    "corporate_net_cr": ("net_value_cr_corporate", "corporate_net_cr"),
     "buying_houses": ("buying_houses", "unique_buying_houses", "n_buy_houses"),
+    "selling_houses": ("selling_houses",),
+    "buy_vwap": ("buy_vwap",),
     "vwap": ("vwap", "deal_vwap"),
-    "vs_adv": ("vs_adv", "net_vs_adv"),
     "deal_price_vs_close_pct": ("deal_price_vs_close_pct", "deal_price_vs_close"),
+    "adv_cr": ("adv_cr",),
+    "vs_adv": ("net_vs_adv", "vs_adv"),
+    "deal_qty_pct_volume": ("deal_qty_pct_volume",),
+    "round_trip_value_cr": ("round_trip_value_cr",),
+    "prop_value_cr": ("prop_value_cr",),
+    "matched_value_cr": ("matched_value_cr",),
+    "persistence_days": ("net_buy_sessions_10", "persistence_days"),
     "event_type": ("event_type",),
-    "persistence_days": ("persistence_days",),
-    "fii_net_cr": ("fii_net_cr", "fpi_net_cr"),
-    "dii_net_cr": ("dii_net_cr",),
-    "prop_net_cr": ("prop_net_cr",),
+    "event_rule": ("event_rule",),
 }
 
 
-def _latest_deal_session(con: Any, as_of: date) -> date | None:
-    return db.to_date(con.execute("SELECT max(trade_date) FROM deals WHERE trade_date <= ?", [as_of]).fetchone()[0])
+# --------------------------------------------------------------------------
+# Prints and the per symbol-session frame
+# --------------------------------------------------------------------------
+def _prints(con: Any, as_of: date, where: str = "", params: list[Any] | None = None) -> pd.DataFrame:
+    p = con.execute(
+        f"SELECT * FROM ({universe.collapsed_prints_sql('AND d.trade_date <= ? ' + where)}) q "
+        "WHERE side IN ('BUY', 'SELL') AND quantity > 0 AND price > 0",
+        [as_of, *(params or [])]).df()
+    if p.empty:
+        return p
+    p["trade_date"] = pd.to_datetime(p["trade_date"])
+    cl = p["clientele"].astype("string").str.strip().str.upper().fillna("OTHER")
+    prop = p["is_prop"].fillna(False).astype(bool) | (cl == "PROP")
+    p["clientele"] = cl.where(~prop, "PROP").astype(str)
+    p["value_cr"] = pd.to_numeric(p["value_cr"], errors="coerce")
+    p["quantity"] = pd.to_numeric(p["quantity"], errors="coerce").astype(float)
+    p["price"] = pd.to_numeric(p["price"], errors="coerce").astype(float)
+    return p
 
 
-def _from_session_net(con: Any, as_of: date, min_mcap: float) -> tuple[list[dict[str, Any]], date | None]:
+def _matched(p: pd.DataFrame) -> pd.DataFrame:
+    buys = p[p["side"] == "BUY"].reset_index(names="buy_id")
+    sells = p[p["side"] == "SELL"][["trade_date", "symbol", "client", "quantity", "price"]]
+    empty = pd.DataFrame(columns=["trade_date", "symbol", "matched_value_cr", "matched_inst"])
+    if buys.empty or sells.empty:
+        return empty
+    m = buys.merge(sells, on=["trade_date", "symbol"], suffixes=("", "_s"))
+    ok = ((m["client"] != m["client_s"])
+          & ((m["quantity"] - m["quantity_s"]).abs() <= TRANSFER_QTY_TOL * m[["quantity", "quantity_s"]].max(axis=1))
+          & ((m["price"] - m["price_s"]).abs() <= TRANSFER_PRICE_TOL * m[["price", "price_s"]].max(axis=1)))
+    m = m[ok.to_numpy(dtype=bool)].drop_duplicates("buy_id")
+    m["inst"] = m["clientele"].isin(INSTITUTIONAL).astype(float)
+    one = m.groupby(["trade_date", "symbol"], as_index=False).agg(matched_value_cr=("value_cr", "sum"), inst=("inst", "min"))
+    # Aggregate match (one seller -> several buyers, or the reverse): non-PROP buy and sell quantities agree
+    # within ±1% and their VWAPs within ±0.25%, with no client on both sides. Catches promoter inter-se
+    # transfers split across entities, which a 1:1 print match misses.
+    q = p[p["clientele"] != "PROP"].copy()
+    q["bq"] = np.where(q["side"] == "BUY", q["quantity"], 0.0)
+    q["sq"] = np.where(q["side"] == "SELL", q["quantity"], 0.0)
+    q["bpx"] = q["bq"] * q["price"]
+    q["spx"] = q["sq"] * q["price"]
+    q["bv"] = np.where(q["side"] == "BUY", q["value_cr"], 0.0)
+    q["binst"] = np.where(q["side"] == "BUY", q["clientele"].isin(INSTITUTIONAL).astype(float), np.nan)
+    both = q.groupby(["trade_date", "symbol", "client"])["side"].nunique().groupby(level=[0, 1]).max()
+    g = q.groupby(["trade_date", "symbol"]).agg(bq=("bq", "sum"), sq=("sq", "sum"), bpx=("bpx", "sum"),
+                                               spx=("spx", "sum"), bv=("bv", "sum"), binst=("binst", "min"))
+    g["two_sided_client"] = both.reindex(g.index).fillna(1) > 1
+    bvw, svw = g["bpx"] / g["bq"].where(g["bq"] > 0), g["spx"] / g["sq"].where(g["sq"] > 0)
+    agg_ok = ((g["bq"] > 0) & (g["sq"] > 0) & ~g["two_sided_client"]
+              & ((g["bq"] - g["sq"]).abs() <= TRANSFER_QTY_TOL * g[["bq", "sq"]].max(axis=1))
+              & ((bvw - svw).abs() <= TRANSFER_PRICE_TOL * pd.concat([bvw, svw], axis=1).max(axis=1)))
+    ag = g[agg_ok.fillna(False)].reset_index()
+    ag = pd.DataFrame({"trade_date": ag["trade_date"], "symbol": ag["symbol"], "matched_value_cr": ag["bv"],
+                       "inst": ag["binst"]})
+    a = pd.concat([x for x in (one, ag) if not x.empty], ignore_index=True) if not (one.empty and ag.empty) else one
+    if a.empty:
+        return empty
+    a = a.sort_values("matched_value_cr", ascending=False).drop_duplicates(["trade_date", "symbol"])
+    a["matched_inst"] = a["inst"] == 1.0
+    return a.drop(columns=["inst"])
+
+
+def _sessions(con: Any, start: Any, as_of: date) -> list[pd.Timestamp]:
+    rows = con.execute("SELECT DISTINCT trade_date FROM indicators_daily WHERE trade_date BETWEEN ? AND ? ORDER BY 1",
+                       [start, as_of]).fetchall()
+    return [pd.Timestamp(r[0]) for r in rows]
+
+
+def _live_frame(con: Any, as_of: date) -> pd.DataFrame:
+    p = _prints(con, as_of)
+    if p.empty:
+        return pd.DataFrame()
+    keys = ["trade_date", "symbol"]
+    buy = p["side"] == "BUY"
+    p["buy_val"] = np.where(buy, p["value_cr"], 0.0)
+    p["sell_val"] = np.where(~buy, p["value_cr"], 0.0)
+    p["buy_qty"] = np.where(buy, p["quantity"], 0.0)
+    p["sell_qty"] = np.where(~buy, p["quantity"], 0.0)
+    p["net_val"] = p["buy_val"] - p["sell_val"]
+    p["qpx"] = p["quantity"] * p["price"]
+    p["bqpx"] = np.where(buy, p["qpx"], 0.0)
+
+    cd = p.groupby([*keys, "client", "clientele"], as_index=False)[["buy_val", "sell_val"]].sum()
+    cd["cnet"] = cd["buy_val"] - cd["sell_val"]
+    nonprop = cd["clientele"] != "PROP"
+    cd["is_buyer"] = ((cd["cnet"] > 0) & nonprop).astype(float)
+    cd["is_seller"] = ((cd["cnet"] < 0) & nonprop).astype(float)
+    cd["rt"] = np.minimum(cd["buy_val"], cd["sell_val"])
+    houses = cd.groupby(keys).agg(buying_houses=("is_buyer", "sum"), selling_houses=("is_seller", "sum"),
+                                  round_trip_value_cr=("rt", "sum"))
+    s = p.groupby(keys).agg(prints=("side", "size"), buy_cr=("buy_val", "sum"), sell_cr=("sell_val", "sum"),
+                            buy_qty=("buy_qty", "sum"), sell_qty=("sell_qty", "sum"), qty=("quantity", "sum"),
+                            qpx=("qpx", "sum"), bqpx=("bqpx", "sum"),
+                            deal_types=("deal_types", lambda v: "+".join(sorted({t for x in v for t in str(x).split("+") if t}))))
+    by_class = p.pivot_table(index=keys, columns="clientele", values="net_val", aggfunc="sum", fill_value=0.0)
+    for c in ("FII", "DII", "PROP", "CORPORATE"):
+        s[f"{c.lower()}_net_cr"] = by_class[c].reindex(s.index).fillna(0.0) if c in by_class.columns else 0.0
+    s["prop_value_cr"] = p[p["clientele"] == "PROP"].groupby(keys)["value_cr"].sum().reindex(s.index).fillna(0.0)
+    s = s.join(houses).reset_index()
+    s["net_cr"] = s["buy_cr"] - s["sell_cr"]
+    s["net_ex_prop_cr"] = s["net_cr"] - s["prop_net_cr"]
+    s["gross"] = s["buy_cr"] + s["sell_cr"]
+    s["vwap"] = (s["qpx"] / s["qty"]).where(s["qty"] > 0)
+    s["buy_vwap"] = (s["bqpx"] / s["buy_qty"]).where(s["buy_qty"] > 0)
+    s = s.merge(_matched(p), on=keys, how="left")
+    s["matched_value_cr"] = pd.to_numeric(s["matched_value_cr"], errors="coerce").fillna(0.0)
+
+    # Close on the deal day and ADV as of the previous session.
+    start = s["trade_date"].min()
+    con.register("deal_syms", pd.DataFrame({"symbol": s["symbol"].unique()}))
+    try:
+        px = con.execute(
+            """
+            SELECT symbol, trade_date, close_price, volume,
+                   lag(avg_traded_value_cr_20d) OVER (PARTITION BY symbol ORDER BY trade_date) AS adv_prev
+            FROM indicators_daily JOIN deal_syms USING (symbol)
+            WHERE trade_date BETWEEN ? - INTERVAL 20 DAY AND ?
+            """, [start, as_of]).df()
+    finally:
+        con.unregister("deal_syms")
+    px["trade_date"] = pd.to_datetime(px["trade_date"])
+    s = s.merge(px, on=keys, how="left")
+    close = pd.to_numeric(s["close_price"], errors="coerce")
+    s["adv_cr"] = pd.to_numeric(s["adv_prev"], errors="coerce")
+    s["vs_adv"] = (s["net_ex_prop_cr"] / s["adv_cr"]).where(s["adv_cr"] > 0)
+    s["deal_price_vs_close_pct"] = ((s["vwap"] / close - 1.0) * 100.0).where(close > 0)
+    vol = pd.to_numeric(s["volume"], errors="coerce")
+    s["deal_qty_pct_volume"] = (s[["buy_qty", "sell_qty"]].max(axis=1) / vol * 100.0).where(vol > 0)
+
+    # Persistence: net-buy (ex-PROP) sessions among the last 10 market sessions incl. t.
+    cal = _sessions(con, start, as_of)
+    si_map = {d: i for i, d in enumerate(cal)}
+    s["_si"] = s["trade_date"].map(si_map)
+    s = s[s["_si"].notna()].copy()
+    s["_si"] = s["_si"].astype(int)
+    s = s.sort_values(["symbol", "_si"]).reset_index(drop=True)
+    pos = (s["net_ex_prop_cr"] > 0).to_numpy(dtype=float)
+    pers = np.zeros(len(s))
+    for _, ix in s.groupby("symbol", sort=False).indices.items():
+        si = s["_si"].to_numpy()[ix]
+        cs = np.concatenate([[0.0], np.cumsum(pos[ix])])
+        left = np.searchsorted(si, si - (PERSISTENCE_SESSIONS - 1), side="left")
+        pers[ix] = cs[np.arange(1, len(ix) + 1)] - cs[left]
+    s["persistence_days"] = pers
+    prior = s["persistence_days"] - pos
+
+    matched = (s["matched_value_cr"] >= MATCH_SHARE_MIN * s["buy_cr"]) & (s["matched_value_cr"] > 0)
+    inst = s["matched_inst"].astype("boolean").fillna(False).astype(bool)
+    gross = s["gross"].where(s["gross"] > 0)
+    churn = (((2 * s["round_trip_value_cr"] / gross) >= CHURN_SHARE_MIN) | ((s["prop_value_cr"] / gross) >= CHURN_SHARE_MIN)
+             | (s["net_ex_prop_cr"].round(6) == 0))
+    net = s["net_ex_prop_cr"]
+    conds = [matched & ~inst, matched & inst, churn, (net > 0) & (prior > 0), (net > 0) & (prior <= 0), net < 0]
+    s["event_type"] = np.select([c.fillna(False).to_numpy(dtype=bool) for c in conds],
+                                [r["event_type"] for r in EVENT_RULES], default="")
+    s["event_type"] = s["event_type"].replace("", None)
+    s["event_rule"] = s["event_type"].map(RULE_TEXT)
+    return s[["trade_date", "symbol", *_DSN_FIELDS.keys()]]
+
+
+def _table_frame(con: Any, as_of: date) -> pd.DataFrame:
     cols = set(db.table_columns(con, "deal_session_net"))
-    fmap = {k: next((c for c in names if c in cols), "") for k, names in _DSN_FIELDS.items()}
-    d = db.to_date(con.execute("SELECT max(trade_date) FROM deal_session_net WHERE trade_date <= ?", [as_of]).fetchone()[0])
-    if d is None:
-        return [], None
-    snap = universe.snapshot_sql(con)
-    raws = db.records(
-        con,
-        f"""
-        WITH s AS ({snap})
-        SELECT n.*, s.close, s.market_cap_cr, s.security_name, s.industry, s.rs_percentile, s.ema_200,
-               s.away_52w_high_pct
-        FROM deal_session_net n LEFT JOIN s ON s.symbol = n.symbol
-        WHERE n.trade_date = ? AND (? <= 0 OR s.market_cap_cr >= ?)
-        """,
-        [d, d, min_mcap, min_mcap],
-    )
-    rows = []
-    for r in raws:
-        row = {k: (db.text(r.get(c)) if k == "event_type" else db.num(r.get(c), 2)) if c else None for k, c in fmap.items()}
-        row["buying_houses"] = db.integer(row["buying_houses"])
-        row["persistence_days"] = db.integer(row["persistence_days"])
-        rows.append({**_base(r, d), **row, **_alignment(r)})
-    return rows, d
+    raw = con.execute("SELECT * FROM deal_session_net WHERE trade_date <= ? AND upper(symbol) <> 'TOTAL'", [as_of]).df()
+    out = pd.DataFrame({"trade_date": pd.to_datetime(raw["trade_date"]), "symbol": raw["symbol"].astype(str)})
+    for field, names in _DSN_FIELDS.items():
+        col = next((c for c in names if c in cols), None)
+        out[field] = raw[col] if col else None
+    if out["event_rule"].isna().all():
+        out["event_rule"] = out["event_type"].map(RULE_TEXT)
+    return out
 
 
-def _base(r: dict[str, Any], d: date | None) -> dict[str, Any]:
-    return {
-        "symbol": db.text(r.get("symbol")),
-        "security_name": db.text(r.get("security_name")),
-        "industry": db.text(r.get("industry")),
-        "trade_date": db.to_date(r.get("trade_date")) or d,
-        "close": db.num(r.get("close"), 2),
-        "market_cap_cr": db.num(r.get("market_cap_cr"), 0),
-        "rs_percentile": db.num(r.get("rs_percentile"), 1),
-    }
+def _frame(con: Any, as_of: date) -> tuple[pd.DataFrame, str]:
+    if db.table_exists(con, "deal_session_net"):
+        return db.cached("deals.table", (as_of,), lambda: _table_frame(con, as_of)), "deal_session_net"
+    if db.table_exists(con, "deals"):
+        return db.cached("deals.live", (as_of,), lambda: _live_frame(con, as_of)), "live"
+    return pd.DataFrame(), "none"
+
+
+LIVE_REASON = ("deal_session_net not built yet; computed live from collapsed prints with the deal_session_net rules "
+               "(PROP excluded from net, events and persistence).")
 
 
 def _alignment(r: dict[str, Any]) -> dict[str, Any]:
@@ -88,64 +278,14 @@ def _alignment(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _from_prints(con: Any, as_of: date, min_mcap: float) -> tuple[list[dict[str, Any]], date | None]:
-    d = _latest_deal_session(con, as_of)
-    if d is None:
-        return [], None
-    snap = universe.snapshot_sql(con)
-    raws = db.records(
-        con,
-        f"""
-        WITH p AS ({universe.collapsed_prints_sql("AND d.trade_date = ?")}),
-        agg AS (
-            SELECT symbol,
-                   sum(value_cr) FILTER (WHERE side LIKE '%BUY%') AS buy_cr,
-                   sum(value_cr) FILTER (WHERE side LIKE '%SELL%') AS sell_cr,
-                   count(DISTINCT client) FILTER (WHERE side LIKE '%BUY%') AS buying_houses,
-                   count(DISTINCT client) FILTER (WHERE side LIKE '%SELL%') AS selling_houses,
-                   count(*) AS prints,
-                   sum(price * quantity) FILTER (WHERE side LIKE '%BUY%')
-                       / nullif(sum(quantity) FILTER (WHERE side LIKE '%BUY%'), 0) AS buy_vwap,
-                   sum(price * quantity) / nullif(sum(quantity), 0) AS vwap,
-                   sum(value_cr) FILTER (WHERE side LIKE '%BUY%' AND clientele IN ('FII', 'DII'))
-                     - coalesce(sum(value_cr) FILTER (WHERE side LIKE '%SELL%' AND clientele IN ('FII', 'DII')), 0)
-                       AS institutional_net_cr,
-                   bool_and(is_prop) AS all_prop
-            FROM p GROUP BY symbol
-        ),
-        s AS ({snap})
-        SELECT agg.*, s.close, s.market_cap_cr, s.security_name, s.industry, s.rs_percentile, s.ema_200,
-               s.away_52w_high_pct, s.adv_cr_20d
-        FROM agg LEFT JOIN s ON s.symbol = agg.symbol
-        WHERE (? <= 0 OR s.market_cap_cr >= ?)
-        """,
-        [d, d, min_mcap, min_mcap],
-    )
-    rows = []
-    for r in raws:
-        buy, sell = db.num(r.get("buy_cr")), db.num(r.get("sell_cr"))
-        net = (buy or 0.0) - (sell or 0.0) if (buy is not None or sell is not None) else None
-        adv = db.num(r.get("adv_cr_20d"))
-        vwap, close = db.num(r.get("vwap")), db.num(r.get("close"))
-        rows.append({
-            **_base(r, d),
-            "buy_cr": db.num(buy, 2),
-            "sell_cr": db.num(sell, 2),
-            "net_cr": db.num(net, 2),
-            "institutional_net_cr": db.num(r.get("institutional_net_cr"), 2),
-            "buying_houses": db.integer(r.get("buying_houses")),
-            "selling_houses": db.integer(r.get("selling_houses")),
-            "prints": db.integer(r.get("prints")),
-            "vwap": db.num(vwap, 2),
-            "vs_adv": db.num(net / adv, 3) if net is not None and adv else None,
-            "deal_price_vs_close_pct": db.num((vwap / close - 1) * 100, 2) if vwap and close else None,
-            "all_prop": db.boolean(r.get("all_prop")),
-            "event_type": None,
-            "persistence_days": None,
-            **_alignment(r),
-        })
-    rows.sort(key=lambda x: -(x["net_cr"] or 0))
-    return rows, d
+def _clean(field: str, v: Any) -> Any:
+    if field in ("deal_types", "event_type", "event_rule"):
+        return db.text(v)
+    if field in ("prints", "buying_houses", "selling_houses", "persistence_days"):
+        return db.integer(v)
+    if field == "vs_adv":
+        return db.num(v, 3)
+    return db.num(v, 2)
 
 
 def session(as_of: date | None, min_mcap_cr: float = 1000.0) -> Result:
@@ -153,47 +293,251 @@ def session(as_of: date | None, min_mcap_cr: float = 1000.0) -> Result:
         resolved = db.resolve_as_of(con, as_of)
         if resolved is None:
             return no_session(as_of)
-        if db.table_exists(con, "deal_session_net"):
-            rows, d = _from_session_net(con, resolved, min_mcap_cr)
-            src, status, reason = ["deal_session_net"], "ok", None
-        elif db.table_exists(con, "deals"):
-            rows, d = _from_prints(con, resolved, min_mcap_cr)
-            src, status = ["deals"], STATUS_PARTIAL
-            reason = "deal_session_net not built yet; nets aggregated from collapsed prints — event type / persistence unavailable"
-        else:
+        df, src = _frame(con, resolved)
+        if src == "none":
             return unavailable(resolved, "no deals table", ["deals"])
-    no_records = d is None or d < resolved
+        snap = db.cached("deals.snap", (resolved,), lambda: con.execute(
+            f"WITH s AS ({universe.snapshot_sql(con)}) SELECT symbol, security_name, industry, close, market_cap_cr, "
+            "rs_percentile, ema_200, away_52w_high_pct FROM s", [resolved]).df())
+        cal = [pd.Timestamp(d) for d in reversed(db.recent_sessions(con, resolved, 60))]
+    d = df["trade_date"].max() if not df.empty else None
+    d = None if d is None or pd.isna(d) else d
+    day = df[df["trade_date"] == d] if d is not None else df.iloc[0:0]
+    info = snap.set_index("symbol").to_dict("index") if not snap.empty else {}
+    days10 = [x for x in cal if d is not None and x <= d][-PERSISTENCE_SESSIONS:]
+    recent = df[df["trade_date"].isin(days10)] if days10 else df.iloc[0:0]
+    hist = {(str(r.symbol), r.trade_date): r.net_ex_prop_cr for r in recent.itertuples()}
+    rows, below = [], 0
+    for r in day.to_dict("records"):
+        sym = str(r["symbol"])
+        s = info.get(sym, {})
+        mcap = db.num(s.get("market_cap_cr"))
+        if min_mcap_cr > 0 and (mcap is None or mcap < min_mcap_cr):
+            below += 1
+            continue
+        close = db.num(s.get("close"))
+        ref = db.num(r.get("buy_vwap")) or db.num(r.get("vwap"))
+        row = {k: _clean(k, r.get(k)) for k in _DSN_FIELDS}
+        row.update({
+            "symbol": sym, "trade_date": db.to_date(r["trade_date"]), "security_name": db.text(s.get("security_name")),
+            "industry": db.text(s.get("industry")), "close": db.num(close, 2), "market_cap_cr": db.num(mcap, 0),
+            "rs_percentile": db.num(s.get("rs_percentile"), 1),
+            "vwap_vs_cmp_pct": db.num((close / ref - 1) * 100, 2) if close and ref else None,
+            "institutional_net_cr": (db.num((db.num(r.get("fii_net_cr")) or 0) + (db.num(r.get("dii_net_cr")) or 0), 2)
+                                     if r.get("fii_net_cr") is not None or r.get("dii_net_cr") is not None else None),
+            "net_10s": [db.num(hist.get((sym, x)), 2) for x in days10],
+            **_alignment({**s, "close": close}),
+        })
+        rows.append(row)
+    rows.sort(key=lambda x: -(x["net_ex_prop_cr"] if x["net_ex_prop_cr"] is not None else (x["net_cr"] or 0)))
+    d_date = db.to_date(d)
+    no_records = d_date is None or d_date < resolved
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["event_type"] or "unclassified"] = counts.get(r["event_type"] or "unclassified", 0) + 1
     return Result(
-        as_of=resolved, rows=rows, status=status, reason=reason, sources=src,
-        extra={"deal_session": d, "no_records_for_session": no_records, "min_mcap_cr": min_mcap_cr},
+        as_of=resolved, rows=rows, status="ok" if src == "deal_session_net" else STATUS_PARTIAL,
+        reason=None if src == "deal_session_net" else LIVE_REASON,
+        sources=["deal_session_net"] if src == "deal_session_net" else ["deals", "indicators_daily"],
+        extra={"deal_session": d_date, "no_records_for_session": no_records, "min_mcap_cr": min_mcap_cr,
+               "excluded_below_floor": below, "source": src, "event_counts": counts, "event_rules": EVENT_RULES,
+               "net_10s_dates": [db.to_date(x) for x in days10]},
         notes=(["NO RECORDS: no bulk/block deals were stored for the as_of session; showing the latest earlier session."]
-               if no_records and d is not None else []),
+               if no_records and d_date is not None else []),
         metric_keys=DEAL_METRICS,
     )
 
 
-def _prints_with_forward(con: Any, as_of: date, where: str, params: list[Any]) -> list[dict[str, Any]]:
-    return db.records(
-        con,
+# --------------------------------------------------------------------------
+# Forward returns (next open → close T+h), bounded to as_of
+# --------------------------------------------------------------------------
+def _forward(con: Any, as_of: date) -> pd.DataFrame:
+    """Forward returns on every stored deal date for every stock (for events, houses and baseline)."""
+    if not db.table_exists(con, "deals"):
+        return pd.DataFrame()
+    start = con.execute("SELECT min(trade_date) FROM deals").fetchone()[0]
+    if start is None:
+        return pd.DataFrame()
+    idx_cols = set(db.table_columns(con, "index_daily")) if db.table_exists(con, "index_daily") else set()
+    bopen = "open_price" if "open_price" in idx_cols else "close_price"
+    has_ref = db.table_exists(con, "security_reference_daily")
+    mcap = "COALESCE(r.market_cap_cr, m.market_cap_cr)" if has_ref else "m.market_cap_cr"
+    ref_join = ("ASOF LEFT JOIN security_reference_daily r ON r.symbol = f.symbol AND f.trade_date >= r.effective_date"
+                if has_ref else "")
+    bench = (f"""SELECT trade_date, lead({bopen}, 1) OVER w AS bo1, lead(close_price, 5) OVER w AS bc5,
+                        lead(close_price, 20) OVER w AS bc20
+                 FROM index_daily WHERE index_name = '{MIDSML400}' AND trade_date <= ?
+                 WINDOW w AS (ORDER BY trade_date)""" if idx_cols else
+             "SELECT NULL::TIMESTAMP AS trade_date, NULL AS bo1, NULL AS bc5, NULL AS bc20 WHERE ? IS NULL")
+    df = con.execute(
         f"""
-        WITH p AS ({universe.collapsed_prints_sql(where)}),
-        px AS (
-            SELECT symbol, trade_date,
-                   lead(open_price, 1) OVER w AS entry_open,
-                   lead(close_price, 5) OVER w AS close_t5,
-                   lead(close_price, 20) OVER w AS close_t20
+        WITH px AS (
+            SELECT symbol, trade_date, close_price,
+                   lead(open_price, 1) OVER w AS o1, lead(close_price, 5) OVER w AS c5, lead(close_price, 20) OVER w AS c20
             FROM prices_daily
-            WHERE trade_date <= ? AND symbol IN (SELECT DISTINCT symbol FROM p)
+            WHERE trade_date BETWEEN ? AND ? AND upper(symbol) <> 'TOTAL' AND coalesce(series, 'EQ') IN ('EQ', 'BE', 'BZ')
             WINDOW w AS (PARTITION BY symbol ORDER BY trade_date)
-        )
-        SELECT p.*, px.entry_open,
-               (px.close_t5 / nullif(px.entry_open, 0) - 1) * 100 AS fwd_t5_pct,
-               (px.close_t20 / nullif(px.entry_open, 0) - 1) * 100 AS fwd_t20_pct
-        FROM p LEFT JOIN px ON px.symbol = p.symbol AND px.trade_date = p.trade_date
-        ORDER BY p.trade_date DESC, p.value_cr DESC
-        """,
-        [*params, as_of],
-    )
+        ),
+        dd AS (SELECT DISTINCT trade_date FROM deals WHERE trade_date BETWEEN ? AND ?),
+        f AS (SELECT px.* FROM px JOIN dd USING (trade_date)),
+        b AS ({bench})
+        SELECT f.symbol, f.trade_date, f.o1, f.c5, f.c20, b.bo1, b.bc5, b.bc20, {mcap} AS mcap
+        FROM f LEFT JOIN b ON b.trade_date = f.trade_date LEFT JOIN stocks_master m ON m.symbol = f.symbol
+        {ref_join}
+        """, [start, as_of, start, as_of, as_of]).df()
+    if df.empty:
+        return df
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+    for c in ("o1", "c5", "c20", "bo1", "bc5", "bc20", "mcap"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    for h in (5, 20):
+        df[f"fwd_t{h}"] = (df[f"c{h}"] / df["o1"].where(df["o1"] > 0) - 1) * 100
+        df[f"bench_t{h}"] = (df[f"bc{h}"] / df["bo1"].where(df["bo1"] > 0) - 1) * 100
+        df[f"excess_t{h}"] = df[f"fwd_t{h}"] - df[f"bench_t{h}"]
+    return df[["symbol", "trade_date", "o1", "mcap", "fwd_t5", "fwd_t20", "bench_t5", "bench_t20", "excess_t5", "excess_t20"]]
+
+
+def _fwd_cached(con: Any, as_of: date) -> pd.DataFrame:
+    return db.cached("deals.forward", (as_of,), lambda: _forward(con, as_of))
+
+
+def _stats(sub: pd.DataFrame) -> dict[str, Any]:
+    t20 = sub["fwd_t20"].dropna()
+    n = int(len(t20))
+    ok = n >= MIN_FOLLOW_N
+    return {
+        "n": n, "n_t5": int(sub["fwd_t5"].notna().sum()), "insufficient_sample": not ok,
+        "avg_fwd_t5_pct": db.num(sub["fwd_t5"].mean(), 2) if ok else None,
+        "avg_fwd_t20_pct": db.num(t20.mean(), 2) if ok else None,
+        "median_fwd_t20_pct": db.num(t20.median(), 2) if ok else None,
+        "hit_rate_t20": db.num((t20 > 0).mean() * 100, 1) if ok else None,
+        "avg_excess_t5_pct": db.num(sub["excess_t5"].mean(), 2) if ok else None,
+        "avg_excess_t20_pct": db.num(sub["excess_t20"].mean(), 2) if ok else None,
+    }
+
+
+def followthrough(as_of: date | None, min_mcap_cr: float = 1000.0) -> Result:
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        df, src = _frame(con, resolved)
+        if src == "none" or df.empty:
+            return unavailable(resolved, "no deal events on or before as_of", ["deals"])
+        fwd = _fwd_cached(con, resolved)
+    if fwd.empty:
+        return unavailable(resolved, "no prices for forward returns", ["prices_daily"])
+    ev = df[["trade_date", "symbol", "event_type"]].merge(fwd, on=["symbol", "trade_date"], how="left")
+    if min_mcap_cr > 0:
+        ev = ev[ev["mcap"] >= min_mcap_cr]
+    rows = []
+    for rule in EVENT_RULES:
+        et = rule["event_type"]
+        rows.append({"event_type": et, "label": et.replace("_", " "), "rule": rule["rule"], "is_baseline": False,
+                     **_stats(ev[ev["event_type"] == et])})
+    base = fwd[fwd["trade_date"].isin(ev["trade_date"].unique())]
+    if min_mcap_cr > 0:
+        base = base[base["mcap"] >= min_mcap_cr]
+    rows.append({"event_type": "baseline", "label": "all stocks, same dates", "is_baseline": True,
+                 "rule": f"Every stock with market cap ≥ ₹{min_mcap_cr:,.0f} Cr, entered at the next open on the same "
+                         "dates as the events (the bar to beat).", **_stats(base)})
+    return Result(
+        as_of=resolved, rows=rows, status="ok" if src == "deal_session_net" else STATUS_PARTIAL,
+        reason=None if src == "deal_session_net" else LIVE_REASON,
+        sources=["deal_session_net" if src == "deal_session_net" else "deals", "prices_daily", "index_daily"],
+        extra={"min_mcap_cr": min_mcap_cr, "min_n": MIN_FOLLOW_N, "source": src,
+               "first_event": db.to_date(df["trade_date"].min()), "last_event": db.to_date(df["trade_date"].max())},
+        notes=[f"n < {MIN_FOLLOW_N} shows 'insufficient sample' instead of numbers.",
+               "Entry = next session open after the deal; exit = close T+5 / T+20; never past as_of.",
+               "Excess = return minus NIFTY MIDSML 400 over the same sessions."],
+        metric_keys=["sample_n", "deal_event_type", "deal_fwd_excess_t20"])
+
+
+# --------------------------------------------------------------------------
+# Houses
+# --------------------------------------------------------------------------
+def _house_frame(con: Any, as_of: date) -> pd.DataFrame:
+    p = _prints(con, as_of)
+    if p.empty:
+        return p
+    fwd = _fwd_cached(con, as_of)
+    if not fwd.empty:
+        p = p.merge(fwd, on=["symbol", "trade_date"], how="left")
+    else:
+        for c in ("o1", "fwd_t5", "fwd_t20", "bench_t5", "bench_t20", "excess_t5", "excess_t20"):
+            p[c] = np.nan
+    return p
+
+
+def houses(as_of: date | None, session_only: bool = False) -> Result:
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        if not db.table_exists(con, "deals"):
+            return unavailable(resolved, "no deals table", ["deals"])
+        p = db.cached("deals.house_frame", (resolved,), lambda: _house_frame(con, resolved))
+    if p.empty:
+        return unavailable(resolved, "no deal prints on or before as_of", ["deals"])
+    rows = db.cached("deals.houses", (resolved,), lambda: _house_rows(p))
+    if session_only:
+        rows = [r for r in rows if r["active_in_session"]]
+    return Result(
+        as_of=resolved, rows=rows, sources=["deals", "prices_daily", "index_daily"],
+        extra={"deal_session": db.to_date(p["trade_date"].max()), "min_bets": MIN_HOUSE_BETS},
+        notes=[f"Track record needs ≥ {MIN_HOUSE_BETS} buy prints with a completed T+20 window; individuals (HNI/OTHER) "
+               "and PROP desks are never ranked as funds.",
+               "Churner = same-day buy and sell of the same stock on ≥ 50% of its active stock-days (or a PROP desk).",
+               "Entry = next session open after the deal; exits never look past as_of."],
+        metric_keys=["deal_net_cr", "sample_n", "house_hit_rate_t20", "deal_fwd_excess_t20"])
+
+
+def _house_rows(p: pd.DataFrame) -> list[dict[str, Any]]:
+    d = p["trade_date"].max()
+    q = p.copy()
+    buy = q["side"] == "BUY"
+    q["bv"] = np.where(buy, q["value_cr"], 0.0)
+    q["sv"] = np.where(~buy, q["value_cr"], 0.0)
+    q["isbuy"] = buy.astype(float)
+    q["bet"] = q["fwd_t20"].where(buy)
+    q["bet_ex"] = q["excess_t20"].where(buy & q["fwd_t20"].notna())
+    q["win"] = (q["bet"] > 0).astype(float).where(q["bet"].notna())
+    q["in_sess"] = q["trade_date"] == d
+    q["snet"] = np.where(q["in_sess"], q["bv"] - q["sv"], 0.0)
+    a = q.groupby("client").agg(
+        prints=("side", "size"), buy_prints=("isbuy", "sum"), buy_value_cr=("bv", "sum"), sell_value_cr=("sv", "sum"),
+        symbols=("symbol", "nunique"), first_date=("trade_date", "min"), last_date=("trade_date", "max"),
+        buy_bets_t20=("bet", "count"), avg_fwd_t20_pct=("bet", "mean"), avg_excess_t20_pct=("bet_ex", "mean"),
+        hit=("win", "mean"), active_in_session=("in_sess", "any"), session_net_cr=("snet", "sum"))
+    a["clientele"] = q.groupby("client")["clientele"].agg(lambda v: "/".join(sorted(set(v))))
+    sd = q.groupby(["client", "trade_date", "symbol"])["side"].nunique()
+    rt = (sd > 1).groupby(level=0).agg(["mean", "size"])
+    a["round_trip_pct"] = rt["mean"] * 100
+    a["churner"] = ((rt["size"] >= 3) & (rt["mean"] >= 0.5)) | (a["clientele"] == "PROP")
+    sess_syms = q[q["in_sess"]].groupby("client")["symbol"].agg(lambda v: sorted(set(v)))
+    rows = []
+    for client, r in a.iterrows():
+        n = int(r["buy_bets_t20"])
+        enough = n >= MIN_HOUSE_BETS
+        classes = set(str(r["clientele"]).split("/"))
+        active = bool(r["active_in_session"])
+        rows.append({
+            "house": str(client), "clientele": r["clientele"], "prints": int(r["prints"]),
+            "buy_prints": int(r["buy_prints"]), "sell_prints": int(r["prints"] - r["buy_prints"]),
+            "buy_value_cr": db.num(r["buy_value_cr"], 2), "sell_value_cr": db.num(r["sell_value_cr"], 2),
+            "net_cr": db.num(r["buy_value_cr"] - r["sell_value_cr"], 2), "symbols": int(r["symbols"]),
+            "first_date": db.to_date(r["first_date"]), "last_date": db.to_date(r["last_date"]),
+            "buy_bets_t20": n,
+            "avg_fwd_t20_pct": db.num(r["avg_fwd_t20_pct"], 2) if enough else None,
+            "avg_excess_t20_pct": db.num(r["avg_excess_t20_pct"], 2) if enough else None,
+            "hit_rate_t20": db.num(r["hit"] * 100, 1) if enough else None,
+            "ranked": enough and not classes <= {"HNI", "OTHER", "PROP"},
+            "round_trip_pct": db.num(r["round_trip_pct"], 1), "churner": bool(r["churner"]),
+            "active_in_session": active, "session_net_cr": db.num(r["session_net_cr"], 2) if active else None,
+            "session_symbols": sess_syms.get(client) if active else None,
+        })
+    rows.sort(key=lambda r: (not r["active_in_session"], -(abs(r["session_net_cr"] or 0)), -(r["buy_value_cr"] or 0)))
+    return rows
 
 
 def house(as_of: date | None, house_id: str) -> Result:
@@ -206,32 +550,28 @@ def house(as_of: date | None, house_id: str) -> Result:
             return no_session(as_of)
         if not db.table_exists(con, "deals"):
             return unavailable(resolved, "no deals table", ["deals"])
-        raws = _prints_with_forward(con, resolved, "AND upper(trim(d.client_name)) = ? AND d.trade_date <= ?",
-                                    [client, resolved])
+        p = db.cached("deals.house_frame", (resolved,), lambda: _house_frame(con, resolved))
+    g = p[p["client"] == client].sort_values(["trade_date", "value_cr"], ascending=[False, False]) if not p.empty else p
     rows = [{
-        "trade_date": db.to_date(r["trade_date"]),
-        "symbol": db.text(r["symbol"]),
-        "side": db.text(r["side"]),
-        "quantity": db.integer(r["quantity"]),
-        "price": db.num(r["price"], 2),
-        "value_cr": db.num(r["value_cr"], 2),
-        "deal_types": db.text(r["deal_types"]),
-        "clientele": db.text(r["clientele"]),
-        "is_prop": db.boolean(r["is_prop"]),
-        "entry_open": db.num(r["entry_open"], 2),
-        "fwd_t5_pct": db.num(r["fwd_t5_pct"], 2),
-        "fwd_t20_pct": db.num(r["fwd_t20_pct"], 2),
-    } for r in raws]
+        "trade_date": db.to_date(r["trade_date"]), "symbol": db.text(r["symbol"]), "side": db.text(r["side"]),
+        "quantity": db.integer(r["quantity"]), "price": db.num(r["price"], 2), "value_cr": db.num(r["value_cr"], 2),
+        "deal_types": db.text(r["deal_types"]), "clientele": db.text(r["clientele"]), "is_prop": db.boolean(r["is_prop"]),
+        "entry_open": db.num(r.get("o1"), 2), "fwd_t5_pct": db.num(r.get("fwd_t5"), 2),
+        "fwd_t20_pct": db.num(r.get("fwd_t20"), 2), "excess_t20_pct": db.num(r.get("excess_t20"), 2),
+    } for r in g.to_dict("records")]
     buys = [r for r in rows if (r["side"] or "").startswith("BUY") and r["fwd_t20_pct"] is not None]
     n = len(buys)
     classes = {r["clientele"] for r in rows if r["clientele"]}
+    enough = n >= MIN_HOUSE_BETS
+    ex = [r["excess_t20_pct"] for r in buys if r["excess_t20_pct"] is not None]
     summary = {
         "house": client,
         "prints": len(rows),
         "buy_bets_with_t20": n,
-        "ranked": n >= MIN_HOUSE_BETS and not classes <= {"HNI", "OTHER"},
-        "hit_rate_t20": round(sum(1 for r in buys if r["fwd_t20_pct"] > 0) / n * 100, 1) if n >= MIN_HOUSE_BETS else None,
-        "avg_fwd_t20_pct": round(sum(r["fwd_t20_pct"] for r in buys) / n, 2) if n >= MIN_HOUSE_BETS else None,
+        "ranked": enough and not classes <= {"HNI", "OTHER", "PROP"},
+        "hit_rate_t20": round(sum(1 for r in buys if r["fwd_t20_pct"] > 0) / n * 100, 1) if enough else None,
+        "avg_fwd_t20_pct": round(sum(r["fwd_t20_pct"] for r in buys) / n, 2) if enough else None,
+        "avg_excess_t20_pct": round(sum(ex) / len(ex), 2) if enough and ex else None,
         "clientele": sorted(classes),
     }
     return Result(
@@ -241,57 +581,6 @@ def house(as_of: date | None, house_id: str) -> Result:
                "Entry = next session open after the deal; exits never look past as_of."],
         metric_keys=["deal_net_cr", "sample_n", "hit_rate_2r"],
     )
-
-
-def followthrough(as_of: date | None) -> Result:
-    with db.market_conn() as con:
-        resolved = db.resolve_as_of(con, as_of)
-        if not db.table_exists(con, "deal_session_net"):
-            return unavailable(resolved, "deal_session_net not built yet (needs deal event types)", ["deal_session_net"])
-        if resolved is None:
-            return no_session(as_of)
-        cols = set(db.table_columns(con, "deal_session_net"))
-        if "event_type" not in cols:
-            return unavailable(resolved, "deal_session_net has no event_type column", ["deal_session_net"])
-        raws = db.records(
-            con,
-            """
-            WITH ev AS (SELECT symbol, trade_date, event_type FROM deal_session_net WHERE trade_date <= ?),
-            px AS (
-                SELECT symbol, trade_date,
-                       lead(open_price, 1) OVER w AS entry_open,
-                       lead(close_price, 5) OVER w AS close_t5,
-                       lead(close_price, 20) OVER w AS close_t20
-                FROM prices_daily WHERE trade_date <= ? AND symbol IN (SELECT DISTINCT symbol FROM ev)
-                WINDOW w AS (PARTITION BY symbol ORDER BY trade_date)
-            ),
-            j AS (
-                SELECT ev.event_type,
-                       (px.close_t5 / nullif(px.entry_open, 0) - 1) * 100 AS t5,
-                       (px.close_t20 / nullif(px.entry_open, 0) - 1) * 100 AS t20
-                FROM ev JOIN px USING (symbol, trade_date)
-            )
-            SELECT event_type, count(t20) AS n, avg(t5) AS avg_t5, avg(t20) AS avg_t20, median(t20) AS median_t20,
-                   avg(CASE WHEN t20 > 0 THEN 1.0 ELSE 0.0 END) FILTER (WHERE t20 IS NOT NULL) * 100 AS hit_t20
-            FROM j GROUP BY event_type ORDER BY event_type
-            """,
-            [resolved, resolved],
-        )
-    rows = []
-    for r in raws:
-        n = int(r["n"] or 0)
-        ok = n >= 30
-        rows.append({
-            "event_type": db.text(r["event_type"]),
-            "n": n,
-            "insufficient_sample": not ok,
-            "avg_fwd_t5_pct": db.num(r["avg_t5"], 2) if ok else None,
-            "avg_fwd_t20_pct": db.num(r["avg_t20"], 2) if ok else None,
-            "median_fwd_t20_pct": db.num(r["median_t20"], 2) if ok else None,
-            "hit_rate_t20": db.num(r["hit_t20"], 1) if ok else None,
-        })
-    return Result(as_of=resolved, rows=rows, sources=["deal_session_net", "prices_daily"],
-                  notes=["n < 30 shows 'insufficient sample' instead of numbers."], metric_keys=["sample_n"])
 
 
 def stock_prints(con: Any, symbol: str, as_of: date, limit_days: int | None = None) -> list[dict[str, Any]]:
