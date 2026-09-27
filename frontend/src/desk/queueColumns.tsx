@@ -4,6 +4,7 @@ import { cn } from '../lib/cn';
 import { fmtCr, fmtDateShort, fmtNum, fmtPct, fmtRatio, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { Chip } from '../ui/Chip';
 import type { DataTableColumn } from '../ui/DataTable';
+import { Unclassified } from '../ui/Unclassified';
 import { ZoneValue } from '../ui/ZoneValue';
 import type { QueueId } from './deskModel';
 
@@ -63,10 +64,11 @@ export function queueColumns(queue: QueueId, isWatched: (s: string) => boolean):
       accessor: 'industry',
       width: 128,
       headerTitle: 'NSE industry; chip = its RRG quadrant (needs group_daily)',
+      renderNull: true,
       cell: (v, r) => (
         <span className="flex min-w-0 items-center gap-1" title={[r.broad_sector, r.sector, r.industry].filter(Boolean).join(' › ')}>
           {r.industry_quadrant && <Chip tone={QUADRANT_TONE[r.industry_quadrant] ?? 'neutral'}>{r.industry_quadrant.slice(0, 4)}</Chip>}
-          <span className="truncate text-fg-2">{String(v)}</span>
+          {v == null || v === '' ? <Unclassified /> : <span className="truncate text-fg-2">{String(v)}</span>}
         </span>
       ),
     },

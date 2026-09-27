@@ -12,6 +12,7 @@ import { fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { useAsOf } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
 import { ChipRow } from '../ui/ChipRow';
+import { Unclassified } from '../ui/Unclassified';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Tooltip } from '../ui/Tooltip';
 import { ZoneNum } from '../routes/groups/kit';
@@ -131,7 +132,7 @@ export function CatalystCell({ row, asOf }: { row: TodayStockRow; asOf: string |
 }
 
 function GroupLink({ name, onGroup }: { name: string | null | undefined; onGroup: (id: string) => void }) {
-  if (!name) return <span className="text-fg-3">—</span>;
+  if (!name) return <Unclassified />;
   return (
     <button
       type="button"

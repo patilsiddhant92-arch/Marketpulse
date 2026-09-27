@@ -6,6 +6,7 @@ import { fmtInt } from '../lib/fmt';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Chip } from '../ui/Chip';
 import { DataWarningChip } from '../ui/DataWarningChip';
+import { Unclassified } from '../ui/Unclassified';
 import { RankSpark, SignedNum, ZoneNum } from './cells';
 
 /** Rows from /screener/run: rule presets return ScreenerRow, Darvas/VCP presets return Desk queue rows. */
@@ -82,11 +83,15 @@ const industryCol: DataTableColumn<SRow> = {
   width: 150,
   grow: true,
   sortDescFirst: false,
-  cell: (v, r) => (
-    <span className="truncate text-fg-2" title={taxonomyTitle(r)}>
-      {String(v)}
-    </span>
-  ),
+  renderNull: true,
+  cell: (v, r) =>
+    v == null || v === '' ? (
+      <Unclassified />
+    ) : (
+      <span className="truncate text-fg-2" title={taxonomyTitle(r)}>
+        {String(v)}
+      </span>
+    ),
 };
 
 const common = {
