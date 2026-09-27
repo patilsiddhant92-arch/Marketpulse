@@ -52,7 +52,7 @@ const symbolCol: DataTableColumn<SRow> = {
   id: 'symbol',
   header: 'Symbol',
   accessor: 'symbol',
-  width: 128,
+  width: 150,
   sticky: true,
   hideable: false,
   sortDescFirst: false,
