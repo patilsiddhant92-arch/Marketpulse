@@ -927,10 +927,25 @@ def get_historical_market_breadth(days: int = Query(180, le=400)):
 # =========================================================================
 # Mount Built Frontend (SPA)
 # =========================================================================
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+class SPAStaticFiles(StaticFiles):
+    """Serve the built app; unknown non-API paths (client routes like /groups) get index.html."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or path.replace("\\", "/").split("/", 1)[0] == "api":
+                raise
+            return await super().get_response("index.html", scope)
+
+
 frontend_dist = ROOT_DIR / "frontend" / "dist"
 if frontend_dist.exists():
-    from fastapi.staticfiles import StaticFiles
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
+    app.mount("/", SPAStaticFiles(directory=str(frontend_dist), html=True), name="static")
 
 
 if __name__ == "__main__":
