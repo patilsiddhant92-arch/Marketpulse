@@ -434,7 +434,7 @@ export const LIFT_ROWS = [
     n_movers: 377,
     n_controls: 3770,
     oos: true,
-    metric_key: 'delivery_vs_20d',
+    metric_key: 'deliv_pct_x',
   },
   {
     feature: 'away_52w_high_pct',
@@ -497,7 +497,7 @@ function featuresFor(row: BigMoveRow): Record<string, unknown>[] {
     { feature: 'base_depth_pct', metric_key: null, base: 18 - (seed % 5), ctrl: 24, step: 0 },
     { feature: 'range_contraction_pct', metric_key: null, base: 42, ctrl: 61, step: -6 },
     { feature: 'rvol', metric_key: 'rvol', base: 0.7, ctrl: 1.0, step: 0.2 },
-    { feature: 'delivery_vs_20d', metric_key: 'delivery_vs_20d', base: 4 + (seed % 3), ctrl: 0.5, step: 2 },
+    { feature: 'deliv_pct_x', metric_key: 'deliv_pct_x', base: 4 + (seed % 3), ctrl: 0.5, step: 2 },
     { feature: 'away_52w_high_pct', metric_key: 'away_52w_high_pct', base: -14, ctrl: -22, step: 3 },
   ];
   return feats.flatMap((f) =>

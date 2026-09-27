@@ -416,22 +416,23 @@ metrics:
       - {range: ">= 60", label: High delivery, tone: good, why: "Most buyers are holding overnight; suggests investors, not day traders, are active."}
       - {range: "35-60", label: Typical, tone: neutral, why: "Normal mix of investors and traders."}
       - {range: "< 35", label: Speculative, tone: caution, why: "Mostly intraday churn; big price moves on low delivery often fade."}
-    read_with: [delivery_vs_20d, rvol]
+    read_with: [deliv_qty_x, rvol]
     read_with_why: "Delivery varies a lot by stock, so compare against its own 20-day average; high delivery on high volume matters most."
     caveats: "NULL for BE/BZ series (trade-to-trade), shown as '—', never 0%."
     definition_sql_ref: "prices_daily.delivery_pct"
 
-  - key: delivery_vs_20d
-    plain_name: Delivery % vs its 20-day average
+  - key: deliv_pct_x
+    plain_name: Delivery % ×20d
     unit: ratio
-    measures: "Today's delivery % divided by the stock's own average delivery % over the last 20 sessions (1.0x = normal)."
+    measures: "Today's delivery % divided by the stock's OWN average delivery % over the last 20 sessions (1.0x = its usual habit). It compares percentages, not share counts: on a busy day with many intraday traders it can fall even though more shares were delivered than usual."
     zones:
-      - {range: ">= 1.5", label: Delivery spike, tone: good, why: "Half again more of today's volume went into delivery than usual; on an up day this points to accumulation."}
-      - {range: "0.8-1.5", label: Normal, tone: neutral, why: "In line with the stock's usual pattern."}
-      - {range: "< 0.8", label: Low, tone: caution, why: "Today's move was driven by intraday trading more than usual; treat it with suspicion."}
-    read_with: [delivery_pct, change_1d_pct]
-    read_with_why: "Delivery spike plus up day is accumulation; delivery spike plus down day can be holders exiting."
-    definition_sql_ref: "App/services/universe.py:delivery_vs_20d (delivery_pct / avg_delivery_pct_20d)"
+      - {range: ">= 1.5", label: Above its habit, tone: good, why: "A larger share of today's volume went home than this stock usually sees; on an up day this points to investors, not traders."}
+      - {range: "0.8-1.5", label: Normal, tone: neutral, why: "In line with the stock's usual delivery pattern."}
+      - {range: "< 0.8", label: Below its habit, tone: caution, why: "More of today's volume was squared off intraday than usual; treat the move with suspicion."}
+    read_with: [deliv_qty_x, delivery_pct]
+    read_with_why: "Use Delivery % ×20d for the stock's own delivery habit (setup queues, screener, Stock 360). To ask 'is real money buying today?' use Delivered qty ×20d, which counts shares and does not fall on high-volume days."
+    caveats: "A ratio of percentages. Not the same number as Delivered qty ×20d; the two disagree most on volume-spike days."
+    definition_sql_ref: "App/services/universe.py:deliv_pct_x (delivery_pct / avg_delivery_pct_20d)"
 
   - key: adr_20_pct
     plain_name: Average daily range
@@ -957,7 +958,7 @@ metrics:
       - {range: ">= 6", label: Accumulating, tone: good, why: "Repeated up days with genuine delivery; institutions are likely building positions."}
       - {range: "3-5", label: Neutral, tone: neutral, why: "No clear pattern."}
       - {range: "<= 2", label: No accumulation, tone: caution, why: "Few days of committed buying."}
-    read_with: [delivery_vs_20d, rrg_quadrant]
+    read_with: [deliv_pct_x, rrg_quadrant]
     read_with_why: "Accumulation in an Improving group often precedes the move to Leading."
     definition_sql_ref: "group_daily.delivery_accumulation_days"
 
@@ -1286,15 +1287,15 @@ metrics:
   - key: move_quality
     plain_name: Quality of move
     unit: state
-    measures: "A label for how today's move was made, from volume (RVOL), delivered shares versus normal (delivery x) and size. Rules are evaluated in order and the first match wins; a missing input never matches."
+    measures: "A label for how today's move was made, from volume (RVOL), delivered shares versus normal (Delivered qty ×20d) and size. Rules are evaluated in order and the first match wins; a missing input never matches."
     zones:
-      - {range: Real, label: Real, tone: good, why: "RVOL >= 1.5 and delivery x >= 1.2 (delivered shares at least 1.2x their prior 20-session average): heavy volume with more shares taken home than usual. Real buyers (or real sellers on a down day) are behind it. The evidence engine found delivery spikes and RVOL >= 1.5 the strongest traits before upper-circuit moves."}
+      - {range: Real, label: Real, tone: good, why: "RVOL >= 1.5 and Delivered qty ×20d >= 1.2 (delivered shares at least 1.2x their prior 20-session average): heavy volume with more shares taken home than usual. Real buyers (or real sellers on a down day) are behind it. The evidence engine found delivery spikes and RVOL >= 1.5 the strongest traits before upper-circuit moves."}
       - {range: Churn, label: Churn, tone: caution, why: "RVOL >= 1.5 but delivered shares below 1.2x normal: lots of trading, few investors taking shares home. Often intraday or operator activity; wait for delivery to confirm."}
       - {range: Thin, label: Thin, tone: caution, why: "RVOL < 1: below-average volume. Few participants; thin moves reverse easily."}
       - {range: Normal, label: Normal, tone: neutral, why: "Ordinary volume (RVOL 1-1.5, or delivery unknown). No strong participation signal either way."}
       - {range: Operator-ish, label: Operator-ish, tone: bad, why: "Market cap under ₹500 Cr AND closing at its price band. Easy to push and often reverses; treat as a trap unless volume and delivery keep confirming."}
-    read_with: [rvol, delivery_qty_vs_20d, delivery_spike]
-    read_with_why: "The label is only a summary of RVOL and delivery x; open them to see how far above the thresholds the stock is."
+    read_with: [rvol, deliv_qty_x, delivery_spike]
+    read_with_why: "The label is only a summary of RVOL and Delivered qty ×20d; open them to see how far above the thresholds the stock is."
     caveats: "A description of today's session, not a forecast. Thresholds are starting points, to be calibrated against the evidence engine."
     definition_sql_ref: "App/services/today.py:QUALITY_RULES"
 
@@ -1305,22 +1306,22 @@ metrics:
     zones:
       - {range: "Yes", label: Spike, tone: good, why: "Unusual delivery: someone is taking shares home in size. On an up day this is an accumulation footprint; on a down day, holders delivering out."}
       - {range: "No", label: No spike, tone: neutral, why: "Delivery within its normal range."}
-    read_with: [delivery_vs_20d, rvol]
+    read_with: [deliv_qty_x, rvol]
     read_with_why: "A spike with RVOL >= 1.5 on an up day is the classic accumulation footprint."
-    caveats: "Quantity based (shares), unlike delivery x which compares delivery %."
+    caveats: "Quantity based (shares), like Delivered qty ×20d; unlike Delivery % ×20d, which compares percentages."
     definition_sql_ref: "indicators_daily.delivery_spike"
 
-  - key: delivery_qty_vs_20d
-    plain_name: Delivery x (delivered shares vs normal)
+  - key: deliv_qty_x
+    plain_name: Delivered qty ×20d
     unit: x
-    measures: "Shares taken into delivery today divided by the average delivered shares of the prior 20 sessions. 3.0x means three times the usual number of shares went home with buyers. Unlike 'delivery vs 20d' (a ratio of delivery percentages), it does not fall just because intraday traders piled in on a busy day."
+    measures: "Shares taken into delivery today divided by the average delivered shares of the prior 20 sessions. 3.0x means three times the usual number of shares went home with buyers. It counts shares, so unlike Delivery % ×20d it does not fall just because intraday traders piled in on a busy day."
     zones:
       - {range: ">= 2", label: Heavy, tone: good, why: "Far more shares than usual changed owners for real. On an up day this is an accumulation footprint; on a down day, holders delivering out."}
       - {range: "1.2-2", label: Above normal, tone: good, why: "More delivery than usual: participation is real, not just trading."}
       - {range: "0.8-1.2", label: Normal, tone: neutral, why: "Usual delivery."}
       - {range: "< 0.8", label: Low, tone: caution, why: "Fewer shares delivered than usual; any price move is mostly trading."}
-    read_with: [rvol, delivery_vs_20d]
-    read_with_why: "Heavy volume with delivery x below 1.2 is churn; with delivery x above 1.2 it is real participation. If delivery % (delivery vs 20d) also rose, the footprint is stronger still."
+    read_with: [rvol, deliv_pct_x]
+    read_with_why: "Use Delivered qty ×20d to ask 'is real money buying?' (movers, footprints, quality of move). Heavy volume with it below 1.2 is churn; above 1.2 it is real participation. If Delivery % ×20d also rose, the footprint is stronger still."
     definition_sql_ref: "App/services/today.py: delivery_qty / previous session's avg_delivery_qty_20d"
 
   - key: turnover_vs_20d
@@ -1331,8 +1332,8 @@ metrics:
       - {range: ">= 2", label: Heavy, tone: good, why: "Much more money than usual changed hands; the move has attention."}
       - {range: "1.2-2", label: Above normal, tone: neutral, why: "Busier than usual."}
       - {range: "< 1.2", label: Normal or light, tone: neutral, why: "No unusual money flow."}
-    read_with: [rvol, delivery_vs_20d]
-    read_with_why: "Heavy turnover with delivery x below 1 is mostly trading churn; with delivery x above 1.2 it is real participation."
+    read_with: [rvol, deliv_qty_x]
+    read_with_why: "Heavy turnover with Delivered qty ×20d below 1 is mostly trading churn; above 1.2 it is real participation."
     definition_sql_ref: "App/services/today.py: turnover_cr / previous session's avg_traded_value_cr_20d"
 
   - key: market_turnover_vs_20d
@@ -1392,11 +1393,11 @@ metrics:
       - {range: "0.8-1.3", label: Normal, tone: neutral, why: "Usual activity."}
       - {range: "< 0.8", label: Light, tone: caution, why: "The move happened on light volume; less convincing."}
     read_with: [group_delivery_vs_20d, group_return_1d]
-    read_with_why: "Heavy turnover with delivery x >= 1.2 is real participation; with delivery x < 1 it is trading churn."
+    read_with_why: "Heavy turnover with delivered qty ×20d >= 1.2 is real participation; below 1 it is trading churn."
     definition_sql_ref: "App/services/today.py:group_rows"
 
   - key: group_delivery_vs_20d
-    plain_name: Group delivery vs normal
+    plain_name: Group delivered qty ×20d
     unit: x
     measures: "Shares delivered today by the group's members divided by their average delivered shares over the prior 20 sessions."
     zones:

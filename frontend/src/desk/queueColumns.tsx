@@ -128,10 +128,10 @@ export function queueColumns(queue: QueueId, isWatched: (s: string) => boolean):
       cell: (v) => <ZoneValue metricKey="rvol" value={v as number} format="ratio" />,
     },
     {
-      id: 'delivery_vs_20d',
-      header: 'Deliv×',
-      accessor: 'delivery_vs_20d',
-      headerTitle: "Today's delivery % ÷ its 20-day average (1.00× = usual; above 1 = more buyers holding)",
+      id: 'deliv_pct_x',
+      header: 'Dlv %×',
+      accessor: 'deliv_pct_x',
+      headerTitle: "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average (1.00× = its usual habit)",
       align: 'right',
       width: 62,
       cell: (v, r) => (
@@ -172,7 +172,7 @@ export function queueColumns(queue: QueueId, isWatched: (s: string) => boolean):
       ),
     },
   ];
-  const at = cols.findIndex((c) => c.id === 'delivery_vs_20d') + 1;
+  const at = cols.findIndex((c) => c.id === 'deliv_pct_x') + 1;
   if (queue === 'darvas_squeeze') {
     cols.splice(
       at,

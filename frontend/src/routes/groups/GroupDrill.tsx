@@ -119,7 +119,7 @@ const memberColumns: DataTableColumn<MemberRow>[] = [
   { id: 'acc', header: 'Acc d', accessor: 'delivery_accumulation_days', format: 'int', width: 50, metricKey: 'delivery_accumulation_days', cell: (v) => <ZoneNum metricKey="delivery_accumulation_days" value={v as number} format="int" /> },
   { id: 'deal', header: 'Deals 10s', accessor: 'deal_net_10s_cr', format: 'signed', digits: 1, width: 70, metricKey: 'deal_net_10s_cr', cell: (v) => <ZoneNum metricKey="deal_net_10s_cr" value={v as number} format="signed" digits={1} /> },
   { id: 'rvol', header: 'RVOL', accessor: 'rvol', format: 'num', digits: 2, width: 52, metricKey: 'rvol' },
-  { id: 'dvs20', header: 'Deliv ×20d', accessor: 'delivery_vs_20d', format: 'ratio', digits: 2, width: 70, metricKey: 'delivery_vs_20d' },
+  { id: 'dvs20', header: 'Dlv % ×20d', accessor: 'deliv_pct_x', format: 'ratio', digits: 2, width: 70, metricKey: 'deliv_pct_x' },
   { id: 'hi52', header: 'From 52W hi', accessor: 'away_52w_high_pct', format: 'signedPct', digits: 1, width: 76, metricKey: 'away_52w_high_pct' },
   { id: 'adv', header: 'ADV ₹Cr', accessor: 'adv_cr_20d', format: 'num', digits: 1, width: 64, metricKey: 'adv_cr_20d', defaultHidden: true },
   {

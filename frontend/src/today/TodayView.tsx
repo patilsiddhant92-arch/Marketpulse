@@ -102,10 +102,10 @@ function MarketStrip({ row }: { row: TodayMarketRow }) {
         </MetricInline>
       </div>
       <div className="px-3 py-1.5">
-        <MetricInline metricKey="market_delivery_vs_20d" label="Delivery %" value={row.delivery_vs_20d}>
+        <MetricInline metricKey="market_delivery_vs_20d" label="Delivery %" value={row.deliv_pct_x}>
           <span className="num text-sm text-fg">{fmtNum(row.delivery_pct, 1)}%</span>
           <span className="num text-2xs text-fg-3">
-            <ZoneNum metricKey="market_delivery_vs_20d" value={row.delivery_vs_20d} digits={2} />× of 20d avg {fmtNum(row.delivery_pct_20d_avg, 1)}%
+            <ZoneNum metricKey="market_delivery_vs_20d" value={row.deliv_pct_x} digits={2} />× of 20d avg {fmtNum(row.delivery_pct_20d_avg, 1)}%
           </span>
         </MetricInline>
       </div>
@@ -300,7 +300,7 @@ function BreakoutsPanel({ className }: { className?: string }) {
             size="xs"
             options={[
               { value: 'breakouts', label: 'Breakouts', title: '52W highs, setup triggers, 20-day highs on RVOL, gap-ups' },
-              { value: 'footprints', label: 'Delivery footprints', title: 'Delivery × ≥ 1.5: on an up day = accumulation, on a down day = distribution' },
+              { value: 'footprints', label: 'Delivery footprints', title: 'Delivered qty ×20d ≥ 1.5 with delivery % at or above its habit: on an up day = accumulation, on a down day = distribution' },
             ]}
             value={tab}
             onChange={(v) => {

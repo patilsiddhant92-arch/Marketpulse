@@ -6280,7 +6280,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -6289,7 +6289,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -10626,7 +10627,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -10635,7 +10636,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -11482,7 +11484,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -11491,7 +11493,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -12451,7 +12454,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -12460,7 +12463,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -13023,7 +13027,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -13032,7 +13036,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -13663,7 +13668,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -13672,7 +13677,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -13764,7 +13770,7 @@
             "title": "Turnover Vs 20D",
             "description": "Turnover ÷ average traded value of the prior 20 sessions"
           },
-          "delivery_qty_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -13773,8 +13779,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Qty Vs 20D",
-            "description": "Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
+            "title": "Deliv Qty X",
+            "description": "Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
           },
           "delivery_spike": {
             "anyOf": [
@@ -14066,7 +14072,7 @@
             ],
             "title": "Rvol"
           },
-          "delivery_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14075,8 +14081,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D",
-            "description": "Delivered shares ÷ prior 20-session average"
+            "title": "Deliv Qty X",
+            "description": "Delivered qty ×20d: delivered shares ÷ prior 20-session average"
           }
         },
         "type": "object",
@@ -14264,7 +14270,7 @@
             ],
             "title": "Turnover Vs 20D"
           },
-          "delivery_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14273,8 +14279,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D",
-            "description": "Members' delivered shares ÷ their prior 20-session average"
+            "title": "Deliv Qty X",
+            "description": "Members' delivered shares ÷ their prior 20-session average (Delivered qty ×20d)"
           },
           "top_contributors": {
             "items": {
@@ -14838,7 +14844,7 @@
             ],
             "title": "Delivery Pct 20D Avg"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14847,7 +14853,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Market delivery % ÷ its prior 20-session average"
           }
         },
         "type": "object",
@@ -14966,7 +14973,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14975,7 +14982,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -15067,7 +15075,7 @@
             "title": "Turnover Vs 20D",
             "description": "Turnover ÷ average traded value of the prior 20 sessions"
           },
-          "delivery_qty_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -15076,8 +15084,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Qty Vs 20D",
-            "description": "Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
+            "title": "Deliv Qty X",
+            "description": "Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
           },
           "delivery_spike": {
             "anyOf": [

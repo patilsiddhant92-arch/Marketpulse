@@ -77,7 +77,7 @@ function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[
     { id: 'up2', header: '>+2%', accessor: 'pct_up_2', format: 'pct', digits: 0, width: 52, headerTitle: '% of members up more than 2%' },
     { id: 'dn2', header: '<−2%', accessor: 'pct_down_2', format: 'pct', digits: 0, width: 52, headerTitle: '% of members down more than 2%' },
     { id: 'to_x', header: 'T/O ×', accessor: 'turnover_vs_20d', format: 'num', digits: 2, width: 58, metricKey: 'group_turnover_vs_20d', cell: (v) => <ZoneNum metricKey="group_turnover_vs_20d" value={v as number} digits={2} /> },
-    { id: 'dl_x', header: 'Deliv ×', accessor: 'delivery_vs_20d', format: 'num', digits: 2, width: 60, metricKey: 'group_delivery_vs_20d', cell: (v) => <ZoneNum metricKey="group_delivery_vs_20d" value={v as number} digits={2} /> },
+    { id: 'dl_x', header: 'Dlv qty ×', accessor: 'deliv_qty_x', format: 'num', digits: 2, width: 60, metricKey: 'group_delivery_vs_20d', cell: (v) => <ZoneNum metricKey="group_delivery_vs_20d" value={v as number} digits={2} /> },
     { id: 'top1', header: 'Top-1', accessor: 'top1_share_pct', format: 'pct', digits: 0, width: 54, metricKey: 'move_concentration', cell: (v) => <ZoneNum metricKey="move_concentration" value={v as number} format="pct" digits={0} /> },
     {
       id: 'led',
@@ -171,7 +171,7 @@ function ContribList({ title, items, tone }: { title: string; items: readonly To
             <th className="text-right font-normal" title="Share of the group move">Share</th>
             <th className="text-right font-normal" title="Equal weight in the group">Wt</th>
             <th className="text-right font-normal">RVOL</th>
-            <th className="text-right font-normal">Deliv×</th>
+            <th className="text-right font-normal" title="Delivered qty ×20d">Dlv qty×</th>
           </tr>
         </thead>
         <tbody>
@@ -192,7 +192,7 @@ function ContribList({ title, items, tone }: { title: string; items: readonly To
                 <ZoneNum metricKey="rvol" value={c.rvol} digits={2} />
               </td>
               <td className="text-right">
-                <ZoneNum metricKey="delivery_qty_vs_20d" value={c.delivery_vs_20d} digits={1} />
+                <ZoneNum metricKey="deliv_qty_x" value={c.deliv_qty_x} digits={1} />
               </td>
             </tr>
           ))}
@@ -234,8 +234,8 @@ function Detail({ g, ctx, onDrill }: { g: TodayGroupRow; ctx: RulesCtx | undefin
         <MetricInline metricKey="group_turnover_vs_20d" label="Turnover ×" value={g.turnover_vs_20d}>
           <ZoneNum metricKey="group_turnover_vs_20d" value={g.turnover_vs_20d} digits={2} className="text-xs" />
         </MetricInline>
-        <MetricInline metricKey="group_delivery_vs_20d" label="Delivery ×" value={g.delivery_vs_20d}>
-          <ZoneNum metricKey="group_delivery_vs_20d" value={g.delivery_vs_20d} digits={2} className="text-xs" />
+        <MetricInline metricKey="group_delivery_vs_20d" label="Delivered qty ×20d" value={g.deliv_qty_x}>
+          <ZoneNum metricKey="group_delivery_vs_20d" value={g.deliv_qty_x} digits={2} className="text-xs" />
         </MetricInline>
         <MetricInline metricKey="move_concentration" label="Top-1 share" value={g.top1_share_pct}>
           <ZoneNum metricKey="move_concentration" value={g.top1_share_pct} format="pct" digits={0} className="text-xs" />

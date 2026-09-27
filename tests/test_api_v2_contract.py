@@ -90,7 +90,7 @@ def test_null_stays_null_in_stock_header(client):
     row = _ok(client, "/api/v2/stock/NULLRS")["rows"][0]
     assert row["rs_percentile"] is None  # never 50
     assert row["delivery_pct"] is None  # never 45
-    assert row["delivery_vs_20d"] is None
+    assert row["deliv_pct_x"] is None
     assert row["ema_200"] is None
     assert row["excess_vs_midsml400_63d"] is None
 

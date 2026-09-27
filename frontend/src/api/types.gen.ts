@@ -1330,8 +1330,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -2459,8 +2462,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -2694,8 +2700,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -2913,8 +2922,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -3038,8 +3050,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -3173,8 +3188,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -3198,10 +3216,10 @@ export interface components {
              */
             turnover_vs_20d?: number | null;
             /**
-             * Delivery Qty Vs 20D
-             * @description Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
+             * Deliv Qty X
+             * @description Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
              */
-            delivery_qty_vs_20d?: number | null;
+            deliv_qty_x?: number | null;
             /**
              * Delivery Spike
              * @description Delivered shares > 2 × their 20-day average
@@ -3292,10 +3310,10 @@ export interface components {
             /** Rvol */
             rvol?: number | null;
             /**
-             * Delivery Vs 20D
-             * @description Delivered shares ÷ prior 20-session average
+             * Deliv Qty X
+             * @description Delivered qty ×20d: delivered shares ÷ prior 20-session average
              */
-            delivery_vs_20d?: number | null;
+            deliv_qty_x?: number | null;
         };
         /** TodayEvent */
         TodayEvent: {
@@ -3345,10 +3363,10 @@ export interface components {
             /** Turnover Vs 20D */
             turnover_vs_20d?: number | null;
             /**
-             * Delivery Vs 20D
-             * @description Members' delivered shares ÷ their prior 20-session average
+             * Deliv Qty X
+             * @description Members' delivered shares ÷ their prior 20-session average (Delivered qty ×20d)
              */
-            delivery_vs_20d?: number | null;
+            deliv_qty_x?: number | null;
             /** Top Contributors */
             top_contributors?: components["schemas"]["TodayContributor"][];
             /** Top Detractors */
@@ -3492,8 +3510,11 @@ export interface components {
             delivery_pct?: number | null;
             /** Delivery Pct 20D Avg */
             delivery_pct_20d_avg?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Market delivery % ÷ its prior 20-session average
+             */
+            deliv_pct_x?: number | null;
         };
         /** TodayMoverRow */
         TodayMoverRow: {
@@ -3520,8 +3541,11 @@ export interface components {
             rvol?: number | null;
             /** Delivery Pct */
             delivery_pct?: number | null;
-            /** Delivery Vs 20D */
-            delivery_vs_20d?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
             /** Rs Percentile */
             rs_percentile?: number | null;
             /** Rs Delta 5 */
@@ -3545,10 +3569,10 @@ export interface components {
              */
             turnover_vs_20d?: number | null;
             /**
-             * Delivery Qty Vs 20D
-             * @description Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
+             * Deliv Qty X
+             * @description Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
              */
-            delivery_qty_vs_20d?: number | null;
+            deliv_qty_x?: number | null;
             /**
              * Delivery Spike
              * @description Delivered shares > 2 × their 20-day average

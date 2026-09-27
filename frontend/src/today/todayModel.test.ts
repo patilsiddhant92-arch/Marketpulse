@@ -68,7 +68,7 @@ describe('todayModel', () => {
   });
 
   it('renders served rule clauses in plain words', () => {
-    expect(clauseText([{ field: 'rvol', op: 'gte', value: 1.5 }, { field: 'delivery_vs_20d', op: 'gte', value: 1.2 }])).toBe('RVOL ≥ 1.5 and delivery × ≥ 1.2');
+    expect(clauseText([{ field: 'rvol', op: 'gte', value: 1.5 }, { field: 'deliv_qty_x', op: 'gte', value: 1.2 }])).toBe('RVOL ≥ 1.5 and delivered qty ×20d ≥ 1.2');
     expect(clauseText([{ field: 'at_circuit', op: 'is_true', value: null }])).toBe('closed at price band is true');
   });
 });

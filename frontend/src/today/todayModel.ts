@@ -156,12 +156,13 @@ export function filterGroupsText(rows: readonly TodayGroupRow[], text: string): 
   return rows.filter((r) => r.group_name.toLowerCase().includes(t) || (r.symbols ?? []).some((s) => s.toLowerCase() === t));
 }
 
-/** Human text for a rule clause list: "rvol ≥ 1.5 and delivery_vs_20d ≥ 1.2". */
+/** Human text for a rule clause list: "rvol ≥ 1.5 and deliv_pct_x ≥ 1.2". */
 export function clauseText(when: readonly RuleClause[]): string {
   const OPS: Record<string, string> = { gt: '>', gte: '≥', lt: '<', lte: '≤', is_true: 'is true' };
   const NAMES: Record<string, string> = {
     rvol: 'RVOL',
-    delivery_vs_20d: 'delivery ×',
+    deliv_qty_x: 'delivered qty ×20d',
+    deliv_pct_x: 'delivery % ×20d',
     market_cap_cr: 'market cap ₹Cr',
     at_circuit: 'closed at price band',
     turnover_vs_20d: 'turnover ×',

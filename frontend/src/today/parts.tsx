@@ -59,7 +59,7 @@ export function QualityChip({ row, rules }: { row: TodayStockRow; rules: readonl
           </div>
           {rule?.why && <div>{rule.why}</div>}
           <div className="text-fg-3">
-            RVOL {fmtNum(row.rvol, 2)} · delivered shares {fmtNum(row.delivery_qty_vs_20d, 2)}× normal · delivery % {fmtNum(row.delivery_vs_20d, 2)}× · mcap ₹{fmtNum(row.market_cap_cr, 0)} Cr
+            RVOL {fmtNum(row.rvol, 2)} · delivered qty ×20d {fmtNum(row.deliv_qty_x, 2)} · delivery % ×20d {fmtNum(row.deliv_pct_x, 2)} · mcap ₹{fmtNum(row.market_cap_cr, 0)} Cr
             {row.at_upper_circuit ? ' · at upper band' : row.at_lower_circuit ? ' · at lower band' : ''}
           </div>
         </div>
@@ -192,15 +192,16 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
     { id: 'deliv', header: 'Deliv %', accessor: 'delivery_pct', format: 'pct', digits: 0, width: 58, metricKey: 'delivery_pct' },
     {
       id: 'deliv_x',
-      header: 'Deliv ×',
-      accessor: 'delivery_qty_vs_20d',
+      header: 'Dlv qty ×',
+      headerTitle: 'Delivered qty ×20d: delivered shares ÷ their prior 20-session average (is real money taking shares home?)',
+      accessor: 'deliv_qty_x',
       format: 'num',
       digits: 2,
       width: 62,
-      metricKey: 'delivery_qty_vs_20d',
+      metricKey: 'deliv_qty_x',
       cell: (v, r) => (
         <span className="inline-flex items-center gap-0.5">
-          <ZoneNum metricKey="delivery_qty_vs_20d" value={v as number} digits={1} />
+          <ZoneNum metricKey="deliv_qty_x" value={v as number} digits={1} />
           {r.delivery_spike && (
             <span className="text-violet" title="Delivery spike: delivered shares > 2× their 20-day average">
               ●
@@ -209,7 +210,7 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
         </span>
       ),
     },
-    { id: 'deliv_pct_x', header: 'Deliv% ×', accessor: 'delivery_vs_20d', format: 'num', digits: 2, width: 64, metricKey: 'delivery_vs_20d', defaultHidden: true },
+    { id: 'deliv_pct_x', header: 'Dlv % ×', accessor: 'deliv_pct_x', format: 'num', digits: 2, width: 64, metricKey: 'deliv_pct_x', defaultHidden: true },
     { id: 'to', header: 'T/O ₹Cr', accessor: 'turnover_cr', format: 'num', digits: 0, width: 66, headerTitle: 'Turnover today, ₹ Cr' },
     { id: 'to_x', header: 'T/O ×', accessor: 'turnover_vs_20d', format: 'num', digits: 1, width: 54, metricKey: 'turnover_vs_20d', cell: (v) => <ZoneNum metricKey="turnover_vs_20d" value={v as number} digits={1} /> },
     { id: 'group', header: 'Industry', accessor: 'industry', width: 140, cell: (_v, r) => <GroupLink name={r.industry} onGroup={o.onGroup} />, renderNull: true },
