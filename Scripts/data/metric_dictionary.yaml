@@ -1,0 +1,1155 @@
+# MarketPulse metric dictionary (spec 2026-09-26 §6.2).
+# Loaded by App/services/metrics.py and served in API `meta`. Drives every tooltip and zone colour.
+# tone: good / neutral / caution / bad. Zones marked "starting point" are conventions to be
+# calibrated against the backfilled evidence engine (spec §5); regime pillar zones follow §6.1.2.
+version: 1
+metrics:
+
+  # ---------------------------------------------------------------------------
+  # Market participation & breadth
+  # ---------------------------------------------------------------------------
+  - key: pct_above_10ema
+    plain_name: "% of stocks above 10-day average"
+    unit: pct
+    measures: "Share of stocks in the universe closing above their own 10-day exponential moving average (EMA). A short-term gauge of how stretched or washed-out the market is over the last two weeks."
+    zones:
+      - {range: "> 80", label: Stretched, tone: caution, why: "Almost everything has run up at once. Fresh breakouts bought here often pull back within days; wait 2-3 sessions for a dip instead of chasing."}
+      - {range: "20-80", label: Normal, tone: neutral, why: "No short-term extreme. Take setups on their own merit."}
+      - {range: "< 20", label: Washed out, tone: good, why: "Selling has been broad and fast; short-term bounces usually start from here. If longer-term breadth (% above 200 EMA) is still healthy, this is a pullback-buy window."}
+    read_with: [pct_above_200ema, pct_above_50ema]
+    read_with_why: "Below 20 while % above 200 EMA stays above 60 is a classic pullback-buy window; below 20 with weak 200 EMA breadth is just a falling market."
+    caveats: "Timing aid only. It never sets the environment verdict by itself (spec §6.1.2)."
+    definition_sql_ref: "breadth_daily.pct_above_10ema"
+
+  - key: pct_above_20ema
+    plain_name: "% of stocks above 20-day average"
+    unit: pct
+    measures: "Share of stocks closing above their 20-day EMA, roughly the last month's trend. Sits between the fast 10-day and the medium 50-day gauges."
+    zones:
+      - {range: "> 75", label: Stretched, tone: caution, why: "Broad one-month rally; risk of a short pause. Prefer buying the first pullback over late breakouts. Starting point, calibrated later."}
+      - {range: "40-75", label: Healthy, tone: good, why: "Most stocks are in short-term uptrends without being overheated."}
+      - {range: "25-40", label: Soft, tone: caution, why: "More stocks are slipping below their monthly trend. Be pickier and keep stops tight."}
+      - {range: "< 25", label: Weak, tone: bad, why: "Most stocks are in short-term downtrends; breakouts lack support from the crowd."}
+    read_with: [pct_above_50ema, pct_above_10ema]
+    read_with_why: "If 20 EMA breadth turns up before 50 EMA breadth, a recovery is starting; if it rolls over first, the rally is tiring."
+    definition_sql_ref: "breadth_daily.pct_above_20ema"
+
+  - key: pct_above_50ema
+    plain_name: "% of stocks above 50-day average"
+    unit: pct
+    measures: "Share of stocks closing above their 50-day EMA, about 2.5 months of trend. The main input to the Participation pillar."
+    zones:
+      - {range: "> 60", label: Healthy, tone: good, why: "Most stocks are in medium-term uptrends, so breakouts have a supportive crowd behind them."}
+      - {range: "40-60", label: Neutral, tone: neutral, why: "Half the market is participating. Stock selection matters more than market direction; stay selective."}
+      - {range: "< 40", label: Weak, tone: bad, why: "Most stocks are below their medium trend. Even good-looking setups fail more often because buyers are scarce."}
+    read_with: [pct_above_200ema, ad_line_10d]
+    read_with_why: "Direction matters as much as level: a rising reading from 35 is better than a falling one from 62. The A/D line confirms which way it is moving."
+    caveats: "In the Participation pillar a clear rising or falling direction shifts the status by one step (spec §6.1.2)."
+    definition_sql_ref: "breadth_daily.pct_above_50ema"
+
+  - key: pct_above_200ema
+    plain_name: "% of stocks above 200-day average"
+    unit: pct
+    measures: "Share of stocks closing above their 200-day EMA, roughly the last ten months. Tells you whether the market is in a long-term bull or bear phase underneath the index."
+    zones:
+      - {range: "> 60", label: Healthy, tone: good, why: "Most stocks are in long-term uptrends. Pullbacks are usually buyable."}
+      - {range: "40-60", label: Neutral, tone: neutral, why: "Mixed long-term picture; leadership is narrow. Focus on the strongest groups only."}
+      - {range: "< 40", label: Weak, tone: bad, why: "Most stocks are in long-term downtrends. Rallies tend to be sold; keep size small."}
+    read_with: [pct_above_50ema, pct_above_10ema]
+    read_with_why: "Healthy 200 EMA breadth with a washed-out 10 EMA reading is a dip inside a bull phase; weak on both means stay defensive."
+    definition_sql_ref: "breadth_daily.pct_above_200ema"
+
+  - key: advance_pct
+    plain_name: Advancers today
+    unit: pct
+    measures: "Share of traded stocks that closed higher than their previous close today (advancers divided by advancers plus decliners)."
+    zones:
+      - {range: ">= 65", label: Broad up day, tone: good, why: "Buying was widespread, not just a few index heavyweights."}
+      - {range: "35-65", label: Mixed, tone: neutral, why: "No strong one-day message; look at the trend over several days instead."}
+      - {range: "< 35", label: Broad down day, tone: bad, why: "Selling was widespread. One day means little, but several in a row signal distribution."}
+    read_with: [ad_line_10d, distribution_days_25]
+    read_with_why: "A single day is noise; the 10-day A/D line and the distribution-day count tell you whether it is part of a pattern."
+    definition_sql_ref: "breadth_daily.advance_pct"
+
+  - key: ad_line_10d
+    plain_name: 10-day advance/decline line
+    unit: count
+    measures: "Running total of (advancing stocks minus declining stocks) over the last 10 sessions. Rising means more stocks have been going up than down."
+    zones:
+      - {range: "rising", label: Improving, tone: good, why: "Breadth is expanding; more stocks are joining the move, which supports new breakouts."}
+      - {range: "flat", label: Flat, tone: neutral, why: "No clear breadth trend."}
+      - {range: "falling", label: Deteriorating, tone: bad, why: "More stocks are falling than rising. If the index is still up, the rally is being carried by a few names and is fragile."}
+    read_with: [pct_above_50ema, advance_pct]
+    read_with_why: "The direction of this line is what can move the Participation pillar one step up or down from its level-based status."
+    definition_sql_ref: "breadth_daily.ad_line_10d"
+
+  - key: new_52w_highs
+    plain_name: New 52-week highs
+    unit: count
+    measures: "Number of stocks making a new 52-week high today, from NSE's official PR high/low file."
+    zones:
+      - {range: "rising", label: Expanding, tone: good, why: "More stocks are breaking out to new highs; leadership is broadening and breakouts have company."}
+      - {range: "steady", label: Steady, tone: neutral, why: "Leadership is neither growing nor shrinking."}
+      - {range: "falling", label: Shrinking, tone: caution, why: "Fewer stocks reach new highs even if the index holds up; leaders are tiring."}
+    read_with: [new_52w_lows, net_new_highs]
+    read_with_why: "Highs only mean something relative to lows; always check the net figure."
+    caveats: "Absolute counts depend on universe size; compare with recent days, not a fixed number."
+    definition_sql_ref: "breadth_daily.new_52w_highs"
+
+  - key: new_52w_lows
+    plain_name: New 52-week lows
+    unit: count
+    measures: "Number of stocks making a new 52-week low today, from NSE's official PR high/low file."
+    zones:
+      - {range: "falling", label: Contracting, tone: good, why: "Fewer stocks breaking down; selling pressure is easing."}
+      - {range: "steady", label: Steady, tone: neutral, why: "No change in the pool of breaking-down stocks."}
+      - {range: "rising", label: Expanding, tone: bad, why: "More stocks are breaking to new lows. Expanding lows is the Leadership pillar's main warning sign."}
+    read_with: [new_52w_highs, net_new_highs]
+    read_with_why: "Rising lows alongside rising highs signals a split, choppy market; rising lows with falling highs is outright weakness."
+    definition_sql_ref: "breadth_daily.new_52w_lows"
+
+  - key: net_new_highs
+    plain_name: Net new highs
+    unit: count
+    measures: "New 52-week highs minus new 52-week lows today. The core Leadership pillar input."
+    zones:
+      - {range: "> 0 and rising", label: Healthy, tone: good, why: "Strong stocks are getting stronger; buying breakouts is working with the market."}
+      - {range: "around 0", label: Neutral, tone: neutral, why: "Leaders and laggards are balanced. Be selective."}
+      - {range: "< 0 and falling", label: Weak, tone: bad, why: "More stocks breaking down than breaking out. Breakouts tend to fail; protect capital."}
+    read_with: [stage2_count, new_52w_highs]
+    read_with_why: "Net highs rising while the index dips means leaders are holding: a constructive divergence. Stage-2 count confirms whether the pool of uptrending stocks is growing."
+    definition_sql_ref: "regime_daily.net_new_highs"
+
+  - key: near_52w_highs
+    plain_name: Stocks near 52-week high
+    unit: count
+    measures: "Number of stocks closing within 5% of their 52-week high. A pipeline of candidates that could break out next."
+    zones:
+      - {range: "rising", label: Building, tone: good, why: "More stocks are coiling just below their highs; the breakout pipeline is filling."}
+      - {range: "steady", label: Steady, tone: neutral, why: "No change in the pipeline."}
+      - {range: "falling", label: Draining, tone: caution, why: "Fewer candidates close to highs; expect fewer breakout opportunities."}
+    read_with: [new_52w_highs, follow_through_pct]
+    read_with_why: "A full pipeline plus good follow-through means breakouts should be plentiful and working."
+    caveats: "The 5% threshold is a starting point, calibrated later."
+    definition_sql_ref: "breadth_daily.near_52w_highs"
+
+  - key: stage2_count
+    plain_name: Stocks in Stage 2 uptrend
+    unit: count
+    measures: "Number of stocks in a Stage-2 uptrend: price above a rising 150/200-day average with the averages stacked in order. Stage 2 is the phase where most big swing moves happen."
+    zones:
+      - {range: "rising", label: Expanding, tone: good, why: "The pool of uptrending stocks is growing, so there are more good setups to choose from."}
+      - {range: "steady", label: Steady, tone: neutral, why: "Pool of uptrending stocks is stable."}
+      - {range: "falling", label: Shrinking, tone: caution, why: "Stocks are dropping out of uptrends; the market is topping or correcting underneath."}
+    read_with: [net_new_highs, trend_template_pass_n]
+    read_with_why: "Stage-2 count and net new highs together make up the Leadership pillar."
+    definition_sql_ref: "breadth_daily.stage2_count"
+
+  - key: india_vix
+    plain_name: India VIX (fear gauge)
+    unit: x
+    measures: "NSE's volatility index: how much movement option traders expect in the Nifty over the next 30 days, as an annualised %. Higher means more fear."
+    zones:
+      - {range: "< 13", label: Calm, tone: good, why: "Low expected volatility; trends tend to persist and breakouts behave. Very low readings can precede a volatility pop, so don't be complacent."}
+      - {range: "13-18", label: Normal, tone: neutral, why: "Typical Indian market volatility."}
+      - {range: "18-24", label: Elevated, tone: caution, why: "Wider daily swings shake out tight stops. Size down or widen stops with fewer shares."}
+      - {range: "> 24", label: Fear, tone: bad, why: "Panic-level volatility. Gaps and whipsaws dominate; most breakouts fail."}
+    read_with: [vix_change_5d, distribution_days_25]
+    read_with_why: "A sudden jump matters more than the level; together with distribution days they form the Stress pillar."
+    caveats: "Level bands are starting points for India VIX, calibrated later. VIX is Nifty-based and can lag small-cap stress."
+    definition_sql_ref: "index_daily.close (INDIA VIX)"
+
+  - key: vix_change_5d
+    plain_name: VIX change (5 days)
+    unit: pct
+    measures: "Percentage change in India VIX over the last 5 sessions. Shows whether fear is building or fading."
+    zones:
+      - {range: "<= -10", label: Fear fading, tone: good, why: "Volatility is falling back; conditions for trend-following improve."}
+      - {range: "-10 to +15", label: Normal, tone: neutral, why: "No abnormal change in fear."}
+      - {range: "+15 to +20", label: Rising fear, tone: caution, why: "Fear is building. Tighten risk before it spills into prices."}
+      - {range: "> +20", label: Spike, tone: bad, why: "A VIX jump of 20%+ (in the spec, even within a single day) turns the Stress pillar Weak. Avoid new entries until it settles."}
+    read_with: [india_vix, pillar_stress]
+    read_with_why: "A spike from a low base is a warning; a spike to an already high level is a panic that often marks a short-term low."
+    definition_sql_ref: "regime_daily.vix_change_5d"
+
+  - key: distribution_days_25
+    plain_name: Distribution days (25 sessions)
+    unit: count
+    measures: "Number of days in the last 25 sessions where the benchmark index fell at least 0.2% on higher turnover than the previous day. Each one is a sign of big players selling."
+    zones:
+      - {range: "0-2", label: Clean, tone: good, why: "Little institutional selling; the uptrend is not under pressure."}
+      - {range: "3-4", label: Building, tone: caution, why: "Selling is accumulating. Keep stops tight and avoid adding on extended stocks."}
+      - {range: ">= 5", label: Heavy, tone: bad, why: "Five or more distribution days often precede a correction. Stress pillar turns Weak; raise cash."}
+    read_with: [pillar_stress, follow_through_pct]
+    read_with_why: "Heavy distribution plus failing breakouts is the clearest early warning of a top."
+    definition_sql_ref: "regime_daily.distribution_days_25"
+
+  - key: follow_through_pct
+    plain_name: Breakout follow-through
+    unit: pct
+    measures: "Of stocks that broke above a 20-day high on at least 1.5x normal volume between 10 and 3 sessions ago, the share still closing above their breakout day's close. Direct test of whether breakouts are working right now."
+    zones:
+      - {range: ">= 50", label: Healthy, tone: good, why: "Most recent breakouts are holding. Buying breakouts is being rewarded; normal or full size."}
+      - {range: "35-50", label: Neutral, tone: neutral, why: "Breakouts are hit-and-miss. Take only the best setups and be quick to cut failures."}
+      - {range: "< 35", label: Weak, tone: bad, why: "Most breakouts are failing back into their bases. New entries are likely to be stopped out; wait."}
+    read_with: [pillar_participation, distribution_days_25]
+    read_with_why: "Good participation but weak follow-through signals a choppy market: many stocks up, but breakouts not paying."
+    caveats: "When few stocks broke out in the window, the % is based on a small sample; check the count."
+    definition_sql_ref: "regime_daily.follow_through_pct"
+
+  # ---------------------------------------------------------------------------
+  # Environment (regime)
+  # ---------------------------------------------------------------------------
+  - key: environment_verdict
+    plain_name: Market environment
+    unit: state
+    measures: "One-word verdict combining the five pillars (Trend, Participation, Leadership, Follow-through, Stress) through a published rule table. The matched rule is shown so you can see why."
+    zones:
+      - {range: Favourable, label: Favourable, tone: good, why: "Trend up, broad participation, breakouts working. Press: full position size and act on good setups promptly."}
+      - {range: Constructive, label: Constructive, tone: good, why: "Mostly supportive with one soft spot. Normal position size."}
+      - {range: Mixed, label: Mixed, tone: neutral, why: "Signals conflict. Be selective and trade half size; only the strongest setups in leading groups."}
+      - {range: Weak, label: Weak, tone: caution, why: "Most pillars negative. Mostly cash; a small test position at most."}
+      - {range: Danger, label: Danger, tone: bad, why: "Downtrend with stress. Protect capital: no new longs, tighten or exit existing ones."}
+    read_with: [days_in_state, pillar_trend, pillar_follow_through]
+    read_with_why: "A fresh change (low days in state) is less reliable than an established one; check which pillar drove it."
+    caveats: "Rules are validated against backfilled setup outcomes (spec §6.1.5); the verdict is a sizing guide, not a buy or sell signal."
+    definition_sql_ref: "regime_daily.verdict"
+
+  - key: pillar_trend
+    plain_name: "Trend pillar: is the market going up?"
+    unit: state
+    measures: "Looks at Nifty MidSmallcap 400 and Nifty 50 against their 20, 50 and 200-day EMAs and whether those averages are rising."
+    zones:
+      - {range: Healthy, label: Healthy, tone: good, why: "Indices above a rising 50 EMA. Swing longs have the wind at their back."}
+      - {range: Neutral, label: Neutral, tone: neutral, why: "Between the 50 and 200 EMA or the 50 EMA is flat. Trend is unclear; be selective."}
+      - {range: Weak, label: Weak, tone: bad, why: "Below the 200 EMA. Long-term downtrend; most breakouts fail."}
+    read_with: [pillar_participation, environment_verdict]
+    read_with_why: "An index uptrend without participation is a narrow rally led by a few heavyweights."
+    caveats: "Zones are initial and will be calibrated (spec §5). MidSmallcap 400 matters most for this app's universe."
+    definition_sql_ref: "regime_daily.pillar_trend"
+
+  - key: pillar_participation
+    plain_name: "Participation pillar: are most stocks joining?"
+    unit: state
+    measures: "Uses % of stocks above their 50 and 200-day EMAs and the 10-day advance/decline line."
+    zones:
+      - {range: Healthy, label: Healthy, tone: good, why: "Breadth above 60%. The rally is broad, so individual breakouts get support."}
+      - {range: Neutral, label: Neutral, tone: neutral, why: "Breadth 40-60%. Half the market is participating; pick the leaders."}
+      - {range: Weak, label: Weak, tone: bad, why: "Breadth below 40%. Most stocks are not joining; setups fail more often."}
+    read_with: [pct_above_50ema, ad_line_10d, pct_above_10ema]
+    read_with_why: "A clearly rising or falling A/D direction moves the status one step from the level. % above 10 EMA is shown as a timing note only."
+    definition_sql_ref: "regime_daily.pillar_participation"
+
+  - key: pillar_leadership
+    plain_name: "Leadership pillar: are strong stocks getting stronger?"
+    unit: state
+    measures: "Uses official new 52-week highs minus lows (NSE PR file) and the Stage-2 uptrend count."
+    zones:
+      - {range: Healthy, label: Healthy, tone: good, why: "Net new highs are rising. Leaders are extending, which is what swing trading needs."}
+      - {range: Neutral, label: Neutral, tone: neutral, why: "Net highs flat. Leadership exists but is not broadening."}
+      - {range: Weak, label: Weak, tone: bad, why: "Net new lows are expanding. Even former leaders are breaking down."}
+    read_with: [net_new_highs, stage2_count]
+    read_with_why: "Both inputs moving the same way makes the status reliable."
+    definition_sql_ref: "regime_daily.pillar_leadership"
+
+  - key: pillar_follow_through
+    plain_name: "Follow-through pillar: are breakouts working now?"
+    unit: state
+    measures: "Share of recent volume-backed 20-day-high breakouts (t-10 to t-3) still holding above their breakout close."
+    zones:
+      - {range: Healthy, label: Healthy, tone: good, why: "50% or more holding. Breakout buying is currently rewarded."}
+      - {range: Neutral, label: Neutral, tone: neutral, why: "35-50% holding. Coin-flip; only take A-grade setups."}
+      - {range: Weak, label: Weak, tone: bad, why: "Under 35% holding. Most breakouts are failing; wait for this to recover before buying new ones."}
+    read_with: [follow_through_pct, pillar_participation]
+    read_with_why: "Participation Neutral or better but follow-through Weak is the 'choppy market' connected reading."
+    definition_sql_ref: "regime_daily.pillar_follow_through"
+
+  - key: pillar_stress
+    plain_name: "Stress pillar: hidden selling or fear?"
+    unit: state
+    measures: "Combines India VIX level and 5-day change with the count of distribution days in the last 25 sessions."
+    zones:
+      - {range: Healthy, label: Healthy, tone: good, why: "Low fear and little institutional selling."}
+      - {range: Neutral, label: Neutral, tone: neutral, why: "Some distribution or rising VIX, but below the danger thresholds. Stay alert."}
+      - {range: Weak, label: Weak, tone: bad, why: "5 or more distribution days, or VIX up 20%+ in a day. Big players are selling or fear is spiking; combined with a weak trend this means Danger."}
+    read_with: [distribution_days_25, vix_change_5d, india_vix]
+    read_with_why: "Distribution days show quiet selling; VIX shows open fear. Either can trip the pillar."
+    definition_sql_ref: "regime_daily.pillar_stress"
+
+  - key: days_in_state
+    plain_name: Days in current environment
+    unit: sessions
+    measures: "Number of consecutive sessions the environment verdict has stayed the same."
+    zones:
+      - {range: "1-2", label: Fresh change, tone: caution, why: "The verdict just changed and can flip back. Adjust size gradually rather than all at once."}
+      - {range: "3-15", label: Established, tone: neutral, why: "The state has held for a while; act on it with normal confidence."}
+      - {range: "> 15", label: Mature, tone: neutral, why: "Long-running state. Favourable states this old can be late in the move; watch for pillars softening."}
+    read_with: [environment_verdict]
+    read_with_why: "Read the verdict and how long it has held together; a 1-day Favourable is weaker evidence than a 10-day one."
+    definition_sql_ref: "regime_daily.days_in_state"
+
+  # ---------------------------------------------------------------------------
+  # Stock
+  # ---------------------------------------------------------------------------
+  - key: rs_percentile
+    plain_name: Strength rank
+    unit: rank_0_100
+    measures: "Where this stock's weighted 3/6/9/12-month price performance ranks against all other stocks, 0 (weakest) to 100 (strongest). It is a peer rank, not a return: 90 means it beat 90% of stocks."
+    zones:
+      - {range: ">= 80", label: Leader, tone: good, why: "Outperforming most of the market. Big swing winners usually come from this group."}
+      - {range: "70-80", label: Strong, tone: good, why: "Clearly above average. Acceptable for momentum setups."}
+      - {range: "40-70", label: Average, tone: neutral, why: "Moving with the crowd. Needs a strong setup or group to justify a trade."}
+      - {range: "< 40", label: Laggard, tone: bad, why: "Underperforming most stocks. Breakouts from laggards fail more often; avoid for momentum trades."}
+    read_with: [rs_delta_5, excess_vs_midsml400_63d, rvol]
+    read_with_why: "A high rank that is still rising, backed by real excess return over the benchmark and volume on the breakout, is the strongest combination."
+    caveats: "NULL for stocks with under one year of history (see IPO rank). In a falling market a rank of 90 can still mean a negative return."
+    definition_sql_ref: "indicators_daily.rs_percentile"
+
+  - key: rs_percentile_ipo
+    plain_name: Strength rank (recent listing)
+    unit: rank_0_100
+    measures: "Strength rank for stocks listed less than a year ago, computed on the history they have and ranked on the same 0-100 scale. Shown with an IPO badge."
+    zones:
+      - {range: ">= 80", label: Leader, tone: good, why: "Strong new listing. Recent IPOs that lead often make big moves, but with higher volatility."}
+      - {range: "40-80", label: Average, tone: neutral, why: "Unremarkable so far."}
+      - {range: "< 40", label: Laggard, tone: bad, why: "Trading weakly since listing; often post-listing supply from anchors and pre-IPO holders."}
+    read_with: [rs_percentile, adv_cr_20d]
+    read_with_why: "Not directly comparable with the full-history rank; check liquidity since new listings can be thin."
+    caveats: "Based on a shorter window, so noisier. Only used when 'include IPOs' is switched on."
+    definition_sql_ref: "indicators_daily.rs_percentile_ipo"
+
+  - key: rs_delta_5
+    plain_name: Strength rank change (5 days)
+    unit: pct_points
+    measures: "Change in strength rank over the last 5 sessions, in rank points."
+    zones:
+      - {range: ">= +10", label: Rising fast, tone: good, why: "Rapidly climbing the leaderboard; often the start of a new leg up."}
+      - {range: "+3 to +10", label: Rising, tone: good, why: "Gaining ground on peers."}
+      - {range: "-3 to +3", label: Stable, tone: neutral, why: "No change in relative standing."}
+      - {range: "< -3", label: Slipping, tone: caution, why: "Losing ground to peers. A leader slipping can be an early sign of a top."}
+    read_with: [rs_percentile]
+    read_with_why: "Rising from 60 to 75 is an emerging leader; falling from 95 to 85 is still strong but worth watching."
+    definition_sql_ref: "App/services/stock.py:rs_delta"
+
+  - key: excess_vs_midsml400_63d
+    plain_name: Excess return vs MidSmallcap 400 (3 months)
+    unit: pct_points
+    measures: "Stock's 63-session (about 3 months) return minus the Nifty MidSmallcap 400 return over the same period. An actual return difference, unlike the peer rank."
+    zones:
+      - {range: ">= 15", label: Strong outperformer, tone: good, why: "Beating the mid/small-cap benchmark by a wide margin; genuine leadership."}
+      - {range: "0-15", label: Outperforming, tone: good, why: "Doing better than the benchmark."}
+      - {range: "-10 to 0", label: Lagging slightly, tone: neutral, why: "A little behind the benchmark."}
+      - {range: "< -10", label: Underperformer, tone: bad, why: "Clearly worse than the benchmark; money is going elsewhere."}
+    read_with: [rs_percentile, excess_vs_nifty50_63d]
+    read_with_why: "High rank plus positive excess means strong in absolute terms too; high rank with negative excess means it merely fell less."
+    caveats: "Bands are starting points, calibrated later."
+    definition_sql_ref: "indicators_daily.excess_vs_midsml400_63d"
+
+  - key: excess_vs_nifty50_21d
+    plain_name: Excess return vs Nifty 50 (1 month)
+    unit: pct_points
+    measures: "Stock's 21-session return minus the Nifty 50 return over the same period."
+    zones:
+      - {range: ">= 5", label: Outperforming, tone: good, why: "Recently beating large caps clearly; short-term momentum is present."}
+      - {range: "-5 to 5", label: In line, tone: neutral, why: "Moving roughly with the Nifty."}
+      - {range: "< -5", label: Lagging, tone: caution, why: "Recently weaker than large caps."}
+    read_with: [excess_vs_nifty50_63d, rs_delta_5]
+    read_with_why: "1-month turning positive while 3-month is still negative often marks an emerging turnaround."
+    definition_sql_ref: "indicators_daily.excess_vs_nifty50_21d"
+
+  - key: excess_vs_nifty50_63d
+    plain_name: Excess return vs Nifty 50 (3 months)
+    unit: pct_points
+    measures: "Stock's 63-session return minus the Nifty 50 return over the same period."
+    zones:
+      - {range: ">= 10", label: Outperforming, tone: good, why: "Sustained outperformance over large caps."}
+      - {range: "-10 to 10", label: In line, tone: neutral, why: "No meaningful edge over large caps."}
+      - {range: "< -10", label: Lagging, tone: bad, why: "Sustained underperformance."}
+    read_with: [excess_vs_midsml400_63d, excess_vs_nifty50_21d]
+    read_with_why: "For mid and small caps the MidSmallcap 400 comparison is the fairer yardstick; use Nifty as a second view."
+    definition_sql_ref: "indicators_daily.excess_vs_nifty50_63d"
+
+  - key: rs_vs_sector_index_63d
+    plain_name: Excess return vs own sector index (3 months)
+    unit: pct_points
+    measures: "Stock's 63-session return minus its NSE sector index return (e.g. Nifty Pharma for a pharma stock). Shows if it leads or lags its own group."
+    zones:
+      - {range: ">= 5", label: Group leader, tone: good, why: "Stronger than its own sector; the best stocks in the best groups make the biggest moves."}
+      - {range: "-5 to 5", label: In line, tone: neutral, why: "Moving with its sector."}
+      - {range: "< -5", label: Group laggard, tone: caution, why: "Weaker than its own sector; if the sector is hot, a stronger peer is probably a better trade."}
+    read_with: [rrg_quadrant, rs_percentile]
+    read_with_why: "Ideal is a leading group (RRG Leading) and a stock leading within it."
+    caveats: "NULL where NSE has no matching sector index (a large share of stocks)."
+    definition_sql_ref: "indicators_daily.rs_vs_sector_index_63d"
+
+  - key: change_1d_pct
+    plain_name: Change today
+    unit: pct
+    measures: "Today's close versus the previous session's close, in %. Not close versus open."
+    zones:
+      - {range: ">= 3", label: Strong up, tone: good, why: "A big up day; on high volume it can mark a breakout."}
+      - {range: "-3 to 3", label: Normal, tone: neutral, why: "Ordinary daily move."}
+      - {range: "< -3", label: Strong down, tone: bad, why: "A big down day; on high volume it can mean distribution or a failed breakout."}
+    read_with: [rvol, circuit_band]
+    read_with_why: "A price move only carries weight when volume confirms it; check whether it hit the circuit limit."
+    caveats: "Split and bonus adjusted, so ex-dates do not show fake crashes."
+    definition_sql_ref: "prices_daily.close / prev_close - 1"
+
+  - key: rvol
+    plain_name: Relative volume
+    unit: x
+    measures: "Today's traded volume divided by the average daily volume of the prior 20 sessions. 2.0x means twice the usual volume."
+    zones:
+      - {range: ">= 2", label: Heavy, tone: good, why: "Strong interest. A breakout on this volume is more likely to be real (big buyers involved)."}
+      - {range: "1.5-2", label: Above average, tone: good, why: "Enough volume to confirm a breakout (the follow-through test uses 1.5x)."}
+      - {range: "0.8-1.5", label: Normal, tone: neutral, why: "Ordinary activity; a breakout here is less convincing."}
+      - {range: "< 0.8", label: Quiet, tone: neutral, why: "Low volume. Bad on a breakout day, but good inside a base: it means sellers have dried up."}
+    read_with: [change_1d_pct, delivery_pct, vdu_ratio]
+    read_with_why: "High RVOL on an up day with high delivery is accumulation; high RVOL on a down day is distribution."
+    definition_sql_ref: "indicators_daily.rvol"
+
+  - key: delivery_pct
+    plain_name: Delivery %
+    unit: pct
+    measures: "Share of today's traded quantity that was actually taken into demat (delivered) rather than squared off intraday. From NSE's official bhavcopy."
+    zones:
+      - {range: ">= 60", label: High delivery, tone: good, why: "Most buyers are holding overnight; suggests investors, not day traders, are active."}
+      - {range: "35-60", label: Typical, tone: neutral, why: "Normal mix of investors and traders."}
+      - {range: "< 35", label: Speculative, tone: caution, why: "Mostly intraday churn; big price moves on low delivery often fade."}
+    read_with: [delivery_vs_20d, rvol]
+    read_with_why: "Delivery varies a lot by stock, so compare against its own 20-day average; high delivery on high volume matters most."
+    caveats: "NULL for BE/BZ series (trade-to-trade), shown as '—', never 0%."
+    definition_sql_ref: "prices_daily.delivery_pct"
+
+  - key: delivery_vs_20d
+    plain_name: Delivery % vs its 20-day average
+    unit: pct_points
+    measures: "Today's delivery % minus the stock's own average delivery % over the last 20 sessions."
+    zones:
+      - {range: ">= +15", label: Delivery spike, tone: good, why: "Unusually many buyers are holding; on an up day this points to accumulation."}
+      - {range: "-10 to +15", label: Normal, tone: neutral, why: "In line with the stock's usual pattern."}
+      - {range: "< -10", label: Low, tone: caution, why: "Today's move was driven by intraday trading more than usual; treat it with suspicion."}
+    read_with: [delivery_pct, change_1d_pct]
+    read_with_why: "Delivery spike plus up day is accumulation; delivery spike plus down day can be holders exiting."
+    definition_sql_ref: "App/services/stock.py:delivery_vs_20d"
+
+  - key: adr_20_pct
+    plain_name: Average daily range
+    unit: pct
+    measures: "Average of (high / low - 1) over the last 20 sessions, in %. How much the stock typically moves inside one day."
+    zones:
+      - {range: ">= 5", label: Very volatile, tone: caution, why: "Big daily swings; you need a wider stop and fewer shares for the same ₹ risk."}
+      - {range: "3-5", label: Swing-friendly, tone: good, why: "Enough movement to make swing trading worthwhile without extreme noise."}
+      - {range: "< 3", label: Slow, tone: neutral, why: "Quiet mover; gains per trade tend to be small unless it breaks out."}
+    read_with: [atr_pct, risk_pct]
+    read_with_why: "A stop tighter than one day's typical range will be hit by normal noise."
+    definition_sql_ref: "indicators_daily.adr_pct"
+
+  - key: atr_pct
+    plain_name: Average true range %
+    unit: pct
+    measures: "14-day average true range (Wilder), which includes overnight gaps, divided by the close. The typical daily move including gaps."
+    zones:
+      - {range: ">= 5", label: High, tone: caution, why: "Large typical moves; size down to keep ₹ risk constant."}
+      - {range: "2-5", label: Normal, tone: neutral, why: "Normal volatility for NSE mid and small caps."}
+      - {range: "< 2", label: Low, tone: good, why: "Tight, quiet trading. Often seen just before a breakout from a base."}
+    read_with: [adr_20_pct, candle_range_pct]
+    read_with_why: "ATR shrinking over a base signals the contraction that precedes many breakouts."
+    definition_sql_ref: "indicators_daily.atr_pct"
+
+  - key: trend_score
+    plain_name: Trend score
+    unit: rank_0_100
+    measures: "Composite 0-100 score of how cleanly the stock is trending up: price vs its 10/20/50/200-day EMAs, whether those averages are stacked and rising, and distance from the 52-week high."
+    zones:
+      - {range: ">= 75", label: Strong uptrend, tone: good, why: "Everything is aligned upward; best backdrop for swing entries."}
+      - {range: "50-75", label: Uptrend, tone: good, why: "Mostly aligned with a soft spot."}
+      - {range: "25-50", label: Mixed, tone: neutral, why: "Trend unclear or basing."}
+      - {range: "< 25", label: Downtrend, tone: bad, why: "Price below its averages; buying here is bottom-fishing, not swing trading."}
+    read_with: [trend_template_pass_n, rs_percentile]
+    read_with_why: "Trend score shows structure; the strength rank shows whether it is beating peers."
+    definition_sql_ref: "indicators_daily.trend_score"
+
+  - key: trend_template_pass_n
+    plain_name: Minervini trend template (checks passed)
+    unit: count
+    measures: "How many of Mark Minervini's 8 trend-template checks pass: price above 150/200-day averages, 150 above 200, 200 rising, 50 above 150 and 200, price above 50, at least 30% above 52-week low, within 25% of 52-week high, strength rank >= 70."
+    zones:
+      - {range: "8", label: Full pass, tone: good, why: "Textbook Stage-2 uptrend. This is where Minervini-style breakouts are taken."}
+      - {range: "6-7", label: Near pass, tone: neutral, why: "Close; check which rule fails. Often strength rank or distance from high."}
+      - {range: "<= 5", label: Fail, tone: bad, why: "Not in a confirmed uptrend. Breakouts here have lower odds."}
+    read_with: [stage2_count, rs_percentile]
+    read_with_why: "Use the rule debugger to see which check failed; a failing RS check alone is less serious than a failing 200-day check."
+    caveats: "Checks needing a 200-day average fail closed (count as not passed) for stocks with too little history."
+    definition_sql_ref: "indicators_daily.trend_template_pass_n"
+
+  - key: away_52w_high_pct
+    plain_name: Distance below 52-week high
+    unit: pct
+    measures: "How far the close is below the 52-week high, in %. 0 means at the high."
+    zones:
+      - {range: "<= 5", label: Near high, tone: good, why: "Close to the high; little overhead supply from trapped buyers, so a breakout can run."}
+      - {range: "5-25", label: Pulled back, tone: neutral, why: "Normal base depth. Within the template's 25% limit."}
+      - {range: "> 25", label: Far from high, tone: bad, why: "Many holders above are waiting to sell at break-even; rallies meet supply."}
+    read_with: [away_52w_low_pct, rs_percentile]
+    read_with_why: "Near the high and far above the low is the profile of a leader."
+    definition_sql_ref: "indicators_daily.away_52w_high_pct"
+
+  - key: away_52w_low_pct
+    plain_name: Distance above 52-week low
+    unit: pct
+    measures: "How far the close is above the 52-week low, in %."
+    zones:
+      - {range: ">= 30", label: Well off lows, tone: good, why: "Meets the template's 30% rule; the stock has proven buyers."}
+      - {range: "10-30", label: Recovering, tone: neutral, why: "Bouncing but not yet a proven uptrend."}
+      - {range: "< 10", label: Near low, tone: bad, why: "Close to the low; it is in a downtrend, not a swing-long candidate."}
+    read_with: [away_52w_high_pct]
+    read_with_why: "Together they show where the price sits in its yearly range."
+    definition_sql_ref: "indicators_daily.away_52w_low_pct"
+
+  - key: away_10ema_pct
+    plain_name: Distance from 10-day average
+    unit: pct
+    measures: "How far the close is above (+) or below (-) the stock's 10-day EMA, in %."
+    zones:
+      - {range: "> 8", label: Extended, tone: caution, why: "Stretched far above its short-term average; buying here risks a pullback that hits your stop. Wait for it to come back."}
+      - {range: "0-8", label: Riding, tone: good, why: "Holding just above the 10 EMA; strong stocks ride this line."}
+      - {range: "-3 to 0", label: Testing, tone: neutral, why: "Touching the 10 EMA; a bounce here is a Darvas 10 EMA pullback entry."}
+      - {range: "< -3", label: Below, tone: caution, why: "Lost the short-term trend; wait for it to reclaim the average."}
+    read_with: [squeeze_pct, adr_20_pct]
+    read_with_why: "Judge 'extended' relative to the stock's normal daily range; 8% is small for a 6%-ADR stock."
+    caveats: "Thresholds are starting points, calibrated later."
+    definition_sql_ref: "App/services/stock.py:away_10ema_pct"
+
+  - key: market_cap_cr
+    plain_name: Market cap
+    unit: crore
+    measures: "Company's total market value in ₹ crore (shares outstanding x price), as of the chosen date."
+    zones:
+      - {range: ">= 20000", label: Large, tone: neutral, why: "Big, liquid, usually slower movers."}
+      - {range: "5000-20000", label: Mid, tone: neutral, why: "Mid-cap territory; often the sweet spot for swing trends."}
+      - {range: "1000-5000", label: Small, tone: neutral, why: "Faster moves, higher risk; check liquidity."}
+      - {range: "< 1000", label: Below floor, tone: caution, why: "Below the app's ₹1,000 Cr default floor; thinner trading, easier to manipulate, gaps more. Hidden unless you switch the floor."}
+    read_with: [adv_cr_20d]
+    read_with_why: "Market cap says how big the company is; ADV says whether you can actually get in and out."
+    caveats: "Point-in-time: historical dates use that day's market cap, not today's."
+    definition_sql_ref: "security_reference_daily.market_cap_cr"
+
+  - key: adv_cr_20d
+    plain_name: Average daily traded value (20 days)
+    unit: crore
+    measures: "Average ₹ value traded per day over the last 20 sessions, in crore. The practical measure of liquidity."
+    zones:
+      - {range: ">= 25", label: Liquid, tone: good, why: "Easy to enter and exit without moving the price."}
+      - {range: "5-25", label: Adequate, tone: neutral, why: "Fine for typical retail size; use limit orders."}
+      - {range: "< 5", label: Thin, tone: caution, why: "Your order can move the price and exits in a fall can be hard. Keep position small."}
+    read_with: [market_cap_cr, deal_vs_adv]
+    read_with_why: "Also used to judge how big a block or bulk deal is relative to normal trading."
+    definition_sql_ref: "indicators_daily.adv_cr_20d"
+
+  - key: circuit_band
+    plain_name: Price band (circuit limit)
+    unit: pct
+    measures: "NSE's daily price band for the stock (2%, 5%, 10%, 20% or none): the maximum it may move from the previous close in one day."
+    zones:
+      - {range: "none / 20", label: Wide, tone: good, why: "Price can move freely; stops and breakouts work normally."}
+      - {range: "10", label: Moderate, tone: neutral, why: "Limits big days; a stock locked at the limit may gap again next day."}
+      - {range: "2 / 5", label: Tight, tone: caution, why: "Surveillance or small-cap band. Stock can get stuck at circuit with no sellers or no buyers, so you may not be able to exit at your stop."}
+    read_with: [change_1d_pct, adv_cr_20d]
+    read_with_why: "A move equal to the band means it hit the circuit; liquidity then disappears on that side."
+    definition_sql_ref: "security_reference_daily.price_band"
+
+  # ---------------------------------------------------------------------------
+  # Setups
+  # ---------------------------------------------------------------------------
+  - key: darvas_box_top
+    plain_name: Darvas box top
+    unit: price
+    measures: "Upper edge of the current Darvas box: a recent high the stock has failed to exceed for several sessions. A close above it is the breakout."
+    zones:
+      - {range: "close > top", label: Broken out, tone: good, why: "Price has cleared the box; the setup has triggered."}
+      - {range: "close within 3% below top", label: Near trigger, tone: neutral, why: "Coiling near the lid; watch for a volume-backed close above."}
+      - {range: "close > 3% below top", label: Inside box, tone: neutral, why: "Still consolidating; no action yet."}
+    read_with: [darvas_box_bottom, rvol]
+    read_with_why: "A close through the top on RVOL of 1.5x or more is the confirmation."
+    definition_sql_ref: "setup_daily.box_top"
+
+  - key: darvas_box_bottom
+    plain_name: Darvas box bottom
+    unit: price
+    measures: "Lower edge of the current Darvas box: the lowest low since the box top was set."
+    zones:
+      - {range: "close > bottom", label: Box intact, tone: good, why: "Structure holds."}
+      - {range: "close < bottom", label: Box broken, tone: bad, why: "The base has failed; setup is void and holders should exit."}
+    read_with: [darvas_box_top, risk_pct]
+    read_with_why: "Box depth (top vs bottom) sets how far away a logical stop is."
+    definition_sql_ref: "setup_daily.box_bottom"
+
+  - key: squeeze_pct
+    plain_name: Squeeze (box top vs 10 EMA)
+    unit: pct
+    measures: "Distance between the Darvas box top and the 10-day EMA, in %. Small means the average has caught up to the box, i.e. the stock is coiled tightly."
+    zones:
+      - {range: "<= 3", label: Tight squeeze, tone: good, why: "Price, box and short-term trend have converged; a breakout needs only a small move and the stop can be close."}
+      - {range: "3-6", label: Moderate, tone: neutral, why: "Coiling but not yet tight."}
+      - {range: "> 6", label: Loose, tone: caution, why: "Box top is far above the average; the stop will be wide or the setup needs more time."}
+    read_with: [candle_range_pct, risk_pct]
+    read_with_why: "A tight squeeze with small candles is the quiet before a breakout."
+    caveats: "Thresholds are starting points, calibrated later."
+    definition_sql_ref: "setup_daily.squeeze_pct"
+
+  - key: candle_range_pct
+    plain_name: Today's candle range
+    unit: pct
+    measures: "Today's high minus low as a % of the close."
+    zones:
+      - {range: "< 0.6 x ADR", label: Tight, tone: good, why: "Narrow, quiet day; supply is drying up (like NR7 or inside bars)."}
+      - {range: "0.6-1.5 x ADR", label: Normal, tone: neutral, why: "Typical day."}
+      - {range: "> 1.5 x ADR", label: Wide, tone: caution, why: "Big-range day; on a breakout with volume that is good, inside a base it is noisy."}
+    read_with: [adr_20_pct, squeeze_pct]
+    read_with_why: "Compare to the stock's own average daily range, not a fixed number."
+    definition_sql_ref: "App/services/stock.py:candle_range_pct"
+
+  - key: darvas_10ema_flavor
+    plain_name: Darvas 10 EMA type
+    unit: state
+    measures: "How the stock relates to its 10-day EMA inside the Darvas 10 EMA queue."
+    zones:
+      - {range: Pullback, label: Pullback, tone: good, why: "An uptrending stock dipped to its 10 EMA and is holding; lowest-risk entry because the stop is close."}
+      - {range: Trace-back, label: Trace-back, tone: neutral, why: "Price is drifting back toward the 10 EMA after a push; wait for it to hold before entering."}
+      - {range: Catch-up, label: Catch-up, tone: caution, why: "The 10 EMA is rising to meet a sideways price; fine, but the setup needs a breakout to confirm."}
+    read_with: [away_10ema_pct, trigger_price]
+    read_with_why: "Pullback flavour with price within ~1% of the 10 EMA gives the tightest risk."
+    definition_sql_ref: "setup_daily.flavor"
+
+  - key: trigger_price
+    plain_name: Trigger (entry) price
+    unit: price
+    measures: "The price that activates the setup: box top for Darvas Squeeze, last contraction high for VCP, prior session high for Darvas 10 EMA (proposed)."
+    zones:
+      - {range: "not reached", label: Waiting, tone: neutral, why: "Setup is pending. Place a buy-stop slightly above, or wait for a close above."}
+      - {range: "crossed", label: Triggered, tone: good, why: "Price traded above the trigger; the trade is live from here."}
+      - {range: "NULL", label: Not defined, tone: neutral, why: "Shown as '—' where the geometry is not yet confirmed (Darvas 10 EMA until user sign-off)."}
+    read_with: [stop_price, risk_pct, distance_to_trigger_pct]
+    read_with_why: "Trigger and stop together define your risk per share and so your position size."
+    definition_sql_ref: "setup_daily.trigger"
+
+  - key: stop_price
+    plain_name: Stop price
+    unit: price
+    measures: "Where the setup is proven wrong and you exit: box bottom, last contraction low (VCP), or pullback low (Darvas 10 EMA, proposed)."
+    zones:
+      - {range: "above", label: Safe, tone: good, why: "Close is above the stop; setup still valid."}
+      - {range: "hit", label: Stopped, tone: bad, why: "Price traded below the stop; exit. Holding a loser past the stop is how small losses become big."}
+    read_with: [trigger_price, risk_pct]
+    read_with_why: "Your ₹ risk divided by (trigger - stop) gives the number of shares."
+    definition_sql_ref: "setup_daily.stop"
+
+  - key: risk_pct
+    plain_name: Risk to stop
+    unit: pct
+    measures: "Distance from trigger to stop as a % of the trigger: how much you lose per share if the stop is hit."
+    zones:
+      - {range: "<= 5", label: Tight, tone: good, why: "Small loss if wrong; allows a larger position for the same ₹ risk."}
+      - {range: "5-8", label: Acceptable, tone: neutral, why: "Normal for NSE mid and small caps."}
+      - {range: "> 8", label: Wide, tone: bad, why: "Flagged. A loss this big needs a large gain to recover and forces a tiny position. Wait for a tighter base."}
+    read_with: [adr_20_pct, stop_price]
+    read_with_why: "A risk smaller than one day's average range will likely be hit by noise; too wide wastes capital."
+    definition_sql_ref: "setup_daily.risk_pct"
+
+  - key: distance_to_trigger_pct
+    plain_name: Distance to trigger
+    unit: pct
+    measures: "How far the current close is below the trigger, in %."
+    zones:
+      - {range: "<= 2", label: Ready, tone: good, why: "Could trigger tomorrow; set the alert or buy-stop."}
+      - {range: "2-5", label: Close, tone: neutral, why: "A few good days away."}
+      - {range: "> 5", label: Far, tone: neutral, why: "Needs time; keep on the watchlist."}
+      - {range: "< 0", label: Past trigger, tone: caution, why: "Already above the trigger; buying now means more risk than the setup planned. Don't chase beyond ~3%."}
+    read_with: [trigger_price, rvol]
+    read_with_why: "Near trigger with volume building often precedes the breakout."
+    definition_sql_ref: "setup_daily.distance_pct"
+
+  - key: setup_age_sessions
+    plain_name: Setup age
+    unit: sessions
+    measures: "Sessions since the stock first entered this setup queue."
+    zones:
+      - {range: "0", label: NEW, tone: good, why: "Appeared today; freshest idea."}
+      - {range: "1-10", label: Active, tone: neutral, why: "Normal lifespan of a setup."}
+      - {range: "> 10", label: Stale, tone: caution, why: "Has not triggered in a while; the base may be failing or the market ignoring it."}
+    read_with: [distance_to_trigger_pct]
+    read_with_why: "An old setup that is still near its trigger can be fine; an old one drifting away is likely dead."
+    caveats: "Age resets if the stock leaves the queue for 5 or more sessions."
+    definition_sql_ref: "setup_daily.first_seen"
+
+  - key: vcp_contractions
+    plain_name: VCP contractions (T count)
+    unit: count
+    measures: "Number of successive pullbacks in the base, each shallower than the one before (e.g. 20%, 12%, 6%). This is Minervini's Volatility Contraction Pattern."
+    zones:
+      - {range: ">= 3", label: Mature, tone: good, why: "Three or more shrinking pullbacks show sellers being absorbed each time."}
+      - {range: "2", label: Forming, tone: neutral, why: "Contraction started but not yet convincing."}
+      - {range: "< 2", label: No pattern, tone: bad, why: "No sequence of shrinking pullbacks; not a VCP."}
+    read_with: [vcp_depth_pct, vdu_ratio]
+    read_with_why: "The last contraction should be small and on dried-up volume."
+    caveats: "Every depth must shrink, not just the first three; a widening contraction breaks the count."
+    definition_sql_ref: "Scripts/minervini_geometry.py:detect_contractions"
+
+  - key: vcp_depth_pct
+    plain_name: Last contraction depth
+    unit: pct
+    measures: "Depth of the most recent (smallest) pullback in the VCP, high to low, in %."
+    zones:
+      - {range: "<= 8", label: Tight, tone: good, why: "Tight final contraction; gives a close stop and shows supply is nearly gone."}
+      - {range: "8-15", label: Moderate, tone: neutral, why: "Acceptable but the stop will be wider."}
+      - {range: "> 15", label: Loose, tone: caution, why: "Still volatile; wait for another tighter contraction."}
+    read_with: [vcp_contractions, risk_pct]
+    read_with_why: "The last depth roughly equals your risk if you buy at the pivot with a stop at the contraction low."
+    definition_sql_ref: "setup_daily.vcp_depth_pct"
+
+  - key: vdu_ratio
+    plain_name: Volume dry-up
+    unit: ratio
+    measures: "Average volume of the last 3 sessions divided by the 20-session average. Below 1 means trading has gone quiet."
+    zones:
+      - {range: "<= 0.8", label: Dry-up, tone: good, why: "Sellers have stepped away inside the base; the next push up can break out easily."}
+      - {range: "0.8-1.2", label: Normal, tone: neutral, why: "No clear dry-up."}
+      - {range: "> 1.2", label: Active, tone: caution, why: "Heavy volume inside the base; could be distribution. Check price direction."}
+    read_with: [vcp_contractions, rvol]
+    read_with_why: "The ideal VCP shows dry-up in the base followed by a high-RVOL breakout."
+    definition_sql_ref: "setup_daily.vdu_ratio"
+
+  - key: vcp_score
+    plain_name: VCP quality score
+    unit: rank_0_100
+    measures: "0-100 composite of VCP quality: number of contractions, tightness of the last one, volume dry-up, and trend strength."
+    zones:
+      - {range: ">= 70", label: High quality, tone: good, why: "Textbook pattern on most checks."}
+      - {range: "40-70", label: Fair, tone: neutral, why: "Some elements missing; check the detail panel."}
+      - {range: "< 40", label: Poor, tone: bad, why: "Weak pattern; odds are lower."}
+    read_with: [vcp_contractions, vdu_ratio, risk_pct]
+    read_with_why: "Look at the components, not just the score; a high score with risk above 8% is still a wide trade."
+    caveats: "Scoring weights are starting points, calibrated against outcomes later."
+    definition_sql_ref: "indicators_daily.vcp_score"
+
+  # ---------------------------------------------------------------------------
+  # Groups
+  # ---------------------------------------------------------------------------
+  - key: rs_ratio
+    plain_name: RS-Ratio (relative trend)
+    unit: x
+    measures: "JdK RS-Ratio: a smoothed, normalised measure of the group's performance relative to the benchmark. 100 means in line; above 100 is outperforming."
+    zones:
+      - {range: "> 101", label: Outperforming, tone: good, why: "The group has been beating the benchmark."}
+      - {range: "99-101", label: In line, tone: neutral, why: "Moving with the benchmark."}
+      - {range: "< 99", label: Underperforming, tone: bad, why: "The group has been lagging."}
+    read_with: [rs_momentum, rrg_quadrant]
+    read_with_why: "RS-Ratio is where the group stands; RS-Momentum is which way it is heading. Together they place it on the RRG."
+    definition_sql_ref: "group_daily.rs_ratio"
+
+  - key: rs_momentum
+    plain_name: RS-Momentum (relative direction)
+    unit: x
+    measures: "JdK RS-Momentum: the rate of change of RS-Ratio, normalised around 100. Above 100 means relative strength is improving."
+    zones:
+      - {range: "> 101", label: Improving, tone: good, why: "Relative strength is accelerating; the group is attracting money."}
+      - {range: "99-101", label: Flat, tone: neutral, why: "No change in relative direction."}
+      - {range: "< 99", label: Fading, tone: caution, why: "Relative strength is decelerating; leaders may be rotating out."}
+    read_with: [rs_ratio, rrg_quadrant]
+    read_with_why: "Momentum turns before the ratio does, so it is an early warning."
+    definition_sql_ref: "group_daily.rs_momentum"
+
+  - key: rrg_quadrant
+    plain_name: Rotation quadrant (RRG)
+    unit: state
+    measures: "Position on the Relative Rotation Graph from RS-Ratio and RS-Momentum. Groups typically rotate clockwise: Improving, Leading, Weakening, Lagging."
+    zones:
+      - {range: Leading, label: Leading, tone: good, why: "Outperforming and still gaining. Best place to look for setups."}
+      - {range: Weakening, label: Weakening, tone: caution, why: "Still outperforming but losing steam. Hold winners, be careful with new entries."}
+      - {range: Lagging, label: Lagging, tone: bad, why: "Underperforming and falling further. Avoid."}
+      - {range: Improving, label: Improving, tone: neutral, why: "Still underperforming but gaining. Next candidates for Leading; watch closely."}
+    read_with: [group_rank, rs_momentum]
+    read_with_why: "A group moving from Improving into Leading with a rising rank is the classic rotation entry."
+    caveats: "Not every group rotates cleanly; tails can reverse. Days in quadrant shows how established it is."
+    definition_sql_ref: "group_daily.rrg_quadrant"
+
+  - key: group_rank
+    plain_name: Group rank
+    unit: count
+    measures: "Rank of this group among all groups at the same taxonomy level by performance versus the benchmark. 1 is best."
+    zones:
+      - {range: "top 20%", label: Top groups, tone: good, why: "Where leadership is; most big winners come from top-ranked groups."}
+      - {range: "middle 60%", label: Middle, tone: neutral, why: "Average group; stock selection matters."}
+      - {range: "bottom 20%", label: Bottom groups, tone: bad, why: "Money is leaving; even good charts struggle."}
+    read_with: [group_rank_delta_5, group_rank_delta_20]
+    read_with_why: "Rank plus its change shows whether the group is rising into leadership or falling out."
+    definition_sql_ref: "group_daily.rank"
+
+  - key: group_rank_delta_5
+    plain_name: Group rank change (5 days)
+    unit: count
+    measures: "How many places the group's rank moved over 5 sessions. Positive means it climbed."
+    zones:
+      - {range: ">= +5", label: Climbing, tone: good, why: "Fast improvement; early rotation into the group."}
+      - {range: "-4 to +4", label: Stable, tone: neutral, why: "No meaningful change."}
+      - {range: "<= -5", label: Dropping, tone: caution, why: "Losing favour quickly."}
+    read_with: [group_rank, group_rank_delta_20]
+    read_with_why: "A 5-day jump confirmed by a 20-day climb is more reliable than a one-week blip."
+    caveats: "Place thresholds depend on how many groups exist at the level; starting points."
+    definition_sql_ref: "group_daily.rank_delta_5"
+
+  - key: group_rank_delta_20
+    plain_name: Group rank change (20 days)
+    unit: count
+    measures: "How many places the group's rank moved over 20 sessions (about a month)."
+    zones:
+      - {range: ">= +10", label: Rising, tone: good, why: "Sustained rotation into the group."}
+      - {range: "-9 to +9", label: Stable, tone: neutral, why: "No clear trend."}
+      - {range: "<= -10", label: Falling, tone: bad, why: "Sustained rotation out of the group."}
+    read_with: [group_rank_delta_5, rrg_quadrant]
+    read_with_why: "Sustained rank gains should show up as a move toward Leading on the RRG."
+    definition_sql_ref: "group_daily.rank_delta_20"
+
+  - key: group_excess_21d
+    plain_name: Group excess return (1 month)
+    unit: pct_points
+    measures: "Group's 21-session return (equal- or cap-weighted) minus the benchmark (MidSmallcap 400 or Nifty 50)."
+    zones:
+      - {range: ">= 3", label: Outperforming, tone: good, why: "Group is beating the market recently."}
+      - {range: "-3 to 3", label: In line, tone: neutral, why: "Moving with the market."}
+      - {range: "< -3", label: Lagging, tone: bad, why: "Group is behind the market."}
+    read_with: [group_excess_63d, rs_momentum]
+    read_with_why: "Short-term turning positive while 3-month is negative marks an Improving group."
+    definition_sql_ref: "group_daily.excess_21d"
+
+  - key: group_excess_63d
+    plain_name: Group excess return (3 months)
+    unit: pct_points
+    measures: "Group's 63-session return minus the benchmark."
+    zones:
+      - {range: ">= 5", label: Outperforming, tone: good, why: "Sustained group leadership."}
+      - {range: "-5 to 5", label: In line, tone: neutral, why: "No lasting edge."}
+      - {range: "< -5", label: Lagging, tone: bad, why: "Sustained weakness."}
+    read_with: [group_excess_21d, rs_ratio]
+    read_with_why: "3-month excess roughly corresponds to RS-Ratio being above or below 100."
+    definition_sql_ref: "group_daily.excess_63d"
+
+  - key: group_breadth_50
+    plain_name: "Group breadth: % above 50-day"
+    unit: pct
+    measures: "Share of the group's members closing above their 50-day EMA."
+    zones:
+      - {range: "> 60", label: Broad, tone: good, why: "Most members are rising; the group move is real, not one or two stocks."}
+      - {range: "40-60", label: Mixed, tone: neutral, why: "Half the group participates."}
+      - {range: "< 40", label: Narrow, tone: bad, why: "Few members participating; group strength may rest on one heavyweight."}
+    read_with: [concentration_top3, group_breadth_200]
+    read_with_why: "Strong group return with narrow breadth and high concentration is fragile."
+    definition_sql_ref: "group_daily.breadth_50"
+
+  - key: group_breadth_200
+    plain_name: "Group breadth: % above 200-day"
+    unit: pct
+    measures: "Share of the group's members closing above their 200-day EMA."
+    zones:
+      - {range: "> 60", label: Healthy, tone: good, why: "Group is in a long-term uptrend across most members."}
+      - {range: "40-60", label: Mixed, tone: neutral, why: "Long-term picture is split."}
+      - {range: "< 40", label: Weak, tone: bad, why: "Most members in long-term downtrends."}
+    read_with: [group_breadth_50]
+    read_with_why: "50-day breadth rising above 200-day breadth signals a fresh recovery in the group."
+    definition_sql_ref: "group_daily.breadth_200"
+
+  - key: group_trend_template_pct
+    plain_name: "Group: % passing trend template"
+    unit: pct
+    measures: "Share of the group's members passing all 8 Minervini trend-template checks."
+    zones:
+      - {range: ">= 30", label: Rich in leaders, tone: good, why: "Many members are in textbook uptrends; plenty of setups to pick from."}
+      - {range: "10-30", label: Some leaders, tone: neutral, why: "A few strong names; focus on those."}
+      - {range: "< 10", label: Few leaders, tone: bad, why: "Hardly any members in confirmed uptrends."}
+    read_with: [trend_template_pass_n, group_breadth_50]
+    read_with_why: "Use it to find groups where individual template passes cluster."
+    caveats: "Bands are starting points, calibrated later."
+    definition_sql_ref: "group_daily.trend_template_pct"
+
+  - key: turnover_share_5d
+    plain_name: Share of market turnover (5 days)
+    unit: pct
+    measures: "Group's ₹ traded value as a % of total market traded value, averaged over 5 sessions. Where the money is being traded."
+    zones:
+      - {range: "above own 20d avg", label: Attracting money, tone: good, why: "Traders are concentrating on this group more than usual."}
+      - {range: "near own 20d avg", label: Normal, tone: neutral, why: "Usual share of activity."}
+      - {range: "below own 20d avg", label: Losing attention, tone: caution, why: "Activity is moving elsewhere."}
+    read_with: [turnover_share_delta_20d, group_excess_21d]
+    read_with_why: "Rising turnover share with positive returns is inflow; rising share with falling prices is outflow."
+    caveats: "Turnover measures activity, not direction; one big stock can swing it."
+    definition_sql_ref: "group_daily.turnover_share_5d"
+
+  - key: turnover_share_delta_20d
+    plain_name: Turnover share change (vs 20 days)
+    unit: pct_points
+    measures: "5-day average turnover share minus the 20-day average turnover share."
+    zones:
+      - {range: ">= +0.5", label: Rising, tone: good, why: "Money flow into the group is picking up."}
+      - {range: "-0.5 to +0.5", label: Stable, tone: neutral, why: "No clear shift."}
+      - {range: "<= -0.5", label: Falling, tone: caution, why: "Traders are leaving the group."}
+    read_with: [turnover_share_5d, concentration_top3]
+    read_with_why: "Check concentration: a single stock's news can fake a group-wide flow."
+    caveats: "Thresholds are starting points, calibrated later."
+    definition_sql_ref: "group_daily.turnover_share_delta_20d"
+
+  - key: delivery_accumulation_days
+    plain_name: Accumulation days (10 sessions)
+    unit: count
+    measures: "Number of the last 10 sessions where the group (or stock) closed up with delivery % above its 20-day average. Up days where buyers held on."
+    zones:
+      - {range: ">= 6", label: Accumulating, tone: good, why: "Repeated up days with genuine delivery; institutions are likely building positions."}
+      - {range: "3-5", label: Neutral, tone: neutral, why: "No clear pattern."}
+      - {range: "<= 2", label: No accumulation, tone: caution, why: "Few days of committed buying."}
+    read_with: [delivery_vs_20d, rrg_quadrant]
+    read_with_why: "Accumulation in an Improving group often precedes the move to Leading."
+    definition_sql_ref: "group_daily.delivery_accumulation_days"
+
+  - key: deal_net_10s_cr
+    plain_name: Deal net (10 sessions)
+    unit: crore
+    measures: "Net ₹ crore of disclosed bulk and block deal buying minus selling across the group over the last 10 sessions."
+    zones:
+      - {range: "> 0", label: Net buying, tone: good, why: "Large disclosed buyers outweighed sellers; supportive context."}
+      - {range: "0", label: None, tone: neutral, why: "No material disclosed deals."}
+      - {range: "< 0", label: Net selling, tone: caution, why: "Large holders were sellers; supply may weigh."}
+    read_with: [turnover_share_delta_20d, deal_event_type]
+    read_with_why: "Context only: in the audit backtest deal buying alone did not predict returns. Check the event type (transfers and churn are not real flow)."
+    definition_sql_ref: "group_daily.deal_net_10s_cr"
+
+  - key: concentration_top3
+    plain_name: Top-3 concentration
+    unit: pct
+    measures: "Share of the group's move (or turnover) explained by its three biggest contributors."
+    zones:
+      - {range: "< 50", label: Broad, tone: good, why: "The group move is spread across many stocks."}
+      - {range: "50-75", label: Concentrated, tone: caution, why: "A few names drive the group; check them individually."}
+      - {range: "> 75", label: Very concentrated, tone: bad, why: "The group's numbers mostly reflect one to three stocks; don't treat it as a sector trend."}
+    read_with: [group_breadth_50, turnover_share_5d]
+    read_with_why: "High concentration plus narrow breadth means the group label is misleading."
+    definition_sql_ref: "group_daily.concentration_top3"
+
+  # ---------------------------------------------------------------------------
+  # Deals
+  # ---------------------------------------------------------------------------
+  - key: deal_net_cr
+    plain_name: Deal net value
+    unit: crore
+    measures: "Disclosed bulk/block deal buying minus selling in this stock for the session, in ₹ crore, after removing duplicate bulk-and-block prints."
+    zones:
+      - {range: "> 0", label: Net buy, tone: good, why: "Disclosed large buyers outweighed sellers."}
+      - {range: "0", label: Flat, tone: neutral, why: "Buying and selling offset (often a transfer)."}
+      - {range: "< 0", label: Net sell, tone: caution, why: "Large holders sold; supply entering."}
+    read_with: [deal_vs_adv, deal_event_type]
+    read_with_why: "Size relative to normal trading and the type of deal matter more than the raw ₹ figure."
+    caveats: "Honest finding: in the audit backtest, FII/DII net buying of at least 0.3x ADV was followed by T+5 -1.13% and T+20 -3.14% (n=21) vs baseline +0.29%/+2.08%. Deals are context, not a buy signal."
+    definition_sql_ref: "deal_session_net.net_cr"
+
+  - key: deal_vs_adv
+    plain_name: Deal size vs normal trading
+    unit: x
+    measures: "Deal net value divided by the stock's 20-day average daily traded value. 1.0x means the deal equals a full normal day's trading."
+    zones:
+      - {range: ">= 1", label: Very large, tone: neutral, why: "Material relative to liquidity; worth understanding who and why."}
+      - {range: "0.3-1", label: Significant, tone: neutral, why: "Noticeable relative to normal volume."}
+      - {range: "< 0.3", label: Small, tone: neutral, why: "Minor relative to normal trading; little price impact."}
+    read_with: [deal_net_cr, adv_cr_20d]
+    read_with_why: "Large relative size makes the deal notable, but the backtest shows it still does not predict direction by itself."
+    caveats: "NULL when ADV is missing. Tone kept neutral on purpose: size is not an edge."
+    definition_sql_ref: "deal_session_net.vs_adv"
+
+  - key: buying_houses
+    plain_name: Distinct buyers
+    unit: count
+    measures: "Number of different institutions or houses on the buy side (sellers are not counted)."
+    zones:
+      - {range: ">= 3", label: Several buyers, tone: good, why: "Independent buyers agreeing is more meaningful than one."}
+      - {range: "2", label: Two buyers, tone: neutral, why: "Some agreement."}
+      - {range: "1", label: Single buyer, tone: neutral, why: "One house's view; check whether it is a known churner."}
+    read_with: [persistence_days, deal_event_type]
+    read_with_why: "Multiple buyers over multiple days is the most credible accumulation pattern."
+    definition_sql_ref: "deal_session_net.buying_houses"
+
+  - key: persistence_days
+    plain_name: Deal persistence
+    unit: days
+    measures: "Number of sessions in the recent window on which the same side (buy or sell) showed up in disclosed deals for this stock."
+    zones:
+      - {range: ">= 3", label: Persistent, tone: good, why: "Repeated buying suggests a deliberate position build, not a one-off."}
+      - {range: "2", label: Repeated, tone: neutral, why: "Some follow-up."}
+      - {range: "1", label: One-off, tone: neutral, why: "Single event; often a placement or transfer."}
+    read_with: [buying_houses, deal_net_cr]
+    read_with_why: "Persistence with several houses carries more weight than one large print."
+    definition_sql_ref: "deal_session_net.persistence_days"
+
+  - key: deal_vwap_vs_cmp
+    plain_name: Deal price vs current price
+    unit: pct
+    measures: "Current market price versus the volume-weighted average deal price, in %. Positive means the buyers are in profit."
+    zones:
+      - {range: "0-10", label: Near deal price, tone: good, why: "Price is close to where big buyers paid; that level may act as support."}
+      - {range: "> 10", label: Well above, tone: neutral, why: "Price has run away from the deal level; entering now gives no cost advantage."}
+      - {range: "< 0", label: Below deal price, tone: caution, why: "Buyers are under water; they may sell on any bounce back to their price."}
+    read_with: [deal_price_vs_close, deal_event_type]
+    read_with_why: "Deal level as support only matters if the event was genuine accumulation."
+    definition_sql_ref: "deal_session_net.vwap"
+
+  - key: deal_price_vs_close
+    plain_name: Deal price vs day's close
+    unit: pct
+    measures: "Deal price compared with that day's closing price, in %. Negative means the block was done at a discount."
+    zones:
+      - {range: ">= 0", label: At/above close, tone: good, why: "Buyer paid full price or a premium; shows eagerness."}
+      - {range: "-3 to 0", label: Small discount, tone: neutral, why: "Normal for block deals."}
+      - {range: "< -3", label: Deep discount, tone: caution, why: "Seller needed to offer a discount to find buyers; often a placement or exit."}
+    read_with: [deal_vwap_vs_cmp, deal_event_type]
+    read_with_why: "Deep discount plus placement event type usually means supply, not demand."
+    definition_sql_ref: "deal_session_net.price_vs_close"
+
+  - key: deal_event_type
+    plain_name: Deal type
+    unit: state
+    measures: "Classification of the session's deals by who traded and how."
+    zones:
+      - {range: accumulate, label: Accumulate, tone: good, why: "An existing buyer adding more; the most constructive type, but still context only."}
+      - {range: fresh, label: Fresh buyer, tone: good, why: "A new institution taking a stake."}
+      - {range: distribute, label: Distribute, tone: bad, why: "Holders selling into the market; adds supply."}
+      - {range: transfer-interse, label: Transfer / inter-se, tone: neutral, why: "Shares moved between related parties (promoter group) at matching quantity and price; not real buying or selling."}
+      - {range: placement, label: Placement, tone: caution, why: "A seller (often promoter or PE) placing shares with FII/DII; absorbed supply, often at a discount."}
+      - {range: churn, label: Churn / prop, tone: neutral, why: "Traders or prop desks buying and selling the same stock repeatedly; ignore as flow."}
+    read_with: [deal_net_cr, buying_houses]
+    read_with_why: "Only accumulate and fresh events are candidates for supportive context; FII/DII net buying alone showed no standalone edge in the audit backtest."
+    definition_sql_ref: "deal_session_net.event_type"
+
+  # ---------------------------------------------------------------------------
+  # Evidence & research
+  # ---------------------------------------------------------------------------
+  - key: sample_n
+    plain_name: Sample size
+    unit: count
+    measures: "Number of past cases behind a statistic (e.g. past setups of this type in this environment)."
+    zones:
+      - {range: ">= 100", label: Solid, tone: good, why: "Enough cases for the statistic to be reasonably stable."}
+      - {range: "30-100", label: Usable, tone: neutral, why: "Indicative but can shift with more data."}
+      - {range: "< 30", label: Insufficient sample, tone: bad, why: "Too few cases; the app shows 'insufficient sample' instead of a number because it could be luck."}
+    read_with: [hit_rate_2r, avg_r]
+    read_with_why: "Never read a hit rate or average R without its n."
+    definition_sql_ref: "App/services/evidence.py:aggregate"
+
+  - key: hit_rate_2r
+    plain_name: "Hit rate (+2R before stop)"
+    unit: pct
+    measures: "Share of past triggered setups that gained twice their initial risk (+2R) before hitting the stop, within 20 sessions."
+    zones:
+      - {range: ">= 40", label: Strong, tone: good, why: "With 2:1 payoffs, a 40%+ hit rate is clearly profitable."}
+      - {range: "33-40", label: Break-even plus, tone: neutral, why: "Around break-even at 2R; costs and slippage matter."}
+      - {range: "< 33", label: Weak, tone: bad, why: "Below the 1-in-3 needed to break even at 2R; the setup has not paid in this context."}
+    read_with: [sample_n, avg_r]
+    read_with_why: "A modest hit rate can still be profitable if average R is high."
+    definition_sql_ref: "App/services/evidence.py:aggregate"
+
+  - key: avg_r
+    plain_name: Average R
+    unit: x
+    measures: "Average outcome of past trades in multiples of initial risk (R). +0.5R means on average you made half your risk per trade."
+    zones:
+      - {range: ">= 0.5", label: Strong edge, tone: good, why: "Clearly positive expectancy."}
+      - {range: "0.1-0.5", label: Modest edge, tone: good, why: "Positive but thin; costs eat into it."}
+      - {range: "-0.1 to 0.1", label: No edge, tone: neutral, why: "Roughly break-even."}
+      - {range: "< -0.1", label: Negative, tone: bad, why: "Lost money on average in this context."}
+    read_with: [median_r, sample_n]
+    read_with_why: "If average R is much higher than median R, a few big winners carry the result."
+    definition_sql_ref: "App/services/evidence.py:aggregate"
+
+  - key: median_r
+    plain_name: Median R
+    unit: x
+    measures: "The middle outcome of past trades in R multiples: half did better, half worse."
+    zones:
+      - {range: "> 0", label: Typical win, tone: good, why: "The typical trade made money."}
+      - {range: "-0.5 to 0", label: Typical small loss, tone: neutral, why: "Normal for breakout systems: many small losses, a few big winners."}
+      - {range: "<= -0.5", label: Typical loss, tone: caution, why: "Most trades lose meaningfully; the edge depends on rare winners."}
+    read_with: [avg_r]
+    read_with_why: "Median below zero with positive average R means you must sit through many small losses."
+    definition_sql_ref: "App/services/evidence.py:aggregate"
+
+  - key: mae_pct
+    plain_name: Worst drawdown in trade (MAE)
+    unit: pct
+    measures: "Maximum adverse excursion: how far below entry the price went, at worst, during past trades (median shown)."
+    zones:
+      - {range: "<= 3", label: Clean, tone: good, why: "Winners rarely went far against you; tight stops work."}
+      - {range: "3-7", label: Normal, tone: neutral, why: "Expect some heat before the move."}
+      - {range: "> 7", label: Deep, tone: caution, why: "Trades typically went well against entry; tight stops will get shaken out."}
+    read_with: [mfe_pct, risk_pct]
+    read_with_why: "If typical MAE is bigger than your planned risk, your stop is too tight for this setup."
+    definition_sql_ref: "setup_outcomes.mae_pct"
+
+  - key: mfe_pct
+    plain_name: Best gain in trade (MFE)
+    unit: pct
+    measures: "Maximum favourable excursion: the highest gain above entry reached during past trades (median shown), whether or not it was kept."
+    zones:
+      - {range: ">= 15", label: Large, tone: good, why: "Setups typically offered big moves; consider trailing stops to capture them."}
+      - {range: "5-15", label: Moderate, tone: neutral, why: "Normal swing move."}
+      - {range: "< 5", label: Small, tone: caution, why: "Moves were small; take profits sooner."}
+    read_with: [mae_pct, avg_r]
+    read_with_why: "High MFE but low average R means gains were given back; tighten exits."
+    definition_sql_ref: "setup_outcomes.mfe_pct"
+
+  - key: analog_distance
+    plain_name: Analog similarity distance
+    unit: x
+    measures: "How different a past date (or setup) is from today, on standardised features. Lower means more similar."
+    zones:
+      - {range: "< 1", label: Close match, tone: good, why: "Past situation closely resembles today; its outcome is more relevant."}
+      - {range: "1-2", label: Loose match, tone: neutral, why: "Some resemblance; weight lightly."}
+      - {range: "> 2", label: Poor match, tone: caution, why: "Not really comparable; ignore its outcome."}
+    read_with: [forward_return_20d, sample_n]
+    read_with_why: "Look for agreement among the 10 nearest analogs; a spread of outcomes means no clear message."
+    caveats: "Thresholds are starting points. The 60 most recent sessions are excluded to avoid overlap."
+    definition_sql_ref: "market_analogs.distance"
+
+  - key: forward_return_20d
+    plain_name: Forward return (20 sessions)
+    unit: pct
+    measures: "What happened next: return over the 20 sessions after a past date or event (MidSmallcap 400 for market analogs, the stock for stock analogs)."
+    zones:
+      - {range: ">= 3", label: Positive, tone: good, why: "Similar past situations were followed by gains."}
+      - {range: "-3 to 3", label: Flat, tone: neutral, why: "No clear follow-up."}
+      - {range: "< -3", label: Negative, tone: bad, why: "Similar past situations were followed by declines."}
+    read_with: [analog_distance, sample_n]
+    read_with_why: "Only trust it when analogs are close and mostly agree."
+    caveats: "History rhymes but does not repeat; this is context, not a forecast."
+    definition_sql_ref: "market_analogs.fwd_20d"
+
+  - key: precision_20d
+    plain_name: Precision (big move within 20 sessions)
+    unit: pct
+    measures: "Of past stock-days that looked like this one, the share that went on to a big move (upper circuit, +30% in 20 or +50% in 60 sessions) within 20 sessions."
+    zones:
+      - {range: ">= 2 x base rate", label: Meaningful, tone: good, why: "Clearly more likely than a random stock-day; worth a closer look."}
+      - {range: "1-2 x base rate", label: Slight, tone: neutral, why: "Only a little better than chance."}
+      - {range: "<= base rate", label: No edge, tone: bad, why: "No better than picking at random."}
+    read_with: [lift, sample_n]
+    read_with_why: "Precision needs the base rate for comparison; lift expresses exactly that."
+    caveats: "Research label until out-of-sample precision clearly beats the base rate. Most big-move precision numbers are small in absolute terms."
+    definition_sql_ref: "App/services/research.py:precision"
+
+  - key: lift
+    plain_name: Lift over base rate
+    unit: x
+    measures: "How many times more often something happened among matching cases than among matched controls (same date, industry and size). 1.0x means no difference."
+    zones:
+      - {range: ">= 2", label: Strong, tone: good, why: "The trait doubles the odds versus comparable stocks."}
+      - {range: "1.2-2", label: Mild, tone: neutral, why: "Some uplift; combine with other evidence."}
+      - {range: "< 1.2", label: None, tone: bad, why: "Trait does not meaningfully change the odds."}
+    read_with: [precision_20d, sample_n]
+    read_with_why: "High lift on a tiny sample is often noise; check n and whether it held out of sample."
+    caveats: "Reported out of sample with purged train/test splits."
+    definition_sql_ref: "App/services/research.py:lift"
