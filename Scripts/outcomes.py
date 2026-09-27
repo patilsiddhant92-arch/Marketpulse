@@ -30,7 +30,22 @@ def _ledger_price_scale(symbol_rows: pd.DataFrame, signal: dict) -> float:
     `price_factor` in force on `last_seen_date` (falling back to `first_seen_date`) -- the
     factor of the latest price row on or before that date. 1.0 when there is no factor column
     or no such row.
+
+    If the writer already stored the prices on an adjusted scale, the row's
+    `price_scale_factor` (the factor on last_seen_date as seen at write time, e.g. a
+    backfill_decisions run while prices_daily was already adjusted) is divided out, so only
+    adjustments that happened *after* the write are applied. NULL = legacy raw-scale row.
     """
+    stored = signal.get("price_scale_factor")
+    try:
+        stored = float(stored) if stored is not None and not pd.isna(stored) else None
+    except (TypeError, ValueError):
+        stored = None
+    divisor = stored if stored is not None and stored > 0 else 1.0
+    return _current_factor(symbol_rows, signal) / divisor
+
+
+def _current_factor(symbol_rows: pd.DataFrame, signal: dict) -> float:
     if "price_factor" not in symbol_rows.columns or symbol_rows.empty:
         return 1.0
     for key in ("last_seen_date", "first_seen_date"):

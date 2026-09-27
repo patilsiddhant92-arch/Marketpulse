@@ -8,7 +8,6 @@ Does not change Momentum UI. Safe to re-run.
 """
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -23,6 +22,13 @@ def main() -> int:
     if not DB_PATH.exists():
         print(f"Database not found: {DB_PATH}")
         return 1
+    from db_lock import writer_lock
+
+    with writer_lock(DB_PATH, owner="refresh_52w_asof"):
+        return _main_locked()
+
+
+def _main_locked() -> int:
 
     print("Loading dated 52W / mcap / PE / band snapshots (downloads + archive + daily)...")
     ref = load_reference_history(ROOT_DIR)
@@ -90,9 +96,9 @@ def main() -> int:
             f"{rel['high_52w'].round(2).nunique()} (was 1 when painted latest-only)"
         )
 
-    backup = DB_PATH.with_suffix(".pre52w.backup.duckdb")
-    print(f"Backup → {backup.name}")
-    shutil.copy2(DB_PATH, backup)
+    from db_backup import backup_database
+
+    backup = backup_database(DB_PATH)
 
     print("Writing updates into DuckDB...")
     with duckdb.connect(str(DB_PATH)) as con:

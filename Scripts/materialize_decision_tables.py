@@ -22,7 +22,7 @@ from migrations import run_migrations
 from outcomes import calculate_outcome
 from price_views import ohlcv_columns
 from reference_history import load_reference_history
-from signal_service import apply_stable_identity, update_signal_ledger
+from signal_service import apply_stable_identity, stamp_price_scale, update_signal_ledger
 from watchlist_service import persist_candidate_snapshot
 
 
@@ -48,12 +48,14 @@ def _write_candidates(db_path: Path, candidates: pd.DataFrame, trade_date: date)
 def _write_ledger(db_path: Path, ledger: pd.DataFrame) -> None:
     if ledger.empty:
         return
-    columns = ["signal_id", "symbol", "setup_type", "score_version", "first_seen_date", "last_seen_date", "trigger_date", "invalidation_date", "expiry_date", "status", "initial_score", "peak_score", "trigger_price", "invalidation_price", "market_regime", "sector_state", "industry_state", "feature_snapshot", "state_history"]
+    columns = ["signal_id", "symbol", "setup_type", "score_version", "first_seen_date", "last_seen_date", "trigger_date", "invalidation_date", "expiry_date", "status", "initial_score", "peak_score", "trigger_price", "invalidation_price", "market_regime", "sector_state", "industry_state", "feature_snapshot", "state_history", "price_scale_factor"]
     with duckdb.connect(str(db_path)) as db:
         for _, row in ledger.iterrows():
+            values = [row.get(col) for col in columns]
+            values = [None if not isinstance(v, (list, dict)) and pd.isna(v) else v for v in values]
             db.execute(
-                f"INSERT INTO signal_ledger ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)}) ON CONFLICT(signal_id) DO UPDATE SET last_seen_date=excluded.last_seen_date, trigger_date=excluded.trigger_date, invalidation_date=excluded.invalidation_date, status=excluded.status, peak_score=excluded.peak_score, trigger_price=excluded.trigger_price, invalidation_price=excluded.invalidation_price, feature_snapshot=excluded.feature_snapshot, state_history=excluded.state_history",
-                [row.get(col) for col in columns],
+                f"INSERT INTO signal_ledger ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)}) ON CONFLICT(signal_id) DO UPDATE SET last_seen_date=excluded.last_seen_date, trigger_date=excluded.trigger_date, invalidation_date=excluded.invalidation_date, status=excluded.status, peak_score=excluded.peak_score, trigger_price=excluded.trigger_price, invalidation_price=excluded.invalidation_price, feature_snapshot=excluded.feature_snapshot, state_history=excluded.state_history, price_scale_factor=excluded.price_scale_factor",
+                values,
             )
 
 
@@ -99,7 +101,14 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame | None, ledger: pd.DataF
 
 
 def materialize_decision_tables(db_path: Path, as_of: date | None = None, policy: DecisionPolicy | None = None) -> pd.DataFrame:
+    from db_lock import writer_lock
+
     db_path = Path(db_path)
+    with writer_lock(db_path, owner="materialize_decision_tables"):
+        return _materialize_locked(db_path, as_of, policy)
+
+
+def _materialize_locked(db_path: Path, as_of: date | None, policy: DecisionPolicy | None) -> pd.DataFrame:
     policy = policy or DecisionPolicy()
     run_migrations(db_path)
     reference_history = _load(db_path, "security_reference_daily")
@@ -147,6 +156,7 @@ def materialize_decision_tables(db_path: Path, as_of: date | None = None, policy
     _write_candidates(db_path, candidates, as_of)
     persist_candidate_snapshot(db_path, candidates, as_of)
     ledger = update_signal_ledger(existing, candidates, as_of)
+    ledger = stamp_price_scale(ledger, indicators, as_of)
     _write_ledger(db_path, ledger)
     _write_outcomes(db_path, None, ledger)
     return candidates

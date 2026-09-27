@@ -5,9 +5,13 @@ Runs without prompts:
   1) Download latest published NSE session (--auto)
   2) Append database (skip full rebuild)
   3) Telegram BUY deals (if configured)
-  4) Write Database/status.json + Logs/pipeline_*.log
+  4) Write Database/status.json + Logs/pipeline_*.log (streamed while running)
+  5) Nightly backup of the user DB after a successful run (keeps 7)
 
 Intended for Windows Task Scheduler at 20:00 IST.
+
+The session loop holds the shared DB writer lock (Scripts/db_lock.py). When every retry
+fails, a Telegram alert is sent via the deals bot (log-only if no token/chat is configured).
 
 If a run fails (NSE not fully published, network blip, partial download),
 retries after a wait (default 10 minutes, up to 3 attempts).
@@ -21,7 +25,7 @@ import os
 import sys
 import time
 import traceback
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from datetime import date, datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -161,6 +165,86 @@ def _write_status(payload: dict) -> None:
     STATUS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+class _TeeLog:
+    """stdout/stderr sink that streams every write to the log file (flushed immediately, so
+    the log survives a hard crash) and keeps a copy for mirroring to the console at the end."""
+
+    def __init__(self, path: Path):
+        self._fh = open(path, "a", encoding="utf-8", errors="replace")
+        self._buffer = StringIO()
+
+    def write(self, text: str) -> int:
+        self._buffer.write(text)
+        try:
+            self._fh.write(text)
+            self._fh.flush()
+        except Exception:
+            pass
+        return len(text)
+
+    def flush(self) -> None:
+        try:
+            self._fh.flush()
+        except Exception:
+            pass
+
+    def getvalue(self) -> str:
+        return self._buffer.getvalue()
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+
+def _backup_user_db() -> str | None:
+    """Nightly user-DB backup (Database/backups/marketpulse_user_*.duckdb, keep 7)."""
+    from db_backup import backup_user_db
+
+    path = backup_user_db()
+    return str(path) if path else None
+
+
+def _send_failure_alert(attempts: int) -> None:
+    """Telegram alert after all retries failed. Missing token/chat or a send error = log only."""
+    detail = ""
+    log_file = None
+    try:
+        status = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+        detail = status.get("error") or status.get("message") or ""
+        log_file = status.get("log_file")
+    except Exception:
+        pass
+    text = (
+        f"MarketPulse EOD pipeline FAILED after {attempts} attempt(s) "
+        f"at {datetime.now().astimezone().isoformat(timespec='minutes')}.\n"
+        f"Error: {detail or 'see log'}\n"
+        f"Log: {log_file or LOGS_DIR}"
+    )
+    outcome = ""
+    try:
+        from telegram_deals import load_dotenv, send_message
+
+        load_dotenv()
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        if not token or not chat_id:
+            outcome = "Telegram alert skipped: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not configured."
+        else:
+            send_message(token, chat_id, text)
+            outcome = "Telegram failure alert sent."
+    except Exception as exc:
+        outcome = f"Telegram failure alert could not be sent: {exc}"
+    print(outcome)
+    if log_file:
+        try:
+            with open(log_file, "a", encoding="utf-8") as fh:
+                fh.write(f"\n{text}\n{outcome}\n")
+        except Exception:
+            pass
+
+
 def _run_append() -> dict:
     """Delegate to the single append_session implementation (PR-APPEND)."""
     from append_database import append_session
@@ -275,8 +359,9 @@ def run_pipeline(
         "log_file": str(log_path),
     }
 
-    buffer = StringIO()
+    buffer = _TeeLog(log_path)
     exit_code = 1
+    lock_stack = ExitStack()
     try:
         with redirect_stdout(buffer), redirect_stderr(buffer):
             print(f"MarketPulse daily pipeline started at {status['started_at']}")
@@ -307,7 +392,12 @@ def run_pipeline(
                 if target_day is not None:
                     sessions_to_process = [target_day]
 
-            # Ingest sessions in chronological order
+            # Ingest sessions in chronological order, holding the DB writer lock so no other
+            # writer (rebuild, deals refresh, 52W refresh) can interleave with the appends.
+            if not skip_append and sessions_to_process:
+                from db_lock import writer_lock
+
+                lock_stack.enter_context(writer_lock(DB_PATH, owner="daily_pipeline"))
             for s_idx, s_day in enumerate(sessions_to_process, 1):
                 s_date_str = s_day.date().isoformat()
                 s_long_date = ddmmyyyy(s_day)
@@ -391,6 +481,7 @@ def run_pipeline(
                     else:
                         print(f"No session directory for {s_date_str}; skipping decision snapshot.")
 
+            lock_stack.close()
             status["daily_bhav_date"] = _daily_bhav_date()
             status["db_date_after"] = _db_max_trade_date()
             status["ok"] = True
@@ -456,6 +547,13 @@ def run_pipeline(
             elif skip_taxonomy:
                 status["steps"].append({"step": "sector_taxonomy", "ok": True, "skipped": True})
 
+            try:
+                user_backup = _backup_user_db()
+                status["steps"].append({"step": "user_db_backup", "ok": True, "backup": user_backup})
+            except Exception as exc:
+                print(f"User DB backup failed: {exc}")
+                status["steps"].append({"step": "user_db_backup", "ok": False, "error": str(exc)})
+
             exit_code = 0
     except Exception as exc:
         status["ok"] = False
@@ -465,11 +563,12 @@ def run_pipeline(
         traceback.print_exc()
         exit_code = 1
     finally:
+        lock_stack.close()
         status["finished_at"] = _now_iso()
         if status["db_date_after"] is None:
             status["db_date_after"] = _db_max_trade_date()
         text = buffer.getvalue()
-        log_path.write_text(text, encoding="utf-8")
+        buffer.close()
         # Also mirror to stdout for interactive runs
         try:
             sys.stdout.write(text)
@@ -567,6 +666,7 @@ def main() -> int:
                 time.sleep(retry_wait_sec)
 
     print(f"\nAll {max_attempts} attempts failed. See Logs\\pipeline_*.log and Database\\status.json")
+    _send_failure_alert(max_attempts)
     return last_rc
 
 

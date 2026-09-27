@@ -138,6 +138,32 @@ def apply_stable_identity(
     return out
 
 
+def stamp_price_scale(ledger: pd.DataFrame, indicators: pd.DataFrame, trade_date: date) -> pd.DataFrame:
+    """Set ``price_scale_factor`` on ledger rows seen on ``trade_date``.
+
+    Their trigger/invalidation prices come from ``indicators`` as they are *now*: on the
+    adjusted scale whose factor on ``trade_date`` is that row's ``price_factor`` (1.0 for the
+    latest session or a raw build). Storing it lets outcomes undo only later adjustments.
+    Rows not seen on ``trade_date`` keep their stored value.
+    """
+    if ledger is None or ledger.empty:
+        return ledger
+    out = ledger.copy()
+    if "price_scale_factor" not in out.columns:
+        out["price_scale_factor"] = None
+    out["price_scale_factor"] = out["price_scale_factor"].astype(object)
+    day = pd.Timestamp(trade_date).normalize()
+    seen = pd.to_datetime(out["last_seen_date"], errors="coerce").dt.normalize() == day
+    factors: dict = {}
+    if indicators is not None and not indicators.empty and "price_factor" in indicators.columns:
+        rows = indicators[pd.to_datetime(indicators["trade_date"], errors="coerce").dt.normalize() == day]
+        pf = pd.to_numeric(rows["price_factor"], errors="coerce")
+        factors = dict(zip(rows["symbol"].astype(str).str.upper(), pf.where(pf > 0)))
+    stamped = [factors.get(s) for s in out.loc[seen, "symbol"].astype(str).str.upper()]
+    out.loc[seen, "price_scale_factor"] = [1.0 if v is None or pd.isna(v) else float(v) for v in stamped]
+    return out
+
+
 def update_signal_ledger(existing: pd.DataFrame, candidate_rows: pd.DataFrame, trade_date: date) -> pd.DataFrame:
     records = {row["signal_id"]: row.to_dict() for _, row in existing.iterrows()} if existing is not None and not existing.empty else {}
     prior_list = list(records.values())

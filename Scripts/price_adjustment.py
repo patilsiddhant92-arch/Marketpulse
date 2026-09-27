@@ -666,7 +666,11 @@ def actions_from_mcap(frames: pd.DataFrame, tol: float = 0.01) -> pd.DataFrame:
 
 ADJUSTMENT_COLUMNS = ["symbol", "ex_date", "kind", "factor", "source", "confidence", "applied", "description"]
 GAP_COLUMNS = ["symbol", "ex_date", "gap_ratio"]
-OVERRIDE_COLUMNS = ["symbol", "ex_date", "factor", "note"]
+OVERRIDE_COLUMNS = ["symbol", "ex_date", "factor", "note", "kind"]
+# Optional `kind` in adjustments_override.yaml. None (absent) = factor override / null-factor
+# suppression as before; "ignore" = the unexplained gap was reviewed and needs no adjustment;
+# "demerger" = record a non-adjusting demerger (never applied to prices).
+OVERRIDE_KINDS = frozenset({"ignore", "demerger"})
 _ADJUSTMENT_DTYPES = {
     "symbol": "object", "ex_date": "datetime64[ns]", "kind": "object", "factor": "float64",
     "source": "object", "confidence": "object", "applied": "bool", "description": "object",
@@ -705,11 +709,17 @@ def load_overrides(path: Path) -> pd.DataFrame:
     rows = []
     for item in data:
         ex_date = item.get("ex_date")
+        kind = item.get("kind")
+        kind = str(kind).strip().lower() if kind is not None and str(kind).strip() else None
+        if kind is not None and kind not in OVERRIDE_KINDS:
+            raise ValueError(f"{path.name}: unknown override kind {kind!r} for {item.get('symbol')} "
+                             f"(allowed: {sorted(OVERRIDE_KINDS)} or omit)")
         rows.append({
             "symbol": str(item.get("symbol", "")).strip().upper(),
             "ex_date": pd.Timestamp(ex_date).normalize() if ex_date is not None else pd.NaT,
             "factor": item.get("factor"),
             "note": item.get("note", ""),
+            "kind": kind,
         })
     return pd.DataFrame(rows, columns=OVERRIDE_COLUMNS)
 
@@ -942,7 +952,7 @@ def _dedupe_duplicates(rows: list[dict], window_days: float, factor_tol: float,
     return [r for i, r in enumerate(rows) if i not in drop]
 
 
-def _closest_row(rows: list[dict], claimed: set, symbol, ex_date, window_days: float):
+def _closest_row(rows: list[dict], claimed: set, symbol, ex_date, window_days: float, kinds=None):
     """Return the index of the nearest-dated row for `symbol` within `window_days`, else None.
 
     Any row is eligible regardless of its current `applied` state, so an override can replace
@@ -952,6 +962,8 @@ def _closest_row(rows: list[dict], claimed: set, symbol, ex_date, window_days: f
     best_idx, best_delta = None, None
     for i, r in enumerate(rows):
         if i in claimed or r["symbol"] != symbol or pd.isna(r["ex_date"]):
+            continue
+        if kinds is not None and r["kind"] not in kinds:
             continue
         if not _near(ex_date, r["ex_date"], window_days):
             continue
@@ -984,6 +996,11 @@ def _apply_overrides(rows: list[dict], overrides: pd.DataFrame, window_days: flo
     for rank, (_, o) in enumerate(overrides.iterrows()):
         if pd.isna(o["ex_date"]):
             continue
+        kind = o.get("kind")
+        kind = None if kind is None or (not isinstance(kind, str) and pd.isna(kind)) else kind
+        if kind in OVERRIDE_KINDS:
+            _apply_kind_override(rows, claimed, o, kind, rank, window_days)
+            continue
         symbol, ex_date, factor = o["symbol"], o["ex_date"], o["factor"]
         idx = _closest_row(rows, claimed, symbol, ex_date, window_days)
         suppressed = pd.isna(factor)
@@ -1003,6 +1020,51 @@ def _apply_overrides(rows: list[dict], overrides: pd.DataFrame, window_days: flo
             new_row["_override_rank"] = rank
             rows.append(new_row)
     return rows
+
+
+def _note_text(note, base) -> str:
+    note = "" if note is None or (not isinstance(note, str) and pd.isna(note)) else str(note).strip()
+    base = "" if base is None or (not isinstance(base, str) and pd.isna(base)) else str(base).strip()
+    return "; ".join(p for p in (base, note) if p)
+
+
+def _apply_kind_override(rows: list[dict], claimed: set, o, kind: str, rank: int, window_days: float) -> None:
+    """`kind: ignore` -> the nearest unexplained gap is marked reviewed (confidence 'reviewed');
+    nothing is added when no gap matches, and applied actions are never touched.
+    `kind: demerger` -> the nearest gap (else any unapplied row) becomes a non-adjusting demerger
+    row; with no match a new demerger row is added. Neither is ever applied to prices."""
+    symbol, ex_date, note = o["symbol"], o["ex_date"], o.get("note", "")
+    if kind == "ignore":
+        idx = _closest_row(rows, claimed, symbol, ex_date, window_days, kinds={"unexplained_gap"})
+        if idx is None:
+            return
+        claimed.add(idx)
+        r = rows[idx]
+        r["applied"] = False
+        r["confidence"] = "reviewed"
+        r["source"] = f"{r['source']}+override"
+        r["description"] = _note_text(note, f"reviewed gap ratio {r['factor']:.4f}" if pd.notna(r["factor"]) else "reviewed")
+        r["_override_rank"] = rank
+        return
+    idx = _closest_row(rows, claimed, symbol, ex_date, window_days, kinds={"unexplained_gap"})
+    if idx is None:
+        idx = _closest_row(rows, claimed, symbol, ex_date, window_days, kinds={"demerger"})
+    if idx is not None:
+        claimed.add(idx)
+        r = rows[idx]
+        ratio = r["factor"] if r["kind"] == "unexplained_gap" else float("nan")
+        r["kind"] = "demerger"
+        r["ex_date"] = ex_date
+        r["factor"] = float("nan")
+        r["applied"] = False
+        r["confidence"] = "not_adjusting"
+        r["source"] = f"{r['source']}+override"
+        r["description"] = _note_text(note, f"gap ratio {ratio:.4f}" if pd.notna(ratio) else r.get("description"))
+        r["_override_rank"] = rank
+        return
+    new_row = _row(symbol, ex_date, "demerger", float("nan"), "override", "not_adjusting", False, _note_text(note, ""))
+    new_row["_override_rank"] = rank
+    rows.append(new_row)
 
 
 REVISION_WINDOW_DAYS = 30
@@ -1424,7 +1486,7 @@ def summarize_adjustments(adjustments: pd.DataFrame) -> str:
     applied = _as_bool(adjustments["applied"])
     n_applied = int(applied.sum())
     n_confirmed = int((adjustments["confidence"] == "confirmed").sum())
-    n_unconfirmed_gaps = int((adjustments["kind"] == "unexplained_gap").sum())
+    n_unconfirmed_gaps = int(((adjustments["kind"] == "unexplained_gap") & (adjustments["confidence"] != "reviewed")).sum())
     n_not_adjusting = int((adjustments["confidence"] == "not_adjusting").sum())
     return (f"Price adjustments: {n_applied} applied ({n_confirmed} confirmed), "
             f"{n_unconfirmed_gaps} unconfirmed gaps, {n_not_adjusting} non-adjusting actions")

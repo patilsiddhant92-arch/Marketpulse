@@ -6,7 +6,6 @@ Also deletes empty/NO-RECORDS bulk and block junk files from Input/archive.
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -101,6 +100,14 @@ def fetch_live_deals_from_nse(day: datetime | None = None) -> bool:
 def refresh_deals(clean: bool = True, fetch: bool = False) -> None:
     if not DB_PATH.exists():
         raise SystemExit(f"Database not found: {DB_PATH}. Run a full build first.")
+    from db_lock import writer_lock
+
+    # Held across the read of the existing tables and the swap, so no other writer can land in between.
+    with writer_lock(DB_PATH, owner="refresh_deals"):
+        _refresh_deals_locked(clean=clean, fetch=fetch)
+
+
+def _refresh_deals_locked(clean: bool, fetch: bool) -> None:
 
     if fetch:
         fetch_live_deals_from_nse()
@@ -172,12 +179,8 @@ def refresh_deals(clean: bool = True, fetch: bool = False) -> None:
             enrichment = enrichment.copy()
             enrichment["has_deal"] = enrichment["symbol"].isin(latest_syms)
 
-    backup = DB_PATH.with_suffix(".predeals.backup.duckdb")
-    print(f"Backing up database -> {backup.name}")
-    shutil.copy2(DB_PATH, backup)
-
-    print("Writing database (prices/indicators unchanged, deals refreshed)...")
-    write_database(
+    print("Writing database (prices/indicators unchanged, deals refreshed; dated backup taken first)...")
+    backup = write_database(
         prices,
         master,
         enrichment if not enrichment.empty else master[["symbol"]].assign(
