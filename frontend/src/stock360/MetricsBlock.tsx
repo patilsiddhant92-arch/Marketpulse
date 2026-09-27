@@ -98,10 +98,10 @@ export function TrendBlock({ s, className }: { s: StockHeaderRow; className?: st
         <Metric metricKey="rvol" label="RVOL" value={s.rvol} format="ratio" size="sm" />
         <Metric metricKey="delivery_pct" label="Delivery" value={s.delivery_pct} format="pct" size="sm" />
         <Plain
-          label="Delivery vs 20d"
-          value={s.delivery_vs_20d == null ? '—' : fmtRatio(s.delivery_vs_20d)}
-          title="Today's delivery % divided by its 20-day average (1.00× = usual)."
-          tone={s.delivery_vs_20d == null ? 'muted' : undefined}
+          label="Delivery % ×20d"
+          value={s.deliv_pct_x == null ? '—' : fmtRatio(s.deliv_pct_x)}
+          title="Delivery % ×20d: today's delivery % divided by the stock's own 20-day average (1.00× = its usual habit). For 'is real money buying today?' see Delivered qty ×20d on Desk › Today."
+          tone={s.deliv_pct_x == null ? 'muted' : undefined}
         />
         <Metric metricKey="adv_cr_20d" label="Avg traded value 20d" value={s.adv_cr_20d} format="cr" size="sm" />
       </div>

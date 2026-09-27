@@ -6,6 +6,7 @@
  * The sub-view is remembered per browser (?view=today|setups while the tab is active).
  */
 import { useEffect, useRef, useState } from 'react';
+import { CompareStrip } from '../desk/CompareStrip';
 import { EnvironmentPanel } from '../desk/EnvironmentPanel';
 import { QueuePanel } from '../desk/QueuePanel';
 import { DiffPanel, LeadingGroupsPanel, WatchlistPanel } from '../desk/SidePanels';
@@ -70,6 +71,8 @@ function SetupsView({ rail }: { rail: boolean }) {
     <>
       {/* At-a-glance band: verdict + breadth + queue counts (desk/EnvironmentPanel). */}
       <EnvironmentPanel />
+      {/* Trend: now vs 5 sessions ago (queues, breadth, verdict, top groups). */}
+      <CompareStrip />
       <div className={rail ? 'grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px] gap-2' : 'flex min-h-0 flex-1 flex-col'}>
         <QueuePanel
           className="min-h-0 flex-1"

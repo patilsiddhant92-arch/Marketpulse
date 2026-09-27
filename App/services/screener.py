@@ -38,7 +38,7 @@ FIELDS: dict[str, tuple[str, str]] = {
     "avg_volume_20d": ("s.avg_volume_20d", "num"),
     "rvol": ("s.rvol", "num"),
     "delivery_pct": ("s.delivery_pct", "num"),
-    "delivery_vs_20d": ("s.delivery_vs_20d", "num"),
+    "deliv_pct_x": ("s.deliv_pct_x", "num"),
     "rs_percentile": ("s.rs_percentile", "num"),
     "rs_delta_5": ("s.rs_delta_5", "num"),
     "excess_vs_midsml400_63d": ("s.excess_vs_midsml400_63d", "num"),
@@ -78,7 +78,7 @@ BOOL_OPS = {"is_true", "is_false"}
 FIELD_LABELS = {
     "close": "Close", "open": "Open", "high": "High", "low": "Low", "change_1d_pct": "1D %",
     "volume": "Day volume", "avg_volume_20d": "20D avg volume", "rvol": "RVOL",
-    "delivery_pct": "Delivery %", "delivery_vs_20d": "Delivery vs 20D", "rs_percentile": "Strength rank",
+    "delivery_pct": "Delivery %", "deliv_pct_x": "Delivery % ×20d", "rs_percentile": "Strength rank",
     "rs_delta_5": "Strength rank Δ5", "excess_vs_midsml400_63d": "Excess vs MidSml400 63D",
     "excess_vs_nifty50_63d": "Excess vs Nifty 63D", "market_cap_cr": "Market cap (₹ Cr)",
     "adv_cr_20d": "20D avg traded value (₹ Cr)", "away_52w_high_pct": "% from 52W high",
@@ -93,7 +93,7 @@ FIELD_LABELS = {
 }
 # Rule field -> metric-dictionary key (tooltips in the custom-rule builder).
 FIELD_METRIC = {k: k for k in (
-    "change_1d_pct", "rvol", "delivery_pct", "delivery_vs_20d", "rs_percentile", "rs_delta_5",
+    "change_1d_pct", "rvol", "delivery_pct", "deliv_pct_x", "rs_percentile", "rs_delta_5",
     "excess_vs_midsml400_63d", "excess_vs_nifty50_63d", "market_cap_cr", "adv_cr_20d", "away_52w_high_pct",
     "away_52w_low_pct", "away_10ema_pct", "adr_20_pct", "trend_template_pass_n",
 )}
@@ -215,9 +215,16 @@ def parse_rules(raw: str | None) -> list[dict[str, Any]] | None:
     return [validate_rule(r) for r in data]
 
 
+# Renamed rule fields: saved presets / URLs that still use the old key keep working.
+LEGACY_FIELDS = {"delivery_vs_20d": "deliv_pct_x"}
+
+
 def validate_rule(rule: Any) -> dict[str, Any]:
     if not isinstance(rule, dict):
         raise RuleError("each rule must be an object")
+    rule = {**rule, "field": LEGACY_FIELDS.get(rule.get("field"), rule.get("field"))}
+    if rule.get("ref") is not None:
+        rule["ref"] = LEGACY_FIELDS.get(rule["ref"], rule["ref"])
     field = rule.get("field")
     op = rule.get("op")
     if field not in FIELDS:

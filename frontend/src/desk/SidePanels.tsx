@@ -1,3 +1,5 @@
+import { GroupHealthChip, groupRowContext } from '../context/GroupContext';
+import { useGroupNav } from '../today/parts';
 import { X } from 'lucide-react';
 import { useMemo } from 'react';
 import { isUnavailable } from '../api/client';
@@ -192,6 +194,7 @@ export function LeadingGroupsPanel({ className }: { className?: string }) {
   const shell = useShell();
   const q = useApiQuery('groups/board', { query: { level: 'industry', limit: 500 } });
   const lg = useMemo(() => leadingGroups(q.data?.rows ?? []), [q.data]);
+  const onGroup = useGroupNav();
   return (
     <Panel
       title={lg.rrg ? 'Leading groups' : 'Top-ranked industries'}
@@ -216,7 +219,10 @@ export function LeadingGroupsPanel({ className }: { className?: string }) {
           {lg.rows.map((g) => (
             <li key={g.id} className="flex items-center gap-2 px-3 py-0.5" title={`${g.group_name} · ${g.stocks ?? '—'} stocks`}>
               <span className="num w-6 text-right text-fg-3">{g.rank ?? '—'}</span>
-              <span className="min-w-0 flex-1 truncate text-fg">{g.group_name}</span>
+              <button type="button" className="min-w-0 flex-1 truncate text-left text-fg hover:text-accent hover:underline" onClick={() => onGroup(g.id)} title={`Drill into ${g.group_name}`}>
+                {g.group_name}
+              </button>
+              <GroupHealthChip g={groupRowContext(g)} quadrant={false} clickable={false} />
               <span
                 className={cn('num w-10 text-right text-2xs', g.rank_delta_5 == null ? 'text-fg-3' : g.rank_delta_5 > 0 ? 'text-up' : g.rank_delta_5 < 0 ? 'text-down' : 'text-fg-3')}
                 title="Places gained (▲) or lost (▼) in the rank over 5 sessions"

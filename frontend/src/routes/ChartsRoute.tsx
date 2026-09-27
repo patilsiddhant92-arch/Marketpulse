@@ -9,6 +9,7 @@
  * without leaving the grid; expand one tile (Esc returns). Only the visible
  * page is rendered; the next page's bars are prefetched.
  */
+import { useStockContext } from '../context/stockContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Copy } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -125,6 +126,8 @@ export default function ChartsRoute() {
   const first = items.length ? page * perPage + 1 : 0;
   const lastN = Math.min(items.length, (page + 1) * perPage);
   const tiles = focus ? items.filter((i) => i.symbol === focus) : visible;
+  const tileSyms = useMemo(() => tiles.map((t) => t.symbol), [tiles]);
+  const sctx = useStockContext(tileSyms);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -297,6 +300,7 @@ export default function ChartsRoute() {
                   shell.openBigChart(s);
                 }}
                 onToggleExpand={(s) => setState({ focus: focus ? null : s })}
+                context={sctx.map.get(it.symbol.toUpperCase())}
               />
             ))}
           </div>

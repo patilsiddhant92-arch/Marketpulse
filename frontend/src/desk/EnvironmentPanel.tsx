@@ -81,9 +81,12 @@ function VerdictTile() {
   );
 }
 
+const YEAR = 250;
+
 /** Four breadth tiles; the other readings ride in their captions so nothing is dropped. */
 function BreadthTiles() {
-  const q = useApiQuery('market/health', { query: { days: 60, limit: 60 } });
+  // One year of breadth so the sparks show the trend, not just the last few weeks.
+  const q = useApiQuery('market/health', { query: { days: YEAR, limit: YEAR } });
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const snap = useMemo(() => breadthSnapshot(rows), [rows]);
   const r = (k: string) => snap.readings.find((x) => x.key === k);
@@ -112,9 +115,9 @@ function BreadthTiles() {
         digits={1}
         delta={a50?.delta ?? null}
         deltaFormat="signedPct"
-        spark={breadthSeries(rows, 'pct_above_50ema')}
+        spark={breadthSeries(rows, 'pct_above_50ema', YEAR)}
         sparkBaseline={50}
-        sparkLabel="% above 50 EMA, 60 sessions"
+        sparkLabel="% above 50 EMA, 1 year"
         caption={a10?.value != null ? `10 EMA ${fmtNum(a10.value, 1)}%` : undefined}
         loading={loading}
       />
@@ -126,9 +129,9 @@ function BreadthTiles() {
         digits={1}
         delta={a200?.delta ?? null}
         deltaFormat="signedPct"
-        spark={breadthSeries(rows, 'pct_above_200ema')}
+        spark={breadthSeries(rows, 'pct_above_200ema', YEAR)}
         sparkBaseline={50}
-        sparkLabel="% above 200 EMA, 60 sessions"
+        sparkLabel="% above 200 EMA, 1 year"
         loading={loading}
       />
       <KpiTile
@@ -137,9 +140,9 @@ function BreadthTiles() {
         value={nnh?.value ?? null}
         format="int"
         delta={nnh?.delta ?? null}
-        spark={breadthSeries(rows, 'net_new_highs')}
+        spark={breadthSeries(rows, 'net_new_highs', YEAR)}
         sparkBaseline={0}
-        sparkLabel="Net new highs, 60 sessions"
+        sparkLabel="Net new highs, 1 year"
         caption={
           adv?.value != null || dd?.value != null
             ? `Adv ${adv?.value != null ? `${fmtNum(adv.value, 1)}%` : '—'} · dist days ${dd?.value != null ? fmtInt(dd.value) : '—'}`

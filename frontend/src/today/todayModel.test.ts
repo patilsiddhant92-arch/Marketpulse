@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TodayBreakoutRow, TodayGroupRow, TodayMoverRow } from '../api/types';
-import { clauseText, eventWhen, filterByKinds, kindCounts, qualitySideNote, splitMovers, topBottomGroups, traitTitle } from './todayModel';
+import { broadMoveScore, clauseText, eventWhen, withoutThinGroups, filterByKinds, kindCounts, qualitySideNote, splitMovers, topBottomGroups, traitTitle } from './todayModel';
 
 const mover = (o: Partial<TodayMoverRow>): TodayMoverRow => ({ side: 'gainer', rank: 1, symbol: 'X', ...o }) as TodayMoverRow;
 const group = (o: Partial<TodayGroupRow>): TodayGroupRow =>
@@ -54,8 +54,21 @@ describe('todayModel', () => {
     expect(down.map((g) => g.group_name)).toEqual(['Down']);
   });
 
+  it('scores broad moves above one-stock pops and hides thin groups by default', () => {
+    const pop = group({ group_name: 'Pop', return_1d: 8, advancers: 1, decliners: 3, stocks: 4, stocks_with_return: 4 });
+    const broad = group({ group_name: 'Broad', return_1d: 2, advancers: 9, decliners: 1, stocks: 10, stocks_with_return: 10 });
+    const down = group({ group_name: 'Down', return_1d: -3, advancers: 0, decliners: 5, stocks: 5, stocks_with_return: 5 });
+    expect(broadMoveScore(pop)).toBeCloseTo(2);
+    expect(broadMoveScore(broad)).toBeCloseTo(1.8);
+    expect(broadMoveScore(down)).toBeCloseTo(3);
+    expect(broadMoveScore(group({ return_1d: null, stocks_with_return: 3 }))).toBeNull();
+    const thin = group({ group_name: 'Thin', stocks: 1, stocks_with_return: 1 });
+    expect(withoutThinGroups([pop, thin], false).map((g) => g.group_name)).toEqual(['Pop']);
+    expect(withoutThinGroups([pop, thin], true)).toHaveLength(2);
+  });
+
   it('renders served rule clauses in plain words', () => {
-    expect(clauseText([{ field: 'rvol', op: 'gte', value: 1.5 }, { field: 'delivery_vs_20d', op: 'gte', value: 1.2 }])).toBe('RVOL ≥ 1.5 and delivery × ≥ 1.2');
+    expect(clauseText([{ field: 'rvol', op: 'gte', value: 1.5 }, { field: 'deliv_qty_x', op: 'gte', value: 1.2 }])).toBe('RVOL ≥ 1.5 and delivered qty ×20d ≥ 1.2');
     expect(clauseText([{ field: 'at_circuit', op: 'is_true', value: null }])).toBe('closed at price band is true');
   });
 });

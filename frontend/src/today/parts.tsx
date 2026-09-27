@@ -11,6 +11,10 @@ import { cn } from '../lib/cn';
 import { fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { useAsOf } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
+import { ChipRow } from '../ui/ChipRow';
+import { contextColumn } from '../context/StockContextChips';
+import type { StockContextMap } from '../context/stockContext';
+import { Unclassified } from '../ui/Unclassified';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Tooltip } from '../ui/Tooltip';
 import { ZoneNum } from '../routes/groups/kit';
@@ -58,7 +62,7 @@ export function QualityChip({ row, rules }: { row: TodayStockRow; rules: readonl
           </div>
           {rule?.why && <div>{rule.why}</div>}
           <div className="text-fg-3">
-            RVOL {fmtNum(row.rvol, 2)} · delivered shares {fmtNum(row.delivery_qty_vs_20d, 2)}× normal · delivery % {fmtNum(row.delivery_vs_20d, 2)}× · mcap ₹{fmtNum(row.market_cap_cr, 0)} Cr
+            RVOL {fmtNum(row.rvol, 2)} · delivered qty ×20d {fmtNum(row.deliv_qty_x, 2)} · delivery % ×20d {fmtNum(row.deliv_pct_x, 2)} · mcap ₹{fmtNum(row.market_cap_cr, 0)} Cr
             {row.at_upper_circuit ? ' · at upper band' : row.at_lower_circuit ? ' · at lower band' : ''}
           </div>
         </div>
@@ -72,28 +76,20 @@ export function QualityChip({ row, rules }: { row: TodayStockRow; rules: readonl
 }
 
 export function TraitChips({ traits, evidence }: { traits: readonly string[] | undefined; evidence: readonly EvidenceTrait[] | undefined }) {
-  if (!traits?.length) return <span className="text-fg-3">—</span>;
   return (
-    <span className="flex flex-wrap gap-0.5">
-      {traits.map((t) => (
-        <Chip key={t} tone="violet" title={traitTitle(t, evidence)}>
-          {TRAIT_LABELS[t]?.short ?? t}
-        </Chip>
-      ))}
-    </span>
+    <ChipRow
+      budget={20}
+      items={(traits ?? []).map((t) => ({ key: t, label: TRAIT_LABELS[t]?.short ?? t, tone: 'violet' as const, title: traitTitle(t, evidence) }))}
+    />
   );
 }
 
 export function QueueChips({ queues }: { queues: readonly string[] | undefined }) {
-  if (!queues?.length) return <span className="text-fg-3">—</span>;
   return (
-    <span className="flex gap-0.5">
-      {queues.map((q) => (
-        <Chip key={q} tone="accent" title={`In the ${QUEUE_SHORT[q] ?? q} Desk queue today`}>
-          {QUEUE_SHORT[q] ?? q}
-        </Chip>
-      ))}
-    </span>
+    <ChipRow
+      budget={10}
+      items={(queues ?? []).map((q) => ({ key: q, label: QUEUE_SHORT[q] ?? q, tone: 'accent' as const, title: `In the ${QUEUE_SHORT[q] ?? q} Desk queue today` }))}
+    />
   );
 }
 
@@ -138,7 +134,7 @@ export function CatalystCell({ row, asOf }: { row: TodayStockRow; asOf: string |
 }
 
 function GroupLink({ name, onGroup }: { name: string | null | undefined; onGroup: (id: string) => void }) {
-  if (!name) return <span className="text-fg-3">—</span>;
+  if (!name) return <Unclassified />;
   return (
     <button
       type="button"
@@ -162,6 +158,8 @@ export interface StockColumnOpts {
   isWatched?: (sym: string) => boolean;
   /** Extra columns after the change column (e.g. breakout kinds). */
   leading?: DataTableColumn<TodayStockRow>[];
+  /** Cross-tab context (group Health, deals 10s, data gaps); queue / catalyst columns already cover setups and events. */
+  ctx?: StockContextMap;
 }
 
 /** Columns shared by movers and breakouts. */
@@ -199,15 +197,16 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
     { id: 'deliv', header: 'Deliv %', accessor: 'delivery_pct', format: 'pct', digits: 0, width: 58, metricKey: 'delivery_pct' },
     {
       id: 'deliv_x',
-      header: 'Deliv ×',
-      accessor: 'delivery_qty_vs_20d',
+      header: 'Dlv qty ×',
+      headerTitle: 'Delivered qty ×20d: delivered shares ÷ their prior 20-session average (is real money taking shares home?)',
+      accessor: 'deliv_qty_x',
       format: 'num',
       digits: 2,
       width: 62,
-      metricKey: 'delivery_qty_vs_20d',
+      metricKey: 'deliv_qty_x',
       cell: (v, r) => (
         <span className="inline-flex items-center gap-0.5">
-          <ZoneNum metricKey="delivery_qty_vs_20d" value={v as number} digits={1} />
+          <ZoneNum metricKey="deliv_qty_x" value={v as number} digits={1} />
           {r.delivery_spike && (
             <span className="text-violet" title="Delivery spike: delivered shares > 2× their 20-day average">
               ●
@@ -216,10 +215,11 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
         </span>
       ),
     },
-    { id: 'deliv_pct_x', header: 'Deliv% ×', accessor: 'delivery_vs_20d', format: 'num', digits: 2, width: 64, metricKey: 'delivery_vs_20d', defaultHidden: true },
+    { id: 'deliv_pct_x', header: 'Dlv % ×', accessor: 'deliv_pct_x', format: 'num', digits: 2, width: 64, metricKey: 'deliv_pct_x', defaultHidden: true },
     { id: 'to', header: 'T/O ₹Cr', accessor: 'turnover_cr', format: 'num', digits: 0, width: 66, headerTitle: 'Turnover today, ₹ Cr' },
     { id: 'to_x', header: 'T/O ×', accessor: 'turnover_vs_20d', format: 'num', digits: 1, width: 54, metricKey: 'turnover_vs_20d', cell: (v) => <ZoneNum metricKey="turnover_vs_20d" value={v as number} digits={1} /> },
     { id: 'group', header: 'Industry', accessor: 'industry', width: 140, cell: (_v, r) => <GroupLink name={r.industry} onGroup={o.onGroup} />, renderNull: true },
+    ...(o.ctx ? [contextColumn<TodayStockRow>((r) => r.symbol, o.ctx, { omit: ['setups', 'events'], width: 150 })] : []),
     { id: 'away', header: 'vs 52WH', accessor: 'away_52w_high_pct', format: 'signedPct', digits: 1, width: 64, metricKey: 'away_52w_high_pct' },
     { id: 'queues', header: 'Queue', accessor: (r) => r.queues?.join(',') || null, width: 78, headerTitle: 'Desk queues the stock is in today', cell: (_v, r) => <QueueChips queues={r.queues} />, renderNull: true },
     { id: 'deals', header: 'Deals', accessor: 'deal_net_cr_today', format: 'signed', digits: 1, width: 70, headerTitle: 'Bulk/block deal net today, ₹ Cr, PROP excluded', renderNull: true, cell: (_v, r) => <DealCell row={r} /> },
@@ -247,16 +247,7 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
   return cols as unknown as DataTableColumn<T>[];
 }
 
-export function KindChips({ kinds, only }: { kinds: readonly string[] | undefined; only?: readonly string[] }) {
+export function KindChips({ kinds, only, budget = 22 }: { kinds: readonly string[] | undefined; only?: readonly string[]; budget?: number }) {
   const ks = (kinds ?? []).filter((k) => !only || only.includes(k));
-  if (!ks.length) return <span className="text-fg-3">—</span>;
-  return (
-    <span className="flex flex-wrap gap-0.5">
-      {ks.map((k) => (
-        <Chip key={k} tone={KIND_LABELS[k]?.tone ?? 'neutral'}>
-          {KIND_LABELS[k]?.label ?? k}
-        </Chip>
-      ))}
-    </span>
-  );
+  return <ChipRow budget={budget} items={ks.map((k) => ({ key: k, label: KIND_LABELS[k]?.label ?? k, tone: KIND_LABELS[k]?.tone ?? 'neutral' }))} />;
 }

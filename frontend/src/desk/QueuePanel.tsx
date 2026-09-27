@@ -1,3 +1,5 @@
+import { contextColumn } from '../context/StockContextChips';
+import { useStockContext } from '../context/stockContext';
 import { Copy, LayoutGrid } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isUnavailable } from '../api/client';
@@ -88,7 +90,15 @@ export function QueuePanel({ extraTabs = [], className }: QueuePanelProps) {
   const shown = useMemo(() => filterQueueRows(rows, filter ?? '', onlyNew), [rows, filter, onlyNew]);
   const flags = useMemo(() => countFlags(rows), [rows]);
   const { isWatched } = shell;
-  const columns = useMemo(() => queueColumns(queue, isWatched), [queue, isWatched]);
+  const syms = useMemo(() => rows.map((r) => r.symbol), [rows]);
+  const ctx = useStockContext(syms);
+  const columns = useMemo(() => {
+    const cols = queueColumns(queue, isWatched);
+    const at = cols.findIndex((c) => c.id === 'industry') + 1;
+    // The queue row already carries deals 10s and results soon: context adds group Health, other queues, data gaps.
+    cols.splice(at, 0, contextColumn<QueueRow>((r) => r.symbol, ctx.map, { omit: ['deals', 'events'], skipQueue: queue, width: 150 }));
+    return cols;
+  }, [queue, isWatched, ctx.map]);
 
   const sortedRef = useRef<QueueRow[]>([]);
   const onSorted = useCallback((r: QueueRow[]) => {

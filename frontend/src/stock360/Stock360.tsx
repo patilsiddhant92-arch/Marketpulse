@@ -17,6 +17,8 @@ import { DeliveryBlock, StrengthBlock, TrendBlock } from './MetricsBlock';
 import { SetupsBlock } from './SetupsBlock';
 import { StockChartPanel } from './StockChartPanel';
 import { StockHeader } from './StockHeader';
+import { StockContextLine } from '../context/StockContextChips';
+import { WhyCard } from '../context/WhyCard';
 import { useStock360 } from './useStock360';
 
 function WatchButton({ symbol, withLabel }: { symbol: string; withLabel?: boolean }) {
@@ -75,6 +77,7 @@ export function Stock360Sidecar({ symbol }: { symbol: string }) {
     <div ref={bodyRef} className="flex h-full min-h-0 flex-col" data-testid="stock360-sidecar">
       <div className="shrink-0 px-3 pb-1 pt-1.5">
         <StockHeader row={s} loading={header.isLoading} asOf={header.data?.as_of} compact />
+        <StockContextLine symbol={symbol} className="mt-1" />
       </div>
       <div className="min-h-[240px] shrink-0 overflow-hidden border-y border-line" style={{ height: `${Math.round(frac * 100)}%` }}>
         <StockChartPanel
@@ -112,6 +115,7 @@ export function Stock360Sidecar({ symbol }: { symbol: string }) {
         <span className="h-0.5 w-10 rounded bg-line-strong group-hover:bg-accent" />
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+      <WhyCard symbol={symbol} compact className="rounded border border-line bg-surface p-2" />
       <SetupsBlock setups={s?.setups} loading={header.isLoading} />
       {s && <StrengthBlock s={s} />}
       {s && <TrendBlock s={s} />}
@@ -145,7 +149,10 @@ export function Stock360Page({ symbol }: { symbol: string }) {
         </button>
         <div className="flex min-w-0 flex-1 items-start gap-4">
           <h1 className="mt-0.5 font-mono text-xl font-semibold text-fg">{symbol}</h1>
-          <StockHeader row={s} loading={header.isLoading} asOf={header.data?.as_of} />
+          <div className="flex min-w-0 flex-col gap-1">
+            <StockHeader row={s} loading={header.isLoading} asOf={header.data?.as_of} />
+            <StockContextLine symbol={symbol} />
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="num mr-2 text-2xs text-fg-3">as of {fmtDateWithDay(header.data?.as_of)}</span>
@@ -192,6 +199,7 @@ export function Stock360Page({ symbol }: { symbol: string }) {
             </div>
           </div>
           <div className="flex min-w-0 flex-col gap-2">
+            <WhyCard symbol={symbol} />
             <SetupsBlock setups={s?.setups} loading={header.isLoading} />
             {s && <DeliveryBlock values={s.delivery_spark_60} />}
             <NotesBlock symbol={symbol} />

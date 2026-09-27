@@ -17,8 +17,15 @@ describe('groupsModel', () => {
   });
 
   it('counts quadrants and filters by text and quadrant', () => {
-    const rows = [g({ group_name: 'Pharma', rrg_quadrant: 'Leading' }), g({ group_name: 'Banks', rrg_quadrant: 'Lagging' }), g({ group_name: 'Tiny' })];
+    const rows = [
+      g({ group_name: 'Pharma', rrg_quadrant: 'Leading', stocks: 12 }),
+      g({ group_name: 'Banks', rrg_quadrant: 'Lagging', stocks: 5 }),
+      g({ group_name: 'Tiny', stocks: 3 }),
+      g({ group_name: 'Thin', rrg_quadrant: 'Leading', stocks: 2 }),
+    ];
+    // thin groups (< 3 members) are not counted, matching the header line
     expect(quadrantCounts(rows)).toMatchObject({ Leading: 1, Lagging: 1, none: 1 });
+    expect(quadrantCounts(rows, 0)).toMatchObject({ Leading: 2 });
     expect(filterGroups(rows, 'pha', new Set()).map((x) => x.group_name)).toEqual(['Pharma']);
     expect(filterGroups(rows, '', new Set(['Lagging'])).map((x) => x.group_name)).toEqual(['Banks']);
   });

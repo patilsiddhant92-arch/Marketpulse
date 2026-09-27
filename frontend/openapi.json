@@ -594,6 +594,234 @@
         }
       }
     },
+    "/api/v2/desk/compare": {
+      "get": {
+        "summary": "Desk Compare",
+        "description": "Now vs N sessions ago: queue counts, breadth, verdict and top groups by Health.",
+        "operationId": "desk_compare_api_v2_desk_compare_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 1,
+              "default": 5,
+              "title": "Sessions"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_CompareRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/context/stocks": {
+      "get": {
+        "summary": "Context Stocks",
+        "description": "Batched cross-tab context for up to 200 symbols: group Health/quadrant, deals 10s, setups, data warning, results / corporate action soon.",
+        "operationId": "context_stocks_api_v2_context_stocks_get",
+        "parameters": [
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 4400,
+              "description": "Comma-separated symbols (max 200)",
+              "title": "Symbols"
+            },
+            "description": "Comma-separated symbols (max 200)"
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_StockContextRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/context/groups": {
+      "get": {
+        "summary": "Context Groups",
+        "description": "Health zone, rank, quadrant (+ falling note) and 21-session Health spark for every group of a level.",
+        "operationId": "context_groups_api_v2_context_groups_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "broad_sector",
+                "sector",
+                "broad_industry",
+                "industry"
+              ],
+              "type": "string",
+              "default": "industry",
+              "title": "Level"
+            }
+          },
+          {
+            "name": "floor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1000",
+                "all",
+                "watch"
+              ],
+              "type": "string",
+              "default": "1000",
+              "title": "Floor"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_GroupContext_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/screener/presets": {
       "get": {
         "summary": "Screener Presets",
@@ -1372,6 +1600,122 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Envelope_GroupTreeRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/groups/rotation": {
+      "get": {
+        "summary": "Groups Rotation",
+        "description": "Groups x the last N week-ends coloured by Health (rotation over time). Ranked groups only.",
+        "operationId": "groups_rotation_api_v2_groups_rotation_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "broad_sector",
+                "sector",
+                "broad_industry",
+                "industry"
+              ],
+              "type": "string",
+              "default": "industry",
+              "title": "Level"
+            }
+          },
+          {
+            "name": "floor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1000",
+                "all",
+                "watch"
+              ],
+              "type": "string",
+              "default": "1000",
+              "title": "Floor"
+            }
+          },
+          {
+            "name": "weeks",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 52,
+              "minimum": 2,
+              "default": 12,
+              "title": "Weeks"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RotationRow_"
                 }
               }
             }
@@ -2853,6 +3197,65 @@
         }
       }
     },
+    "/api/v2/stock/{sym}/why": {
+      "get": {
+        "summary": "Stock Why",
+        "description": "'Why is this stock here?': plain-language bullets built only from stored facts.",
+        "operationId": "stock_why_api_v2_stock__sym__why_get",
+        "parameters": [
+          {
+            "name": "sym",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sym"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_WhyBullet_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/stock/{sym}/bars": {
       "get": {
         "summary": "Stock Bars",
@@ -4279,6 +4682,222 @@
         "additionalProperties": true,
         "type": "object",
         "title": "BigMoveRow"
+      },
+      "CompareRow": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "Queues",
+              "Breadth"
+            ],
+            "title": "Group"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "better": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Better"
+          },
+          "now": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Now"
+          },
+          "then": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Then"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "group",
+          "unit"
+        ],
+        "title": "CompareRow"
+      },
+      "ContextEvent": {
+        "properties": {
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          }
+        },
+        "type": "object",
+        "title": "ContextEvent"
+      },
+      "ContextSetup": {
+        "properties": {
+          "queue": {
+            "type": "string",
+            "title": "Queue"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "trigger_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Price"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "distance_to_trigger_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance To Trigger Pct"
+          },
+          "risk_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Pct"
+          },
+          "setup_age_sessions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Age Sessions"
+          },
+          "first_seen": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen"
+          },
+          "flavor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flavor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queue",
+          "label"
+        ],
+        "title": "ContextSetup"
       },
       "Contraction": {
         "properties": {
@@ -6280,7 +6899,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -6289,7 +6908,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -6648,6 +7268,52 @@
           "meta"
         ],
         "title": "Envelope[BigMoveRow]"
+      },
+      "Envelope_CompareRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CompareRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[CompareRow]"
       },
       "Envelope_DarvasBoxRow_": {
         "properties": {
@@ -7200,6 +7866,52 @@
           "meta"
         ],
         "title": "Envelope[FollowThroughRow]"
+      },
+      "Envelope_GroupContext_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GroupContext"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[GroupContext]"
       },
       "Envelope_GroupIndexRow_": {
         "properties": {
@@ -7937,6 +8649,52 @@
         ],
         "title": "Envelope[RegimeRow]"
       },
+      "Envelope_RotationRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RotationRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[RotationRow]"
+      },
       "Envelope_RrgRow_": {
         "properties": {
           "as_of": {
@@ -8120,6 +8878,52 @@
           "meta"
         ],
         "title": "Envelope[StockAnalogRow]"
+      },
+      "Envelope_StockContextRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/StockContextRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[StockContextRow]"
       },
       "Envelope_StockDealRow_": {
         "properties": {
@@ -8442,6 +9246,52 @@
           "meta"
         ],
         "title": "Envelope[WatchlistItem]"
+      },
+      "Envelope_WhyBullet_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/WhyBullet"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[WhyBullet]"
       },
       "EventRow": {
         "properties": {
@@ -8786,6 +9636,157 @@
           "status"
         ],
         "title": "Freshness"
+      },
+      "GroupContext": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "stocks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stocks"
+          },
+          "thin": {
+            "type": "boolean",
+            "title": "Thin",
+            "description": "Fewer than 3 members: listed, not ranked",
+            "default": false
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "health_zone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "Healthy",
+                  "Mixed",
+                  "Weak"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Zone"
+          },
+          "health_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Rank"
+          },
+          "rrg_quadrant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrg Quadrant"
+          },
+          "quadrant_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant Note",
+            "description": "'falling' / 'narrow' caveat on a Leading / Improving group"
+          },
+          "abs_trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abs Trend"
+          },
+          "return_ew_21d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ew 21D"
+          },
+          "health_spark_21": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Spark 21",
+            "description": "Health over the last 21 sessions, oldest first"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "level"
+        ],
+        "title": "GroupContext"
       },
       "GroupIndexRow": {
         "properties": {
@@ -9494,6 +10495,50 @@
               }
             ],
             "title": "Leader Symbols"
+          },
+          "health_spark_21": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Spark 21",
+            "description": "Health over the last 21 sessions, oldest first"
+          },
+          "index_spark_1y": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Spark 1Y",
+            "description": "Equal-weight group index over ~1 year (every 5th session, oldest first), rebased to 100"
           }
         },
         "type": "object",
@@ -10626,7 +11671,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -10635,7 +11680,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -11482,7 +12528,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -11491,7 +12537,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -11991,6 +13038,122 @@
         ],
         "title": "RegimeRow"
       },
+      "RotationCell": {
+        "properties": {
+          "week_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Week End"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "health_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Rank"
+          },
+          "rrg_quadrant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrg Quadrant"
+          }
+        },
+        "type": "object",
+        "title": "RotationCell"
+      },
+      "RotationRow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "stocks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stocks"
+          },
+          "health_now": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Now"
+          },
+          "health_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Change",
+            "description": "Health, last week minus first week of the grid"
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/RotationCell"
+            },
+            "type": "array",
+            "title": "Cells",
+            "description": "One per week_end in meta.context.weeks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "group_name",
+          "level"
+        ],
+        "title": "RotationRow"
+      },
       "RrgPoint": {
         "properties": {
           "trade_date": {
@@ -12451,7 +13614,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -12460,7 +13623,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -12793,6 +13957,128 @@
         "title": "StockAnalogRow",
         "description": "Final shape (stub until the evidence engine)."
       },
+      "StockContextRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "security_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Name"
+          },
+          "in_session": {
+            "type": "boolean",
+            "title": "In Session",
+            "description": "The symbol has an indicators_daily row on as_of",
+            "default": false
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its industry group at the ₹1,000 Cr floor"
+          },
+          "deal_net_10s_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Net 10S Cr",
+            "description": "Bulk/block net over 10 sessions, PROP excluded, ₹ Cr"
+          },
+          "deal_prints_10s": {
+            "type": "integer",
+            "title": "Deal Prints 10S",
+            "default": 0
+          },
+          "deal_last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Last Date"
+          },
+          "setups": {
+            "items": {
+              "$ref": "#/components/schemas/ContextSetup"
+            },
+            "type": "array",
+            "title": "Setups",
+            "description": "Desk queues the stock is in on as_of"
+          },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning"
+          },
+          "next_results": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextEvent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Results / board meeting within 14 days"
+          },
+          "next_corp_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextEvent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Split / bonus / dividend … ex-date within 14 days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "StockContextRow"
+      },
       "StockDealRow": {
         "properties": {
           "trade_date": {
@@ -13023,7 +14309,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -13032,7 +14318,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -13663,7 +14950,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -13672,7 +14959,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -13764,7 +15052,7 @@
             "title": "Turnover Vs 20D",
             "description": "Turnover ÷ average traded value of the prior 20 sessions"
           },
-          "delivery_qty_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -13773,8 +15061,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Qty Vs 20D",
-            "description": "Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
+            "title": "Deliv Qty X",
+            "description": "Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
           },
           "delivery_spike": {
             "anyOf": [
@@ -14066,7 +15354,7 @@
             ],
             "title": "Rvol"
           },
-          "delivery_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14075,8 +15363,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D",
-            "description": "Delivered shares ÷ prior 20-session average"
+            "title": "Deliv Qty X",
+            "description": "Delivered qty ×20d: delivered shares ÷ prior 20-session average"
           }
         },
         "type": "object",
@@ -14264,7 +15552,7 @@
             ],
             "title": "Turnover Vs 20D"
           },
-          "delivery_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14273,8 +15561,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D",
-            "description": "Members' delivered shares ÷ their prior 20-session average"
+            "title": "Deliv Qty X",
+            "description": "Members' delivered shares ÷ their prior 20-session average (Delivered qty ×20d)"
           },
           "top_contributors": {
             "items": {
@@ -14838,7 +16126,7 @@
             ],
             "title": "Delivery Pct 20D Avg"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14847,7 +16135,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Market delivery % ÷ its prior 20-session average"
           }
         },
         "type": "object",
@@ -14966,7 +16255,7 @@
             ],
             "title": "Delivery Pct"
           },
-          "delivery_vs_20d": {
+          "deliv_pct_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -14975,7 +16264,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Deliv Pct X",
+            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
           },
           "rs_percentile": {
             "anyOf": [
@@ -15067,7 +16357,7 @@
             "title": "Turnover Vs 20D",
             "description": "Turnover ÷ average traded value of the prior 20 sessions"
           },
-          "delivery_qty_vs_20d": {
+          "deliv_qty_x": {
             "anyOf": [
               {
                 "type": "number"
@@ -15076,8 +16366,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Qty Vs 20D",
-            "description": "Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
+            "title": "Deliv Qty X",
+            "description": "Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
           },
           "delivery_spike": {
             "anyOf": [
@@ -15413,6 +16703,66 @@
           "symbols"
         ],
         "title": "WatchlistPut"
+      },
+      "WhyBullet": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "setup",
+              "trigger",
+              "evidence",
+              "group",
+              "deals",
+              "footprint",
+              "event",
+              "data",
+              "environment"
+            ],
+            "title": "Kind"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "positive",
+              "negative",
+              "neutral",
+              "warn",
+              "info",
+              "accent"
+            ],
+            "title": "Tone"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Plain-language sentence restating stored facts"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link",
+            "description": "In-app path for the underlying view"
+          },
+          "facts": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Facts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "tone",
+          "text"
+        ],
+        "title": "WhyBullet"
       }
     }
   }

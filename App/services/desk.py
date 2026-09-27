@@ -58,7 +58,7 @@ QUEUES: dict[str, dict[str, Any]] = {
 }
 QUEUE_METRICS = [
     "change_1d_pct", "trigger_price", "stop_price", "distance_to_trigger_pct", "risk_pct", "rvol",
-    "delivery_pct", "delivery_vs_20d", "rs_percentile", "rs_delta_5", "excess_vs_midsml400_63d",
+    "delivery_pct", "deliv_pct_x", "rs_percentile", "rs_delta_5", "excess_vs_midsml400_63d",
     "setup_age_sessions", "squeeze_pct", "candle_range_pct", "darvas_box_top", "darvas_box_bottom",
     "darvas_10ema_flavor", "vcp_contractions", "vcp_depth_pct", "vdu_ratio", "deal_net_10s_cr", "rrg_quadrant",
 ]
@@ -637,5 +637,5 @@ def watchlist_rows(as_of: date | None, symbols: list[str]) -> Result:
         sources=["indicators_daily", "stocks_master"] + (["setup_daily"] if "setup_daily" in sources else []),
         notes=["Trigger/stop come from the first queue the stock is in (VCP, then Darvas Squeeze, then Darvas 10 EMA)."],
         metric_keys=["change_1d_pct", "rs_percentile", "rs_delta_5", "distance_to_trigger_pct", "risk_pct",
-                     "away_52w_high_pct", "rvol", "delivery_vs_20d"],
+                     "away_52w_high_pct", "rvol", "deliv_pct_x"],
     )

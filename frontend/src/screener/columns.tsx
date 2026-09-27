@@ -6,6 +6,7 @@ import { fmtInt } from '../lib/fmt';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Chip } from '../ui/Chip';
 import { DataWarningChip } from '../ui/DataWarningChip';
+import { Unclassified } from '../ui/Unclassified';
 import { RankSpark, SignedNum, ZoneNum } from './cells';
 
 /** Rows from /screener/run: rule presets return ScreenerRow, Darvas/VCP presets return Desk queue rows. */
@@ -82,11 +83,15 @@ const industryCol: DataTableColumn<SRow> = {
   width: 150,
   grow: true,
   sortDescFirst: false,
-  cell: (v, r) => (
-    <span className="truncate text-fg-2" title={taxonomyTitle(r)}>
-      {String(v)}
-    </span>
-  ),
+  renderNull: true,
+  cell: (v, r) =>
+    v == null || v === '' ? (
+      <Unclassified />
+    ) : (
+      <span className="truncate text-fg-2" title={taxonomyTitle(r)}>
+        {String(v)}
+      </span>
+    ),
 };
 
 const common = {
@@ -230,14 +235,14 @@ const common = {
     cell: (v) => <ZoneNum metricKey="delivery_pct" value={v} format="pct" digits={0} />,
   } as DataTableColumn<SRow>,
   delivVs: {
-    id: 'delivery_vs_20d',
-    header: 'Deliv vs 20D',
-    accessor: 'delivery_vs_20d',
-    metricKey: 'delivery_vs_20d',
+    id: 'deliv_pct_x',
+    header: 'Dlv % ×20d',
+    accessor: 'deliv_pct_x',
+    metricKey: 'deliv_pct_x',
     format: 'ratio',
     width: 80,
     defaultHidden: true,
-    cell: (v) => <ZoneNum metricKey="delivery_vs_20d" value={v} format="ratio" digits={2} />,
+    cell: (v) => <ZoneNum metricKey="deliv_pct_x" value={v} format="ratio" digits={2} />,
   } as DataTableColumn<SRow>,
   mcap: {
     id: 'market_cap_cr',
@@ -270,29 +275,17 @@ const common = {
 
 export function ruleColumns(ctx: ColumnCtx, lookback: boolean): DataTableColumn<SRow>[] {
   const c = common;
+  const g = (group: string, cols: DataTableColumn<SRow>[]) => cols.map((col) => ({ ...col, group }));
+  // Returns are heat-tinted (±30% = full tint) so the eye reads strength across the row.
+  const heat = (v: unknown) => (typeof v === 'number' ? Math.max(-1, Math.min(1, v / 30)) : null);
   return [
-    watchCol(ctx),
-    symbolCol,
-    industryCol,
-    c.close,
-    c.change,
-    c.rs,
-    c.rsPath,
-    c.d5,
-    c.d20,
-    c.excess,
-    c.tt,
-    c.off52,
-    c.since52,
-    c.stage2,
-    c.r1m,
-    c.r3m,
-    c.r6m,
-    c.rvol,
-    c.deliv,
-    c.delivVs,
-    c.mcap,
-    c.adv,
+    ...g('Stock', [watchCol(ctx), symbolCol, industryCol]),
+    ...g('Price', [c.close, c.change]),
+    ...g('Strength', [c.rs, c.rsPath, c.d5, c.d20, c.excess]),
+    ...g('Trend', [c.tt, c.off52, c.since52, c.stage2]),
+    ...g('Returns', [c.r1m, c.r3m, c.r6m]).map((col) => ({ ...col, heat })),
+    ...g('Volume & delivery', [c.rvol, c.deliv, c.delivVs]),
+    ...g('Size', [c.mcap, c.adv]),
     ...(lookback ? [c.lastPass] : []),
   ];
 }

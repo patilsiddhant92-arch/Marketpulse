@@ -11,7 +11,8 @@ import { HelpCircle, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
-import type { TodayBreakoutRow, TodayMarketRow, TodayMoverRow, TodayStockRow } from '../api/types';
+import type { GroupContext, TodayBreakoutRow, TodayMarketRow, TodayMoverRow, TodayStockRow } from '../api/types';
+import { GroupHealthChip, useGroupContext } from '../context/GroupContext';
 import { cn } from '../lib/cn';
 import { fmtDate, fmtInt, fmtNum, fmtSignedPct } from '../lib/fmt';
 import { TvCopyBar } from '../routes/deals/TvCopy';
@@ -26,6 +27,7 @@ import { ErrorState } from '../ui/ErrorState';
 import { Panel } from '../ui/Panel';
 import { Skeleton, SkeletonRows } from '../ui/Skeleton';
 import { Tooltip } from '../ui/Tooltip';
+import { useStockContext } from '../context/stockContext';
 import { ChangeCell, KindChips, stockColumns, useGroupNav } from './parts';
 import {
   BREADTH_TONE,
@@ -102,10 +104,10 @@ function MarketStrip({ row }: { row: TodayMarketRow }) {
         </MetricInline>
       </div>
       <div className="px-3 py-1.5">
-        <MetricInline metricKey="market_delivery_vs_20d" label="Delivery %" value={row.delivery_vs_20d}>
+        <MetricInline metricKey="market_delivery_vs_20d" label="Delivery %" value={row.deliv_pct_x}>
           <span className="num text-sm text-fg">{fmtNum(row.delivery_pct, 1)}%</span>
           <span className="num text-2xs text-fg-3">
-            <ZoneNum metricKey="market_delivery_vs_20d" value={row.delivery_vs_20d} digits={2} />× of 20d avg {fmtNum(row.delivery_pct_20d_avg, 1)}%
+            <ZoneNum metricKey="market_delivery_vs_20d" value={row.deliv_pct_x} digits={2} />× of 20d avg {fmtNum(row.delivery_pct_20d_avg, 1)}%
           </span>
         </MetricInline>
       </div>
@@ -184,9 +186,11 @@ function MoversPanel({ className }: { className?: string }) {
   const ctx = q.data?.meta.context as { quality_rules?: QualityRule[]; evidence_traits?: EvidenceTrait[]; up?: number; down?: number; universe?: number } | undefined;
   const { gainers, losers } = useMemo(() => splitMovers(q.data?.rows ?? EMPTY_M), [q.data]);
   const rows = side === 'gainer' ? gainers : losers;
+  const allSyms = useMemo(() => (q.data?.rows ?? EMPTY_M).map((r) => r.symbol), [q.data]);
+  const sctx = useStockContext(allSyms);
   const columns = useMemo(
-    () => stockColumns<TodayMoverRow>({ rules: ctx?.quality_rules, evidence: ctx?.evidence_traits, asOf, onGroup }),
-    [ctx?.quality_rules, ctx?.evidence_traits, asOf, onGroup],
+    () => stockColumns<TodayMoverRow>({ rules: ctx?.quality_rules, evidence: ctx?.evidence_traits, asOf, onGroup, ctx: sctx.map }),
+    [ctx?.quality_rules, ctx?.evidence_traits, asOf, onGroup, sctx.map],
   );
   const symbols = useMemo(() => rows.map((r) => r.symbol).filter((s): s is string => !!s), [rows]);
   return (
@@ -259,6 +263,8 @@ function BreakoutsPanel({ className }: { className?: string }) {
   const family = tab === 'breakouts' ? BREAKOUT_KINDS : FOOTPRINT_KINDS;
   const rows = useMemo(() => filterByKinds(all, family, sel), [all, family, sel]);
   const counts = useMemo(() => kindCounts(all), [all]);
+  const rowSyms = useMemo(() => rows.map((r) => r.symbol), [rows]);
+  const sctx = useStockContext(rowSyms);
   const columns = useMemo(() => {
     const kindsCol: DataTableColumn<TodayBreakoutRow> = {
       id: 'kinds',
@@ -267,7 +273,7 @@ function BreakoutsPanel({ className }: { className?: string }) {
       width: 170,
       headerTitle: (ctx?.rules ?? []).map((r) => `${r.label}: ${r.rule}`).join('\n'),
       cell: (_v, r) => (
-        <span title={r.setup_trigger != null ? `Closed above the ${r.setup_queue ?? 'setup'} trigger ${fmtNum(r.setup_trigger, 2)} carried yesterday` : undefined}>
+        <span className="block min-w-0 overflow-hidden" title={r.setup_trigger != null ? `Closed above the ${r.setup_queue ?? 'setup'} trigger ${fmtNum(r.setup_trigger, 2)} carried yesterday` : undefined}>
           <KindChips kinds={r.kinds} only={family} />
         </span>
       ),
@@ -278,8 +284,9 @@ function BreakoutsPanel({ className }: { className?: string }) {
       asOf,
       onGroup,
       leading: [kindsCol as unknown as DataTableColumn<TodayStockRow>],
+      ctx: sctx.map,
     });
-  }, [ctx?.quality_rules, ctx?.evidence_traits, ctx?.rules, asOf, onGroup, tab, family]);
+  }, [ctx?.quality_rules, ctx?.evidence_traits, ctx?.rules, asOf, onGroup, tab, family, sctx.map]);
   const symbols = useMemo(() => rows.map((r) => r.symbol).filter((s): s is string => !!s), [rows]);
   const toggle = (k: string) =>
     setSel((prev) => {
@@ -300,7 +307,7 @@ function BreakoutsPanel({ className }: { className?: string }) {
             size="xs"
             options={[
               { value: 'breakouts', label: 'Breakouts', title: '52W highs, setup triggers, 20-day highs on RVOL, gap-ups' },
-              { value: 'footprints', label: 'Delivery footprints', title: 'Delivery × ≥ 1.5: on an up day = accumulation, on a down day = distribution' },
+              { value: 'footprints', label: 'Delivery footprints', title: 'Delivered qty ×20d ≥ 1.5 with delivery % at or above its habit: on an up day = accumulation, on a down day = distribution' },
             ]}
             value={tab}
             onChange={(v) => {
@@ -355,7 +362,7 @@ function BreakoutsPanel({ className }: { className?: string }) {
 
 // ------------------------------------------------------------------ groups today (compact)
 
-function GroupItem({ g, onGroup, asOf }: { g: TodayGroupRow; onGroup: (id: string) => void; asOf: string | null }) {
+function GroupItem({ g, onGroup, asOf, health }: { g: TodayGroupRow; onGroup: (id: string) => void; asOf: string | null; health?: GroupContext }) {
   return (
     <li className="space-y-0.5 px-3 py-1.5">
       <div className="flex items-center gap-1.5 text-xs">
@@ -363,6 +370,7 @@ function GroupItem({ g, onGroup, asOf }: { g: TodayGroupRow; onGroup: (id: strin
           {g.group_name}
         </button>
         <ChangeCell v={g.return_1d} />
+        {health && <GroupHealthChip g={health} quadrant={false} />}
         {g.breadth_label && <Chip tone={BREADTH_TONE[g.breadth_label] ?? 'neutral'}>{g.breadth_label}</Chip>}
         {g.persistence && (
           <Chip tone={PERSISTENCE_TONE[g.persistence_id ?? ''] ?? 'neutral'} title={`5d ${fmtSignedPct(g.return_5d, 1)} · 21d ${fmtSignedPct(g.return_21d, 1)}`}>
@@ -394,6 +402,7 @@ function GroupsTodayPanel({ className }: { className?: string }) {
   const [level, setLevel] = useState<'sector' | 'industry'>('sector');
   const q = useApiQuery('today/groups', { query: { level, floor: '1000', limit: 5000 } });
   const { up, down } = useMemo(() => topBottomGroups(q.data?.rows ?? EMPTY_G, 5), [q.data]);
+  const gctx = useGroupContext(level);
   const p = new URLSearchParams({ view: 'today', ...(level !== 'industry' ? { level } : {}) });
   if (asOf) p.set('as_of', asOf);
   return (
@@ -422,7 +431,7 @@ function GroupsTodayPanel({ className }: { className?: string }) {
             {up.length ? (
               <ul>
                 {up.map((g) => (
-                  <GroupItem key={g.id} g={g} onGroup={onGroup} asOf={asOf} />
+                  <GroupItem key={g.id} g={g} onGroup={onGroup} asOf={asOf} health={gctx.get(g.id)} />
                 ))}
               </ul>
             ) : (
@@ -434,7 +443,7 @@ function GroupsTodayPanel({ className }: { className?: string }) {
             {down.length ? (
               <ul>
                 {down.map((g) => (
-                  <GroupItem key={g.id} g={g} onGroup={onGroup} asOf={asOf} />
+                  <GroupItem key={g.id} g={g} onGroup={onGroup} asOf={asOf} health={gctx.get(g.id)} />
                 ))}
               </ul>
             ) : (

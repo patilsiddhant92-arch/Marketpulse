@@ -37,7 +37,7 @@ const queueRow = (o: Record<string, unknown>) => ({
   distance_to_trigger_pct: 2,
   risk_pct: 5.15,
   rvol: 1.2,
-  delivery_vs_20d: 1.1,
+  deliv_pct_x: 1.1,
   rs_percentile: 85,
   rs_delta_5: 3,
   excess_vs_midsml400_63d: 4,

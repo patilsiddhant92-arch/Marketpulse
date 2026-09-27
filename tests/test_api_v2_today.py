@@ -112,7 +112,7 @@ def test_movers_quality_traits_and_context(client):
     assert "TINY" not in rows and "SMALL" not in rows  # ₹1,000 Cr floor
     p1 = rows["P1"]
     assert p1["side"] == "gainer" and p1["rank"] == 1
-    assert p1["quality"] == "Real" and p1["delivery_vs_20d"] == 1.5
+    assert p1["quality"] == "Real" and p1["deliv_pct_x"] == 1.5
     assert set(p1["traits"]) == {"delivery_spike", "rvol_1_5", "results_5"}
     assert p1["deal_net_cr_today"] == 5.0 and p1["deal_event_type"] == "accumulate"
     assert p1["queues"] == ["vcp"]
@@ -167,9 +167,9 @@ def test_groups_today_why_is_built_from_facts(client):
 def test_first_rule_fails_closed_on_null():
     from App.services import today
 
-    assert today.first_rule({"rvol": None, "delivery_vs_20d": 2.0}, today.QUALITY_RULES) is None
-    assert today.first_rule({"rvol": 1.6, "delivery_vs_20d": None}, today.QUALITY_RULES)["id"] == "normal"
-    assert today.first_rule({"rvol": 1.6, "delivery_vs_20d": 1.3, "market_cap_cr": 100, "at_circuit": True},
+    assert today.first_rule({"rvol": None, "deliv_qty_x": 2.0}, today.QUALITY_RULES) is None
+    assert today.first_rule({"rvol": 1.6, "deliv_qty_x": None}, today.QUALITY_RULES)["id"] == "normal"
+    assert today.first_rule({"rvol": 1.6, "deliv_qty_x": 1.3, "market_cap_cr": 100, "at_circuit": True},
                             today.QUALITY_RULES)["id"] == "operator"
     assert today.first_rule({"return_1d": 1, "return_5d": -1, "return_21d": 4}, today.PERSISTENCE_RULES)["id"] == "resume_up"
     assert today.first_rule({"return_1d": 1, "return_5d": 1, "return_21d": -4}, today.PERSISTENCE_RULES)["id"] == "bounce"
@@ -180,12 +180,12 @@ def test_why_sentence_persistence_clause():
 
     g = {"group_name": "Pharma", "return_1d": 2.1, "stocks": 23, "pct_up": 78.0, "breadth_label": "broad",
          "top_contributors": [{"symbol": "X", "change_1d_pct": 6.0}, {"symbol": "Y", "change_1d_pct": 5.0}],
-         "turnover_vs_20d": 1.8, "delivery_vs_20d": 1.3, "participation": "real participation",
+         "turnover_vs_20d": 1.8, "deliv_qty_x": 1.3, "participation": "real participation",
          "deal_buyers": 2, "deal_sellers": 0, "deal_net_cr": 12.0, "return_5d": 4.0, "return_21d": 9.0,
          "persistence_phrase": "part of an up-trend"}
     s = today.why_sentence(g)
     assert s == ("Pharma +2.1% today, broad (78% of 23 stocks up), led by X +6.0%, Y +5.0%. Turnover 1.80× normal "
-                 "with delivery 1.30× — real participation. Deals: 2 net buyers (net +₹12.0 Cr, PROP excluded). "
+                 "with delivered shares 1.30× — real participation. Deals: 2 net buyers (net +₹12.0 Cr, PROP excluded). "
                  "5d +4.0%, 21d +9.0% — part of an up-trend.")
 
 

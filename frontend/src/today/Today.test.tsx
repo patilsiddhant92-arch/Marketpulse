@@ -43,7 +43,7 @@ const market = {
   turnover_vs_20d: 0.86,
   delivery_pct: 40.3,
   delivery_pct_20d_avg: 43.1,
-  delivery_vs_20d: 0.93,
+  deliv_pct_x: 0.93,
 };
 const stock = (o: Record<string, unknown>) => ({
   industry: 'Pharma',
@@ -56,7 +56,7 @@ const stock = (o: Record<string, unknown>) => ({
   ...o,
 });
 const movers = [
-  stock({ side: 'gainer', rank: 1, symbol: 'P1', change_1d_pct: 10, rvol: 2, delivery_vs_20d: 1.5, quality: 'Real', quality_id: 'real', quality_tone: 'good', traits: ['delivery_spike'], queues: ['vcp'] }),
+  stock({ side: 'gainer', rank: 1, symbol: 'P1', change_1d_pct: 10, rvol: 2, deliv_pct_x: 1.5, quality: 'Real', quality_id: 'real', quality_tone: 'good', traits: ['delivery_spike'], queues: ['vcp'] }),
   stock({ side: 'loser', rank: 1, symbol: 'P4', change_1d_pct: -1, rvol: 1.2 }),
 ];
 const groups = [

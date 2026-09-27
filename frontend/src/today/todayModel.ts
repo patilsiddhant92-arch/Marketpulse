@@ -133,18 +133,36 @@ export function topBottomGroups(rows: readonly TodayGroupRow[], n = 5): { up: To
   return { up, down };
 }
 
+/**
+ * Default Groups › Today order: broad moves first. |1D| × share of members that moved the group's way
+ * (advancers on an up day, decliners on a down day). A +8% one-stock pop scores below a +2% move with
+ * 90% of members up. NULL when the return or breadth is unknown.
+ */
+export function broadMoveScore(r: Pick<TodayGroupRow, 'return_1d' | 'advancers' | 'decliners' | 'stocks_with_return'>): number | null {
+  if (r.return_1d == null || !r.stocks_with_return) return null;
+  const way = r.return_1d >= 0 ? r.advancers : r.decliners;
+  if (way == null) return null;
+  return Math.abs(r.return_1d) * (way / r.stocks_with_return);
+}
+
+/** Hide thin groups (< 3 members with a return) unless asked. */
+export function withoutThinGroups<T extends Pick<TodayGroupRow, 'stocks_with_return' | 'stocks'>>(rows: readonly T[], showThin: boolean): T[] {
+  return showThin ? [...rows] : rows.filter((r) => (r.stocks_with_return ?? r.stocks ?? 0) >= 3);
+}
+
 export function filterGroupsText(rows: readonly TodayGroupRow[], text: string): TodayGroupRow[] {
   const t = text.trim().toLowerCase();
   if (!t) return [...rows];
   return rows.filter((r) => r.group_name.toLowerCase().includes(t) || (r.symbols ?? []).some((s) => s.toLowerCase() === t));
 }
 
-/** Human text for a rule clause list: "rvol ≥ 1.5 and delivery_vs_20d ≥ 1.2". */
+/** Human text for a rule clause list: "rvol ≥ 1.5 and deliv_pct_x ≥ 1.2". */
 export function clauseText(when: readonly RuleClause[]): string {
   const OPS: Record<string, string> = { gt: '>', gte: '≥', lt: '<', lte: '≤', is_true: 'is true' };
   const NAMES: Record<string, string> = {
     rvol: 'RVOL',
-    delivery_vs_20d: 'delivery ×',
+    deliv_qty_x: 'delivered qty ×20d',
+    deliv_pct_x: 'delivery % ×20d',
     market_cap_cr: 'market cap ₹Cr',
     at_circuit: 'closed at price band',
     turnover_vs_20d: 'turnover ×',

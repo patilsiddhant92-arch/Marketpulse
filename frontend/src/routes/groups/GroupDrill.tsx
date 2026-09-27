@@ -7,12 +7,15 @@
  */
 import { ArrowLeft, ChevronRight, LineChart } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useApiQuery } from '../../api/query';
 import type { GroupIndexRow, GroupRow, MemberRow } from '../../api/types';
 import { cn } from '../../lib/cn';
-import { fmtDate, fmtDateShort, fmtNum, fmtSigned, fmtValue, isNum, type FormatKind } from '../../lib/fmt';
+import { fmtDate, fmtDateShort, fmtNum, fmtSigned, fmtSignedPct, fmtValue, isNum, type FormatKind } from '../../lib/fmt';
+import { withAsOf } from '../../context/StockContextChips';
+import { dealsHref, useStockContext } from '../../context/stockContext';
 import { useShell } from '../../shell/ShellContext';
+import { useAsOf } from '../../shell/urlState';
 import { Chart, type ChartOverlay } from '../../ui/Chart';
 import type { OHLCBar } from '../../lib/indicators';
 import { tokenColor } from '../../lib/tokens';
@@ -119,7 +122,7 @@ const memberColumns: DataTableColumn<MemberRow>[] = [
   { id: 'acc', header: 'Acc d', accessor: 'delivery_accumulation_days', format: 'int', width: 50, metricKey: 'delivery_accumulation_days', cell: (v) => <ZoneNum metricKey="delivery_accumulation_days" value={v as number} format="int" /> },
   { id: 'deal', header: 'Deals 10s', accessor: 'deal_net_10s_cr', format: 'signed', digits: 1, width: 70, metricKey: 'deal_net_10s_cr', cell: (v) => <ZoneNum metricKey="deal_net_10s_cr" value={v as number} format="signed" digits={1} /> },
   { id: 'rvol', header: 'RVOL', accessor: 'rvol', format: 'num', digits: 2, width: 52, metricKey: 'rvol' },
-  { id: 'dvs20', header: 'Deliv ×20d', accessor: 'delivery_vs_20d', format: 'ratio', digits: 2, width: 70, metricKey: 'delivery_vs_20d' },
+  { id: 'dvs20', header: 'Dlv % ×20d', accessor: 'deliv_pct_x', format: 'ratio', digits: 2, width: 70, metricKey: 'deliv_pct_x' },
   { id: 'hi52', header: 'From 52W hi', accessor: 'away_52w_high_pct', format: 'signedPct', digits: 1, width: 76, metricKey: 'away_52w_high_pct' },
   { id: 'adv', header: 'ADV ₹Cr', accessor: 'adv_cr_20d', format: 'num', digits: 1, width: 64, metricKey: 'adv_cr_20d', defaultHidden: true },
   {
@@ -173,6 +176,98 @@ export interface GroupDrillProps {
   onBack: () => void;
   onNavigate: (id: string) => void;
   chartsHref: (symbols: string[]) => string;
+}
+
+/** "Setups in this group now": members in a Desk queue with distance to trigger (context endpoint). */
+function GroupSetupsList({ members, loading, known, queues }: { members: readonly MemberRow[]; loading: boolean; known: boolean; queues: { queue: string; symbols: string[] }[] }) {
+  const shell = useShell();
+  const navigate = useNavigate();
+  const [asOf] = useAsOf();
+  const withSetups = useMemo(() => members.filter((m) => m.active_setups && m.active_setups.length > 0).map((m) => m.symbol), [members]);
+  const { map } = useStockContext(withSetups);
+  const items = useMemo(
+    () =>
+      withSetups
+        .flatMap((sym) => (map.get((sym ?? '').toUpperCase())?.setups ?? []).map((st) => ({ sym: sym as string, st })))
+        .sort((a, b) => Math.abs(a.st.distance_to_trigger_pct ?? 99) - Math.abs(b.st.distance_to_trigger_pct ?? 99)),
+    [withSetups, map],
+  );
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-2 text-2xs font-semibold uppercase tracking-wide text-fg-2">
+        Setups in this group now
+        {queues.map((qq) => (
+          <Chip key={qq.queue} tone="accent" onClick={() => navigate(withAsOf(`/desk?view=setups&queue=${qq.queue}`, asOf))} title={`Open the ${queueLabel(qq.queue)} queue on the Desk`}>
+            {queueLabel(qq.queue)} <span className="num">{qq.symbols.length}</span>
+          </Chip>
+        ))}
+      </div>
+      {loading ? (
+        <Skeleton height={36} />
+      ) : !known ? (
+        <div className="text-2xs text-fg-3">setup_daily not built — see the Desk queues.</div>
+      ) : withSetups.length === 0 ? (
+        <div className="text-2xs text-fg-3">No member is in a Desk queue today.</div>
+      ) : (
+        <ul className="space-y-0.5" data-testid="group-setups">
+          {(items.length ? items : withSetups.map((sym) => ({ sym: sym as string, st: null }))).slice(0, 12).map(({ sym, st }) => (
+            <li key={`${sym}-${st?.queue ?? ''}`} className="flex items-center gap-2 text-2xs">
+              <button type="button" className="w-24 truncate text-left font-mono text-fg hover:text-accent hover:underline" onClick={() => shell.openSymbol(sym)} onDoubleClick={() => shell.openStockPage(sym)}>
+                {sym}
+              </button>
+              {st && <span className="text-accent">{queueLabel(st.queue)}</span>}
+              {st?.distance_to_trigger_pct != null && (
+                <span className="num text-fg-2" title="Trigger distance from the close">
+                  {fmtSignedPct(st.distance_to_trigger_pct, 1)} to trigger
+                </span>
+              )}
+              {st?.setup_age_sessions != null && <span className="num ml-auto text-fg-3" title="Sessions in the queue">age {st.setup_age_sessions}</span>}
+            </li>
+          ))}
+          {items.length > 12 && <li className="text-2xs text-fg-3">+{items.length - 12} more on the Desk</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** "Deals in this group (10 sessions)": members with bulk/block prints, net ₹ Cr ex-PROP. */
+function GroupDealsList({ members, loading }: { members: readonly MemberRow[]; loading: boolean }) {
+  const shell = useShell();
+  const [asOf] = useAsOf();
+  const rows = useMemo(
+    () => members.filter((m) => m.deal_net_10s_cr != null && m.deal_net_10s_cr !== 0).sort((a, b) => Math.abs(b.deal_net_10s_cr ?? 0) - Math.abs(a.deal_net_10s_cr ?? 0)),
+    [members],
+  );
+  const net = rows.reduce((t, r) => t + (r.deal_net_10s_cr ?? 0), 0);
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-2 text-2xs font-semibold uppercase tracking-wide text-fg-2">
+        Deals in this group (10 sessions)
+        {rows.length > 0 && <span className={cn('num normal-case', net >= 0 ? 'text-up' : 'text-down')}>net {fmtSigned(net, 1)} ₹Cr</span>}
+      </div>
+      {loading ? (
+        <Skeleton height={36} />
+      ) : rows.length === 0 ? (
+        <div className="text-2xs text-fg-3">No bulk/block net deals in the last 10 sessions (PROP excluded).</div>
+      ) : (
+        <ul className="space-y-0.5" data-testid="group-deals">
+          {rows.slice(0, 8).map((r) => (
+            <li key={r.symbol} className="flex items-center gap-2 text-2xs">
+              <button type="button" className="w-24 truncate text-left font-mono text-fg hover:text-accent hover:underline" onClick={() => r.symbol && shell.openSymbol(r.symbol)}>
+                {r.symbol}
+              </button>
+              <span className={cn('num', (r.deal_net_10s_cr ?? 0) >= 0 ? 'text-up' : 'text-down')}>{fmtSigned(r.deal_net_10s_cr, 1)} ₹Cr</span>
+              <Link to={withAsOf(dealsHref(r.symbol ?? ''), asOf)} className="ml-auto text-accent hover:underline" title={`Deals view filtered to ${r.symbol}`}>
+                prints →
+              </Link>
+            </li>
+          ))}
+          {rows.length > 8 && <li className="text-2xs text-fg-3">+{rows.length - 8} more</li>}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: GroupDrillProps) {
@@ -348,32 +443,8 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
           </div>
         </div>
         <div className="flex w-[360px] shrink-0 flex-col gap-2 overflow-auto p-2">
-          <div>
-            <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-fg-2">In Desk queues now</div>
-            {members.isLoading ? (
-              <Skeleton height={36} />
-            ) : !setupsKnown ? (
-              <div className="text-2xs text-fg-3">setup_daily not built — see the Desk queues.</div>
-            ) : queues.length === 0 ? (
-              <div className="text-2xs text-fg-3">No member is in a Desk queue today.</div>
-            ) : (
-              <div className="space-y-1">
-                {queues.map((qq) => (
-                  <div key={qq.queue} className="flex flex-wrap items-center gap-1">
-                    <Chip tone="accent">
-                      {queueLabel(qq.queue)} <span className="num">{qq.symbols.length}</span>
-                    </Chip>
-                    {qq.symbols.slice(0, 10).map((sym) => (
-                      <button key={sym} type="button" className="font-mono text-2xs text-fg hover:text-accent hover:underline" onClick={() => shell.openSymbol(sym)}>
-                        {sym}
-                      </button>
-                    ))}
-                    {qq.symbols.length > 10 && <span className="text-2xs text-fg-3">+{qq.symbols.length - 10}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <GroupSetupsList members={memberRows} loading={members.isLoading} known={setupsKnown} queues={queues} />
+          <GroupDealsList members={memberRows} loading={members.isLoading} />
           <div className="flex gap-3">
             <MoverList title="Top 1D" rows={movers1d.up} fmt={(r) => r.change_1d_pct} onPick={shell.openSymbol} />
             <MoverList title="Worst 1D" rows={movers1d.down} fmt={(r) => r.change_1d_pct} onPick={shell.openSymbol} />

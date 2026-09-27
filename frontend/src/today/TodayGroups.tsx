@@ -8,7 +8,8 @@ import { ChevronRight, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
-import type { TodayContributor, TodayGroupRow } from '../api/types';
+import type { GroupContext, TodayContributor, TodayGroupRow } from '../api/types';
+import { GroupHealthChip, useGroupContext } from '../context/GroupContext';
 import { cn } from '../lib/cn';
 import { fmtDate, fmtInt, fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { TvCopyBar } from '../routes/deals/TvCopy';
@@ -20,11 +21,11 @@ import { Chip } from '../ui/Chip';
 import { DataTable, type DataTableColumn } from '../ui/DataTable';
 import { EmptyState } from '../ui/EmptyState';
 import { ChangeCell } from './parts';
-import { BREADTH_TONE, PARTICIPATION_TONE, PERSISTENCE_TONE, clauseText, filterGroupsText, type RuleClause } from './todayModel';
+import { BREADTH_TONE, PARTICIPATION_TONE, PERSISTENCE_TONE, broadMoveScore, clauseText, filterGroupsText, withoutThinGroups, type RuleClause } from './todayModel';
 
 const EMPTY: TodayGroupRow[] = [];
 
-function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[] {
+function columns(onDrill: (id: string) => void, gctx: ReadonlyMap<string, GroupContext>): DataTableColumn<TodayGroupRow>[] {
   return [
     { id: 'rank_1d', header: '#', accessor: 'rank_1d', format: 'int', width: 40, sticky: true, sortDescFirst: false, headerTitle: "Rank by today's return (groups with ≥ 3 members)" },
     {
@@ -50,6 +51,25 @@ function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[
         </span>
       ),
     },
+    {
+      id: 'health',
+      header: 'Health 21d',
+      accessor: (r) => gctx.get(r.id)?.health ?? null,
+      format: 'num',
+      width: 118,
+      metricKey: 'group_health',
+      headerTitle: "The group's Health (0-100) with its last 21 sessions and quadrant vs peers: is today's move part of a healthy group?",
+      cell: (_v, r) => <GroupHealthChip g={gctx.get(r.id)} clickable={false} />,
+    },
+    {
+      id: 'broad',
+      header: 'Broad',
+      accessor: (r) => broadMoveScore(r),
+      format: 'num',
+      digits: 2,
+      width: 56,
+      headerTitle: "Default order: |1D| × share of members that moved the group's way. Broad moves rank above one-stock pops.",
+    },
     { id: 'ret', header: '1D', accessor: 'return_1d', format: 'signedPct', width: 62, metricKey: 'group_return_1d', cell: (v) => <ChangeCell v={v as number} /> },
     {
       id: 'pct_up',
@@ -68,7 +88,7 @@ function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[
     { id: 'up2', header: '>+2%', accessor: 'pct_up_2', format: 'pct', digits: 0, width: 52, headerTitle: '% of members up more than 2%' },
     { id: 'dn2', header: '<−2%', accessor: 'pct_down_2', format: 'pct', digits: 0, width: 52, headerTitle: '% of members down more than 2%' },
     { id: 'to_x', header: 'T/O ×', accessor: 'turnover_vs_20d', format: 'num', digits: 2, width: 58, metricKey: 'group_turnover_vs_20d', cell: (v) => <ZoneNum metricKey="group_turnover_vs_20d" value={v as number} digits={2} /> },
-    { id: 'dl_x', header: 'Deliv ×', accessor: 'delivery_vs_20d', format: 'num', digits: 2, width: 60, metricKey: 'group_delivery_vs_20d', cell: (v) => <ZoneNum metricKey="group_delivery_vs_20d" value={v as number} digits={2} /> },
+    { id: 'dl_x', header: 'Dlv qty ×', accessor: 'deliv_qty_x', format: 'num', digits: 2, width: 60, metricKey: 'group_delivery_vs_20d', cell: (v) => <ZoneNum metricKey="group_delivery_vs_20d" value={v as number} digits={2} /> },
     { id: 'top1', header: 'Top-1', accessor: 'top1_share_pct', format: 'pct', digits: 0, width: 54, metricKey: 'move_concentration', cell: (v) => <ZoneNum metricKey="move_concentration" value={v as number} format="pct" digits={0} /> },
     {
       id: 'led',
@@ -162,7 +182,7 @@ function ContribList({ title, items, tone }: { title: string; items: readonly To
             <th className="text-right font-normal" title="Share of the group move">Share</th>
             <th className="text-right font-normal" title="Equal weight in the group">Wt</th>
             <th className="text-right font-normal">RVOL</th>
-            <th className="text-right font-normal">Deliv×</th>
+            <th className="text-right font-normal" title="Delivered qty ×20d">Dlv qty×</th>
           </tr>
         </thead>
         <tbody>
@@ -183,7 +203,7 @@ function ContribList({ title, items, tone }: { title: string; items: readonly To
                 <ZoneNum metricKey="rvol" value={c.rvol} digits={2} />
               </td>
               <td className="text-right">
-                <ZoneNum metricKey="delivery_qty_vs_20d" value={c.delivery_vs_20d} digits={1} />
+                <ZoneNum metricKey="deliv_qty_x" value={c.deliv_qty_x} digits={1} />
               </td>
             </tr>
           ))}
@@ -225,8 +245,8 @@ function Detail({ g, ctx, onDrill }: { g: TodayGroupRow; ctx: RulesCtx | undefin
         <MetricInline metricKey="group_turnover_vs_20d" label="Turnover ×" value={g.turnover_vs_20d}>
           <ZoneNum metricKey="group_turnover_vs_20d" value={g.turnover_vs_20d} digits={2} className="text-xs" />
         </MetricInline>
-        <MetricInline metricKey="group_delivery_vs_20d" label="Delivery ×" value={g.delivery_vs_20d}>
-          <ZoneNum metricKey="group_delivery_vs_20d" value={g.delivery_vs_20d} digits={2} className="text-xs" />
+        <MetricInline metricKey="group_delivery_vs_20d" label="Delivered qty ×20d" value={g.deliv_qty_x}>
+          <ZoneNum metricKey="group_delivery_vs_20d" value={g.deliv_qty_x} digits={2} className="text-xs" />
         </MetricInline>
         <MetricInline metricKey="move_concentration" label="Top-1 share" value={g.top1_share_pct}>
           <ZoneNum metricKey="move_concentration" value={g.top1_share_pct} format="pct" digits={0} className="text-xs" />
@@ -290,21 +310,37 @@ function Detail({ g, ctx, onDrill }: { g: TodayGroupRow; ctx: RulesCtx | undefin
   );
 }
 
-export function TodayGroups({ level, floor, text, onDrill }: { level: Level; floor: Floor; text: string; onDrill: (id: string) => void }) {
+export function TodayGroups({
+  level,
+  floor,
+  text,
+  onDrill,
+  showThin = false,
+}: {
+  level: Level;
+  floor: Floor;
+  text: string;
+  onDrill: (id: string) => void;
+  showThin?: boolean;
+}) {
   const sidecarOpen = !!useShell().symbol;
   const q = useApiQuery('today/groups', { query: { level, floor, limit: 5000 } });
-  const rows = useMemo(() => filterGroupsText(q.data?.rows ?? EMPTY, text), [q.data, text]);
+  const all = q.data?.rows ?? EMPTY;
+  const rows = useMemo(() => filterGroupsText(withoutThinGroups(all, showThin), text), [all, showThin, text]);
+  const thinHidden = showThin ? 0 : all.length - withoutThinGroups(all, false).length;
   const [picked, setSelected] = useState<string | null>(null);
   // The picked group, or the first row when nothing (or a filtered-out group) is picked.
   const selected = picked && rows.some((r) => r.id === picked) ? picked : (rows[0]?.id ?? null);
-  const cols = useMemo(() => columns(onDrill), [onDrill]);
+  const gctx = useGroupContext(level, floor);
+  const cols = useMemo(() => columns(onDrill, gctx), [onDrill, gctx]);
   const sel = rows.find((r) => r.id === selected);
   const ctx = q.data?.meta.context as RulesCtx | undefined;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-6 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 py-0.5 text-2xs text-fg-3">
         <span>
-          What moved today and why · <span className="num text-fg-2">{rows.length}</span> groups · click a row for the why, Enter / name to drill
+          What moved today and why · <span className="num text-fg-2">{rows.length}</span> groups
+          {thinHidden > 0 && <> ({thinHidden} thin hidden)</>} · broad moves first · click a row for the why, Enter / name to drill
         </span>
         <SourceNote meta={q.data?.meta} />
         {q.data?.as_of && <span className="ml-auto">As of {fmtDate(q.data.as_of)}</span>}
@@ -320,7 +356,7 @@ export function TodayGroups({ level, floor, text, onDrill }: { level: Level; flo
             loading={q.isLoading}
             error={q.error}
             onRetry={() => void q.refetch()}
-            initialSort={[{ id: 'ret', desc: true }]}
+            initialSort={[{ id: 'broad', desc: true }]}
             activeRowId={selected}
             onActiveRowChange={(r) => setSelected(r.id)}
             onRowClick={(r) => setSelected(r.id)}
