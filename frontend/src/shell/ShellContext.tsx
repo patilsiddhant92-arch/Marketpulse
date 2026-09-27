@@ -19,6 +19,9 @@ export interface ShellApi {
   /** Navigate to Charts with a symbol list (legacy "Tiles" / "Open in Charts"). */
   openCharts: (symbols?: string[]) => void;
   goTab: (id: TabId) => void;
+  /** Symbol shown in the near-full-screen big chart (F), null when closed. */
+  bigChart: string | null;
+  openBigChart: (sym: string | null) => void;
 
   /**
    * Watchlist, persisted to /api/v2/watchlist (localStorage is only an
@@ -60,6 +63,12 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   const [recent, setRecent] = useState<string[]>(() => readJSON<string[]>(RECENT_KEY, []).filter(isSymbol));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [breadthOpen, setBreadthOpen] = useState(false);
+  const [bigChart, setBigChart] = useState<string | null>(null);
+  const openBigChart = useCallback((sym: string | null) => {
+    const s = sym ? sym.toUpperCase() : null;
+    if (s && !isSymbol(s)) return;
+    setBigChart(s);
+  }, []);
 
   useEffect(() => writeJSON(WATCH_KEY, watchlist), [watchlist]);
 
@@ -189,6 +198,8 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       openStockPage,
       openCharts,
       goTab,
+      bigChart,
+      openBigChart,
       watchlist,
       watchSync,
       isWatched,
@@ -207,6 +218,8 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       openStockPage,
       openCharts,
       goTab,
+      bigChart,
+      openBigChart,
       watchlist,
       watchSync,
       isWatched,

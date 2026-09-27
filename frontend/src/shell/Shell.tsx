@@ -10,6 +10,7 @@ import { StagingBasketDrawer } from '../components/StagingBasketDrawer';
 import { cn } from '../lib/cn';
 import { fmtDate } from '../lib/fmt';
 import { TAB_COMPONENTS } from '../routes/registry';
+import { BigChart } from '../stock360/BigChart';
 import { Stock360Sidecar } from '../stock360/Stock360';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { SkeletonRows } from '../ui/Skeleton';
@@ -128,6 +129,11 @@ function ShellLayout() {
       )}
       <MarketBreadthDrawer isOpen={shell.breadthOpen} onClose={() => shell.setBreadthOpen(false)} />
       <CommandPalette />
+      {shell.bigChart && (
+        <ErrorBoundary name="Big chart" resetKeys={[shell.bigChart]}>
+          <BigChart symbol={shell.bigChart} />
+        </ErrorBoundary>
+      )}
     </div>
   );
 }

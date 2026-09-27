@@ -63,6 +63,7 @@ export type StockHeaderRow = Schemas['StockHeaderRow'];
 export type StockAdjustment = Schemas['Adjustment'];
 export type BarRow = Schemas['BarRow'];
 export type RsRow = Schemas['RsRow'];
+export type DarvasBoxRow = Schemas['DarvasBoxRow'];
 export type StockEventRow = Schemas['EventRow'];
 export type StockDealRow = Schemas['StockDealRow'];
 export type StockAnalogRow = Schemas['StockAnalogRow'];
