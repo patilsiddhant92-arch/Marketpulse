@@ -1,6 +1,6 @@
 /**
- * Global keys (spec 7.1): Ctrl/Cmd+K palette · 1-6 tabs · W watchlist ·
- * T TradingView · C copy · F big chart · / focus filter. J/K/Enter live in DataTable
+ * Global keys (spec 7.1): Ctrl/Cmd+K palette · 1-6 tabs · W (or Space) watchlist ·
+ * T TradingView · C copy · F big chart · M Charts · / focus filter. J/K/Enter live in DataTable
  * (focused table); Escape is handled by the layer stack (lib/layers.ts).
  */
 import { useEffect, useRef } from 'react';
@@ -56,6 +56,20 @@ export function useShortcuts(): void {
         case 'w':
         case 'W':
           if (sym) s.toggleWatch(sym);
+          break;
+        case ' ': {
+          // Old app: Space staged the selected stock. Leave Space alone on buttons / links (it clicks them).
+          const tag = (e.target as HTMLElement | null)?.tagName;
+          if (!sym || tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY') break;
+          e.preventDefault();
+          s.toggleWatch(sym);
+          break;
+        }
+        case 'm':
+        case 'M':
+          // Old app: M opened the multi-chart Tiles window.
+          e.preventDefault();
+          s.goTab('charts');
           break;
         case 't':
         case 'T':

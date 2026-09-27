@@ -2,8 +2,9 @@ import { contextColumn } from '../context/StockContextChips';
 import { useStockContext } from '../context/stockContext';
 import { Copy, LayoutGrid } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { isUnavailable } from '../api/client';
-import { useApiQuery } from '../api/query';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiGet, isUnavailable } from '../api/client';
+import { apiQueryKey, useApiQuery } from '../api/query';
 import type { QueueRow } from '../api/types';
 import { copyText } from '../lib/clipboard';
 import { cn } from '../lib/cn';
@@ -11,7 +12,7 @@ import { fmtNum } from '../lib/fmt';
 import { formatTradingViewList } from '../lib/tradingview';
 import { useEnvironment } from '../shell/environment';
 import { useShell } from '../shell/ShellContext';
-import { useUrlParam } from '../shell/urlState';
+import { useAsOf, useUrlParam } from '../shell/urlState';
 import { DataTable } from '../ui/DataTable';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
@@ -106,6 +107,33 @@ export function QueuePanel({ extraTabs = [], className }: QueuePanelProps) {
   }, []);
   const [copied, setCopied] = useState<string | null>(null);
   const label = QUEUES.find((x) => x.id === queue)!.label;
+
+  const qc = useQueryClient();
+  const [asOf] = useAsOf();
+  /** The old Action Desk "Primary Setups" list: every queue in one paste, one ###section per queue. */
+  const copyAllQueues = async () => {
+    try {
+      const sections = await Promise.all(
+        QUEUES.map(async (x) => {
+          if (x.id === queue && tf === 'D' && q.data) return { title: x.label, symbols: rows.map((r) => r.symbol) };
+          const params = { name: x.id };
+          const query = { tf: 'D' as const, limit: 5000 };
+          const env = await qc.fetchQuery({
+            queryKey: apiQueryKey('desk/queue/{name}', params, query, asOf),
+            queryFn: ({ signal }) => apiGet('desk/queue/{name}', { params, query: { ...query, ...(asOf ? { as_of: asOf } : {}) } }, { signal }),
+            staleTime: 5 * 60_000,
+          });
+          return { title: x.label, symbols: env.rows.map((r) => r.symbol) };
+        }),
+      );
+      const { text, count } = formatTradingViewList(sections);
+      const ok = count > 0 && (await copyText(text));
+      setCopied(ok ? `Copied ${count} (all queues)` : 'Copy failed');
+    } catch {
+      setCopied('Copy failed');
+    }
+    window.setTimeout(() => setCopied(null), 2500);
+  };
 
   const copyTv = async () => {
     const syms = sortedRef.current.map((r) => r.symbol);
@@ -222,6 +250,11 @@ export function QueuePanel({ extraTabs = [], className }: QueuePanelProps) {
               <Tooltip content="Copy the visible rows (filtered, in this order) as a TradingView watchlist">
                 <button type="button" onClick={() => void copyTv()} disabled={!shown.length} className="inline-flex items-center gap-1 rounded border border-line px-2 py-0.5 text-fg-2 hover:bg-surface-3 disabled:opacity-50">
                   <Copy className="h-3 w-3" aria-hidden /> TradingView
+                </button>
+              </Tooltip>
+              <Tooltip content="Copy all three daily queues in one TradingView paste, one ###section per queue (the old Primary Setups list)">
+                <button type="button" onClick={() => void copyAllQueues()} className="inline-flex items-center gap-1 rounded border border-line px-2 py-0.5 text-fg-2 hover:bg-surface-3">
+                  <Copy className="h-3 w-3" aria-hidden /> All queues
                 </button>
               </Tooltip>
               <button
