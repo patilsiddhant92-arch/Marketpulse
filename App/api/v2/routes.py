@@ -392,6 +392,13 @@ def research_pre_move(as_of: Optional[date] = AsOf, offset: int = Offset, limit:
     return envelope(_call(research.pre_move, as_of), offset, limit)
 
 
+@router.get("/research/group-studies", response_model=m.Envelope[m.GroupStudyRow])
+def research_group_studies(as_of: Optional[date] = AsOf,
+                           level: Literal["broad_sector", "sector", "broad_industry", "industry"] = "industry",
+                           offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(research.group_studies, as_of, level), offset, limit)
+
+
 # --------------------------------------------------------------------------
 # Metric dictionary
 # --------------------------------------------------------------------------

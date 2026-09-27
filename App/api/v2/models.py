@@ -637,6 +637,20 @@ class PreMoveRow(BaseModel):
     n: Optional[int] = None
 
 
+class GroupStudyRow(BaseModel):
+    """Big movers by taxonomy level (evidence engine, spec §7.6)."""
+
+    model_config = ConfigDict(extra="allow")
+    level: Optional[str] = None
+    group_name: Optional[str] = None
+    n_events: Optional[int] = None
+    eligible_stock_days: Optional[int] = None
+    events_per_1000_days: Optional[float] = None
+    lift_vs_all: Optional[float] = None
+    median_move_pct: Optional[float] = None
+    label: Optional[str] = None
+
+
 class MetricZone(BaseModel):
     model_config = ConfigDict(extra="allow")
     range: str
