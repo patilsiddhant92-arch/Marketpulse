@@ -103,7 +103,9 @@ def stock_day_frame(ind: pd.DataFrame, *, mcap: pd.DataFrame, master: pd.DataFra
                     deals: pd.DataFrame | None, pr: dict | None, events_tbl: pd.DataFrame | None,
                     corp_actions: pd.DataFrame | None) -> pd.DataFrame:
     """Point-in-time features for every stock-day (rows sorted by symbol, trade_date)."""
-    d = ind.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
+    d = ind
+    if not (d.index.equals(pd.RangeIndex(len(d))) and d["symbol"].is_monotonic_increasing):
+        d = d.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
     sym = d["symbol"].to_numpy()
     grp = pd.factorize(sym)[0]
     out = to_ts_col(pd.DataFrame({"symbol": d["symbol"], "series": d["series"], "trade_date": d["trade_date"]}), "trade_date")
@@ -176,6 +178,8 @@ def stock_day_frame(ind: pd.DataFrame, *, mcap: pd.DataFrame, master: pd.DataFra
     if reference is not None and not reference.empty and "price_band" in reference.columns:
         r = reference.dropna(subset=["price_band"])[["symbol", "effective_date", "price_band"]].sort_values("effective_date")
         need = out[["symbol", "trade_date"]].reset_index().sort_values("trade_date")
+        need["symbol"] = need["symbol"].astype(str)
+        r = r.assign(symbol=r["symbol"].astype(str), effective_date=pd.to_datetime(r["effective_date"]).astype("datetime64[ns]"))
         mm = pd.merge_asof(need, r, left_on="trade_date", right_on="effective_date", by="symbol",
                            direction="backward", tolerance=pd.Timedelta(days=10)).dropna(subset=["price_band"])
         out.loc[mm["index"].to_numpy(), "band"] = mm["price_band"].to_numpy(float)
@@ -529,41 +533,63 @@ def forward_event_label(sd: pd.DataFrame, events: pd.DataFrame, horizon: int = 2
     return win.groupby(grp).shift(-1).to_numpy(float)  # rows t+1 … t+h
 
 
-def precision_table(sd: pd.DataFrame, label: np.ndarray, lift: pd.DataFrame, test_start: pd.Timestamp | None,
-                    top: int = 3) -> tuple[pd.DataFrame, list[str]]:
+def _rule_mask(sd: pd.DataFrame, feats: list[str], how: str) -> np.ndarray:
+    hits = []
+    for ft in feats:
+        op, thr, _ = RULES[ft]
+        v = sd[ft].to_numpy(float)
+        hits.append(np.isfinite(v) & _rule(v, op, thr))
+    if how == "any2":
+        return np.sum(hits, axis=0) >= 2
+    return np.logical_and.reduce(hits)
+
+
+def precision_table(sd: pd.DataFrame, label: np.ndarray, lift: pd.DataFrame, sessions: pd.Series,
+                    top: int = 3) -> tuple[pd.DataFrame, list[str], dict | None]:
+    """Precision of trait rules over eligible stock-days: P(event starts within 20 sessions | rule), percent.
+
+    Traits = the `top` features ranked by TRAIN lift (>= 10 trait hits, lift >= 1.2); the combination rule for
+    the watch list is chosen on TRAIN precision and reported on TEST (purged split), so the printed
+    precision is out of sample."""
     elig = eligible_mask(sd) & np.isfinite(label)
-    period = elig & ((sd["trade_date"] >= test_start).to_numpy() if test_start is not None else True)
-    base = float(label[period].mean() * 100) if period.any() else None
-    recs = []
-    stable = lift.loc[lift["stable_oos"]].sort_values("lift_test", ascending=False)
-    traits = stable["feature"].head(top).tolist()
-    rules = [(f, [f]) for f in lift["feature"]]
+    train_m, test_m, test_start = purged_split(sd["trade_date"], sessions=sessions)
+    train = elig & train_m.to_numpy()
+    test = elig & test_m.to_numpy()
+    base_tr = float(label[train].mean() * 100) if train.any() else None
+    base_te = float(label[test].mean() * 100) if test.any() else None
+    cand = lift.loc[(lift["k_events_train"].fillna(0) >= MIN_RULE_HITS) & (lift["lift_train"].fillna(0) >= 1.2)]
+    traits = cand.sort_values("lift_train", ascending=False)["feature"].head(top).tolist()
+    rules: list[tuple[str, list[str], str]] = [(f, [f], "all") for f in lift["feature"]]
     if len(traits) >= 2:
-        rules.append((" & ".join(traits[:2]), traits[:2]))
-        rules.append((f">=2 of {', '.join(traits)}", traits))
-    for name, feats in rules:
-        if len(feats) == 1:
-            op, thr, _ = RULES[feats[0]]
-            v = sd[feats[0]].to_numpy(float)
-            m = period & np.isfinite(v) & _rule(v, op, thr)
-        elif name.startswith(">=2"):
-            cnt = np.zeros(len(sd))
-            for ft in feats:
-                op, thr, _ = RULES[ft]
-                cnt += np.nan_to_num(_rule(sd[ft].to_numpy(float), op, thr).astype(float))
-            m = period & (cnt >= 2)
-        else:
-            m = period.copy()
-            for ft in feats:
-                op, thr, _ = RULES[ft]
-                v = sd[ft].to_numpy(float)
-                m &= np.isfinite(v) & _rule(v, op, thr)
-        n = int(m.sum())
-        p = float(label[m].mean() * 100) if n else None
-        recs.append({"rule": name, "n_stock_days": n, "precision_20d": p, "base_rate_20d": base,
-                     "precision_lift": (p / base) if (p is not None and base) else None,
-                     "period_start": test_start, "label": None if n >= MIN_SAMPLE else INSUFFICIENT})
-    return pd.DataFrame(recs).sort_values("precision_lift", ascending=False, na_position="last").reset_index(drop=True), traits
+        from itertools import combinations
+        for pair in combinations(traits, 2):
+            rules.append((" & ".join(pair), list(pair), "all"))
+        if len(traits) >= 3:
+            rules.append((" & ".join(traits), traits, "all"))
+            rules.append((f">=2 of {', '.join(traits)}", traits, "any2"))
+    recs = []
+    for name, feats, how in rules:
+        m = _rule_mask(sd, feats, how)
+        mtr, mte = m & train, m & test
+        ntr, nte = int(mtr.sum()), int(mte.sum())
+        ptr = float(label[mtr].mean() * 100) if ntr else None
+        pte = float(label[mte].mean() * 100) if nte else None
+        recs.append({"rule": name, "traits": feats, "combo": len(feats) > 1,
+                     "n_train": ntr, "precision_train": ptr, "base_rate_train": base_tr,
+                     "precision_lift_train": (ptr / base_tr) if (ptr is not None and base_tr) else None,
+                     "n_stock_days": nte, "precision_20d": pte, "base_rate_20d": base_te,
+                     "precision_lift": (pte / base_te) if (pte is not None and base_te) else None,
+                     "period_start": test_start, "label": None if nte >= MIN_SAMPLE else INSUFFICIENT})
+    out = pd.DataFrame(recs)
+    out["selected"] = False
+    combos = out.loc[out["combo"] & (out["n_train"] >= MIN_SAMPLE)]
+    chosen = None
+    if not combos.empty and combos["precision_lift_train"].notna().any():
+        i = combos["precision_lift_train"].idxmax()
+        out.loc[i, "selected"] = True
+        chosen = out.loc[i].to_dict()
+    out = out.sort_values(["selected", "precision_lift"], ascending=[False, False], na_position="last").reset_index(drop=True)
+    return out, traits, chosen
 
 
 def price_paths(sd: pd.DataFrame, events: pd.DataFrame) -> list:
@@ -784,29 +810,24 @@ def group_entry_study(sd: pd.DataFrame, group_levels: dict[str, pd.DataFrame], i
                                        "hit_rate_pct", "label", "quadrant_source"])
 
 
-def pre_move_watch(sd: pd.DataFrame, traits: list[str], precision: pd.DataFrame, last_sessions: int = 60) -> pd.DataFrame:
-    """Eligible stock-days in the last N sessions matching >= 2 of the top OOS-stable traits."""
-    cols = ["trade_date", "symbol", "matched_traits", "n_traits", "precision_20d", "base_rate_20d", "n", "label"]
-    if len(traits) < 2:
+def pre_move_watch(sd: pd.DataFrame, chosen: dict | None, last_sessions: int = 60) -> pd.DataFrame:
+    """Eligible stock-days in the last N sessions matching the watch rule (chosen on train, precision from test)."""
+    cols = ["trade_date", "symbol", "rule", "matched_traits", "n_traits", "precision_20d", "base_rate_20d", "n", "label"]
+    if not chosen:
         return pd.DataFrame(columns=cols)
+    feats = list(chosen["traits"])
+    how = "any2" if str(chosen["rule"]).startswith(">=2") else "all"
     sess = _sessions(sd)[-last_sessions:]
-    m = eligible_mask(sd) & sd["trade_date"].isin(sess).to_numpy()
+    m = eligible_mask(sd) & sd["trade_date"].isin(sess).to_numpy() & _rule_mask(sd, feats, how)
     sub = sd.loc[m]
-    hits = {}
-    for ft in traits:
-        op, thr, _ = RULES[ft]
-        hits[ft] = np.nan_to_num(_rule(sub[ft].to_numpy(float), op, thr).astype(float)) > 0
-    cnt = np.sum(list(hits.values()), axis=0)
-    keep = cnt >= 2
-    rule_name = f">=2 of {', '.join(traits)}"
-    pr = precision.loc[precision["rule"] == rule_name]
-    p = pr.iloc[0] if len(pr) else None
-    out = pd.DataFrame({"trade_date": sub["trade_date"].to_numpy()[keep], "symbol": sub["symbol"].to_numpy()[keep]})
-    out["matched_traits"] = [[ft for ft in traits if hits[ft][i]] for i in np.flatnonzero(keep)]
-    out["n_traits"] = cnt[keep].astype(int)
-    out["precision_20d"] = p["precision_20d"] if p is not None else None
-    out["base_rate_20d"] = p["base_rate_20d"] if p is not None else None
-    out["n"] = int(p["n_stock_days"]) if p is not None else None
+    hits = {ft: np.isfinite(sub[ft].to_numpy(float)) & _rule(sub[ft].to_numpy(float), *RULES[ft][:2]) for ft in feats}
+    out = pd.DataFrame({"trade_date": sub["trade_date"].to_numpy(), "symbol": sub["symbol"].to_numpy()})
+    out["rule"] = chosen["rule"]
+    out["matched_traits"] = [[ft for ft in feats if hits[ft][i]] for i in range(len(sub))]
+    out["n_traits"] = [len(x) for x in out["matched_traits"]]
+    out["precision_20d"] = chosen.get("precision_20d")
+    out["base_rate_20d"] = chosen.get("base_rate_20d")
+    out["n"] = int(chosen.get("n_stock_days") or 0)
     out["label"] = "research"
     return out[cols]
 
@@ -818,7 +839,7 @@ def build_big_moves(sd: pd.DataFrame, *, pr, events_tbl, corp_actions, deals, gr
     fp = fingerprint_rows(sd, events, controls)
     lift, test_start = lift_table(fp, sessions)
     label = forward_event_label(sd, events)
-    precision, traits = precision_table(sd, label, lift, test_start)
+    precision, traits, chosen = precision_table(sd, label, lift, sessions)
     cats = attribute_catalysts(sd, events, pr, events_tbl, corp_actions, deals)
     events = events.merge(cats, on="event_id", how="left")
     events["path_pct"] = price_paths(sd, events)
@@ -828,7 +849,7 @@ def build_big_moves(sd: pd.DataFrame, *, pr, events_tbl, corp_actions, deals, gr
     paths = feature_paths(sd, events, controls)
     groups = group_studies(sd, events, label)
     entries = group_entry_study(sd, group_levels, index_daily)
-    watch = pre_move_watch(sd, traits, precision)
+    watch = pre_move_watch(sd, chosen)
     ev_out = events.loc[events["eligible"]].drop(columns=["_pos", "row_in_symbol", "eligible", "series", "mcap_cr"],
                                                  errors="ignore").rename(columns={"adv_cr": "adv_cr_t0"})
     lift_long = fp.melt(id_vars=["event_id", "role", "symbol", "event_date", "offset"], value_vars=FEATURES,

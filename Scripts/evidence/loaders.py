@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from .common import to_ts_col
@@ -82,8 +83,10 @@ def load_indicators(con: duckdb.DuckDBPyConnection) -> tuple[pd.DataFrame, str]:
             continue
         frame[c] = pd.to_numeric(frame[c], errors="coerce").astype("float32" if c not in (
             "open_price", "high_price", "low_price", "close_price", "prev_close") else "float64")
-    frame["symbol"] = frame["symbol"].astype(str)
-    frame["series"] = frame["series"].astype(str)
+    # share one str object per symbol / series (object column of pointers) instead of one per row
+    for c in ("symbol", "series"):
+        codes, uniq = pd.factorize(frame[c].astype(str))
+        frame[c] = pd.Series(np.asarray(uniq, dtype=object)[codes], index=frame.index, dtype=object)
     return frame.reset_index(drop=True), basis
 
 

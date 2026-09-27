@@ -78,3 +78,10 @@ def test_stock_analogs_nearest_same_queue_with_distribution():
     assert near.iloc[0]["symbol"] == "S5" and near.iloc[0]["distance"] == pytest.approx(0.0)
     near, dist = stock_analogs(pool.head(10), query, k=30)
     assert dist["n"] == 10 and dist["insufficient_sample"] and dist["avg_r"] is None
+
+
+def test_analogs_are_distinct_episodes():
+    out = market_analogs(_env(), query_dates=[_env()["trade_date"].iloc[250]])
+    pos = pd.Series(np.arange(300), index=_env()["trade_date"])
+    p = np.sort(pos.reindex(out["analog_date"]).to_numpy())
+    assert len(p) == 10 and np.diff(p).min() >= 10

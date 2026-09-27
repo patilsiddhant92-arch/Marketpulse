@@ -16,7 +16,8 @@ Daily environment vector (one row per session, all inputs dated <= t):
 Standardisation is point-in-time: for a query date t, every vector is z-scored with the mean/std of
 the vectors dated <= t (expanding, >= 60 sessions). k-NN (k = 10, Euclidean) over candidate dates s
 with s <= t - 60 sessions (excludes the most recent 60 sessions, which also guarantees the analog's
-60-session forward return is known on t). Rows need a complete vector (follow-through may be NULL:
+60-session forward return is known on t); picked greedily by distance so that chosen analogs are >= 10
+sessions apart (distinct episodes, not ten neighbouring days of one episode). Rows need a complete vector (follow-through may be NULL:
 it is then left out of that query's distance for all candidates).
 
 Stored per analog: forward MidSml400 5/20/60-session return and next-month follow-through
@@ -37,6 +38,7 @@ from .common import INSUFFICIENT, MIN_SAMPLE, QUADRANT_ORDER, VERDICT_ORDER, gro
 
 K_ANALOGS = 10
 EXCLUDE_RECENT = 60
+MIN_SEPARATION = 10  # analogs are distinct episodes: >= 10 sessions apart from each other
 MIN_STD_HISTORY = 60
 ENV_FEATURES = [
     "above_10ema_pct", "above_50ema_pct", "above_200ema_pct", "advance_pct_5d_avg", "advance_pct_20d_avg",
@@ -114,7 +116,7 @@ def environment_vectors(ind: pd.DataFrame, breadth: pd.DataFrame | None, index_d
 
 def market_analogs(env: pd.DataFrame, k: int = K_ANALOGS, exclude_recent: int = EXCLUDE_RECENT,
                    min_history: int = MIN_STD_HISTORY, verdicts: pd.DataFrame | None = None,
-                   query_dates: list | None = None) -> pd.DataFrame:
+                   query_dates: list | None = None, min_separation: int = MIN_SEPARATION) -> pd.DataFrame:
     """k nearest past sessions for every query session (see module docstring)."""
     e = env.sort_values("trade_date").reset_index(drop=True)
     X = e[ENV_FEATURES].to_numpy(float)
@@ -149,7 +151,14 @@ def market_analogs(env: pd.DataFrame, k: int = K_ANALOGS, exclude_recent: int = 
         Z = (X[cand][:, feats] - mu[feats]) / sd[feats]
         zq = (X[t, feats] - mu[feats]) / sd[feats]
         dist = np.sqrt(((Z - zq) ** 2).sum(axis=1) / len(feats))
-        order = np.argsort(dist, kind="stable")[:k]
+        order = []
+        for j in np.argsort(dist, kind="stable"):  # greedy: distinct episodes, >= min_separation sessions apart
+            if all(abs(int(cand[j]) - int(cand[o])) >= min_separation for o in order):
+                order.append(j)
+                if len(order) == k:
+                    break
+        if len(order) < k:
+            continue
         for rank, j in enumerate(order, start=1):
             s = cand[j]
             recs.append({

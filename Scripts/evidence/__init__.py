@@ -37,7 +37,8 @@ import pandas as pd
 
 from .analogs import add_analog_ordinals, analog_validation, environment_vectors, market_analogs
 from .big_moves import build_big_moves, stock_day_frame
-from .common import attach_context, environment_states, fmt_json, group_states, mcap_basis_summary, pit_mcap, LEVELS
+from .common import (LEVELS, attach_context, environment_states, fmt_json, group_states, mcap_basis_summary,
+                     memory_mb, pit_mcap)
 from .loaders import load_frames
 from .outcomes import aggregate_setup_outcomes, compute_setup_outcomes, environment_calibration
 from .setups import SETUP_COLUMNS, assign_identity, historical_setups_from_indicators
@@ -81,15 +82,19 @@ def _setups_from_setup_daily(sd: pd.DataFrame | None, sessions: pd.Series) -> pd
 
 def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyConnection | None = None,
                           pr_dir: Path | None = None, cache_dir: Path | None = None, horizon: int = 20,
-                          analog_dates: list | None = None) -> dict[str, pd.DataFrame]:
+                          analog_dates: list | None = None, consume: bool = False) -> dict[str, pd.DataFrame]:
     """Build all evidence tables. `con_or_frames`: a DuckDB connection (read-only is fine) or the dict
-    returned by `loaders.load_frames`. `analog_dates` limits market-analog queries (tests)."""
+    returned by `loaders.load_frames`. `analog_dates` limits market-analog queries (tests). `consume=True` lets
+    the builder drop large inputs from a passed frames dict as soon as they are used (memory)."""
     timings: dict[str, float] = {}
     t0 = time.time()
 
+    mem: dict[str, Any] = {}
+
     def lap(name: str, start: float) -> None:
         timings[name] = round(time.time() - start, 2)
-        log.info("evidence: %s %.1fs", name, timings[name])
+        mem[name] = memory_mb()
+        log.info("evidence: %s %.1fs (working set / peak MB: %s)", name, timings[name], mem[name])
 
     s = time.time()
     frames = con_or_frames if isinstance(con_or_frames, dict) else load_frames(con_or_frames, derived_con, pr_dir, cache_dir)
@@ -99,7 +104,8 @@ def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyCon
     if not (ind["symbol"].is_monotonic_increasing and ind.groupby("symbol", sort=False)["trade_date"].is_monotonic_increasing.all()):
         ind = ind.sort_values(["symbol", "trade_date"])
     ind = ind.reset_index(drop=True)
-    if not isinstance(con_or_frames, dict):
+    own = consume or not isinstance(con_or_frames, dict)
+    if own:
         frames["indicators"] = None  # one copy only (memory)
     sessions = pd.Series(sorted(ind["trade_date"].unique()))
     master = frames.get("stocks_master")
@@ -110,6 +116,12 @@ def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyCon
     ind["mcap_cr"] = mc["mcap_cr"].to_numpy()
     ind["mcap_basis"] = mc["mcap_basis"].to_numpy()
     meta["mcap_basis_rows"] = mcap_basis_summary(mc)
+    if pr is not None:
+        meta["pr_archive"] = {"files": int(len(pr["files"])), "mcap_rows": int(len(pr["mcap"])),
+                              "board_meetings": int(len(pr["board_meetings"])), "corp_actions": int(len(pr["corp_actions"]))}
+        pr = {k: v for k, v in pr.items() if k != "mcap"}  # the big frame is only needed for mcap
+        if own:
+            frames["pr"] = pr
     lap("mcap", s)
 
     env = environment_states(frames.get("regime_daily"), frames.get("breadth_daily"))
@@ -159,6 +171,8 @@ def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyCon
                          group_levels=group_levels, deals=frames.get("deals"), pr=pr,
                          events_tbl=frames.get("security_events"), corp_actions=frames.get("corporate_actions"))
     lap("stock_day_features", s)
+    del ind, mc
+    gc.collect()
     s = time.time()
     bm = build_big_moves(sd, pr=pr, events_tbl=frames.get("security_events"), corp_actions=frames.get("corporate_actions"),
                          deals=frames.get("deals"), group_levels=group_levels, index_daily=frames["index_daily"],
@@ -179,10 +193,10 @@ def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyCon
     }
     timings["total"] = round(time.time() - t0, 2)
     meta["timings_s"] = timings
+    meta["memory_mb"] = mem
     meta["rows"] = {k: int(len(v)) for k, v in tables.items()}
     meta["sessions"] = {"first": str(sessions.iloc[0].date()), "last": str(sessions.iloc[-1].date()), "n": int(len(sessions))}
-    meta["pr_archive"] = None if pr is None else {"files": int(len(pr["files"])), "mcap_rows": int(len(pr["mcap"])),
-                                                  "board_meetings": int(len(pr["board_meetings"]))}
+    meta.setdefault("pr_archive", None)
     tables["evidence_meta"] = pd.DataFrame({"key": list(meta), "value": [fmt_json(v) for v in meta.values()]})
     LAST_RUN.clear()
     LAST_RUN.update(meta)

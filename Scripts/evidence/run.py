@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from Scripts.evidence import LAST_RUN, build_evidence_tables, write_evidence_tables  # noqa: E402
+from Scripts.evidence.loaders import load_frames  # noqa: E402
 
 def _default_pr_dir(db: Path) -> Path | None:
     # the DB's project, this checkout, and the main checkout when running from .claude/worktrees/<name>
@@ -79,11 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     con.execute(f"SET threads = {int(args.threads)}")
     dcon = duckdb.connect(str(args.derived_db), read_only=True) if args.derived_db else None
     try:
-        tables = build_evidence_tables(con, derived_con=dcon, pr_dir=pr_dir, cache_dir=args.out.parent, horizon=args.horizon)
+        frames = load_frames(con, dcon, pr_dir, args.out.parent)
     finally:
-        con.close()
+        con.close()  # release DuckDB buffers before the pandas work
         if dcon is not None:
             dcon.close()
+    tables = build_evidence_tables(frames, horizon=args.horizon, consume=True)
+    del frames
     t1 = time.time()
     out = duckdb.connect(str(args.out))
     try:
