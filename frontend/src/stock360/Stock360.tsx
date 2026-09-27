@@ -3,9 +3,11 @@
  * scrolling stack) and the full page (/stock/:sym, chart + right rail).
  */
 import { ArrowLeft, ExternalLink, LayoutGrid, Star } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { isUnavailable } from '../api/client';
 import { cn } from '../lib/cn';
 import { fmtDateWithDay } from '../lib/fmt';
+import { readJSON, writeJSON } from '../lib/storage';
 import { tradingViewChartUrl } from '../lib/tradingview';
 import { useShell } from '../shell/ShellContext';
 import { EmptyState } from '../ui/EmptyState';
@@ -37,22 +39,79 @@ function WatchButton({ symbol, withLabel }: { symbol: string; withLabel?: boolea
   );
 }
 
+const CHART_FRAC_KEY = 'mp.sidecar.chart.v1';
+const MIN_FRAC = 0.3;
+const MAX_FRAC = 0.9;
+
+/** Share of the sidecar body the chart takes (persisted per browser; default 68 %). */
+function useChartFraction(): [number, (f: number) => void] {
+  const [frac, setFrac] = useState(() => {
+    const v = readJSON<number>(CHART_FRAC_KEY, 0.68);
+    return typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_FRAC, Math.max(MIN_FRAC, v)) : 0.68;
+  });
+  const set = useCallback((f: number) => setFrac(Math.min(MAX_FRAC, Math.max(MIN_FRAC, f))), []);
+  useEffect(() => writeJSON(CHART_FRAC_KEY, frac), [frac]);
+  return [frac, set];
+}
+
 /** Body of the Stock 360 sidecar (the frame — resize/pin/close — is StockSidecar). */
 export function Stock360Sidecar({ symbol }: { symbol: string }) {
+  const shell = useShell();
   const data = useStock360(symbol);
   const { header } = data;
   const s = header.data?.rows[0];
+  const [frac, setFrac] = useChartFraction();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
   if (header.error) return <ErrorState error={header.error} onRetry={() => void header.refetch()} />;
   if (header.data && isUnavailable(header.data))
     return <EmptyState title={`No data for ${symbol}`} detail={header.data.meta.reason ?? undefined} />;
+  const onDrag = (e: PointerEvent) => {
+    if (!dragging.current || !bodyRef.current) return;
+    const r = bodyRef.current.getBoundingClientRect();
+    if (r.height > 0) setFrac((e.clientY - r.top) / r.height);
+  };
   return (
-    <div className="h-full space-y-2 overflow-y-auto p-2" data-testid="stock360-sidecar">
-      <div className="px-1">
+    <div ref={bodyRef} className="flex h-full min-h-0 flex-col" data-testid="stock360-sidecar">
+      <div className="shrink-0 px-3 pb-1 pt-1.5">
         <StockHeader row={s} loading={header.isLoading} asOf={header.data?.as_of} compact />
       </div>
-      <div className="overflow-hidden rounded border border-line">
-        <StockChartPanel symbol={symbol} data={data} setups={s?.setups} height={320} initialBars={90} />
+      <div className="min-h-[240px] shrink-0 overflow-hidden border-y border-line" style={{ height: `${Math.round(frac * 100)}%` }}>
+        <StockChartPanel
+          symbol={symbol}
+          data={data}
+          setups={s?.setups}
+          className="h-full"
+          initialBars={120}
+          onExpand={() => shell.openBigChart(symbol)}
+        />
       </div>
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize chart height"
+        aria-valuenow={Math.round(frac * 100)}
+        aria-valuemin={MIN_FRAC * 100}
+        aria-valuemax={MAX_FRAC * 100}
+        tabIndex={0}
+        title="Drag to resize the chart (↑/↓ keys)"
+        onPointerDown={(e) => {
+          dragging.current = true;
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={onDrag}
+        onPointerUp={() => {
+          dragging.current = false;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') setFrac(frac - 0.04);
+          if (e.key === 'ArrowDown') setFrac(frac + 0.04);
+        }}
+        className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center hover:bg-accent/30"
+      >
+        <span className="h-0.5 w-10 rounded bg-line-strong group-hover:bg-accent" />
+      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
       <SetupsBlock setups={s?.setups} loading={header.isLoading} />
       {s && <StrengthBlock s={s} />}
       {s && <TrendBlock s={s} />}
@@ -60,6 +119,7 @@ export function Stock360Sidecar({ symbol }: { symbol: string }) {
       <EventsBlock q={data.events} />
       <DealsBlock q={data.deals} />
       <NotesBlock symbol={symbol} />
+      </div>
     </div>
   );
 }
@@ -114,8 +174,15 @@ export function Stock360Page({ symbol }: { symbol: string }) {
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] gap-2 p-2">
           <div className="flex min-w-0 flex-col gap-2">
-            <div className="h-[560px] shrink-0 overflow-hidden rounded border border-line">
-              <StockChartPanel symbol={symbol} data={data} setups={s?.setups} className="h-full" initialBars={180} />
+            <div className="h-[max(560px,calc(100vh-200px))] shrink-0 overflow-hidden rounded border border-line">
+              <StockChartPanel
+                symbol={symbol}
+                data={data}
+                setups={s?.setups}
+                className="h-full"
+                initialBars={200}
+                onExpand={() => shell.openBigChart(symbol)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-2">
               {s && <StrengthBlock s={s} />}

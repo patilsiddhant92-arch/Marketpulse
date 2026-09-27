@@ -1,6 +1,6 @@
 /**
  * Global keys (spec 7.1): Ctrl/Cmd+K palette · 1-6 tabs · W watchlist ·
- * T TradingView · C copy · / focus filter. J/K/Enter live in DataTable
+ * T TradingView · C copy · F big chart · / focus filter. J/K/Enter live in DataTable
  * (focused table); Escape is handled by the layer stack (lib/layers.ts).
  */
 import { useEffect, useRef } from 'react';
@@ -43,6 +43,16 @@ export function useShortcuts(): void {
       }
       const sym = s.symbol;
       switch (e.key) {
+        case 'f':
+        case 'F': {
+          const m = /^\/stock\/([^/?#]+)/.exec(window.location.pathname);
+          const target = m ? decodeURIComponent(m[1]) : sym;
+          if (target) {
+            e.preventDefault();
+            s.openBigChart(target);
+          }
+          break;
+        }
         case 'w':
         case 'W':
           if (sym) s.toggleWatch(sym);

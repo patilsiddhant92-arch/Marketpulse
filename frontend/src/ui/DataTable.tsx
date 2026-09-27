@@ -24,6 +24,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 import { cn } from '../lib/cn';
 import { DASH, fmtInt, fmtValue, isNumericKind, type FormatKind } from '../lib/fmt';
 import { useEscapeLayer } from '../lib/layers';
+import { setNavList } from '../lib/navList';
 import { useMetric } from '../metrics/dictionary';
 import { EmptyState } from './EmptyState';
 import { ErrorState } from './ErrorState';
@@ -302,15 +303,22 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
 
   const activeIndex = activeRowId == null ? -1 : modelRows.findIndex((r) => r.id === activeRowId);
 
+  /** Rows carrying a `symbol` become the big chart's J/K list (display order). */
+  const registerNavList = useCallback(() => {
+    const syms = modelRows.map((m) => (m.original as { symbol?: unknown }).symbol).filter((v): v is string => typeof v === 'string');
+    if (syms.length > 0) setNavList(syms);
+  }, [modelRows]);
+
   const setActive = useCallback(
     (index: number) => {
       const r = modelRows[index];
       if (!r) return;
       if (props.activeRowId === undefined) setInnerActive(r.id);
+      registerNavList();
       props.onActiveRowChange?.(r.original);
       virtualizer.scrollToIndex(index, { align: 'auto' });
     },
-    [modelRows, props, virtualizer],
+    [modelRows, props, virtualizer, registerNavList],
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -483,7 +491,10 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                       setActive(vi.index);
                       props.onRowClick?.(r.original);
                     }}
-                    onDoubleClick={() => props.onRowActivate?.(r.original)}
+                    onDoubleClick={() => {
+                      registerNavList();
+                      props.onRowActivate?.(r.original);
+                    }}
                     className={cn(
                       'absolute left-0 top-0 flex w-full cursor-default border-b border-line/60',
                       vi.index % 2 === 1 ? 'bg-surface/40' : 'bg-transparent',

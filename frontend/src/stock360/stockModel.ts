@@ -144,16 +144,34 @@ export function rsSeries(rows: readonly RsRow[], bm: RsBenchmark): (LinePoint & 
 }
 
 /** Flat line from `from` to the last bar at `value` (NULL value = no line). */
-function level(id: string, label: string, value: number | null | undefined, from: string | null | undefined, lastTime: string, color: ChartOverlay['color'], dashed = true): ChartOverlay | null {
+function level(
+  id: string,
+  label: string,
+  value: number | null | undefined,
+  from: string | null | undefined,
+  lastTime: string,
+  color: ChartOverlay['color'],
+  dashed = true,
+  axisLabel = false,
+): ChartOverlay | null {
   if (value == null || !from || from > lastTime) return null;
-  return { id, label, color, dashed, data: [{ time: from, value }, { time: lastTime, value }] };
+  return { id, label, color, dashed, axisLabel, data: [{ time: from, value }, { time: lastTime, value }] };
+}
+
+export interface SetupOverlayOptions {
+  /** Real Darvas boxes are painted: skip the flat box-top/bottom lines, keep the trigger. */
+  darvasBoxes?: boolean;
 }
 
 /**
  * Price-pane overlays for the stock's active setups: trigger / stop levels,
  * Darvas box, VCP contraction zig-zag. Uses only served geometry.
  */
-export function setupOverlays(setups: Record<string, QueueRow | null | undefined> | null | undefined, bars: readonly OHLCBar[]): ChartOverlay[] {
+export function setupOverlays(
+  setups: Record<string, QueueRow | null | undefined> | null | undefined,
+  bars: readonly OHLCBar[],
+  opts: SetupOverlayOptions = {},
+): ChartOverlay[] {
   if (!setups || bars.length === 0) return [];
   const last = bars[bars.length - 1].time;
   const lookbackStart = bars[Math.max(0, bars.length - 20)].time;
@@ -161,12 +179,16 @@ export function setupOverlays(setups: Record<string, QueueRow | null | undefined
   const sq = setups.darvas_squeeze;
   if (sq) {
     const from = sq.signal_date && sq.signal_date < lookbackStart ? sq.signal_date : lookbackStart;
+    const box = opts.darvasBoxes
+      ? [level('sq-trigger', 'Squeeze trigger', sq.trigger_price ?? sq.darvas_box_top, from, last, 'up', true, true)]
+      : [
+          level('sq-top', 'Darvas box top', sq.darvas_box_top, from, last, 'accent', false),
+          level('sq-bottom', 'Darvas box bottom', sq.darvas_box_bottom, from, last, 'accent', false),
+        ];
     out.push(
-      ...[
-        level('sq-top', 'Darvas box top', sq.darvas_box_top, from, last, 'accent', false),
-        level('sq-bottom', 'Darvas box bottom', sq.darvas_box_bottom, from, last, 'accent', false),
-        level('sq-stop', 'Squeeze stop', sq.stop_price, lookbackStart, last, 'down'),
-      ].filter((o): o is ChartOverlay => o !== null),
+      ...[...box, level('sq-stop', 'Squeeze stop', sq.stop_price, lookbackStart, last, 'down', true, true)].filter(
+        (o): o is ChartOverlay => o !== null,
+      ),
     );
   }
   const e10 = setups.darvas_10ema;
@@ -174,8 +196,8 @@ export function setupOverlays(setups: Record<string, QueueRow | null | undefined
     const from = e10.signal_date ?? lookbackStart;
     out.push(
       ...[
-        level('e10-trigger', '10 EMA trigger', e10.trigger_price, from, last, 'up'),
-        level('e10-stop', '10 EMA stop', e10.stop_price, from, last, 'down'),
+        level('e10-trigger', '10 EMA trigger', e10.trigger_price, from, last, 'up', true, true),
+        level('e10-stop', '10 EMA stop', e10.stop_price, from, last, 'down', true, true),
       ].filter((o): o is ChartOverlay => o !== null),
     );
   }
@@ -194,8 +216,8 @@ export function setupOverlays(setups: Record<string, QueueRow | null | undefined
     const from = cs[0]?.start_date ?? lookbackStart;
     out.push(
       ...[
-        level('vcp-pivot', 'VCP pivot', vcp.trigger_price, lastC?.start_date ?? from, last, 'up'),
-        level('vcp-stop', 'VCP stop', vcp.stop_price, lastC?.trough_date ?? from, last, 'down'),
+        level('vcp-pivot', 'VCP pivot', vcp.trigger_price, lastC?.start_date ?? from, last, 'up', true, true),
+        level('vcp-stop', 'VCP stop', vcp.stop_price, lastC?.trough_date ?? from, last, 'down', true, true),
       ].filter((o): o is ChartOverlay => o !== null),
     );
   }

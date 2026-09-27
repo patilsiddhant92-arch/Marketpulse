@@ -713,6 +713,18 @@ class BarRow(BaseModel):
     partial: bool = False
 
 
+class DarvasBoxRow(BaseModel):
+    start_date: Optional[date] = None
+    formed_date: Optional[date] = None
+    end_date: Optional[date] = None
+    top: Optional[float] = None
+    bottom: Optional[float] = None
+    status: Literal["active", "broken_up", "broken_down", "superseded"] = "active"
+    break_date: Optional[date] = None
+    break_close: Optional[float] = None
+    bars: Optional[int] = None
+
+
 class RsRow(BaseModel):
     trade_date: Optional[date] = None
     close: Optional[float] = None

@@ -21,7 +21,9 @@ import { useSourceList } from '../charts/useSourceList';
 import { copyText } from '../lib/clipboard';
 import { cn } from '../lib/cn';
 import { fmtDate } from '../lib/fmt';
+import { useChartPrefs } from '../lib/chartPrefs';
 import { openLayerCount, useEscapeLayer } from '../lib/layers';
+import { setNavList } from '../lib/navList';
 import { useTabUrlState } from '../lib/tabUrlState';
 import { formatTradingViewList } from '../lib/tradingview';
 import { useShell } from '../shell/ShellContext';
@@ -45,6 +47,7 @@ export default function ChartsRoute() {
   const [asOf] = useAsOf();
   const [state, setState, active] = useTabUrlState('/charts', DEFAULTS);
   const [copied, setCopied] = useState<string | null>(null);
+  const [prefs, setPrefs] = useChartPrefs();
 
   // "Open in Charts" from other tabs sends ?syms= without a source: show that list.
   useEffect(() => {
@@ -169,6 +172,18 @@ export default function ChartsRoute() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          aria-pressed={prefs.darvas}
+          onClick={() => setPrefs({ darvas: !prefs.darvas })}
+          title="Shade historical Darvas boxes (same box as the Darvas Squeeze queue) with breakout / breakdown markers"
+          className={cn(
+            'rounded border border-line px-2 py-1 text-xs',
+            prefs.darvas ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg',
+          )}
+        >
+          Darvas boxes
+        </button>
         <label
           className="flex items-center gap-1 text-2xs text-fg-3"
           title="Window for the stock's return minus the NIFTY MidSml 400 return shown on each tile"
@@ -284,7 +299,14 @@ export default function ChartsRoute() {
                 volume={!!focus || perPage <= 4}
                 active={shell.symbol === it.symbol}
                 expanded={!!focus}
-                onInspect={(s) => shell.openSymbol(s)}
+                onInspect={(s) => {
+                  setNavList(items.map((i) => i.symbol));
+                  shell.openSymbol(s);
+                }}
+                onOpenBig={(s) => {
+                  setNavList(items.map((i) => i.symbol));
+                  shell.openBigChart(s);
+                }}
                 onToggleExpand={(s) => setState({ focus: focus ? null : s })}
               />
             ))}

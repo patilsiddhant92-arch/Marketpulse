@@ -385,6 +385,12 @@ def stock_bars(sym: str, as_of: Optional[date] = AsOf, tf: Literal["D", "W", "M"
     return envelope(_call(stock.bars, as_of, symbol_param(sym), tf, limit), 0, limit)
 
 
+@router.get("/stock/{sym}/darvas", response_model=m.Envelope[m.DarvasBoxRow])
+def stock_darvas(sym: str, as_of: Optional[date] = AsOf, tf: Literal["D", "W", "M"] = "D",
+                 limit: int = Query(400, ge=1, le=MAX_LIMIT)) -> dict[str, Any]:
+    return envelope(_call(stock.darvas, as_of, symbol_param(sym), tf, limit))
+
+
 @router.get("/stock/{sym}/rs", response_model=m.Envelope[m.RsRow])
 def stock_rs(sym: str, as_of: Optional[date] = AsOf, limit: int = Query(400, ge=20, le=MAX_LIMIT)) -> dict[str, Any]:
     return envelope(_call(stock.rs_line, as_of, symbol_param(sym), limit), 0, limit)

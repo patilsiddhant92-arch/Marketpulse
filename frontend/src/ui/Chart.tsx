@@ -29,10 +29,24 @@ import { cn } from '../lib/cn';
 import { fmtCompactIN, fmtDate, fmtNum, fmtPct, fmtSignedPct } from '../lib/fmt';
 import { ema, resampleBars, type OHLCBar } from '../lib/indicators';
 import { tokenColor, type TokenName } from '../lib/tokens';
+import { boxBreakMarkers, type ChartBox } from './darvasModel';
+import { DarvasBoxesPrimitive } from './darvasPrimitive';
+
+export type { ChartBox } from './darvasModel';
 
 export type Timeframe = 'D' | 'W' | 'M';
 
-export type ChartMarkerKind = 'split' | 'bonus' | 'results' | 'ex_date' | 'demerger' | 'deal_buy' | 'deal_sell' | 'custom';
+export type ChartMarkerKind =
+  | 'split'
+  | 'bonus'
+  | 'results'
+  | 'ex_date'
+  | 'demerger'
+  | 'deal_buy'
+  | 'deal_sell'
+  | 'darvas_up'
+  | 'darvas_down'
+  | 'custom';
 
 export interface ChartMarker {
   time: string; // YYYY-MM-DD
@@ -52,6 +66,8 @@ export interface ChartOverlay {
   data: LinePoint[];
   color?: TokenName;
   dashed?: boolean;
+  /** Show the level's value + label on the price axis (trigger / stop). */
+  axisLabel?: boolean;
 }
 
 export interface ChartProps {
@@ -66,6 +82,8 @@ export interface ChartProps {
   emaPeriods?: readonly number[];
   /** Server-provided lines on the price pane (Darvas box, pivots...). */
   overlays?: readonly ChartOverlay[];
+  /** Darvas boxes painted behind the candles (shaded rectangles + breakout markers). */
+  boxes?: readonly ChartBox[];
   /** Volume pane coloured by delivery % (default true). */
   volume?: boolean;
   /** RS line pane; `newHighs` marks RS new-high sessions. */
@@ -74,6 +92,8 @@ export interface ChartProps {
   /** Charts with the same group share a date-synced crosshair. */
   syncGroup?: string;
   logScale?: boolean;
+  /** Lower pane heights in px (defaults: volume 90 / 70 with RS, RS 80). */
+  paneHeights?: { volume?: number; rs?: number };
   /** Fixed height in px; default fills the parent. */
   height?: number;
   /** Visible bars on first render (default 150). */
@@ -171,6 +191,10 @@ function markerStyle(kind: ChartMarkerKind): Pick<SeriesMarker<Time>, 'position'
       return { position: 'belowBar', shape: 'arrowUp', color: tokenColor('up'), text: '' };
     case 'deal_sell':
       return { position: 'aboveBar', shape: 'arrowDown', color: tokenColor('down'), text: '' };
+    case 'darvas_up':
+      return { position: 'belowBar', shape: 'arrowUp', color: tokenColor('accent'), text: 'BO' };
+    case 'darvas_down':
+      return { position: 'aboveBar', shape: 'arrowDown', color: tokenColor('warn'), text: 'BD' };
     default:
       return { position: 'aboveBar', shape: 'circle', color: tokenColor('fg-3'), text: '' };
   }
@@ -199,11 +223,13 @@ export function Chart({
   resample = true,
   emaPeriods = DEFAULT_EMAS,
   overlays,
+  boxes,
   volume = true,
   rs,
   markers,
   syncGroup,
   logScale = false,
+  paneHeights,
   height,
   initialBars = 150,
   showLegend = true,
@@ -219,6 +245,7 @@ export function Chart({
   const overlayRefs = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const rsRef = useRef<ISeriesApi<'Line'> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const boxesRef = useRef<DarvasBoxesPrimitive | null>(null);
   const rsMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const syncIdRef = useRef(syncSeq++);
   const suppressRef = useRef(false);
@@ -254,7 +281,7 @@ export function Chart({
   }, [hoverLegend, shown, rsByTime]);
 
   const emaKey = emaPeriods.join(',');
-  const overlayKey = (overlays ?? []).map((o) => `${o.id}:${o.color ?? ''}:${o.dashed ? 1 : 0}`).join('|');
+  const overlayKey = (overlays ?? []).map((o) => `${o.id}:${o.color ?? ''}:${o.dashed ? 1 : 0}:${o.axisLabel ? 1 : 0}`).join('|');
   const hasRs = !!rs;
 
   // ---- create chart + series (structure changes rebuild)
@@ -290,6 +317,8 @@ export function Chart({
       priceLineVisible: false,
     });
     markersRef.current = createSeriesMarkers(candleRef.current, []);
+    boxesRef.current = new DarvasBoxesPrimitive();
+    candleRef.current.attachPrimitive(boxesRef.current);
 
     emaRefs.current = new Map();
     for (const p of emaPeriods) {
@@ -314,7 +343,8 @@ export function Chart({
           lineWidth: 1,
           lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: !!o.axisLabel,
+          title: o.axisLabel ? o.label : '',
           crosshairMarkerVisible: false,
         }),
       );
@@ -339,8 +369,8 @@ export function Chart({
       rsMarkersRef.current = createSeriesMarkers(rsRef.current, []);
     }
     const panes = chart.panes();
-    if (panes[1]) panes[1].setHeight(volume && hasRs ? 70 : 90);
-    if (panes[2]) panes[2].setHeight(80);
+    if (panes[1]) panes[1].setHeight(volume ? (paneHeights?.volume ?? (hasRs ? 70 : 90)) : (paneHeights?.rs ?? 80));
+    if (panes[2]) panes[2].setHeight(paneHeights?.rs ?? 80);
 
     // ---- crosshair: legend + sync
     const onMove = (param: MouseEventParams<Time>) => {
@@ -403,10 +433,11 @@ export function Chart({
       rsRef.current = null;
       markersRef.current = null;
       rsMarkersRef.current = null;
+      boxesRef.current = null;
     };
     // Rebuild only on structural change; data flows through the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emaKey, overlayKey, volume, hasRs, syncGroup]);
+  }, [emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
 
   // ---- log / linear without rebuild
   useEffect(() => {
@@ -450,7 +481,7 @@ export function Chart({
 
     // Snap markers onto displayed bars (a weekly bar carries its week's events).
     const snapped: SeriesMarker<Time>[] = [];
-    for (const m of markers ?? []) {
+    for (const m of [...(markers ?? []), ...(boxBreakMarkers(boxes ?? []) as ChartMarker[])]) {
       const i = firstBarAtOrAfter(shown, m.time);
       if (i < 0) continue;
       const s = markerStyle(m.kind);
@@ -465,9 +496,16 @@ export function Chart({
     snapped.sort((a, b) => String(a.time).localeCompare(String(b.time)));
     markersRef.current?.setMarkers(snapped);
 
+    boxesRef.current?.setBoxes(boxes ?? []);
+  }, [shown, overlays, boxes, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
+
+  // ---- initial visible range: only when the bars (or chart structure) change, so toggling
+  // overlays / boxes keeps the user's zoom.
+  useEffect(() => {
+    const chart = chartRef.current;
     const n = shown.length;
-    if (n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + 3 });
-  }, [shown, overlays, rs, markers, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup]);
+    if (chart && n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + 3 });
+  }, [shown, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
 
   return (
     <div className={cn('relative flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>

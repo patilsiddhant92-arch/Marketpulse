@@ -4,14 +4,16 @@
  * keys), draws trigger / stop lines for queue sources and shows the stock's
  * return vs the MidSml400 over the chosen window.
  */
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Expand, Maximize2, Minimize2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiQuery } from '../api/query';
+import { useChartPrefs } from '../lib/chartPrefs';
 import { cn } from '../lib/cn';
 import { fmtCr, fmtNum, fmtSignedPct } from '../lib/fmt';
 import { ZoneNum, SignedNum } from '../screener/cells';
 import { Chart, type ChartOverlay, type Timeframe } from '../ui/Chart';
 import { Chip } from '../ui/Chip';
+import { toChartBoxes } from '../ui/darvasModel';
 import { DataWarningChip } from '../ui/DataWarningChip';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
@@ -55,6 +57,8 @@ export interface ChartTileProps {
   expanded?: boolean;
   onInspect: (sym: string) => void;
   onToggleExpand: (sym: string) => void;
+  /** Open the near-full-screen big chart for this symbol. */
+  onOpenBig?: (sym: string) => void;
 }
 
 export function ChartTile({
@@ -68,11 +72,14 @@ export function ChartTile({
   expanded,
   onInspect,
   onToggleExpand,
+  onOpenBig,
 }: ChartTileProps) {
+  const [prefs, setPrefs] = useChartPrefs();
   const [ref, inView] = useInView<HTMLDivElement>();
   const sym = item.symbol;
   const bars = useApiQuery('stock/{sym}/bars', { params: { sym }, query: { tf: timeframe } }, { enabled: inView });
   const rs = useApiQuery('stock/{sym}/rs', { params: { sym } }, { enabled: inView });
+  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym }, query: { tf: timeframe } }, { enabled: inView && prefs.darvas });
 
   const chartBars = useMemo(() => barsToOHLC(bars.data?.rows ?? []), [bars.data]);
   const last = chartBars[chartBars.length - 1];
@@ -97,6 +104,11 @@ export function ChartTile({
       v == null ? [] : [{ id, label, color, dashed, data: span.map((b) => ({ time: b.time, value: v })) }];
     return [...line('trigger', 'Trigger', item.trigger_price, 'accent'), ...line('stop', 'Stop', item.stop_price, 'down', true)];
   }, [chartBars, item.trigger_price, item.stop_price, timeframe]);
+
+  const boxes = useMemo(
+    () => (prefs.darvas ? toChartBoxes(darvas.data?.rows, chartBars.map((b) => b.time)) : []),
+    [prefs.darvas, darvas.data, chartBars],
+  );
 
   const served = bars.data?.rows ?? [];
   const partial = served.length > 0 && served[served.length - 1].partial;
@@ -151,6 +163,28 @@ export function ChartTile({
               partial
             </Chip>
           )}
+          {expanded && (
+            <button
+              type="button"
+              aria-pressed={prefs.darvas}
+              onClick={() => setPrefs({ darvas: !prefs.darvas })}
+              title="Darvas boxes"
+              className={cn('rounded border border-line px-1.5', prefs.darvas ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:text-fg')}
+            >
+              Darvas
+            </button>
+          )}
+          {onOpenBig && (
+            <button
+              type="button"
+              onClick={() => onOpenBig(sym)}
+              aria-label={`Big chart ${sym}`}
+              title="Big chart (F) — all indicators, J/K through this list"
+              className="rounded p-0.5 text-fg-3 hover:bg-surface-3 hover:text-fg"
+            >
+              <Expand className="h-3 w-3" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onToggleExpand(sym)}
@@ -177,6 +211,7 @@ export function ChartTile({
             timeframe={timeframe}
             resample={false}
             overlays={overlays}
+            boxes={boxes}
             volume={volume}
             syncGroup={syncGroup}
             initialBars={INITIAL_BARS[timeframe]}

@@ -461,6 +461,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/stock/{sym}/darvas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stock Darvas */
+        get: operations["stock_darvas_api_v2_stock__sym__darvas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/stock/{sym}/rs": {
         parameters: {
             query?: never;
@@ -782,6 +799,31 @@ export interface components {
             bars?: number | null;
             /** Volume Ratio */
             volume_ratio?: number | null;
+        };
+        /** DarvasBoxRow */
+        DarvasBoxRow: {
+            /** Start Date */
+            start_date?: string | null;
+            /** Formed Date */
+            formed_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Top */
+            top?: number | null;
+            /** Bottom */
+            bottom?: number | null;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "broken_up" | "broken_down" | "superseded";
+            /** Break Date */
+            break_date?: string | null;
+            /** Break Close */
+            break_close?: number | null;
+            /** Bars */
+            bars?: number | null;
         };
         /** DealHolding */
         DealHolding: {
@@ -1299,6 +1341,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["BigMoveRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DarvasBoxRow] */
+        Envelope_DarvasBoxRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DarvasBoxRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DealLeaderRow] */
@@ -3925,6 +3980,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_BarRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stock_darvas_api_v2_stock__sym__darvas_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                tf?: "D" | "W" | "M";
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DarvasBoxRow_"];
                 };
             };
             /** @description Validation Error */
