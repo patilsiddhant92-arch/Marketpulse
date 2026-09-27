@@ -1,15 +1,19 @@
 /**
- * Screener (spec 7.3) — Momentum + VCP Workbench merged.
+ * Screener (spec 7.3) — two modes behind one switch (?mode=, default Momentum):
  *
- * Server-side presets (replace, never stack) with their rules as editable
+ * Momentum (default): the user's main scanner, restored with the old
+ * workspace's filters, defaults, coil buckets, leaders and TradingView copy
+ * buttons — see screener/MomentumView.tsx.
+ *
+ * Presets: server-side presets (replace, never stack) with their rules as editable
  * chips; custom rules; fail-closed floors; taxonomy group filter; history
  * columns; New / Dropped vs the previous session; rule debugger ("why is X not
  * in the list?"); VCP geometry for the focused row; evidence per preset;
  * TradingView export and Open in Charts. Honours as_of time travel.
  */
 import { Bug, Copy, LayoutGrid } from 'lucide-react';
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useApiQuery } from '../api/query';
 import type { PresetRow } from '../api/types';
 import { chartsHref } from '../charts/sources';
@@ -35,6 +39,7 @@ import {
   type Rule,
   type RuleField,
 } from '../screener/model';
+import { MOMENTUM_DEFAULTS } from '../screener/momentumModel';
 import { RuleBar } from '../screener/RuleBar';
 import { RuleDebugger } from '../screener/RuleDebugger';
 import { ScreenerGlance } from '../screener/ScreenerGlance';
@@ -66,7 +71,66 @@ interface RunContext {
   delegated_to?: string;
 }
 
+const MomentumView = lazy(() => import('../screener/MomentumView'));
+
+const MODES = [
+  { id: 'momentum', label: 'Momentum', hint: 'The momentum scanner: trigger in the lookback, coil buckets, sector / industry leaders, TradingView buckets' },
+  { id: 'presets', label: 'Presets', hint: 'Rule presets (Minervini, Stage 2, Darvas, VCP…), custom rules, rule debugger' },
+] as const;
+const MODE_DEFAULTS = { mode: 'momentum' };
+
 export default function ScreenerRoute() {
+  const [modeState, setMode] = useTabUrlState('/screener', MODE_DEFAULTS, 'mode');
+  const [, setParams] = useSearchParams();
+  const mode = modeState.mode === 'presets' ? 'presets' : 'momentum';
+  const switchTo = (next: 'momentum' | 'presets') => {
+    if (next === mode) return;
+    // Drop the other mode's params so the URL only describes what is on screen.
+    const other = next === 'presets' ? Object.keys(MOMENTUM_DEFAULTS) : Object.keys(SCREENER_DEFAULTS);
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        for (const k of other) p.delete(k);
+        return p;
+      },
+      { replace: true },
+    );
+    setMode({ mode: next });
+  };
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-1.5 px-2 pt-1.5" role="tablist" aria-label="Screener mode">
+        {MODES.map((m) => (
+          <Tooltip key={m.id} content={<div className="max-w-xs">{m.hint}</div>}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === m.id}
+              onClick={() => switchTo(m.id)}
+              className={cn(
+                'h-6 rounded-md border px-3 text-xs font-medium',
+                mode === m.id ? 'border-accent bg-accent/15 text-accent' : 'border-line text-fg-2 hover:border-line-strong hover:text-fg',
+              )}
+            >
+              {m.label}
+            </button>
+          </Tooltip>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {mode === 'momentum' ? (
+          <Suspense fallback={<Skeleton width={480} height={18} />}>
+            <MomentumView />
+          </Suspense>
+        ) : (
+          <PresetsScreener />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PresetsScreener() {
   const shell = useShell();
   const navigate = useNavigate();
   const location = useLocation();
