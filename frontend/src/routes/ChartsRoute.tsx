@@ -204,12 +204,22 @@ export default function ChartsRoute() {
           </button>
         </div>
       </div>
-      <div className="flex h-6 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 text-2xs text-fg-3">
+      <div className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap border-b border-line bg-surface px-3 text-2xs text-fg-3">
         {list.asOf && <span>as of {fmtDate(list.asOf)}</span>}
         {list.total != null && list.total !== list.items.length && <span className="text-warn">{list.items.length} of {list.total} returned</span>}
-        {list.status === 'partial' && list.reason && <span className="text-warn" title={list.reason}>partial: {list.reason}</span>}
-        {list.note && <span>{list.note}</span>}
-        <span className="ml-auto">J / K page · click a symbol to inspect · double-click or ⤢ to expand · crosshair synced by date</span>
+        {list.status === 'partial' && list.reason && (
+          <span className="shrink-0 text-warn" title={list.reason}>
+            partial data
+          </span>
+        )}
+        {list.note && (
+          <span className="min-w-0 truncate" title={list.note}>
+            {list.note}
+          </span>
+        )}
+        <span className="ml-auto shrink-0" title="J / K (or ] / [) page · click a symbol to open Stock 360 · double-click or ⤢ to expand · crosshair synced by date · tile shows return vs NIFTY MidSml 400 over the chosen window">
+          J/K page · click symbol = Stock 360 · ⤢ expand
+        </span>
       </div>
       <div className="min-h-0 flex-1 p-1.5">
         {list.error ? (
@@ -237,6 +247,7 @@ export default function ChartsRoute() {
                 relWindow={rel}
                 syncGroup="charts-grid"
                 compact={!focus && perPage >= 9}
+                volume={!!focus || perPage <= 4}
                 active={shell.symbol === it.symbol}
                 expanded={!!focus}
                 onInspect={(s) => shell.openSymbol(s)}

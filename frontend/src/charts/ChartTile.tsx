@@ -52,13 +52,15 @@ export interface ChartTileProps {
   relWindow: (typeof REL_WINDOWS)[number]['id'];
   syncGroup: string;
   compact: boolean;
+  /** Draw the volume / delivery pane (off for small tiles). */
+  volume: boolean;
   active: boolean;
   expanded?: boolean;
   onInspect: (sym: string) => void;
   onToggleExpand: (sym: string) => void;
 }
 
-export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, active, expanded, onInspect, onToggleExpand }: ChartTileProps) {
+export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, volume, active, expanded, onInspect, onToggleExpand }: ChartTileProps) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const sym = item.symbol;
   const bars = useApiQuery('stock/{sym}/bars', { params: { sym }, query: { tf: timeframe } }, { enabled: inView });
@@ -97,11 +99,12 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, acti
         active ? 'border-accent/70' : 'border-line',
       )}
     >
-      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-line px-2 text-2xs">
+      <div className="flex h-7 shrink-0 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-line px-2 text-2xs">
         <button
           type="button"
           onClick={() => onInspect(sym)}
           title={`${item.name ?? sym} — open Stock 360 in the sidecar`}
+          aria-label={`${sym}: open Stock 360`}
           className="font-mono text-xs font-semibold text-fg hover:text-accent"
         >
           {sym}
@@ -112,14 +115,14 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, acti
           RS <ZoneNum metricKey="rs_percentile" value={item.rs_percentile ?? null} digits={0} />
         </span>
         <span
-          className="hidden items-center gap-1 text-fg-3 min-[1100px]:flex"
+          className="flex items-center gap-1 text-fg-3"
           title={
             rel.excess == null
               ? 'Relative performance needs stock and MidSml400 closes'
               : `${relWindow}: stock ${fmtSignedPct(rel.stock, 1)} vs MidSml400 ${fmtSignedPct(rel.bench, 1)}`
           }
         >
-          vs MidSml {relWindow} <SignedNum value={rel.excess} digits={1} />
+          {relWindow} rel <SignedNum value={rel.excess} digits={1} />
         </span>
         {item.net_cr != null && (
           <span className="num text-fg-3">
@@ -162,7 +165,7 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, acti
             timeframe={timeframe}
             resample={false}
             overlays={overlays}
-            volume={!compact}
+            volume={volume}
             syncGroup={syncGroup}
             initialBars={INITIAL_BARS[timeframe]}
             showLegend={!!expanded}

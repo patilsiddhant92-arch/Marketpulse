@@ -605,7 +605,8 @@ def _debug_queue(as_of: date | None, symbol: str, preset: Preset, p: Params) -> 
                            band is None or band > pool["min_band"],
                            field="circuit_band", value=pool["min_band"], actual=band, kind="floor"))
         surveil = "GSM" in remarks or "STAGE 2" in remarks
-        rows.append(_check("Not in GSM / ASM stage 2", not surveil, detail=remarks or None, kind="floor"))
+        rows.append(_check("Not in GSM / ASM stage 2", not surveil,
+                           detail=remarks if remarks.strip() not in ("", "-") else None, kind="floor"))
         if symbol.endswith("-RE") or symbol.endswith("_RE"):
             rows.append(_check("Not a rights entitlement", False, detail="rights-entitlement symbols are excluded",
                                kind="floor"))

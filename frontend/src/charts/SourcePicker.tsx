@@ -162,7 +162,7 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
                 />
                 <div className="min-h-0 flex-1 overflow-auto">
                   {board.isLoading && <div className="px-2 py-1 text-xs text-fg-3">Loading groups…</div>}
-                  {groups.map((g) => item(`group:${level}:${g.group_name}`, g.group_name ?? '', `${g.stocks ?? '—'} stocks${g.rank != null ? ` · #${g.rank}` : ''}`))}
+                  {groups.map((g) => item(`group:${level}:${g.group_name}`, g.group_name ?? '', g.rank != null ? `rank #${g.rank}` : undefined))}
                   {!board.isLoading && groups.length === 0 && <div className="px-2 py-1 text-xs text-fg-3">No group matches.</div>}
                 </div>
               </>
