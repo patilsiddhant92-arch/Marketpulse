@@ -15,6 +15,15 @@ set "PYTHONPATH=%ROOT%;%ROOT%App;%ROOT%Scripts"
 set "PY=%ROOT%.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 
+REM FastAPI serves the built React app from frontend\dist (build once:
+REM npm ci and npm run build inside frontend\).
+if not exist "%ROOT%frontend\dist\index.html" (
+  echo.
+  echo frontend\dist is missing - the API will start but there is no UI to serve.
+  echo Build it once:  cd frontend  then  npm ci  then  npm run build
+  echo.
+)
+
 set "PORT=8000"
 :find_free_port
 netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul 2>&1
@@ -28,7 +37,7 @@ set "URL=http://127.0.0.1:%PORT%"
 if not "%PORT%"=="8000" echo Port 8000 is busy; using %PORT% instead.
 
 echo ======================================================================
-echo 🚀 Starting MarketPulse 3.0 Terminal at %URL%
+echo Starting MarketPulse (FastAPI + React) at %URL%
 echo ======================================================================
 
 start "MarketPulse Browser" /min powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -37,5 +46,5 @@ start "MarketPulse Browser" /min powershell -NoProfile -ExecutionPolicy Bypass -
 
 "%PY%" -m uvicorn App.api.server:app --host 127.0.0.1 --port %PORT%
 echo.
-echo MarketPulse 3.0 stopped. Read any message above.
+echo MarketPulse stopped. Read any message above.
 pause

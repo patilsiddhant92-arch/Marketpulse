@@ -11,17 +11,6 @@ import { routes } from '../routes';
 
 // Legacy workspaces fetch old endpoints and draw canvases; they are covered by
 // their own screens. Stub them so the smoke test exercises the new shell only.
-vi.mock('../components/CockpitWorkspace', () => ({ CockpitWorkspace: () => <div>legacy cockpit</div> }));
-vi.mock('../components/ExposureGateHeader', () => ({ ExposureGateHeader: () => null }));
-vi.mock('../components/MomentumWorkspace', () => ({ MomentumWorkspace: () => <div>legacy momentum</div> }));
-vi.mock('../components/VcpWorkbenchWorkspace', () => ({ VcpWorkbenchWorkspace: () => <div>legacy vcp</div> }));
-vi.mock('../components/SectorWorkspace', () => ({ SectorWorkspace: () => <div>legacy sectors</div> }));
-vi.mock('../components/CapitalFlowDashboard', () => ({ CapitalFlowDashboard: () => <div>legacy flow</div> }));
-vi.mock('../components/DealsWorkspace', () => ({ DealsWorkspace: () => <div>legacy deals</div> }));
-vi.mock('../components/InspectorSidecar', () => ({
-  InspectorSidecar: ({ symbol }: { symbol: string }) => <aside>legacy inspector {symbol}</aside>,
-}));
-vi.mock('../components/MultiChartModal', () => ({ MultiChartModal: () => <div>legacy charts</div> }));
 vi.mock('../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
 // lightweight-charts needs a canvas; Stock 360 renders the chart.
 vi.mock('../ui/Chart', () => ({ Chart: ({ label }: { label: string }) => <div role="img" aria-label={label} /> }));

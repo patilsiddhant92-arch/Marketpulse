@@ -1,4 +1,6 @@
 @echo off
+REM OPTIONAL legacy NiceGUI UI (App\app.py). Not part of the daily path and not
+REM maintained: the supported UI is Launch_MarketPulse.bat (FastAPI + React).
 setlocal
 cd /d "%~dp0"
 call "%~dp0Scripts\_ensure_venv.bat"
@@ -15,6 +17,14 @@ set "PYTHONPATH=%ROOT%;%ROOT%App;%ROOT%Scripts"
 set "PY=%ROOT%.venv\Scripts\python.exe"
 set "APP=%ROOT%App\app.py"
 
+"%PY%" -c "import nicegui" >nul 2>nul
+if errorlevel 1 (
+  echo The legacy UI needs NiceGUI, which is not installed in .venv.
+  echo Install it with:  "%PY%" -m pip install "nicegui>=2.9.0"
+  pause
+  exit /b 1
+)
+
 set "PORT=8081"
 :find_free_port
 netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul 2>&1
@@ -27,7 +37,7 @@ set "URL=http://localhost:%PORT%"
 
 if not "%PORT%"=="8081" echo Port 8081 is busy; using %PORT% instead.
 
-echo Starting Legacy MarketPulse (NiceGUI) at %URL%
+echo Starting LEGACY MarketPulse (NiceGUI, unsupported) at %URL%
 start "MarketPulse Browser" /min powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$url = '%URL%'; $deadline = (Get-Date).AddSeconds(45);" ^
   "do { try { Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 1 | Out-Null; Start-Process $url; exit 0 } catch { Start-Sleep -Milliseconds 700 } } while ((Get-Date) -lt $deadline)"

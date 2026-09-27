@@ -6,9 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../App';
 import { routes } from '..';
 
-vi.mock('../../components/CockpitWorkspace', () => ({ CockpitWorkspace: () => <div>legacy cockpit</div> }));
-vi.mock('../../components/ExposureGateHeader', () => ({ ExposureGateHeader: () => null }));
-vi.mock('../../components/InspectorSidecar', () => ({ InspectorSidecar: ({ symbol }: { symbol: string }) => <aside>legacy inspector {symbol}</aside> }));
 vi.mock('../../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
 
 const FRESH = { status: 'fresh', latest_session: '2026-09-25', expected_session: '2026-09-25', sessions_behind: 0, history_mode: false };
