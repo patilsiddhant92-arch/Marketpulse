@@ -5,12 +5,19 @@ import duckdb
 import pandas as pd
 
 import Scripts.derived as derived
-from Scripts.derived import LAST_RUN, TABLES, build_derived_tables, write_derived_tables
+from Scripts.derived import LAST_RUN, TABLES, build_derived_tables, incremental_setup_args, write_derived_tables
 from tests.test_derived_group_daily import universe
+from tests.test_derived_setup_daily import ema_pullback_stock, squeeze_stock
 
 
 def _inputs():
     ind, master, idx = universe()
+    extra = pd.concat([squeeze_stock("SQA", seed=1), squeeze_stock("SQB", n_up=35, n_flat=20, seed=2),
+                       ema_pullback_stock("PBK")], ignore_index=True)
+    ind = pd.concat([ind, extra.drop(columns=["ema_200"]).assign(turnover_cr=20.0)], ignore_index=True)
+    master = pd.concat([master, pd.DataFrame({"symbol": ["SQA", "SQB", "PBK"], "broad_sector": "BS", "sector": "S3",
+                                              "broad_industry": "BI3", "industry": "SqInd", "market_cap_cr": 9000.0,
+                                              "market_cap_date": master["market_cap_date"].iloc[0]})], ignore_index=True)
     deals = pd.DataFrame([dict(trade_date=ind.trade_date.max(), symbol="UP1", client_name="F", side="BUY",
                                quantity=1000, price=100.0, clientele="FII", deal_type="Bulk")])
     prices = ind[["symbol", "trade_date", "close_price", "turnover_cr"]].assign(volume=1e6)
@@ -43,3 +50,19 @@ def test_one_failing_builder_is_isolated(monkeypatch):
     assert "group_daily" not in tables
     assert {"regime_daily", "setup_daily", "deal_session_net"} <= set(tables)
     assert "kaput" in LAST_RUN["errors"]["group_daily"]
+
+
+def test_incremental_setup_args_round_trip():
+    con = duckdb.connect(":memory:")
+    assert incremental_setup_args(con) == {}  # no table yet -> full build
+    inputs = _inputs()
+    tables = build_derived_tables(**inputs)
+    write_derived_tables(con, tables)
+    args = incremental_setup_args(con, lookback_sessions=5)
+    assert len(tables["setup_daily"]) > 0
+    stored = sorted(tables["setup_daily"]["trade_date"].unique())
+    assert args["setup_since"] == pd.Timestamp(stored[-5] if len(stored) >= 5 else stored[0])
+    assert (args["setup_previous"]["trade_date"] < args["setup_since"]).all()
+    again = build_derived_tables(**inputs, **args)
+    pd.testing.assert_frame_equal(again["setup_daily"].reset_index(drop=True),
+                                  tables["setup_daily"].reset_index(drop=True), check_dtype=False)

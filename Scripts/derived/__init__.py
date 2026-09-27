@@ -7,6 +7,9 @@ Entry points for the EOD build:
                                   breadth=..., reference=...)
     write_derived_tables(con, tables)
 
+On a daily append pass **incremental_setup_args(con) (recomputes the last 5 stored sessions of
+setup_daily and keeps older rows); on a full rebuild omit it.
+
 Each builder runs in isolation: a failing builder is logged and left out of the result; the others
 are still returned. Timings/errors of the last run are in LAST_RUN. Column docs: SCHEMA.md.
 """
@@ -38,7 +41,7 @@ INDEXES: dict[str, list[tuple[str, str]]] = {
 LAST_RUN: dict[str, Any] = {"timings_s": {}, "errors": {}, "rows": {}}
 
 __all__ = [
-    "TABLES", "LAST_RUN", "build_derived_tables", "write_derived_tables",
+    "TABLES", "LAST_RUN", "build_derived_tables", "write_derived_tables", "incremental_setup_args",
     "build_regime_daily", "build_group_daily", "build_setup_daily", "build_deal_session_net",
 ]
 
@@ -80,6 +83,23 @@ def build_derived_tables(
         LAST_RUN["rows"][name] = int(len(frame))
         log.info("derived table %s: %d rows in %.1fs", name, len(frame), LAST_RUN["timings_s"][name])
     return out
+
+
+def incremental_setup_args(con, *, lookback_sessions: int = 5) -> dict[str, Any]:
+    """Arguments for an incremental setup_daily run on a daily append: recompute the last
+    `lookback_sessions` stored sessions plus anything newer, keep older stored rows.
+    Returns {} (=> full build) when setup_daily does not exist yet or is empty."""
+    try:
+        dates = con.execute(
+            "SELECT DISTINCT trade_date FROM setup_daily ORDER BY trade_date DESC LIMIT ?", [int(lookback_sessions)]
+        ).fetchall()
+    except Exception:  # table missing
+        return {}
+    if not dates:
+        return {}
+    since = pd.Timestamp(min(d[0] for d in dates))
+    previous = con.execute("SELECT * FROM setup_daily WHERE trade_date < ?", [since.to_pydatetime()]).df()
+    return {"setup_since": since, "setup_previous": previous}
 
 
 def write_derived_tables(con, tables: dict[str, pd.DataFrame]) -> dict[str, int]:
