@@ -752,10 +752,9 @@ def _daily_symbol_features(group: pd.DataFrame) -> pd.DataFrame:
 
 def _higher_timeframe_features(g: pd.DataFrame) -> pd.DataFrame:
     """Weekly / monthly columns for the rows of ``g`` (second half of the per-symbol pass)."""
-    bars = g
     close = g["close_price"]
-    weekly_features = resampled_timeframe_features(bars, "W-FRI")
-    monthly_features = resampled_timeframe_features(bars, "ME")
+    weekly_features = resampled_timeframe_features(g, "W-FRI")
+    monthly_features = resampled_timeframe_features(g, "ME")
     if not weekly_features.empty:
         weekly = weekly_features["close_price"]
         weekly_ema = weekly.ewm(span=10, adjust=False, min_periods=10).mean()
@@ -765,7 +764,7 @@ def _higher_timeframe_features(g: pd.DataFrame) -> pd.DataFrame:
         g["wema_10"] = weekly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
         g["wema_200"] = weekly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
         g["wema_10_cross_200"] = weekly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-        weekly_completed = weekly_ohlc(bars, as_of=bars["trade_date"].max())
+        weekly_completed = weekly_ohlc(g, as_of=g["trade_date"].max())
         if not weekly_completed.empty:
             w20_close = weekly_completed.set_index(pd.to_datetime(weekly_completed["trade_date"]))["close_price"]
             weekly_ema_20 = w20_close.ewm(span=20, adjust=False, min_periods=20).mean()
