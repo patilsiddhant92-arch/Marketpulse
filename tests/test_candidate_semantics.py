@@ -64,7 +64,9 @@ def test_build_pipeline_uses_corrected_primary_semantics():
 
     source = Path("Scripts/build_database.py").read_text(encoding="utf-8")
 
-    assert 'indicators["rs_percentile_primary"] = rs_score_no_fill' in source
+    # rs_percentile_primary ranks the no-fill (min_count=4) quarterly mix (see rs_percentiles).
+    assert 'out["rs_percentile_primary"] = inputs["rs_score_no_fill"].groupby(by_date).rank(pct=True) * 100' in source
+    assert 'rs_score_no_fill = rs_components.mul([0.40, 0.20, 0.20, 0.20], axis=1).sum(axis=1, min_count=4)' in source
     assert 'indicators["distance_to_high_pct"] = indicators["distance_to_high_pct_corrected"]' in source
     assert 'g["atr_pct_primary"] = g["atr_pct_wilder"]' in source
 
@@ -74,15 +76,15 @@ def test_adaptive_mixer_is_side_column_and_never_assigned_to_rs_percentile():
 
     source = Path("Scripts/build_database.py").read_text(encoding="utf-8")
 
-    assert 'indicators["rs_percentile"] = indicators["rs_percentile_primary"]' in source
-    assert 'indicators["rs_score_adaptive"]' in source
-    assert 'indicators["rs_percentile_ipo"]' in source
+    assert 'out["rs_percentile"] = out["rs_percentile_primary"]' in source
+    assert 'out["rs_score_adaptive"] = inputs["rs_score_adaptive"]' in source
+    assert 'out["rs_percentile_ipo"] = pct["rs_percentile_ipo"]' in source
     assert 'g["adr_20_pct"] = adr_pct' in source
-    assert 'indicators["rs_rank_t5"]' in source
-    assert 'indicators["rs_rank_t15"]' in source
-    assert 'indicators["rs_rank_t30"]' in source
-    assert 'indicators["rs_percentile"] = indicators["rs_score_adaptive"]' not in source
-    assert 'indicators["rs_percentile"] = indicators["rs_percentile_ipo"]' not in source
+    assert 'RS_LAGS = {"rs_rank_t5": 5, "rs_rank_t15": 15, "rs_rank_t30": 30}' in source
+    assert 'out[col] = session_lag(out["rs_percentile"], inputs["symbol"], lag)' in source
+    assert 'out["rs_percentile"] = out["rs_score_adaptive"]' not in source
+    assert 'out["rs_percentile"] = out["rs_percentile_ipo"]' not in source
+    assert 'out["rs_percentile"] = pct["rs_percentile_ipo"]' not in source
 
 
 def test_risk_off_prepare_policy_cannot_be_disabled():

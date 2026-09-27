@@ -6,6 +6,7 @@ Single implementation used by CLI and `daily_pipeline` (PR-APPEND).
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ from price_adjustment import (
     summarize_adjustments,
 )
 from reference_history import load_reference_history
+from incremental_append import RAW_PRICE_COLUMNS, FullRecomputeRequired, incremental_append
 
 NEW_PRICES_FILENAME_SLACK_DAYS = 10
 
@@ -186,8 +188,8 @@ def _append_session_locked(*, force_full: bool, notify_telegram: bool) -> Append
         )
 
     equity = read_equity_symbols()
-    existing_prices = _load_table("prices_daily")
-    latest_date = pd.to_datetime(existing_prices["trade_date"]).max()
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        latest_date = pd.to_datetime(con.execute("SELECT max(trade_date) FROM prices_daily").fetchone()[0])
     new_prices = _new_daily_prices(None, latest_date)
     if new_prices.empty:
         msg = f"No new bhavcopy rows found after {latest_date.date()}. Database unchanged."
@@ -203,45 +205,20 @@ def _append_session_locked(*, force_full: bool, notify_telegram: bool) -> Append
         f"Appending {len(new_prices):,} price rows "
         f"from {new_prices['trade_date'].min().date()} to {new_prices['trade_date'].max().date()}."
     )
-    prices = merge_new_prices(existing_prices, new_prices)
-
-    extra_actions = _load_extra_actions()
-    prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
-    print(summarize_adjustments(price_adjustments))
-
-    sector = read_sector()
-    mcap = read_market_cap()
-    bands = read_price_band()
-    pe = read_pe()
-    high52 = read_52_week()
-    enrichment = build_enrichment(mcap, bands, pe, high52, pd.DataFrame(), pd.DataFrame())
-    master = build_master(equity, sector, prices, mcap, bands, pe)
-
-    # Recompute derived tables from the merged price table. This avoids stale rolling
-    # indicators while still skipping the slow archive CSV parse.
-    reference_history = load_reference_history(ROOT_DIR)
-    indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
-    deals_raw = read_all_deals()
-    deals = enrich_deals(deals_raw, prices, indicators, master)
-    latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
-    enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
-    breadth_daily = build_breadth_daily(indicators)
-    sector_rotation = build_sector_rotation(indicators, master)
-    if not reference_history.empty:
-        reference_for_metrics = reference_history
-    else:
-        try:
-            reference_for_metrics = _load_table("security_reference_daily")
-        except Exception:
-            reference_for_metrics = pd.DataFrame()
-    index_for_metrics = load_index_for_metrics(ROOT_DIR, _load_table)
-    sector_metrics_daily = compute_sector_metrics(indicators, master, reference_for_metrics, index_for_metrics, deals)
-    screener_results = make_screener_results(indicators, master, deals, sector_rotation)
-
-    # write_database takes the dated backup (Database/backups/) before its atomic swap.
-    backup = write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
-    new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
-    msg = f"Append update complete through {new_max}. Backup: {backup.name if backup else 'none'}"
+    mode = (os.environ.get("MP_APPEND_MODE", "incremental") or "incremental").strip().lower()
+    try:
+        if mode == "full":
+            raise FullRecomputeRequired("MP_APPEND_MODE=full")
+        summary = incremental_append(DB_PATH, new_prices, root=ROOT_DIR, equity=equity)
+        backup = summary.get("backup")
+        new_max = summary["db_date"]
+        _materialize_after_append()
+        how = "incremental"
+    except FullRecomputeRequired as exc:
+        print(f"Incremental append not possible ({exc}); running the full recompute (temp build + swap).")
+        backup, new_max = _append_full_recompute(new_prices, equity)
+        how = "full recompute"
+    msg = f"Append update complete through {new_max} ({how}). Backup: {backup.name if backup else 'none'}"
     print(msg)
 
     if notify_telegram:
@@ -260,6 +237,58 @@ def _append_session_locked(*, force_full: bool, notify_telegram: bool) -> Append
         backup=str(backup) if backup else None,
         duration_ms=int((time.perf_counter() - started) * 1000),
     )
+
+
+def _materialize_after_append() -> None:
+    """Decision tables are materialized after every accepted append (as write_database does)."""
+    try:
+        from materialize_decision_tables import materialize_decision_tables
+
+        materialize_decision_tables(DB_PATH)
+    except Exception as exc:
+        print(f"Warning: decision tables were not materialized: {exc}")
+
+
+def _append_full_recompute(new_prices: pd.DataFrame, equity: pd.DataFrame) -> tuple[Path | None, str]:
+    """The old append semantics - every table recomputed from the stored raw prices plus the
+    new sessions - through the memory-bounded streaming build and the safe temp-build + swap.
+    Used when the incremental path cannot reproduce a full recompute (and MP_APPEND_MODE=full)."""
+    from build_database import compute_full_build, discard_staged
+
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        have = {r[1] for r in con.execute("PRAGMA table_info('prices_daily')").fetchall()}
+        cols = [c for c in RAW_PRICE_COLUMNS if c in have]
+        existing_prices = con.execute(f"SELECT {', '.join(cols)} FROM prices_daily").fetchdf()
+    prices = merge_new_prices(existing_prices, new_prices)
+    del existing_prices
+    extra_actions = _load_extra_actions()
+    reference_history = load_reference_history(ROOT_DIR)
+    if not reference_history.empty:
+        reference_for_metrics = reference_history
+    else:
+        try:
+            reference_for_metrics = _load_table("security_reference_daily")
+        except Exception:
+            reference_for_metrics = pd.DataFrame()
+    index_for_metrics = load_index_for_metrics(ROOT_DIR, _load_table)
+    frames = compute_full_build(
+        quiet=True,
+        db_path=DB_PATH,
+        raw_prices=prices,
+        extra_actions=extra_actions,
+        metric_reference=reference_for_metrics,
+        metric_index=index_for_metrics,
+    )
+    del prices
+    try:
+        # write_database takes the dated backup (Database/backups/) before its atomic swap.
+        backup = write_database(**frames, with_derived=True)
+    except BaseException:
+        discard_staged(frames)
+        raise
+    staged = frames["prices"]
+    max_date = staged.info.get("max_date") if hasattr(staged, "info") else pd.to_datetime(staged["trade_date"]).max()
+    return backup, pd.Timestamp(max_date).date().isoformat()
 
 
 def main() -> None:
