@@ -3385,7 +3385,9 @@
             "type": "string",
             "enum": [
               "floor",
-              "rule"
+              "rule",
+              "check",
+              "result"
             ],
             "title": "Kind"
           },
@@ -3471,6 +3473,17 @@
               }
             ],
             "title": "Missing Input"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           }
         },
         "type": "object",
@@ -6816,6 +6829,18 @@
               }
             ],
             "title": "Queue"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category",
+            "description": "Picker group: Trend | Highs | Coil | Momentum | Setups | Lab"
           },
           "rules": {
             "items": {

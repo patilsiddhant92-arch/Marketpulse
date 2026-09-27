@@ -76,9 +76,27 @@ FIELDS: dict[str, tuple[str, str]] = {
 OPS = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "eq": "="}
 BOOL_OPS = {"is_true", "is_false"}
 FIELD_LABELS = {
-    "close": "Close", "rs_percentile": "Strength rank", "away_52w_high_pct": "% from 52W high",
-    "away_52w_low_pct": "% above 52W low", "away_10ema_pct": "% from 10 EMA", "rsi_14_w": "Weekly RSI",
+    "close": "Close", "open": "Open", "high": "High", "low": "Low", "change_1d_pct": "1D %",
+    "volume": "Day volume", "avg_volume_20d": "20D avg volume", "rvol": "RVOL",
+    "delivery_pct": "Delivery %", "delivery_vs_20d": "Delivery vs 20D", "rs_percentile": "Strength rank",
+    "rs_delta_5": "Strength rank Δ5", "excess_vs_midsml400_63d": "Excess vs MidSml400 63D",
+    "excess_vs_nifty50_63d": "Excess vs Nifty 63D", "market_cap_cr": "Market cap (₹ Cr)",
+    "adv_cr_20d": "20D avg traded value (₹ Cr)", "away_52w_high_pct": "% from 52W high",
+    "away_52w_low_pct": "% above 52W low", "away_10ema_pct": "% from 10 EMA", "adr_20_pct": "ADR 20 %",
+    "trend_template_pass_n": "Trend template checks", "return_1m_pct": "1M %", "return_3m_pct": "3M %",
+    "return_6m_pct": "6M %", "ema_10": "10 EMA", "ema_20": "20 EMA", "ema_50": "50 EMA", "ema_100": "100 EMA",
+    "ema_200": "200 EMA", "sma_50": "50 SMA", "sma_150": "150 SMA", "sma_200": "200 SMA",
+    "rsi_14": "RSI 14", "rsi_14_w": "Weekly RSI", "ema_spread_10_50_pct": "10/20/50 EMA spread %",
+    "trend_template_pass": "Trend template 8/8", "sma_200_rising": "200 SMA rising", "nr7": "NR7",
+    "inside_bar": "Inside bar", "nr7_or_inside": "NR7 or inside bar", "delivery_spike": "Delivery spike",
+    "price_up_delivery_up": "Price up on rising delivery", "new_52w_high": "New 52W high today",
 }
+# Rule field -> metric-dictionary key (tooltips in the custom-rule builder).
+FIELD_METRIC = {k: k for k in (
+    "change_1d_pct", "rvol", "delivery_pct", "delivery_vs_20d", "rs_percentile", "rs_delta_5",
+    "excess_vs_midsml400_63d", "excess_vs_nifty50_63d", "market_cap_cr", "adv_cr_20d", "away_52w_high_pct",
+    "away_52w_low_pct", "away_10ema_pct", "adr_20_pct", "trend_template_pass_n",
+)}
 SORTABLE = {"rs_percentile", "change_1d_pct", "rvol", "delivery_pct", "market_cap_cr", "away_52w_high_pct",
             "return_1m_pct", "return_3m_pct", "return_6m_pct", "excess_vs_midsml400_63d", "symbol", "rs_delta_5"}
 SCREENER_METRICS = ["rs_percentile", "rs_delta_5", "change_1d_pct", "rvol", "delivery_pct", "away_52w_high_pct",
@@ -141,6 +159,23 @@ PRESETS: dict[str, Preset] = {p.id: p for p in (
 )}
 
 
+PRESET_CATEGORY = {
+    "minervini_8of8": "Trend", "stage2_leader": "Trend", "ema_stack": "Trend", "sma_template": "Trend",
+    "near_52w_high": "Highs", "fresh_52w_high": "Highs", "emas_converge": "Coil", "nr7_inside": "Coil",
+    "delivery_thrust": "Momentum", "weekly_rsi_60": "Momentum", "darvas": "Setups", "vcp": "Setups",
+    "uc_thrust": "Lab",
+}
+# Desk pool the Darvas / VCP queue presets use instead of the screener floors.
+QUEUE_POOL_NOTE = ("Darvas / VCP presets use the Desk pool (≥ ₹1,000 Cr, 20D traded value ≥ ₹3 Cr, band > 5%, "
+                   "no GSM / ASM stage 2) — screener floors other than the group filter do not apply.")
+
+
+def field_catalog() -> list[dict[str, Any]]:
+    """Rule fields for the custom-rule builder: id, label, kind (num|bool), metric-dictionary key."""
+    return [{"field": f, "label": FIELD_LABELS.get(f, f), "kind": kind, "metric_key": FIELD_METRIC.get(f)}
+            for f, (_, kind) in FIELDS.items()]
+
+
 def presets() -> Result:
     rows = []
     for p in PRESETS.values():
@@ -150,11 +185,13 @@ def presets() -> Result:
             "description": p.description,
             "kind": p.kind,
             "queue": p.queue,
+            "category": PRESET_CATEGORY.get(p.id),
             "rules": [dict(r, label=rule_label(r)) for r in p.rules],
             "available": p.kind != "lab",
         })
     return Result(as_of=None, rows=rows, sources=["App/services/screener.py:PRESETS"],
-                  notes=["uc_thrust is a research preset not yet ported to v2 (available=false)."])
+                  notes=["uc_thrust is a research preset not yet ported to v2 (available=false).", QUEUE_POOL_NOTE],
+                  extra={"fields": field_catalog(), "ops": sorted(OPS), "bool_ops": sorted(BOOL_OPS)})
 
 
 def rule_label(rule: dict[str, Any]) -> str:
@@ -383,9 +420,7 @@ def run(as_of: date | None, preset_id: str | None, rules: list[dict[str, Any]] |
     if preset is not None and preset.kind == "lab" and rules is None:
         return unavailable(None, f"{preset.label} is a research preset not yet ported to v2", [], preset=preset.id)
     if preset is not None and preset.kind == "queue" and rules is None:
-        res = desk.queue_rows(as_of, preset.queue or "", "D")
-        res.extra.update({"preset": preset.id, "applied_rules": [], "delegated_to": f"desk/queue/{preset.queue}"})
-        return res
+        return _run_queue(as_of, preset, p, sort, descending)
     _floors(p)  # validate level early
     with db.market_conn() as con:
         resolved = db.resolve_as_of(con, as_of)
@@ -393,14 +428,18 @@ def run(as_of: date | None, preset_id: str | None, rules: list[dict[str, Any]] |
             return no_session(as_of)
         key = (resolved, json.dumps(applied, sort_keys=True), repr(p))
 
-        def compute() -> list[dict[str, Any]]:
+        def compute() -> tuple[list[dict[str, Any]], list[dict[str, Any]], date | None]:
             matched = _match(con, resolved, applied, p)
             prev = db.session_back(con, resolved, 1)
-            prev_syms = {r["symbol"] for r in _match(con, prev, applied, p)} if prev else None
+            prev_recs = _match(con, prev, applied, p) if prev else None
+            prev_syms = {r["symbol"] for r in prev_recs} if prev_recs is not None else None
             hist = _history_cols(con, resolved, [r["symbol"] for r in matched])
-            return [_shape(r, hist, resolved, prev_syms, p) for r in matched]
+            shaped = [_shape(r, hist, resolved, prev_syms, p) for r in matched]
+            today = {r["symbol"] for r in shaped}
+            dropped = [_dropped_row(r) for r in (prev_recs or []) if r["symbol"] not in today]
+            return shaped, dropped, prev
 
-        rows = db.cached("screener.run", key, compute)
+        rows, dropped, prev_session = db.cached("screener.run", key, compute)
     rows = sort_rows(rows, sort, descending)
     return Result(
         as_of=resolved,
@@ -409,6 +448,9 @@ def run(as_of: date | None, preset_id: str | None, rules: list[dict[str, Any]] |
         extra={
             "preset": preset.id if preset else None,
             "applied_rules": [dict(r, label=rule_label(r)) for r in applied],
+            "previous_session": prev_session,
+            "new_count": sum(1 for r in rows if r.get("is_new")),
+            "dropped": sorted(dropped, key=lambda r: r["symbol"] or ""),
             "floors": {
                 "min_mcap_cr": p.min_mcap_cr, "min_price": p.min_price, "min_day_volume": p.min_day_volume,
                 "min_avg_volume_20d": p.min_avg_volume_20d, "lookback_days": p.lookback_days,
@@ -421,6 +463,45 @@ def run(as_of: date | None, preset_id: str | None, rules: list[dict[str, Any]] |
     )
 
 
+def _dropped_row(rec: dict[str, Any]) -> dict[str, Any]:
+    """A stock that matched on the previous session but not on as_of (shown as it was then)."""
+    base = universe.shape_stock(rec)
+    return {"symbol": base["symbol"], "close": base["close"], "rs_percentile": base["rs_percentile"],
+            "industry": base["industry"]}
+
+
+def _run_queue(as_of: date | None, preset: Preset, p: Params, sort: str, descending: bool) -> Result:
+    """Darvas / VCP presets: the Desk queue itself (one predicate), optionally narrowed to a taxonomy group."""
+    queue = preset.queue or ""
+    res = desk.queue_rows(as_of, queue, "D")
+    rows = list(res.rows)
+    if p.level:
+        key = universe.level_key(p.level)
+        if key is None:
+            raise RuleError(f"unknown taxonomy level: {p.level!r}")
+        if p.group:
+            rows = [r for r in rows if r.get(key) == p.group]
+    rows = sort_rows(rows, sort, descending)
+    dropped: list[dict[str, Any]] = []
+    prev_session = None
+    if res.as_of is not None and res.status != "unavailable":
+        diff = desk.diff(res.as_of, queue, "D")
+        prev_session = diff.extra.get("previous_session")
+        for r in diff.rows:
+            if r["change"] != "dropped":
+                continue
+            dropped.append({"symbol": r["symbol"], "close": r["close"], "rs_percentile": r["rs_percentile"],
+                            "industry": r["industry"]})
+    res = Result(
+        as_of=res.as_of, rows=rows, status=res.status, reason=res.reason, sources=res.sources,
+        notes=[*res.notes, QUEUE_POOL_NOTE], metric_keys=res.metric_keys,
+        extra={**res.extra, "preset": preset.id, "applied_rules": [], "delegated_to": f"desk/queue/{queue}",
+               "previous_session": prev_session, "new_count": sum(1 for r in rows if r.get("is_new")),
+               "dropped": dropped, "floors": {"level": p.level, "group": p.group}},
+    )
+    return res
+
+
 def sort_rows(rows: list[dict[str, Any]], key: str, descending: bool) -> list[dict[str, Any]]:
     """Sort by `key`, NULLs always last."""
     present = [r for r in rows if r.get(key) is not None]
@@ -431,6 +512,8 @@ def sort_rows(rows: list[dict[str, Any]], key: str, descending: bool) -> list[di
 
 def debug(as_of: date | None, symbol: str, preset_id: str | None, rules: list[dict[str, Any]] | None, p: Params) -> Result:
     preset, applied = resolve_rules(preset_id, rules)
+    if preset is not None and preset.kind == "queue" and rules is None:
+        return _debug_queue(as_of, symbol, preset, p)
     if preset is not None and preset.kind != "rules" and rules is None:
         return unavailable(None, f"{preset.label} is not a rule preset; use desk/queue for its predicate", [])
     with db.market_conn() as con:
@@ -477,6 +560,137 @@ def debug(as_of: date | None, symbol: str, preset_id: str | None, rules: list[di
         extra={"symbol": symbol, "preset": preset.id if preset else None,
                "passes_all": all(r["passed"] for r in rows)},
     )
+
+
+def _check(label: str, passed: bool, *, field: str | None = None, value: Any = None, actual: Any = None,
+           ref_actual: Any = None, detail: str | None = None, kind: str = "check") -> dict[str, Any]:
+    return {"kind": kind, "label": label, "field": field, "op": None,
+            "value": db.num(value, 4), "ref": None,
+            "actual": actual if isinstance(actual, (bool, str)) or actual is None else db.num(actual, 4),
+            "ref_actual": db.num(ref_actual, 4), "passed": bool(passed),
+            "missing_input": actual is None and field is not None, "detail": detail}
+
+
+def _debug_queue(as_of: date | None, symbol: str, preset: Preset, p: Params) -> Result:
+    """Why is `symbol` (not) in a Desk queue: the Desk pool gates, then the queue's own predicate.
+
+    Uses the same functions as the queue (desk pool gates, squeeze_frame, detect_contractions);
+    the final row is the authoritative membership test from desk.queue_rows.
+    """
+    queue = preset.queue or ""
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        snap = universe.snapshot_sql(
+            con, extra_where="AND i.symbol = ?",
+            extra_cols=", COALESCE(i.avg_traded_value_cr_20d, i.turnover_cr) AS pool_adv_cr, m.band_remarks",
+        )
+        recs = db.records(con, f"WITH s AS ({snap}) SELECT * FROM s", [resolved, symbol])
+        if not recs:
+            return unavailable(resolved, f"{symbol} has no row on {resolved.isoformat()}", ["indicators_daily"])
+        rec = recs[0]
+        rows: list[dict[str, Any]] = []
+        pool = desk.POOL
+        mcap = db.num(rec.get("market_cap_cr"))
+        adv = db.num(rec.get("pool_adv_cr"))
+        band = db.num(rec.get("circuit_band"))
+        remarks = str(rec.get("band_remarks") or "")
+        rows.append(_check(f"Market cap >= {pool['min_mcap']:,.0f} Cr", mcap is not None and mcap >= pool["min_mcap"],
+                           field="market_cap_cr", value=pool["min_mcap"], actual=mcap, kind="floor"))
+        rows.append(_check(f"20D traded value >= {pool['min_adv_cr']:g} Cr",
+                           adv is not None and adv >= pool["min_adv_cr"],
+                           field="adv_cr_20d", value=pool["min_adv_cr"], actual=adv, kind="floor"))
+        rows.append(_check(f"Circuit band > {pool['min_band']:g}% (unknown passes)",
+                           band is None or band > pool["min_band"],
+                           field="circuit_band", value=pool["min_band"], actual=band, kind="floor"))
+        surveil = "GSM" in remarks or "STAGE 2" in remarks
+        rows.append(_check("Not in GSM / ASM stage 2", not surveil, detail=remarks or None, kind="floor"))
+        if symbol.endswith("-RE") or symbol.endswith("_RE"):
+            rows.append(_check("Not a rights entitlement", False, detail="rights-entitlement symbols are excluded",
+                               kind="floor"))
+        close = db.num(rec.get("close"))
+        ema200 = db.num(rec.get("ema_200"))
+        rows.append(_check("Close > 200 EMA (unknown 200 EMA passes - Desk rule)",
+                           ema200 is None or (close is not None and close > ema200),
+                           field="close", actual=close, ref_actual=ema200))
+        if p.level and p.group:
+            key = universe.level_key(p.level)
+            if key is None:
+                raise RuleError(f"unknown taxonomy level: {p.level!r}")
+            rows.append(_check(f"{universe.LEVELS[key][1]} = {p.group}", rec.get(key) == p.group,
+                               detail=db.text(rec.get(key)), kind="floor"))
+        try:
+            rows.extend(_queue_predicate_checks(con, resolved, symbol, queue, rec))
+        except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort; membership below is authoritative
+            rows.append(_check("Queue geometry", False, detail=f"could not evaluate: {exc}"))
+    res = desk.queue_rows(resolved, queue, "D")
+    member = any(r.get("symbol") == symbol for r in res.rows)
+    rows.append(_check(f"In the {desk.QUEUES[queue]['label']} queue on {resolved.isoformat()}", member,
+                       detail="authoritative: same predicate as the Desk queue", kind="result"))
+    return Result(
+        as_of=resolved,
+        rows=rows,
+        status=res.status if res.status != "unavailable" else "partial",
+        reason=res.reason,
+        sources=["indicators_daily", "prices_daily", "stocks_master"],
+        extra={"symbol": symbol, "preset": preset.id, "queue": queue, "passes_all": member},
+        notes=[QUEUE_POOL_NOTE],
+    )
+
+
+def _queue_predicate_checks(con: Any, as_of: date, symbol: str, queue: str, rec: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if queue == "darvas_squeeze":
+        n = int(desk.DARVAS["box_lookback_sessions"])
+        hist = desk._history(con, as_of, [symbol], n)
+        if hist.empty:
+            return [_check("Price history available", False, detail="no bars in the Darvas lookback")]
+        frame = desk.squeeze_frame(desk._last_sessions(hist, n), timeframe="D")
+        if frame.empty:
+            return [_check("Enough bars for a Darvas box", False, detail="fewer than 5 sessions")]
+        row = frame.iloc[0].to_dict()
+        max_sq = float(desk.DARVAS["max_squeeze_pct"])
+        sq = db.num(row.get("squeeze_pct"))
+        out.append(_check(f"Squeeze: 10 EMA within {max_sq:g}% under the box top",
+                          sq is not None and 0 <= sq <= max_sq, field="squeeze_pct", value=max_sq, actual=sq))
+        top = db.num(row.get("darvas_top"))
+        close = db.num(rec.get("close"))
+        near = top is not None and close is not None and top > 0 and -0.2 <= (top - close) / top * 100 <= max_sq
+        out.append(_check("Close at or just under the box top", near, field="darvas_box_top",
+                          actual=close, ref_actual=top))
+        out.append(_check("All squeeze conditions (range, EMA order, inside box, persistence)",
+                          bool(row.get("qualifies")), field="candle_range_pct",
+                          actual=db.num(row.get("candle_range_pct")),
+                          detail="squeeze_frame.qualifies - the Desk predicate"))
+    elif queue == "vcp":
+        hist = desk._history(con, as_of, [symbol], 252)
+        vol = db.num(rec.get("avg_volume_20d"))
+        close = db.num(rec.get("close"))
+        out.append(_check(f"20D avg volume >= {desk.VCP_MIN_AVG_VOLUME_20D:,} (unknown passes)",
+                          vol is None or vol >= desk.VCP_MIN_AVG_VOLUME_20D, field="avg_volume_20d",
+                          value=desk.VCP_MIN_AVG_VOLUME_20D, actual=vol))
+        out.append(_check(f"Close >= {desk.VCP_MIN_CLOSE:g}", close is not None and close >= desk.VCP_MIN_CLOSE,
+                          field="close", value=desk.VCP_MIN_CLOSE, actual=close))
+        if hist.empty or len(hist) < 60:
+            out.append(_check(">= 60 sessions of history", False, actual=int(len(hist))))
+            return out
+        g = hist.tail(252).reset_index(drop=True)
+        seq = desk.detect_contractions(
+            g[["trade_date", "open_price", "high_price", "low_price", "close_price", "volume"]])
+        n = len(seq.contractions)
+        depths = ", ".join(f"{c.label} {c.depth_pct:.1f}%" for c in seq.contractions) or None
+        out.append(_check(f">= {desk.VCP_MIN_CONTRACTIONS} strictly shrinking contractions",
+                          n >= desk.VCP_MIN_CONTRACTIONS, field="vcp_contractions",
+                          value=desk.VCP_MIN_CONTRACTIONS, actual=n, detail=depths))
+        last_close = float(g["close_price"].iloc[-1])
+        has_geo = seq.pivot is not None and seq.stop is not None
+        inside = has_geo and seq.stop < last_close <= seq.pivot * desk.VCP_MAX_ABOVE_PIVOT
+        out.append(_check(f"Close inside the base (stop < close <= pivot x {desk.VCP_MAX_ABOVE_PIVOT:g})", inside,
+                          field="trigger_price", actual=last_close, ref_actual=seq.pivot,
+                          detail=(f"pivot {seq.pivot:.2f}, stop {seq.stop:.2f}" if has_geo
+                                  else "no pivot / stop found")))
+    return out
 
 
 def _floor_labels(p: Params) -> list[str]:

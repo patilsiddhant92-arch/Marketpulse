@@ -454,3 +454,36 @@ def test_openapi_export_matches_app():
 
     exported = json.loads((ROOT / "frontend" / "openapi.json").read_text(encoding="utf-8"))
     assert exported == json.loads(json.dumps(create_app().openapi())), "run Scripts/export_openapi.py"
+
+
+# --------------------------------------------------------------------------
+# Screener tab (t2): rule catalog, dropped-since-yesterday, queue debugger
+# --------------------------------------------------------------------------
+def test_screener_presets_carry_rule_catalog_and_categories(client):
+    body = _ok(client, "/api/v2/screener/presets")
+    fields = {f["field"]: f for f in body["meta"]["context"]["fields"]}
+    assert fields["rs_percentile"]["kind"] == "num" and fields["rs_percentile"]["metric_key"] == "rs_percentile"
+    assert fields["trend_template_pass"]["kind"] == "bool"
+    assert {p["id"]: p["category"] for p in body["rows"]}["vcp"] == "Setups"
+
+
+def test_screener_run_reports_new_and_dropped(client):
+    body = _ok(client, "/api/v2/screener/run?preset=minervini_8of8")
+    ctx = body["meta"]["context"]
+    assert isinstance(ctx["dropped"], list) and isinstance(ctx["new_count"], int)
+    today = {r["symbol"] for r in body["rows"]}
+    assert not today & {d["symbol"] for d in ctx["dropped"]}
+
+
+def test_screener_debug_explains_queue_presets(client):
+    body = _ok(client, "/api/v2/screener/debug?symbol=AAA&preset=vcp")
+    rows = body["rows"]
+    assert rows and rows[-1]["kind"] == "result"
+    assert any(r["kind"] == "floor" for r in rows)
+    assert body["meta"]["context"]["passes_all"] == rows[-1]["passed"]
+    assert body["meta"]["context"]["queue"] == "vcp"
+
+
+def test_screener_queue_preset_group_filter(client):
+    body = _ok(client, "/api/v2/screener/run?preset=darvas&level=industry&group=__nope__")
+    assert body["total"] == 0 and body["meta"]["context"]["delegated_to"] == "desk/queue/darvas_squeeze"

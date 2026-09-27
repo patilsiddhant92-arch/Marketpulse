@@ -682,7 +682,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "floor" | "rule";
+            kind: "floor" | "rule" | "check" | "result";
             /** Label */
             label: string;
             /** Field */
@@ -701,6 +701,8 @@ export interface components {
             passed: boolean;
             /** Missing Input */
             missing_input?: boolean | null;
+            /** Detail */
+            detail?: string | null;
         };
         /** DiffRow */
         DiffRow: {
@@ -1559,6 +1561,11 @@ export interface components {
             kind: "rules" | "queue" | "lab";
             /** Queue */
             queue?: string | null;
+            /**
+             * Category
+             * @description Picker group: Trend | Highs | Coil | Momentum | Setups | Lab
+             */
+            category?: string | null;
             /** Rules */
             rules: components["schemas"]["Rule"][];
             /** Available */
