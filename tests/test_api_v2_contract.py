@@ -66,7 +66,8 @@ READ_URLS = [
     "/api/v2/stock/AAA/analogs", "/api/v2/evidence/vcp", "/api/v2/research/analogs", "/api/v2/research/big-moves",
     "/api/v2/research/big-moves/abc", "/api/v2/research/pre-move", "/api/v2/metrics/dictionary", "/api/v2/watchlist",
     "/api/v2/notes/AAA", "/api/v2/context/stocks?symbols=AAA,SMALL", "/api/v2/context/groups", "/api/v2/desk/compare",
-    "/api/v2/groups/rotation", "/api/v2/stock/AAA/why",
+    "/api/v2/groups/rotation", "/api/v2/stock/AAA/why", "/api/v2/screener/momentum",
+    "/api/v2/screener/momentum?debug_symbol=AAA", "/api/v2/screener/momentum/evidence",
 ]
 
 
@@ -558,11 +559,11 @@ def test_v2_never_imports_nicegui():
 
 
 def test_metric_keys_used_by_services_exist_in_dictionary():
-    from App.services import deals, desk, groups, market, metrics, screener, stock
+    from App.services import deals, desk, groups, market, metrics, momentum, screener, stock
 
     keys = set(metrics.by_key())
     used = set(market.HEALTH_METRICS + market.REGIME_METRICS + desk.QUEUE_METRICS + screener.SCREENER_METRICS
-               + groups.GROUP_METRICS + groups.MEMBER_METRICS + deals.DEAL_METRICS + stock.STOCK_METRICS)
+               + groups.GROUP_METRICS + groups.MEMBER_METRICS + deals.DEAL_METRICS + stock.STOCK_METRICS + momentum.MOMENTUM_METRICS)
     assert used - keys == set()
 
 
