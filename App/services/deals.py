@@ -534,3 +534,504 @@ def stock_prints(con: Any, symbol: str, as_of: date, limit_days: int | None = No
         "is_prop": db.boolean(r["is_prop"]),
         "institutional": (db.text(r["clientele"]) in ("FII", "DII")) if r["clientele"] is not None else None,
     } for r in raws]
+
+
+
+# ==========================================================================
+# Desk views restored from the old Deals workspace (d871ff9 /api/deals/institutional):
+# Today prints · multi-session "repeated" window with the Play / churn / transfer tiers ·
+# star-fund radar · fund leaderboard. Ported onto the correct rules above:
+#   * collapsed prints (a bulk ∩ block duplicate counts once — the old desk double counted)
+#   * PROP and the shared event types (transfer_interse / placement / churn) decide what is
+#     real flow; the old ≥80 % same-day buy≈sell heuristic and "all prints PROP" test are replaced
+#   * Play needs a positive net ex-PROP flow (the old desk took any stock with buy value > 0)
+#   * house track records enter at the next session's open (deals are disclosed after the
+#     close; the old desk "entered" at the deal price) and never look past as_of
+# ==========================================================================
+DESK_MIN_DEAL_CR = 5.0          # old attribution floor for a "bet"
+STAR_TIERS = {"strong": ("Star Catalyst", "Strong Accumulator"),
+              "steady": ("Star Catalyst", "Strong Accumulator", "Steady Value")}
+PEAK_SESSIONS = 60
+WIN_PCT = 5.0                   # old 20-day "win": T+20 return >= +5 %
+FLOW_EVENTS = ("accumulate", "fresh", "distribute")
+TRANSFER_EVENTS = ("transfer_interse", "placement")
+INDIVIDUAL_CLASSES = {"HNI", "OTHER"}
+SETUPS = ("ALL", "ABOVE_200", "TURNAROUND")
+
+
+def _house_name(client: Any) -> str:
+    """Old desk's fund-house normaliser (strips -FPI/-ODI, PVT LTD, …) so entities of one house merge."""
+    from Scripts.institutional_attribution import clean_fund_name
+    name = clean_fund_name(str(client or ""))
+    return name.upper() if name else str(client or "").upper()
+
+
+def _deal_sessions(con: Any, as_of: date, n: int) -> list[pd.Timestamp]:
+    rows = con.execute("SELECT DISTINCT trade_date FROM deals WHERE trade_date <= ? ORDER BY 1 DESC LIMIT ?",
+                       [as_of, int(n)]).fetchall()
+    return sorted(pd.Timestamp(r[0]) for r in rows)
+
+
+def _snap_full(con: Any, as_of: date) -> dict[str, dict[str, Any]]:
+    def build() -> dict[str, dict[str, Any]]:
+        df = con.execute(
+            f"WITH s AS ({universe.snapshot_sql(con)}) SELECT symbol, security_name, sector, industry, close, "
+            "market_cap_cr, rs_percentile, ema_200, away_52w_high_pct, adv_cr_20d, circuit_band FROM s", [as_of]).df()
+        return df.set_index("symbol").to_dict("index") if not df.empty else {}
+    return _cached("deals.snap_full", (as_of,), build)
+
+
+def _mcap_ok(mcap: float | None, floor: float) -> bool:
+    return floor <= 0 or (mcap is not None and mcap >= floor)
+
+
+def _stock_cols(s: dict[str, Any]) -> dict[str, Any]:
+    close, ema = db.num(s.get("close")), db.num(s.get("ema_200"))
+    return {
+        "security_name": db.text(s.get("security_name")), "sector": db.text(s.get("sector")),
+        "industry": db.text(s.get("industry")), "close": db.num(close, 2), "ema_200": db.num(ema, 2),
+        "above_200ema": (close >= ema) if close is not None and ema is not None else None,
+        "away_52w_high_pct": db.num(s.get("away_52w_high_pct"), 1), "rs_percentile": db.num(s.get("rs_percentile"), 1),
+        "market_cap_cr": db.num(s.get("market_cap_cr"), 0), "circuit_band": db.num(s.get("circuit_band"), 0),
+    }
+
+
+def _setup_ok(above: bool | None, setup: str) -> bool:
+    if setup == "ABOVE_200":
+        return above is True
+    if setup == "TURNAROUND":
+        return above is False
+    return True
+
+
+# --------------------------------------------------------------------------
+# Today: every collapsed print of the deal session
+# --------------------------------------------------------------------------
+def prints(as_of: date | None, min_mcap_cr: float = 0.0) -> Result:
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        if not db.table_exists(con, "deals"):
+            return unavailable(resolved, "no deals table", ["deals"])
+        days = _deal_sessions(con, resolved, 1)
+        if not days:
+            return unavailable(resolved, "no deal prints on or before as_of", ["deals"])
+        d = days[-1]
+        p = _prints(con, resolved, "AND d.trade_date = ?", [d.to_pydatetime()])
+        frame, _src = _frame(con, resolved)
+        info = _snap_full(con, resolved)
+    ev: dict[str, Any] = {}
+    if not frame.empty:
+        sub = frame[frame["trade_date"] == d]
+        ev = dict(zip(sub["symbol"].astype(str), sub["event_type"]))
+    rows, below = [], 0
+    for r in (p.sort_values("value_cr", ascending=False).to_dict("records") if not p.empty else []):
+        sym = str(r["symbol"])
+        s = info.get(sym, {})
+        mcap = db.num(s.get("market_cap_cr"))
+        if not _mcap_ok(mcap, min_mcap_cr):
+            below += 1
+            continue
+        close = db.num(r.get("close_price"))
+        price = db.num(r.get("price"))
+        rows.append({
+            "trade_date": db.to_date(r["trade_date"]), "symbol": sym, "client": db.text(r.get("client")),
+            "house": _house_name(r.get("client")), "side": db.text(r.get("side")), "quantity": db.integer(r.get("quantity")),
+            "price": db.num(price, 2), "value_cr": db.num(r.get("value_cr"), 2), "deal_types": db.text(r.get("deal_types")),
+            "clientele": db.text(r.get("clientele")), "is_prop": db.text(r.get("clientele")) == "PROP",
+            "price_vs_close_pct": db.num((price / close - 1) * 100, 2) if price and close else None,
+            "event_type": db.text(ev.get(sym)),
+            **_stock_cols(s),
+        })
+    d_date = db.to_date(d)
+    return Result(
+        as_of=resolved, rows=rows, sources=["deals", "indicators_daily"],
+        extra={"deal_session": d_date, "no_records_for_session": d_date is None or d_date < resolved,
+               "min_mcap_cr": min_mcap_cr, "excluded_below_floor": below, "symbols": len({r["symbol"] for r in rows})},
+        notes=["Every collapsed print of the deal session (a print in both the bulk and block files counts once).",
+               "Event = the stock's session label (PROP excluded; transfer / placement / churn are not flow)."],
+        metric_keys=["deal_event_type", "market_cap_cr"])
+
+
+# --------------------------------------------------------------------------
+# Window: repeated deals, Play tiers, churn, transfers, distribution
+# --------------------------------------------------------------------------
+def _window_rows(con: Any, resolved: date, lookback: int) -> tuple[list[dict[str, Any]], list[pd.Timestamp], str]:
+    days = _deal_sessions(con, resolved, lookback)
+    frame, src = _frame(con, resolved)
+    if not days or frame.empty:
+        return [], days, src
+    f = frame[frame["trade_date"].isin(days)].copy()
+    if f.empty:
+        return [], days, src
+    for c in ("buy_cr", "sell_cr", "net_ex_prop_cr", "fii_net_cr", "dii_net_cr", "prop_value_cr", "matched_value_cr"):
+        f[c] = pd.to_numeric(f[c], errors="coerce")
+    et = f["event_type"].astype("string")
+    f["is_flow"] = et.isin(FLOW_EVENTS).fillna(False).astype(bool)
+    f["is_tr"] = et.isin(TRANSFER_EVENTS).fillna(False).astype(bool)
+    f["is_churn"] = (et == "churn").fillna(False).astype(bool)
+    f["flow_net"] = f["net_ex_prop_cr"].where(f["is_flow"], 0.0)
+    f["flow_buy"] = f["buy_cr"].where(f["is_flow"], 0.0)
+    f["tr_val"] = f["matched_value_cr"].where(f["is_tr"], 0.0)
+    f["nb"] = (f["is_flow"] & (f["net_ex_prop_cr"] > 0)).astype(int)
+    f["ns"] = (f["is_flow"] & (f["net_ex_prop_cr"] < 0)).astype(int)
+
+    # Houses (non-PROP, merged by fund house) from the collapsed prints of the window.
+    p = _prints(con, resolved, "AND d.trade_date >= ?", [days[0].to_pydatetime()])
+    hstats: dict[str, dict[str, Any]] = {}
+    if not p.empty:
+        p = p[p["trade_date"].isin(days) & (p["clientele"] != "PROP")].copy()
+        p["house"] = p["client"].map(_house_name)
+        p["net"] = np.where(p["side"] == "BUY", p["value_cr"], -p["value_cr"])
+        p["buy_day"] = p["trade_date"].where(p["side"] == "BUY")
+        g = p.groupby(["symbol", "house"]).agg(net=("net", "sum"), buy_days=("buy_day", "nunique"))
+        for sym, sub in g.groupby(level=0):
+            sub = sub.droplevel(0)
+            buyers = sub[sub["net"] > 0].sort_values("net", ascending=False)
+            sellers = sub[sub["net"] < 0].sort_values("net")
+            hstats[str(sym)] = {
+                "n_houses": int(len(sub)), "n_buy_houses": int(len(buyers)), "n_sell_houses": int(len(sellers)),
+                "repeat_house": bool((sub["buy_days"] >= 2).any()),
+                "top_buyers": [f"{h} ({v:+.1f})" for h, v in buyers["net"].head(3).items()],
+                "top_sellers": [f"{h} ({v:+.1f})" for h, v in sellers["net"].head(3).items()],
+            }
+    pos = {d: i for i, d in enumerate(days)}
+    rows = []
+    for sym, g in f.groupby("symbol"):
+        g = g.sort_values("trade_date")
+        strip: list[float | None] = [None] * len(days)
+        for t, v, isf in zip(g["trade_date"], g["net_ex_prop_cr"], g["is_flow"]):
+            if t in pos:
+                strip[pos[t]] = db.num(v, 2) if isf else 0.0
+        last = g.iloc[-1]
+        rows.append({
+            "symbol": str(sym), "deal_days": int(len(g)), "net_buy_days": int(g["nb"].sum()),
+            "net_sell_days": int(g["ns"].sum()), "transfer_days": int(g["is_tr"].sum()), "churn_days": int(g["is_churn"].sum()),
+            "buy_cr": db.num(g["buy_cr"].sum(), 2), "sell_cr": db.num(g["sell_cr"].sum(), 2),
+            "net_ex_prop_cr": db.num(g["net_ex_prop_cr"].sum(min_count=1), 2),
+            "flow_net_cr": db.num(g["flow_net"].sum(), 2), "flow_buy_cr": db.num(g["flow_buy"].sum(), 2),
+            "transfer_cr": db.num(g["tr_val"].sum(), 2), "prop_value_cr": db.num(g["prop_value_cr"].sum(min_count=1), 2),
+            "fii_net_cr": db.num(g["fii_net_cr"].sum(min_count=1), 2), "dii_net_cr": db.num(g["dii_net_cr"].sum(min_count=1), 2),
+            "first_deal_date": db.to_date(g["trade_date"].iloc[0]), "last_deal_date": db.to_date(last["trade_date"]),
+            "last_event_type": db.text(last["event_type"]), "net_by_session": strip,
+            **hstats.get(str(sym), {"n_houses": 0, "n_buy_houses": 0, "n_sell_houses": 0, "repeat_house": False,
+                                    "top_buyers": [], "top_sellers": []}),
+        })
+    return rows, days, src
+
+
+def desk_tier(r: dict[str, Any]) -> tuple[str, str | None]:
+    """Mutually exclusive desk tier + play reason (old 3-tier desk on the corrected inputs)."""
+    band = r.get("circuit_band")
+    if band is not None and band <= 5:
+        return "quarantined", None
+    flow_days = r["deal_days"] - r["transfer_days"] - r["churn_days"]
+    net = r.get("flow_net_cr") or 0.0
+    if flow_days <= 0:
+        return ("transfer", "Transfer") if r["transfer_days"] > 0 else ("churn", None)
+    if net > 0:
+        size = r.get("net_vs_adv")
+        big = (size is not None and size >= 0.5) or (r.get("flow_buy_cr") or 0) >= 25 or net >= 20
+        if r["repeat_house"] or r["net_buy_days"] >= 2:
+            reason = "Repeat"
+        elif r["n_buy_houses"] >= 2:
+            reason = "Cluster"
+        elif big:
+            reason = "Size"
+        else:
+            reason = "Single"
+        return ("conviction" if reason != "Single" else "fresh"), reason
+    if net < 0:
+        return "distribution", None
+    return "churn", None
+
+
+def window(as_of: date | None, lookback: int = 20, min_mcap_cr: float = 1000.0, setup: str = "ALL") -> Result:
+    if setup not in SETUPS:
+        raise ValueError(f"setup must be one of {SETUPS}")
+    lookback = max(2, min(int(lookback), 60))
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        if not db.table_exists(con, "deals"):
+            return unavailable(resolved, "no deals table", ["deals"])
+        base, days, src = _cached("deals.window", (resolved, lookback), lambda: _window_rows(con, resolved, lookback))
+        info = _snap_full(con, resolved)
+    rows, below, off_setup = [], 0, 0
+    counts: dict[str, int] = {}
+    for b in base:
+        s = info.get(b["symbol"], {})
+        mcap = db.num(s.get("market_cap_cr"))
+        if not _mcap_ok(mcap, min_mcap_cr):
+            below += 1
+            continue
+        r = {**b, **_stock_cols(s)}
+        adv = db.num(s.get("adv_cr_20d"))
+        r["adv_cr"] = db.num(adv, 2)
+        r["net_vs_adv"] = db.num(r["flow_net_cr"] / adv, 3) if adv and r["flow_net_cr"] is not None else None
+        if not _setup_ok(r["above_200ema"], setup):
+            off_setup += 1
+            continue
+        r["tier"], r["play_reason"] = desk_tier(r)
+        counts[r["tier"]] = counts.get(r["tier"], 0) + 1
+        rows.append(r)
+    rows.sort(key=lambda x: (-x["deal_days"], -(x["flow_net_cr"] or 0)))
+    return Result(
+        as_of=resolved, rows=rows, status="ok" if src == "deal_session_net" else STATUS_PARTIAL,
+        reason=None if src == "deal_session_net" else LIVE_REASON,
+        sources=["deal_session_net" if src == "deal_session_net" else "deals", "deals", "indicators_daily"],
+        extra={"lookback": lookback, "window_dates": [db.to_date(d) for d in days], "min_mcap_cr": min_mcap_cr,
+               "setup": setup, "excluded_below_floor": below, "excluded_by_setup": off_setup, "tier_counts": counts,
+               "deal_session": db.to_date(days[-1]) if days else None},
+        notes=[f"Window = the last {lookback} sessions with stored deals up to as_of. deal_days counts sessions with any "
+               "print; flow = accumulate / fresh / distribute sessions only (transfers, placements and churn are not flow).",
+               "Tiers: quarantined (circuit band ≤ 5 %) · transfer (only transfer / placement sessions) · churn (only churn "
+               "sessions) · conviction (flow net > 0 with a repeat buyer, ≥ 2 net-buy sessions, ≥ 2 buying houses, or size: "
+               "net ≥ ₹20 Cr, flow buys ≥ ₹25 Cr or ≥ 0.5× ADV) · fresh (other flow net > 0) · distribution (flow net < 0).",
+               "Houses merge entities of one fund house (-FPI / -ODI / PVT LTD suffixes); PROP desks are excluded."],
+        metric_keys=["deal_net_cr", "deal_vs_adv", "persistence_days", "market_cap_cr", "rs_percentile"])
+
+
+# --------------------------------------------------------------------------
+# House attribution: leaderboard + star-fund radar
+# --------------------------------------------------------------------------
+_BETS_SQL = r"""
+    SELECT trade_date, symbol, upper(trim(client_name)) AS client, quantity, price,
+           any_value(COALESCE(deal_value_cr, quantity * price / 1e7)) AS value_cr,
+           any_value(upper(trim(clientele))) AS clientele,
+           bool_or(COALESCE(is_prop, FALSE)) AS is_prop, {hft} AS is_hft
+    FROM deals d
+    WHERE upper(symbol) <> 'TOTAL' AND upper(side) = 'BUY' AND trade_date <= ? AND quantity > 0 AND price > 0
+      AND NOT (upper(symbol) LIKE '%-RE' OR upper(symbol) LIKE '%!_RE' ESCAPE '!')
+    GROUP BY trade_date, symbol, upper(trim(client_name)), quantity, price
+"""
+
+
+def _bets(con: Any, as_of: date) -> pd.DataFrame:
+    """Every non-PROP, non-HFT buy print >= ₹5 Cr with entry (next open), T+20, peak run-up, holding (≤ as_of)."""
+    from Scripts.price_views import ohlcv_columns
+    cols = ohlcv_columns(con, alias="p.")
+    hft = "bool_or(COALESCE(is_hft, FALSE))" if "is_hft" in set(db.table_columns(con, "deals")) else "FALSE"
+    b = con.execute(_BETS_SQL.replace("{hft}", hft), [as_of]).df()
+    if b.empty:
+        return b
+    b = b[~b["is_prop"].astype(bool) & ~b["is_hft"].astype(bool) & (b["clientele"].fillna("") != "PROP")]
+    b = b[pd.to_numeric(b["value_cr"], errors="coerce") >= DESK_MIN_DEAL_CR].copy()
+    if b.empty:
+        return b
+    b["trade_date"] = pd.to_datetime(b["trade_date"])
+    keys = b[["symbol", "trade_date"]].drop_duplicates()
+    con.register("bet_keys", keys)
+    try:
+        px = con.execute(
+            f"""
+            WITH px AS (
+                SELECT p.symbol, p.trade_date, {cols['open_price']} AS o, {cols['high_price']} AS h,
+                       {cols['close_price']} AS c,
+                       row_number() OVER (PARTITION BY p.symbol ORDER BY p.trade_date) AS rn
+                FROM prices_daily p
+                WHERE p.trade_date <= ? AND p.symbol IN (SELECT DISTINCT symbol FROM bet_keys)
+                  AND coalesce(p.series, 'EQ') IN ('EQ', 'BE', 'BZ')
+            ),
+            k AS (
+                SELECT bk.symbol, bk.trade_date, px.rn AS rn0
+                FROM bet_keys bk ASOF JOIN px ON bk.symbol = px.symbol AND bk.trade_date >= px.trade_date
+            ),
+            lastp AS (SELECT symbol, max(rn) AS rn_last, arg_max(c, rn) AS cmp FROM px GROUP BY symbol)
+            SELECT k.symbol, k.trade_date, l.cmp, l.rn_last - k.rn0 AS holding_days,
+                   max(CASE WHEN px.rn = k.rn0 + 1 THEN px.o END) AS entry_open,
+                   max(CASE WHEN px.rn = k.rn0 + 20 THEN px.c END) AS c20,
+                   max(px.h) AS peak_high,
+                   arg_max(px.rn - k.rn0, px.h) AS days_to_peak
+            FROM k JOIN lastp l USING (symbol)
+            LEFT JOIN px ON px.symbol = k.symbol AND px.rn BETWEEN k.rn0 + 1 AND k.rn0 + {PEAK_SESSIONS}
+            GROUP BY k.symbol, k.trade_date, l.cmp, l.rn_last, k.rn0
+            """, [as_of]).df()
+    finally:
+        con.unregister("bet_keys")
+    px["trade_date"] = pd.to_datetime(px["trade_date"])
+    b = b.merge(px, on=["symbol", "trade_date"], how="left")
+    fwd = _fwd_cached(con, as_of)
+    if not fwd.empty:
+        bench = fwd[["trade_date", "bench_t20"]].dropna().drop_duplicates("trade_date")
+        b = b.merge(bench, on="trade_date", how="left")
+    else:
+        b["bench_t20"] = np.nan
+    e = pd.to_numeric(b["entry_open"], errors="coerce")
+    e = e.where(e > 0)
+    b["ret_20d"] = (pd.to_numeric(b["c20"], errors="coerce") / e - 1) * 100
+    b["excess_20d"] = b["ret_20d"] - pd.to_numeric(b["bench_t20"], errors="coerce")
+    b["peak_runup"] = (pd.to_numeric(b["peak_high"], errors="coerce") / e - 1) * 100
+    b["ret_current"] = (pd.to_numeric(b["cmp"], errors="coerce") / e - 1) * 100
+    b["house"] = b["client"].map(_house_name)
+    return b
+
+
+def _bets_cached(con: Any, as_of: date) -> pd.DataFrame:
+    return _cached("deals.bets", (as_of,), lambda: _bets(con, as_of))
+
+
+def catalyst_score(win: float | None, runup: float | None, ret20: float | None, dtp: float | None) -> float | None:
+    """Old composite (0-100): 40 % win rate, 30 % avg peak run-up, 15 % avg T+20, 15 % velocity."""
+    if runup is None:
+        return None
+    w = min(max(win if win is not None else 50.0, 0.0), 100.0)
+    ru = min(max(runup, 0.0), 50.0) / 50.0 * 100
+    r20 = min(max((ret20 or 0.0) + 10, 0.0), 30.0) / 30.0 * 100
+    vel = min(max(100 - min(max(dtp if dtp is not None else 45.0, 5.0), 45.0) * 2, 20.0), 100.0)
+    return round(w * 0.40 + ru * 0.30 + r20 * 0.15 + vel * 0.15, 1)
+
+
+def fund_tier(score: float | None, win: float | None, runup: float | None, enough: bool) -> str:
+    if not enough or score is None:
+        return "Insufficient sample"
+    wr, ru = win or 0.0, runup or 0.0
+    if (wr >= 75 or score >= 75) and ru >= 15:
+        return "Star Catalyst"
+    if (wr >= 60 or score >= 60) and ru >= 10:
+        return "Strong Accumulator"
+    if wr >= 45 or score >= 45:
+        return "Steady Value"
+    return "Low Alpha / Laggard"
+
+
+def _leader_rows(con: Any, resolved: date, lookback: int, min_bets: int = MIN_HOUSE_BETS) -> list[dict[str, Any]]:
+    b = _bets_cached(con, resolved)
+    if b.empty:
+        return []
+    # Holdings book: every non-PROP print (both sides, >= ₹5 Cr) per house x symbol in the window.
+    days = _deal_sessions(con, resolved, lookback)
+    p = _prints(con, resolved, "AND d.trade_date >= ?", [days[0].to_pydatetime()]) if days else pd.DataFrame()
+    book: dict[str, list[dict[str, Any]]] = {}
+    if not p.empty:
+        p = p[(p["clientele"] != "PROP") & (p["value_cr"] >= DESK_MIN_DEAL_CR)].copy()
+        p["house"] = p["client"].map(_house_name)
+        p["bv"] = np.where(p["side"] == "BUY", p["value_cr"], 0.0)
+        p["sv"] = np.where(p["side"] == "SELL", p["value_cr"], 0.0)
+        p = p.sort_values("trade_date")
+        g = p.groupby(["house", "symbol"]).agg(buy=("bv", "sum"), sell=("sv", "sum"), prints=("side", "size"),
+                                               last_date=("trade_date", "last"), last_side=("side", "last"),
+                                               last_price=("price", "last"))
+        for (h, sym), r in g.iterrows():
+            book.setdefault(str(h), []).append({
+                "symbol": str(sym), "buy_cr": db.num(r["buy"], 1), "sell_cr": db.num(r["sell"], 1),
+                "net_cr": db.num(r["buy"] - r["sell"], 1), "prints": int(r["prints"]),
+                "last_date": db.to_date(r["last_date"]), "last_side": db.text(r["last_side"]),
+                "last_price": db.num(r["last_price"], 2)})
+        for items in book.values():
+            items.sort(key=lambda x: -abs(x["net_cr"] or 0))
+    rows = []
+    for h, g in b.groupby("house"):
+        done = g[g["ret_20d"].notna()]
+        n20 = int(len(done))
+        enough = n20 >= min_bets
+        classes = sorted({c for c in g["clientele"].dropna().astype(str) if c})
+        win = float((done["ret_20d"] >= WIN_PCT).mean() * 100) if n20 else None
+        runup = db.num(g["peak_runup"].mean())
+        r20 = db.num(done["ret_20d"].mean()) if n20 else None
+        dtp = db.num(g["days_to_peak"].mean())
+        score = catalyst_score(win, runup, r20, dtp)
+        holdings = book.get(str(h), [])
+        individual = (not classes) or set(classes) <= INDIVIDUAL_CLASSES
+        rows.append({
+            "house": str(h), "clientele": "/".join(classes) or None, "individual": individual,
+            "clients": sorted(set(g["client"].astype(str)))[:8],
+            "bets": int(len(g)), "bets_t20": n20, "names": int(g["symbol"].nunique()),
+            "total_cr": db.num(g["value_cr"].sum(), 1),
+            "win_rate_20d": db.num(win, 1) if enough else None,
+            "hit_rate_20d": db.num((done["ret_20d"] > 0).mean() * 100, 1) if enough else None,
+            "avg_ret_20d": db.num(r20, 2) if enough else None,
+            "avg_excess_20d": db.num(done["excess_20d"].mean(), 2) if enough else None,
+            "avg_peak_runup": db.num(runup, 1), "avg_days_to_peak": db.num(dtp, 1),
+            "baggers": int((g["peak_runup"] >= 25).sum()), "best_gain": db.num(g["peak_runup"].max(), 1),
+            "latest_buy_date": db.to_date(g["trade_date"].max()),
+            "catalyst_score": score if enough else None,
+            "tier": fund_tier(score, win, runup, enough),
+            "ranked": enough,
+            "names_in_window": len(holdings), "net_long_count": sum(1 for x in holdings if (x["net_cr"] or 0) > 0),
+            "holdings": holdings[:40],
+        })
+    rows.sort(key=lambda r: (not r["ranked"], -(r["catalyst_score"] or 0), -(r["total_cr"] or 0)))
+    return rows
+
+
+LEADER_NOTES = [
+    f"A bet = a non-PROP, non-HFT buy print ≥ ₹{DESK_MIN_DEAL_CR:.0f} Cr (collapsed). Entry = next session open (deals are "
+    "disclosed after the close); T+20 = close 20 sessions later; peak run-up = highest high within "
+    f"{PEAK_SESSIONS} sessions after entry. Nothing looks past as_of.",
+    f"Win = T+20 ≥ +{WIN_PCT:.0f} %. Score / tier need ≥ {MIN_HOUSE_BETS} bets with a finished T+20 window by default "
+    "(the old desk ranked houses on 2 bets; 3 is allowed but flagged as a small sample).",
+    "Catalyst score = 40 % win rate + 30 % avg peak run-up + 15 % avg T+20 + 15 % speed to peak (old desk formula).",
+    "Houses merge entities of one fund house; individuals (HNI / OTHER) are hidden unless asked for.",
+]
+
+
+def _min_bets(v: int) -> int:
+    return max(3, min(int(v), 50))
+
+
+def leaderboard(as_of: date | None, lookback: int = 20, include_individuals: bool = False,
+                ranked_only: bool = False, min_bets: int = MIN_HOUSE_BETS) -> Result:
+    lookback, min_bets = max(2, min(int(lookback), 60)), _min_bets(min_bets)
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        if not db.table_exists(con, "deals"):
+            return unavailable(resolved, "no deals table", ["deals"])
+        rows = _cached("deals.leader", (resolved, lookback, min_bets),
+                       lambda: _leader_rows(con, resolved, lookback, min_bets))
+    total = len(rows)
+    rows = [r for r in rows if (include_individuals or not r["individual"]) and (not ranked_only or r["ranked"])]
+    return Result(as_of=resolved, rows=rows, sources=["deals", "prices_daily", "index_daily"],
+                  extra={"lookback": lookback, "min_bets": min_bets, "small_sample": min_bets < MIN_HOUSE_BETS, "win_pct": WIN_PCT,
+                         "houses_total": total, "ranked_total": sum(1 for r in rows if r["ranked"])},
+                  notes=LEADER_NOTES, metric_keys=["sample_n", "house_hit_rate_t20", "deal_fwd_excess_t20"])
+
+
+def star_radar(as_of: date | None, lookback: int = 20, include_individuals: bool = False,
+               stars_from: str = "strong", min_bets: int = MIN_HOUSE_BETS) -> Result:
+    if stars_from not in STAR_TIERS:
+        raise ValueError(f"stars_from must be one of {tuple(STAR_TIERS)}")
+    lookback, min_bets = max(2, min(int(lookback), 60)), _min_bets(min_bets)
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        if not db.table_exists(con, "deals"):
+            return unavailable(resolved, "no deals table", ["deals"])
+        leaders = _cached("deals.leader", (resolved, lookback, min_bets),
+                          lambda: _leader_rows(con, resolved, lookback, min_bets))
+        b = _bets_cached(con, resolved)
+        days = _deal_sessions(con, resolved, lookback)
+        info = _snap_full(con, resolved)
+    tiers = STAR_TIERS[stars_from]
+    stars = {r["house"]: r for r in leaders if r["ranked"] and r["tier"] in tiers
+             and (include_individuals or not r["individual"])}
+    rows = []
+    if not b.empty and stars and days:
+        rec = b[b["trade_date"].isin(days) & b["house"].isin(list(stars))]
+        rec = rec.sort_values(["trade_date", "value_cr"], ascending=[False, False])
+        for r in rec.to_dict("records"):
+            f = stars[r["house"]]
+            s = info.get(str(r["symbol"]), {})
+            rows.append({
+                "symbol": str(r["symbol"]), "house": r["house"], "client": db.text(r["client"]),
+                "clientele": db.text(r["clientele"]), "tier": f["tier"], "catalyst_score": f["catalyst_score"],
+                "win_rate_20d": f["win_rate_20d"], "deal_date": db.to_date(r["trade_date"]),
+                "deal_price": db.num(r["price"], 2), "entry_open": db.num(r["entry_open"], 2), "cmp": db.num(r["cmp"], 2),
+                "gain_pct": db.num(r["ret_current"], 1), "peak_runup_pct": db.num(r["peak_runup"], 1),
+                "holding_days": db.integer(r["holding_days"]), "deal_cr": db.num(r["value_cr"], 1),
+                "rs_percentile": db.num(s.get("rs_percentile"), 1), "away_52w_high_pct": db.num(s.get("away_52w_high_pct"), 1),
+                "market_cap_cr": db.num(s.get("market_cap_cr"), 0), "sector": db.text(s.get("sector")),
+            })
+    return Result(as_of=resolved, rows=rows, sources=["deals", "prices_daily"],
+                  extra={"lookback": lookback, "star_houses": len(stars), "stars_from": stars_from, "star_tiers": list(tiers),
+                         "min_bets": min_bets, "small_sample": min_bets < MIN_HOUSE_BETS,
+                         "star_house_names": sorted(stars), "window_dates": [db.to_date(d) for d in days]},
+                  notes=[f"Star house = ranked house (≥ {min_bets} finished T+20 bets) in tier {' / '.join(tiers)}; rows are its buy prints in the "
+                         f"last {lookback} deal sessions. Gain and peak run-up are measured from the next open after the deal.",
+                         *LEADER_NOTES[:2]],
+                  metric_keys=["sample_n", "house_hit_rate_t20"])

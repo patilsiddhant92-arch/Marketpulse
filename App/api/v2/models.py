@@ -473,6 +473,131 @@ class FollowThroughRow(BaseModel):
     avg_excess_t20_pct: Optional[float] = None
 
 
+class _DealStock(BaseModel):
+    security_name: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    close: Optional[float] = None
+    ema_200: Optional[float] = None
+    above_200ema: Optional[bool] = None
+    away_52w_high_pct: Optional[float] = None
+    rs_percentile: Optional[float] = None
+    market_cap_cr: Optional[float] = None
+    circuit_band: Optional[float] = None
+
+
+class DealPrintRow(_DealStock):
+    """One collapsed print of the deal session (Today)."""
+
+    trade_date: Optional[date] = None
+    symbol: Optional[str] = None
+    client: Optional[str] = None
+    house: Optional[str] = Field(None, description="Fund house (entity suffixes such as -FPI / -ODI / PVT LTD stripped)")
+    side: Optional[str] = None
+    quantity: Optional[int] = None
+    price: Optional[float] = None
+    value_cr: Optional[float] = None
+    deal_types: Optional[str] = None
+    clientele: Optional[str] = None
+    is_prop: Optional[bool] = None
+    price_vs_close_pct: Optional[float] = None
+    event_type: Optional[str] = Field(None, description="The stock's event label for the session")
+
+
+class DealWindowRow(_DealStock):
+    """One stock over the last N deal sessions (repeated deals, Play tiers, churn, transfers)."""
+
+    symbol: str
+    deal_days: int = Field(..., description="Sessions in the window with any collapsed print")
+    net_buy_days: int
+    net_sell_days: int
+    transfer_days: int
+    churn_days: int
+    buy_cr: Optional[float] = None
+    sell_cr: Optional[float] = None
+    net_ex_prop_cr: Optional[float] = None
+    flow_net_cr: Optional[float] = Field(None, description="Net ex-PROP on accumulate / fresh / distribute sessions only")
+    flow_buy_cr: Optional[float] = None
+    transfer_cr: Optional[float] = None
+    prop_value_cr: Optional[float] = None
+    fii_net_cr: Optional[float] = None
+    dii_net_cr: Optional[float] = None
+    first_deal_date: Optional[date] = None
+    last_deal_date: Optional[date] = None
+    last_event_type: Optional[str] = None
+    net_by_session: list[Optional[float]] = Field(
+        default_factory=list, description="Flow net per window session (dates in meta.context.window_dates); 0 = transfer/churn, NULL = no deal")
+    n_houses: int = 0
+    n_buy_houses: int = 0
+    n_sell_houses: int = 0
+    repeat_house: bool = False
+    top_buyers: list[str] = Field(default_factory=list)
+    top_sellers: list[str] = Field(default_factory=list)
+    adv_cr: Optional[float] = None
+    net_vs_adv: Optional[float] = None
+    tier: str = Field(..., description="quarantined | transfer | churn | conviction | fresh | distribution")
+    play_reason: Optional[str] = None
+
+
+class DealHolding(BaseModel):
+    symbol: str
+    buy_cr: Optional[float] = None
+    sell_cr: Optional[float] = None
+    net_cr: Optional[float] = None
+    prints: int
+    last_date: Optional[date] = None
+    last_side: Optional[str] = None
+    last_price: Optional[float] = None
+
+
+class DealLeaderRow(BaseModel):
+    house: str
+    clientele: Optional[str] = None
+    individual: bool
+    clients: list[str] = Field(default_factory=list)
+    bets: int
+    bets_t20: int
+    names: int
+    total_cr: Optional[float] = None
+    win_rate_20d: Optional[float] = None
+    hit_rate_20d: Optional[float] = None
+    avg_ret_20d: Optional[float] = None
+    avg_excess_20d: Optional[float] = None
+    avg_peak_runup: Optional[float] = None
+    avg_days_to_peak: Optional[float] = None
+    baggers: int = 0
+    best_gain: Optional[float] = None
+    latest_buy_date: Optional[date] = None
+    catalyst_score: Optional[float] = None
+    tier: str
+    ranked: bool
+    names_in_window: int = 0
+    net_long_count: int = 0
+    holdings: list[DealHolding] = Field(default_factory=list)
+
+
+class DealStarRow(BaseModel):
+    symbol: str
+    house: str
+    client: Optional[str] = None
+    clientele: Optional[str] = None
+    tier: Optional[str] = None
+    catalyst_score: Optional[float] = None
+    win_rate_20d: Optional[float] = None
+    deal_date: Optional[date] = None
+    deal_price: Optional[float] = None
+    entry_open: Optional[float] = None
+    cmp: Optional[float] = None
+    gain_pct: Optional[float] = None
+    peak_runup_pct: Optional[float] = None
+    holding_days: Optional[int] = None
+    deal_cr: Optional[float] = None
+    rs_percentile: Optional[float] = None
+    away_52w_high_pct: Optional[float] = None
+    market_cap_cr: Optional[float] = None
+    sector: Optional[str] = None
+
+
 # --------------------------------------------------------------------------
 # Stock
 # --------------------------------------------------------------------------

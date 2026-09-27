@@ -322,6 +322,36 @@ def deals_house(house_id: str = Path(..., max_length=200), as_of: Optional[date]
     return envelope(_call(deals.house, as_of, house_id), offset, limit)
 
 
+Lookback = Query(20, ge=2, le=60, description="Deal sessions in the window (old desk: 10 / 20 / 30)")
+
+
+@router.get("/deals/prints", response_model=m.Envelope[m.DealPrintRow])
+def deals_prints(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(0.0, ge=0),
+                 offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(deals.prints, as_of, min_mcap_cr), offset, limit)
+
+
+@router.get("/deals/window", response_model=m.Envelope[m.DealWindowRow])
+def deals_window(as_of: Optional[date] = AsOf, lookback: int = Lookback, min_mcap_cr: float = Query(1000.0, ge=0),
+                 setup: Literal["ALL", "ABOVE_200", "TURNAROUND"] = "ALL",
+                 offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(deals.window, as_of, lookback, min_mcap_cr, setup), offset, limit)
+
+
+@router.get("/deals/leaderboard", response_model=m.Envelope[m.DealLeaderRow])
+def deals_leaderboard(as_of: Optional[date] = AsOf, lookback: int = Lookback, include_individuals: bool = False,
+                      ranked_only: bool = False, min_bets: int = Query(5, ge=3, le=50),
+                      offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(deals.leaderboard, as_of, lookback, include_individuals, ranked_only, min_bets), offset, limit)
+
+
+@router.get("/deals/star-radar", response_model=m.Envelope[m.DealStarRow])
+def deals_star_radar(as_of: Optional[date] = AsOf, lookback: int = Lookback, include_individuals: bool = False,
+                     stars_from: Literal["strong", "steady"] = "strong", min_bets: int = Query(5, ge=3, le=50),
+                     offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(deals.star_radar, as_of, lookback, include_individuals, stars_from, min_bets), offset, limit)
+
+
 @router.get("/deals/followthrough", response_model=m.Envelope[m.FollowThroughRow])
 def deals_followthrough(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(1000.0, ge=0)) -> dict[str, Any]:
     return envelope(_call(deals.followthrough, as_of, min_mcap_cr))
