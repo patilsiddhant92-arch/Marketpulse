@@ -177,6 +177,9 @@ Column names are the ones `App/services/groups.py::_GD_FIELDS` reads first (chec
 Membership is decided per session here; the live fallback fixes members at as_of — identical on the as_of session
 (verified: board ranks for all / 1000 / watch × 4 levels on 2026-09-25 match the live service, 0 mismatches).
 Indexes: `(trade_date, level, floor)`, `(level, group_name)`.
+The peer-relative RRG / abs_trend / quadrant_note / health columns come from
+`Scripts.derived.group_daily.add_health_columns`, which the API also runs on the fly for a table built before they
+existed (it treats that table's `rs_ratio` / `rs_momentum` as the self-normalised values).
 
 | Column | Type | Meaning | NULL when |
 | :--- | :--- | :--- | :--- |
@@ -192,10 +195,18 @@ Indexes: `(trade_date, level, floor)`, `(level, group_name)`.
 | excess_nifty_21d / 63d | DOUBLE | ret_ew − Nifty 50 return (same horizon, index sessions), pts | either missing |
 | excess_midsml_21d / 63d | DOUBLE | ret_ew − MidSml400 return, pts | either missing |
 | excess_cw_midsml_21d / 63d | DOUBLE | ret_cw − MidSml400 return, pts | either missing |
-| rs_ratio | DOUBLE | JdK-style RS-Ratio = 100 × EMA10(RS) / EMA50(RS), RS = equal-weight group index / MidSml400 | < 50 group sessions or no benchmark |
-| rs_momentum | DOUBLE | 100 × rs_ratio / rs_ratio 10 group-sessions ago | < 60 group sessions |
-| rrg_quadrant | VARCHAR | `Leading` (ratio ≥ 100, mom ≥ 100) · `Weakening` (≥ 100, < 100) · `Lagging` (< 100, < 100) · `Improving` (< 100, ≥ 100) | ratio/momentum NULL |
+| rs_ratio_self | DOUBLE | Self-normalised RS trend = 100 × EMA10(RS) / EMA50(RS), RS = equal-weight group index / MidSml400 (the `rs_ratio` of tables built before 2026-09-27; each group vs its own history, not comparable across groups) | < 50 group sessions or no benchmark |
+| rs_momentum_self | DOUBLE | 100 × rs_ratio_self / rs_ratio_self 10 group-sessions ago (its rate of change) | < 60 group sessions |
+| rs_ratio | DOUBLE | **Peer-relative** JdK-style RS-Ratio = 100 + 10 × z, z = (rs_ratio_self − mean) / std across the groups with ≥ 3 members in the same (trade_date, level, floor). About half the groups are > 100 by construction; > 100 = stronger relative trend than the average peer | rs_ratio_self NULL, < 4 eligible peers (`PEER_MIN`) or zero dispersion |
+| rs_momentum | DOUBLE | Peer-relative RS-Momentum = 100 + 10 × z of rs_momentum_self across the same peers | as rs_ratio |
+| rrg_quadrant | VARCHAR | From the peer-relative axes: `Leading` (ratio ≥ 100, mom ≥ 100) · `Weakening` (≥ 100, < 100) · `Lagging` (< 100, < 100) · `Improving` (< 100, ≥ 100). Leading = strong vs peers, not necessarily rising | ratio/momentum NULL |
 | days_in_quadrant | DOUBLE | Consecutive group sessions in this quadrant | quadrant NULL |
+| ew_index | DOUBLE | Equal-weight group index: cumulative product of (1 + ret_ew_1d), first group session = 100 | never |
+| ew_index_ema50 / ew_index_ema200 | DOUBLE | EMA 50 / 200 of ew_index (adjust = False) | < 50 / < 200 group sessions |
+| abs_trend | VARCHAR | Absolute direction, ignoring the benchmark: `Up` (ew_index > EMA50, EMA50 higher than 10 group-sessions ago and — once formed — EMA50 > EMA200) · `Down` (ew_index < EMA50 and EMA50 lower than 10 sessions ago) · `Flat` otherwise | EMA50 or its 10-session slope not formed |
+| quadrant_note | VARCHAR | `<Q> but falling` (Leading/Improving with ret_ew_21d < 0) · `<Q>, narrow breadth` (Leading/Improving with pct_above_50ema < 50) · `<Q> but rising` (Weakening/Lagging with ret_ew_21d > 0 and pct_above_50ema ≥ 50) | no caveat or quadrant NULL |
+| health | DOUBLE | Group Health 0–100 = 0.40 × relative + 0.35 × absolute + 0.25 × breadth. relative = clip(50 + 2.5 (rs_ratio − 100) + 1.5 (rs_momentum − 100), 0, 100); absolute = 0.7 × trend points (100 × share of [ew_index > EMA50, EMA50 > EMA200, EMA50 rising] that hold, among the known ones) + 0.3 × clip(50 + 5 × ret_ew_21d, 0, 100) (return leg alone until EMA50 forms); breadth = 0.7 × pct_above_50ema + 0.3 × pct_above_200ema. Zones (metric_dictionary `group_health`): ≥ 65 Healthy · 45–65 Mixed · < 45 Weak | any leg NULL (e.g. peer RRG NULL) |
+| health_rank | DOUBLE | Rank by health within (trade_date, level, floor), 1 = healthiest, groups with ≥ 3 members; the Groups board's default order | < 3 members or health NULL |
 | rank_score | DOUBLE | mean(excess_midsml_21d, excess_midsml_63d) | either missing |
 | rank | DOUBLE | 1 = strongest within (trade_date, level, floor); only groups with ≥ 3 members and a score | < 3 members or no score |
 | rank_n | DOUBLE | Groups ranked that day in this level × floor | never |
