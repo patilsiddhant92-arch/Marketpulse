@@ -11,14 +11,29 @@ import { useUrlParam } from '../../shell/urlState';
 import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { useResearchQuery } from './data';
-import { CATALYST_LABEL, CATALYST_TONE, TAXONOMY_LEVELS, groupStudy, isTaxonomyLevel, type GroupStudyRow, type TaxonomyLevel } from './model';
+import {
+  CATALYST_LABEL,
+  CATALYST_TONE,
+  TAXONOMY_LEVELS,
+  groupStudy,
+  isTaxonomyLevel,
+  type GroupStudyRow,
+  type TaxonomyLevel,
+} from './model';
 import { EvidencePending, Panel, QueryState, SampleN } from './parts';
 
 const EMPTY: BigMoveRow[] = [];
 
 function columns(levelLabel: string): DataTableColumn<GroupStudyRow>[] {
   return [
-    { id: 'group', header: levelLabel, accessor: 'group', width: 240, grow: true, cell: (v) => <span className={v === 'Unclassified' ? 'text-fg-3' : 'text-fg'}>{String(v)}</span> },
+    {
+      id: 'group',
+      header: levelLabel,
+      accessor: 'group',
+      width: 190,
+      grow: true,
+      cell: (v) => <span className={v === 'Unclassified' ? 'text-fg-3' : 'text-fg'}>{String(v)}</span>,
+    },
     { id: 'events', header: 'Events', accessor: 'events', format: 'int', width: 72, headerTitle: 'Big-move events in this group (n)' },
     { id: 'share', header: 'Share', accessor: (r) => r.share * 100, format: 'pct', width: 72, headerTitle: 'Share of all big-move events' },
     { id: 'symbols', header: 'Stocks', accessor: 'symbols', format: 'int', width: 72, headerTitle: 'Distinct symbols that moved' },
@@ -53,7 +68,7 @@ function columns(levelLabel: string): DataTableColumn<GroupStudyRow>[] {
       id: 'top',
       header: 'Top catalyst',
       accessor: 'topCatalyst',
-      width: 170,
+      width: 160,
       cell: (v, r) => {
         const c = v as GroupStudyRow['topCatalyst'];
         return c ? (
@@ -78,7 +93,10 @@ export function GroupStudiesView() {
   const study = useMemo(() => groupStudy(rowsIn, level), [rowsIn, level]);
   const cols = useMemo(() => columns(levelLabel), [levelLabel]);
   return (
-    <QueryState q={q} what="Big movers rolled up by Broad Sector, Sector, Broad Industry and Industry: where the big moves came from, how large, and how often the whole group moved together.">
+    <QueryState
+      q={q}
+      what="Big movers rolled up by Broad Sector, Sector, Broad Industry and Industry: where the big moves came from, how large, and how often the whole group moved together."
+    >
       {(env) => (
         <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,7fr)_minmax(0,4fr)]">
           <Panel
@@ -92,7 +110,12 @@ export function GroupStudiesView() {
             actions={
               <div role="radiogroup" aria-label="Taxonomy level" className="flex gap-1">
                 {TAXONOMY_LEVELS.map((l) => (
-                  <Chip key={l.id} onClick={() => setLevel(l.id === 'industry' ? null : l.id)} selected={l.id === level} tone={l.id === level ? 'accent' : 'neutral'}>
+                  <Chip
+                    key={l.id}
+                    onClick={() => setLevel(l.id === 'industry' ? null : l.id)}
+                    selected={l.id === level}
+                    tone={l.id === level ? 'accent' : 'neutral'}
+                  >
                     {l.label}
                   </Chip>
                 ))}
@@ -111,15 +134,22 @@ export function GroupStudiesView() {
             />
             {study.total > 0 && study.classified < study.total && (
               <div className="border-t border-line px-3 py-1.5 text-2xs text-fg-3">
-                {study.total - study.classified} of {study.total} events have no {levelLabel} on the event row ({fmtPct(((study.total - study.classified) / study.total) * 100, 0)}); shown as
-                Unclassified, never guessed.
+                {study.total - study.classified} of {study.total} events have no {levelLabel} on the event row (
+                {fmtPct(((study.total - study.classified) / study.total) * 100, 0)}); shown as Unclassified, never guessed.
               </div>
             )}
           </Panel>
-          <Panel title="After an Industry turns Leading" subtitle="Forward member returns after an Industry enters the RRG Leading quadrant">
+          <Panel
+            title="After an Industry turns Leading"
+            subtitle="Forward member returns after an Industry enters the RRG Leading quadrant"
+          >
             <EvidencePending
               compact
-              meta={{ ...env.meta, reason: 'group-entry study not served by the API yet', sources: ['group_rrg history', 'setup_outcomes'] }}
+              meta={{
+                ...env.meta,
+                reason: 'group-entry study not served by the API yet',
+                sources: ['group_rrg history', 'setup_outcomes'],
+              }}
               what="For every date an Industry entered Leading: members' median forward return at 5 / 20 / 60 sessions vs all stocks, with n per level."
             />
           </Panel>

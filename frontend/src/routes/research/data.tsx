@@ -59,7 +59,11 @@ const loadFixture = import.meta.env.DEV
     };
 
 /** useApiQuery for Research endpoints, served from fixtures when the dev toggle is on. */
-export function useResearchQuery<P extends keyof EndpointMap>(endpoint: P, args: ApiQueryArgs<P> = {}, options: ApiQueryOptions = {}): Result<P> {
+export function useResearchQuery<P extends keyof EndpointMap>(
+  endpoint: P,
+  args: ApiQueryArgs<P> = {},
+  options: ApiQueryOptions = {},
+): Result<P> {
   const fx = useFixtureMode();
   const [urlAsOf] = useAsOf();
   const enabled = options.enabled ?? true;

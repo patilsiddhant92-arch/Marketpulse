@@ -130,6 +130,12 @@ export const TRIGGER_LABEL: Record<string, string> = {
   up50_60d: '+50% in 60 sessions',
 };
 
+export const TRIGGER_SHORT: Record<string, string> = {
+  upper_circuit: 'Upper circuit',
+  up30_20d: '+30% / 20d',
+  up50_60d: '+50% / 60d',
+};
+
 export const CATALYSTS = ['results', 'deal', 'sector', 'corporate_action', 'unexplained'] as const;
 export type Catalyst = (typeof CATALYSTS)[number];
 
@@ -199,7 +205,10 @@ export interface GroupStudyRow {
 }
 
 /** Big movers rolled up by one taxonomy level. Rows without the level go to "Unclassified". */
-export function groupStudy(rows: readonly BigMoveRow[], level: TaxonomyLevel): { rows: GroupStudyRow[]; classified: number; total: number } {
+export function groupStudy(
+  rows: readonly BigMoveRow[],
+  level: TaxonomyLevel,
+): { rows: GroupStudyRow[]; classified: number; total: number } {
   const by = new Map<string, BigMoveRow[]>();
   let classified = 0;
   for (const r of rows) {
@@ -273,7 +282,9 @@ export function readFeaturePath(meta: EnvelopeMeta | undefined): PathRow[] {
     const feature = str(r.feature);
     const offset = num(r.offset);
     if (!feature || offset === null) return [];
-    return [{ feature, offset, movers: num(r.movers), controls: num(r.controls), n_movers: num(r.n_movers), n_controls: num(r.n_controls) }];
+    return [
+      { feature, offset, movers: num(r.movers), controls: num(r.controls), n_movers: num(r.n_movers), n_controls: num(r.n_controls) },
+    ];
   });
 }
 
@@ -306,7 +317,10 @@ export function readFeatures(meta: EnvelopeMeta | undefined): FeatureRow[] {
 }
 
 /** Pivot event features into feature × offset (T-60, T-20, T-5, T-1). */
-export function pivotFeatures(rows: readonly FeatureRow[]): { offsets: number[]; features: { feature: string; metric_key: string | null; cells: Map<number, FeatureRow> }[] } {
+export function pivotFeatures(rows: readonly FeatureRow[]): {
+  offsets: number[];
+  features: { feature: string; metric_key: string | null; cells: Map<number, FeatureRow> }[];
+} {
   const offsets = [...new Set(rows.map((r) => r.offset).filter(isNum))].sort((a, b) => a - b);
   const map = new Map<string, { feature: string; metric_key: string | null; cells: Map<number, FeatureRow> }>();
   for (const r of rows) {

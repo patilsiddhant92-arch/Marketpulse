@@ -16,7 +16,7 @@ import { MetricTooltipBody } from '../../ui/MetricTooltip';
 import { Skeleton, SkeletonRows } from '../../ui/Skeleton';
 import { Tooltip } from '../../ui/Tooltip';
 import { useFixtureMode } from './data';
-import { MIN_SAMPLE } from './model';
+import { MIN_SAMPLE, featureLabel } from './model';
 
 // ------------------------------------------------------------------ terms and n
 
@@ -25,11 +25,23 @@ export function Term({ k, children, className }: { k: string; children?: ReactNo
   const { def } = useMetric(k);
   return (
     <Tooltip content={<MetricTooltipBody def={def} metricKey={k} />}>
-      <span tabIndex={0} data-term={k} className={cn('cursor-help underline decoration-line-strong decoration-dotted underline-offset-2', className)}>
+      <span
+        tabIndex={0}
+        data-term={k}
+        className={cn('cursor-help underline decoration-line-strong decoration-dotted underline-offset-2', className)}
+      >
         {children ?? def?.plain_name ?? k}
       </span>
     </Tooltip>
   );
+}
+
+/** A study feature named by the dictionary when it has an entry, else by its key. */
+export function FeatureName({ feature, metricKey }: { feature: string; metricKey: string | null }) {
+  const { def } = useMetric(metricKey ?? undefined);
+  const label = featureLabel(feature);
+  if (!metricKey) return <>{label}</>;
+  return <Term k={metricKey}>{def?.plain_name ?? label}</Term>;
 }
 
 /** Sample size, always printed next to a statistic. */
@@ -211,7 +223,18 @@ export interface PathChartProps {
 const W = 640;
 
 /** Multi-line SVG chart in session offsets; colours are tokens only. NULL breaks a line. */
-export function PathChart({ series, band, xTicks, yFormat, markerX, markerLabel, zeroLine = true, height = 200, label, className }: PathChartProps) {
+export function PathChart({
+  series,
+  band,
+  xTicks,
+  yFormat,
+  markerX,
+  markerLabel,
+  zeroLine = true,
+  height = 200,
+  label,
+  className,
+}: PathChartProps) {
   const geo = useMemo(() => {
     const xs = [...series.flatMap((s) => s.points.map((p) => p.x)), ...xTicks.map((t) => t.x), ...(band ?? []).map((b) => b.x)];
     const ys = [
@@ -260,7 +283,13 @@ export function PathChart({ series, band, xTicks, yFormat, markerX, markerLabel,
     : null;
 
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} role="img" aria-label={label} className={cn('block w-full', className)} style={{ maxHeight: height }}>
+    <svg
+      viewBox={`0 0 ${W} ${height}`}
+      role="img"
+      aria-label={label}
+      className={cn('block w-full', className)}
+      style={{ maxHeight: height }}
+    >
       {yTicks.map((t, i) => (
         <g key={i}>
           <line x1={left} x2={W - 8} y1={sy(t)} y2={sy(t)} className="stroke-line" strokeWidth={0.5} />
@@ -269,11 +298,21 @@ export function PathChart({ series, band, xTicks, yFormat, markerX, markerLabel,
           </text>
         </g>
       ))}
-      {zeroLine && <line x1={left} x2={W - 8} y1={sy(0)} y2={sy(0)} className="stroke-line-strong" strokeDasharray="3 3" strokeWidth={0.75} />}
+      {zeroLine && (
+        <line x1={left} x2={W - 8} y1={sy(0)} y2={sy(0)} className="stroke-line-strong" strokeDasharray="3 3" strokeWidth={0.75} />
+      )}
       {bandD && <path d={bandD} className="fill-accent/10 stroke-none" />}
       {markerX !== undefined && (
         <g>
-          <line x1={sx(markerX)} x2={sx(markerX)} y1={4} y2={height - bottom} className="stroke-warn" strokeDasharray="2 3" strokeWidth={1} />
+          <line
+            x1={sx(markerX)}
+            x2={sx(markerX)}
+            y1={4}
+            y2={height - bottom}
+            className="stroke-warn"
+            strokeDasharray="2 3"
+            strokeWidth={1}
+          />
           {markerLabel && (
             <text x={sx(markerX) + 3} y={12} className="fill-warn" fontSize={10}>
               {markerLabel}
@@ -311,7 +350,15 @@ export function Legend({ items }: { items: { label: ReactNode; tone: PathTone; d
       {items.map((it, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           <svg width={16} height={6} aria-hidden>
-            <line x1={0} x2={16} y1={3} y2={3} className={STROKE[it.tone]} strokeWidth={2} strokeDasharray={it.dashed ? '4 3' : undefined} />
+            <line
+              x1={0}
+              x2={16}
+              y1={3}
+              y2={3}
+              className={STROKE[it.tone]}
+              strokeWidth={2}
+              strokeDasharray={it.dashed ? '4 3' : undefined}
+            />
           </svg>
           {it.label}
         </span>

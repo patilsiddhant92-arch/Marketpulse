@@ -84,7 +84,12 @@ function Cell({ row, metric }: { row: EvidenceRow | undefined; metric: (typeof M
       {insufficient ? (
         <span className="text-2xs italic text-fg-3">{row.label ?? 'insufficient sample'}</span>
       ) : (
-        <span className={cn('num text-sm', !isNum(v) ? 'text-fg-3' : metric.signed ? (v > 0 ? 'text-up' : v < 0 ? 'text-down' : 'text-fg') : 'text-fg')}>
+        <span
+          className={cn(
+            'num text-sm',
+            !isNum(v) ? 'text-fg-3' : metric.signed ? (v > 0 ? 'text-up' : v < 0 ? 'text-down' : 'text-fg') : 'text-fg',
+          )}
+        >
           {isNum(v) ? metric.fmt(v) : '—'}
         </span>
       )}
@@ -119,7 +124,19 @@ function Separation({ rows }: { rows: readonly EvidenceRow[] }) {
 
 type EvQ = UseQueryResult<Envelope<EvidenceRow>>;
 
-function SetupRow({ label, q, buckets, metric, by }: { label: string; q: EvQ; buckets: string[]; metric: (typeof METRICS)[number]; by: By }) {
+function SetupRow({
+  label,
+  q,
+  buckets,
+  metric,
+  by,
+}: {
+  label: string;
+  q: EvQ;
+  buckets: string[];
+  metric: (typeof METRICS)[number];
+  by: By;
+}) {
   const rows = q.data?.rows ?? [];
   const pending = q.isError || isUnavailable(q.data);
   return (
@@ -162,9 +179,23 @@ function StockAnalogs() {
   const cols = useMemo<DataTableColumn<StockAnalogRow>[]>(
     () => [
       { id: 'trade_date', header: 'Setup date', accessor: 'trade_date', format: 'date', width: 96 },
-      { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 104, cell: (v) => <span className="font-mono text-fg">{String(v)}</span> },
+      {
+        id: 'symbol',
+        header: 'Symbol',
+        accessor: 'symbol',
+        width: 104,
+        cell: (v) => <span className="font-mono text-fg">{String(v)}</span>,
+      },
       { id: 'queue', header: 'Queue', accessor: 'queue', width: 96 },
-      { id: 'distance', header: 'Distance', accessor: 'distance', format: 'num', width: 76, metricKey: 'analog_distance', sortDescFirst: false },
+      {
+        id: 'distance',
+        header: 'Distance',
+        accessor: 'distance',
+        format: 'num',
+        width: 76,
+        metricKey: 'analog_distance',
+        sortDescFirst: false,
+      },
       {
         id: 'r',
         header: 'R',
@@ -172,9 +203,20 @@ function StockAnalogs() {
         format: 'signed',
         width: 64,
         metricKey: 'avg_r',
-        cell: (v) => <span className={cn('num', (v as number) > 0 ? 'text-up' : (v as number) < 0 ? 'text-down' : 'text-fg')}>{fmtSigned(v as number, 1)}R</span>,
+        cell: (v) => (
+          <span className={cn('num', (v as number) > 0 ? 'text-up' : (v as number) < 0 ? 'text-down' : 'text-fg')}>
+            {fmtSigned(v as number, 1)}R
+          </span>
+        ),
       },
-      { id: 'hit', header: '+2R', accessor: (r) => (r.hit_2r == null ? null : r.hit_2r ? 1 : 0), width: 56, metricKey: 'hit_rate_2r', cell: (v) => (v ? <Chip tone="positive">yes</Chip> : <Chip>no</Chip>) },
+      {
+        id: 'hit',
+        header: '+2R',
+        accessor: (r) => (r.hit_2r == null ? null : r.hit_2r ? 1 : 0),
+        width: 56,
+        metricKey: 'hit_rate_2r',
+        cell: (v) => (v ? <Chip tone="positive">yes</Chip> : <Chip>no</Chip>),
+      },
       { id: 'days', header: 'Days', accessor: 'days_held', format: 'int', width: 56 },
     ],
     [],
@@ -195,9 +237,15 @@ function StockAnalogs() {
       }
     >
       {!valid ? (
-        <div className="p-6 text-center text-xs text-fg-3">Select a stock (J/K in any list, or type a symbol) to see its nearest past setups.</div>
+        <div className="p-6 text-center text-xs text-fg-3">
+          Select a stock (J/K in any list, or type a symbol) to see its nearest past setups.
+        </div>
       ) : (
-        <QueryState q={q} compact what={`The nearest past setups to ${sym}'s current setup in the same queue, with each one's R-multiple, whether it hit +2R before the stop, and days held.`}>
+        <QueryState
+          q={q}
+          compact
+          what={`The nearest past setups to ${sym}'s current setup in the same queue, with each one's R-multiple, whether it hit +2R before the stop, and days held.`}
+        >
           {(env) => {
             const rs = env.rows.map((r) => r.r_multiple);
             const n = rs.filter(isNum).length;
@@ -226,7 +274,9 @@ function StockAnalogs() {
                   total={env.total}
                   getRowId={(r, i) => `${r.symbol}-${r.trade_date}-${i}`}
                   initialSort={[{ id: 'distance', desc: false }]}
-                  emptyState={<div className="p-6 text-center text-xs text-fg-3">{sym} is not in a queue today, so it has no setup analogs.</div>}
+                  emptyState={
+                    <div className="p-6 text-center text-xs text-fg-3">{sym} is not in a queue today, so it has no setup analogs.</div>
+                  }
                   className="flex-1"
                 />
               </div>
@@ -260,7 +310,19 @@ function PresetRows({ buckets, metric, by }: { buckets: string[]; metric: (typeo
   );
 }
 
-function PresetRow({ id, label, buckets, metric, by }: { id: string; label: string; buckets: string[]; metric: (typeof METRICS)[number]; by: By }) {
+function PresetRow({
+  id,
+  label,
+  buckets,
+  metric,
+  by,
+}: {
+  id: string;
+  label: string;
+  buckets: string[];
+  metric: (typeof METRICS)[number];
+  by: By;
+}) {
   const q = useResearchQuery('evidence/{setup}', { params: { setup: id }, query: { by } });
   return <SetupRow label={label} q={q as EvQ} buckets={buckets} metric={metric} by={by} />;
 }
@@ -290,15 +352,19 @@ export function EvidenceView() {
         title="Setup evidence"
         subtitle={
           <>
-            Outcomes of every past signal, resolved on or before the as-of date (no look-ahead) · n &lt; {typeof minSample === 'number' ? minSample : MIN_SAMPLE} ⇒
-            insufficient sample
+            Outcomes of every past signal, resolved on or before the as-of date (no look-ahead) · n &lt;{' '}
+            {typeof minSample === 'number' ? minSample : MIN_SAMPLE} ⇒ insufficient sample
           </>
         }
         actions={
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1 text-2xs text-fg-3">
               Split by
-              <select value={by} onChange={(e) => setBy(e.target.value === 'environment' ? null : e.target.value)} className="rounded border border-line bg-surface-2 px-1 py-0.5 text-2xs text-fg">
+              <select
+                value={by}
+                onChange={(e) => setBy(e.target.value === 'environment' ? null : e.target.value)}
+                className="rounded border border-line bg-surface-2 px-1 py-0.5 text-2xs text-fg"
+              >
                 {BY_OPTIONS.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.label}
@@ -318,7 +384,12 @@ export function EvidenceView() {
           <div className="space-y-2 p-3">
             <div className="flex flex-wrap items-center gap-1" role="radiogroup" aria-label="Statistic">
               {METRICS.map((m) => (
-                <Chip key={m.id} onClick={() => setMetric(m.id === 'hit_rate_2r' ? null : m.id)} selected={m.id === metric.id} tone={m.id === metric.id ? 'accent' : 'neutral'}>
+                <Chip
+                  key={m.id}
+                  onClick={() => setMetric(m.id === 'hit_rate_2r' ? null : m.id)}
+                  selected={m.id === metric.id}
+                  tone={m.id === metric.id ? 'accent' : 'neutral'}
+                >
                   {m.label}
                 </Chip>
               ))}
@@ -340,7 +411,10 @@ export function EvidenceView() {
                       );
                     })}
                     {by === 'environment' && (
-                      <th className="px-3 py-1.5 text-right font-medium" title="Does the verdict separate outcomes? Avg R in Favourable+Constructive minus Weak+Danger">
+                      <th
+                        className="px-3 py-1.5 text-right font-medium"
+                        title="Does the verdict separate outcomes? Avg R in Favourable+Constructive minus Weak+Danger"
+                      >
                         Separation
                       </th>
                     )}
@@ -355,18 +429,23 @@ export function EvidenceView() {
               </table>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-2xs text-fg-3">
-              <button type="button" onClick={() => setPresetsOn((v) => !v)} className="rounded border border-line px-2 py-0.5 text-fg-2 hover:bg-surface-3" aria-pressed={presetsOn}>
+              <button
+                type="button"
+                onClick={() => setPresetsOn((v) => !v)}
+                className="rounded border border-line px-2 py-0.5 text-fg-2 hover:bg-surface-3"
+                aria-pressed={presetsOn}
+              >
                 {presetsOn ? 'Hide' : 'Show'} screener presets
               </button>
               <span>
-                Horizon 20 sessions; trigger fill next session; <Term k="sample_n">n</Term> printed on every cell. Separation is the ship gate of spec 6.1.5 (verdict must
-                separate outcomes).
+                Horizon 20 sessions; trigger fill next session; <Term k="sample_n">n</Term> printed on every cell. Separation is the ship
+                gate of spec 6.1.5 (verdict must separate outcomes).
               </span>
               {fx.on && <Chip tone="violet">fixture data</Chip>}
             </div>
             <div className="text-2xs text-fg-3">
-              Reading: <span className="num">{fmtNum(0.5, 1)}R</span> average means half the initial risk gained per trade on average; use with the hit rate and n.
-              Latest resolved outcome ≤ {fmtDate(q0.data?.as_of ?? null)}.
+              Reading: <span className="num">{fmtNum(0.5, 1)}R</span> average means half the initial risk gained per trade on average; use
+              with the hit rate and n. Latest resolved outcome ≤ {fmtDate(q0.data?.as_of ?? null)}.
             </div>
           </div>
         )}

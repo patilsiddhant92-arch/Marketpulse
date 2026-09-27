@@ -25,7 +25,14 @@ const EDGE_CHIP = {
 } as const;
 
 const COLUMNS: DataTableColumn<PreMoveRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 112, sticky: true, cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span> },
+  {
+    id: 'symbol',
+    header: 'Symbol',
+    accessor: 'symbol',
+    width: 112,
+    sticky: true,
+    cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span>,
+  },
   {
     id: 'name',
     header: 'Name',
@@ -62,13 +69,24 @@ const COLUMNS: DataTableColumn<PreMoveRow>[] = [
       const ok = isNum(r.n) && r.n >= MIN_SAMPLE;
       return (
         <span className="inline-flex items-baseline justify-end gap-1.5">
-          {ok ? <span className="num text-fg">{fmtPct(r.precision_20d, 1)}</span> : <span className="text-2xs italic text-fg-3">insufficient sample</span>}
+          {ok ? (
+            <span className="num text-fg">{fmtPct(r.precision_20d, 1)}</span>
+          ) : (
+            <span className="text-2xs italic text-fg-3">insufficient sample</span>
+          )}
           <SampleN n={r.n} />
         </span>
       );
     },
   },
-  { id: 'base', header: 'Base rate', accessor: 'base_rate_20d', format: 'pct', width: 84, headerTitle: 'Share of all stock-days that made a big move within 20 sessions' },
+  {
+    id: 'base',
+    header: 'Base rate',
+    accessor: 'base_rate_20d',
+    format: 'pct',
+    width: 84,
+    headerTitle: 'Share of all stock-days that made a big move within 20 sessions',
+  },
   {
     id: 'lift',
     header: 'Lift',
@@ -133,8 +151,8 @@ export function PreMoveView() {
               title="Pre-move watch"
               subtitle={
                 <>
-                  Traits as of {fmtDateWithDay(env.as_of)} · {counts.edge} beat the base rate · {counts.weak} near it · {counts.insufficient} with too few
-                  look-alikes (n &lt; {MIN_SAMPLE})
+                  Traits as of {fmtDateWithDay(env.as_of)} · {counts.edge} beat the base rate · {counts.weak} near it ·{' '}
+                  {counts.insufficient} with too few look-alikes (n &lt; {MIN_SAMPLE})
                 </>
               }
               bodyClassName="flex min-h-[420px] flex-col"

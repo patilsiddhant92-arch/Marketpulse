@@ -25,17 +25,26 @@ import {
   asCatalyst,
   bigMoveExtras,
   eventWindow,
-  featureLabel,
   offsetLabel,
   pivotFeatures,
   readFeatures,
 } from './model';
-import { EvidencePending, PathChart, SampleN, Term } from './parts';
+import { EvidencePending, FeatureName, PathChart, SampleN, Term } from './parts';
 
 function toBars(rows: readonly BarRow[]): OHLCBar[] {
   return rows.flatMap((r) =>
     r.trade_date && r.open != null && r.high != null && r.low != null && r.close != null
-      ? [{ time: r.trade_date, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume ?? null, delivery_pct: r.delivery_pct ?? null }]
+      ? [
+          {
+            time: r.trade_date,
+            open: r.open,
+            high: r.high,
+            low: r.low,
+            close: r.close,
+            volume: r.volume ?? null,
+            delivery_pct: r.delivery_pct ?? null,
+          },
+        ]
       : [],
   );
 }
@@ -77,7 +86,15 @@ function PricePath({ row }: { row: BigMoveRow }) {
       <div className="space-y-1">
         <PathChart
           label={`${sym} close vs T-1 close around the event`}
-          series={[{ id: 'p', label: 'Close vs T-1 (%)', points: extras.path_pct.map((y, i) => ({ x: start + i, y })), tone: 'accent', strokeWidth: 1.75 }]}
+          series={[
+            {
+              id: 'p',
+              label: 'Close vs T-1 (%)',
+              points: extras.path_pct.map((y, i) => ({ x: start + i, y })),
+              tone: 'accent',
+              strokeWidth: 1.75,
+            },
+          ]}
           xTicks={[start, -10, 0, 10, start + n - 1].map((x) => ({ x, label: offsetLabel(x) }))}
           yFormat={(v) => fmtSignedPct(v, 0)}
           markerX={0}
@@ -123,7 +140,9 @@ function Fingerprint({ eventId }: { eventId: string }) {
           <tbody>
             {rows.map((f) => (
               <tr key={f.feature} className="h-7 border-t border-line">
-                <td className="px-2 text-fg-2">{f.metric_key ? <Term k={f.metric_key}>{featureLabel(f.feature)}</Term> : featureLabel(f.feature)}</td>
+                <td className="px-2 text-fg-2">
+                  <FeatureName feature={f.feature} metricKey={f.metric_key} />
+                </td>
                 {offsets.map((o) => {
                   const c = f.cells.get(o);
                   const hi = c && isNum(c.percentile) && c.percentile >= 80;
@@ -201,7 +220,9 @@ export function BigMoveDrawer({ row, onClose }: { row: BigMoveRow | null; onClos
             <h3 className="mb-1 text-2xs font-semibold uppercase tracking-wide text-fg-3">Catalyst attribution</h3>
             <div className="flex items-center gap-2 text-xs">
               <CatalystChip value={row.catalyst} />
-              <span className="text-fg-2">{extras.catalyst_detail ?? 'Window: results / deal ±3 sessions, sector-wide if ≥ 50% of the Industry moved.'}</span>
+              <span className="text-fg-2">
+                {extras.catalyst_detail ?? 'Window: results / deal ±3 sessions, sector-wide if ≥ 50% of the Industry moved.'}
+              </span>
             </div>
           </section>
           <section aria-label="Price path">

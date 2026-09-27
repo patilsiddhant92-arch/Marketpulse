@@ -79,10 +79,13 @@ function ResearchBody() {
             </button>
           ))}
         </nav>
-        <span className="hidden text-2xs text-fg-3 lg:inline">{active.hint}</span>
-        <div className="ml-auto flex items-center gap-2 text-2xs text-fg-3">
+        <span className="hidden min-w-0 flex-1 truncate text-2xs text-fg-3 xl:inline">{active.hint}</span>
+        <div className="ml-auto flex shrink-0 items-center gap-2 text-2xs text-fg-3">
           {asOf ? (
-            <span className="rounded border border-violet/40 bg-violet/10 px-1.5 py-0.5 text-violet" title="Studies use data up to this date only (no look-ahead)">
+            <span
+              className="rounded border border-violet/40 bg-violet/10 px-1.5 py-0.5 text-violet"
+              title="Studies use data up to this date only (no look-ahead)"
+            >
               Studies as of {fmtDateWithDay(asOf)}
             </span>
           ) : (

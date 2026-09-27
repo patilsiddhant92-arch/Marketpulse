@@ -33,46 +33,82 @@ function useColumns(onGoTo: (d: string) => void): DataTableColumn<MarketAnalogRo
         id: 'analog_date',
         header: 'Past date',
         accessor: 'analog_date',
-        width: 150,
-        cell: (v) => <span className="num">{fmtDateWithDay(String(v))}</span>,
+        width: 104,
+        format: 'date',
       },
-      { id: 'distance', header: 'Distance', accessor: 'distance', format: 'num', metricKey: 'analog_distance', width: 80, sortDescFirst: false, cell: (v) => <Distance v={v as number} /> },
+      {
+        id: 'distance',
+        header: 'Distance',
+        accessor: 'distance',
+        format: 'num',
+        metricKey: 'analog_distance',
+        width: 72,
+        sortDescFirst: false,
+        cell: (v) => <Distance v={v as number} />,
+      },
       {
         id: 'verdict_then',
         header: 'Verdict then',
         accessor: 'verdict_then',
-        width: 110,
+        width: 100,
         metricKey: 'environment_verdict',
         cell: (v) => {
           const w = asVerdictWord(v);
           return <span className={w ? VERDICT_TEXT[w] : 'text-fg-2'}>{String(v)}</span>;
         },
       },
-      { id: 'fwd5', header: 'Next 5', accessor: 'fwd_midsml400_5d_pct', format: 'signedPct', width: 76, headerTitle: 'MidSml400 return over the next 5 sessions', cell: (v) => <Signed v={v as number} /> },
-      { id: 'fwd20', header: 'Next 20', accessor: 'fwd_midsml400_20d_pct', format: 'signedPct', width: 76, metricKey: 'forward_return_20d', cell: (v) => <Signed v={v as number} /> },
-      { id: 'fwd60', header: 'Next 60', accessor: 'fwd_midsml400_60d_pct', format: 'signedPct', width: 76, headerTitle: 'MidSml400 return over the next 60 sessions', cell: (v) => <Signed v={v as number} /> },
+      {
+        id: 'fwd5',
+        header: 'Next 5',
+        accessor: 'fwd_midsml400_5d_pct',
+        format: 'signedPct',
+        width: 64,
+        headerTitle: 'MidSml400 return over the next 5 sessions',
+        cell: (v) => <Signed v={v as number} />,
+      },
+      {
+        id: 'fwd20',
+        header: 'Next 20',
+        accessor: 'fwd_midsml400_20d_pct',
+        format: 'signedPct',
+        width: 64,
+        metricKey: 'forward_return_20d',
+        cell: (v) => <Signed v={v as number} />,
+      },
+      {
+        id: 'fwd60',
+        header: 'Next 60',
+        accessor: 'fwd_midsml400_60d_pct',
+        format: 'signedPct',
+        width: 64,
+        headerTitle: 'MidSml400 return over the next 60 sessions',
+        cell: (v) => <Signed v={v as number} />,
+      },
       {
         id: 'path',
-        header: 'Path 0→60',
+        header: 'Path',
+        headerTitle: 'MidSml400 path: then, +5, +20, +60 sessions',
         accessor: (r) => r.fwd_midsml400_60d_pct,
-        width: 90,
+        width: 80,
         sortable: false,
         renderNull: true,
-        cell: (_v, r) => <Spark values={analogPath(r)} baseline={0} label={`MidSml400 path after ${r.analog_date ?? 'analog'}: 0, 5, 20, 60 sessions`} />,
+        cell: (_v, r) => (
+          <Spark values={analogPath(r)} baseline={0} label={`MidSml400 path after ${r.analog_date ?? 'analog'}: 0, 5, 20, 60 sessions`} />
+        ),
       },
       {
         id: 'ft',
-        header: 'Follow-through',
+        header: 'Follow-thr.',
         accessor: 'next_month_follow_through_pct',
         format: 'pct',
-        width: 104,
+        width: 84,
         metricKey: 'follow_through_pct',
       },
       {
         id: 'go',
         header: '',
         accessor: 'analog_date',
-        width: 64,
+        width: 52,
         sortable: false,
         cell: (v) => (
           <button
@@ -103,10 +139,15 @@ function SummaryStrip({ s }: { s: AnalogSummary }) {
       {s.horizons.map((h) => (
         <div key={h.horizon} className="rounded border border-line bg-surface-2 px-3 py-2" data-horizon={h.horizon}>
           <div className="text-2xs uppercase tracking-wide text-fg-3">
-            {h.horizon === 20 ? <Term k="forward_return_20d">Next 20 sessions</Term> : `Next ${h.horizon} sessions`} · median
+            {h.horizon === 20 ? <Term k="forward_return_20d">Next 20</Term> : `Next ${h.horizon}`} sessions · median
           </div>
           <div className="flex items-baseline gap-2">
-            <span className={cn('num text-xl font-medium', isNum(h.median) ? (h.median > 0 ? 'text-up' : h.median < 0 ? 'text-down' : 'text-fg') : 'text-fg-3')}>
+            <span
+              className={cn(
+                'num text-xl font-medium',
+                isNum(h.median) ? (h.median > 0 ? 'text-up' : h.median < 0 ? 'text-down' : 'text-fg') : 'text-fg-3',
+              )}
+            >
               {fmtSignedPct(h.median)}
             </span>
             <SampleN n={h.n} />
@@ -129,8 +170,8 @@ function Agreement({ s }: { s: AnalogSummary }) {
       <div role="note" className="mx-3 flex items-start gap-2 rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         <span>
-          Analogs disagree: only {pct} point {a.direction} over 20 sessions (<span className="num">n={a.n}</span>). The spread is the message — no
-          clear edge from history.
+          Analogs disagree: only {pct} point {a.direction} over 20 sessions (<span className="num">n={a.n}</span>). The spread is the
+          message — no clear edge from history.
         </span>
       </div>
     );
@@ -195,7 +236,7 @@ export function AnalogsView() {
         const rows = env.rows.length ? env.rows : EMPTY;
         const s = summarizeAnalogs(rows);
         return (
-          <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+          <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
             <Panel
               title="What happened next"
               subtitle={
@@ -210,7 +251,11 @@ export function AnalogsView() {
                 <Fan rows={rows} />
               </div>
             </Panel>
-            <Panel title="Nearest analogs" subtitle="Lower distance = closer match. Go = time-travel the app to that date." bodyClassName="flex min-h-[360px] flex-col">
+            <Panel
+              title="Nearest analogs"
+              subtitle="Lower distance = closer match. Go = time-travel the app to that date."
+              bodyClassName="flex min-h-[360px] flex-col"
+            >
               <DataTable
                 label="Market analogs"
                 columns={columns}

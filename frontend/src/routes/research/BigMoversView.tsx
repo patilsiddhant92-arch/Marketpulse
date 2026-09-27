@@ -21,6 +21,7 @@ import {
   CATALYST_LABEL,
   CATALYST_TONE,
   TRIGGER_LABEL,
+  TRIGGER_SHORT,
   asCatalyst,
   bigMoveExtras,
   catalystShares,
@@ -32,7 +33,7 @@ import {
   readLift,
   type LiftRow,
 } from './model';
-import { EvidencePending, Legend, Panel, PathChart, QueryState, SampleN, Stat, Term } from './parts';
+import { EvidencePending, FeatureName, Legend, Panel, PathChart, QueryState, SampleN, Stat, Term } from './parts';
 
 const EMPTY: BigMoveRow[] = [];
 const MCAP_FLOORS = [
@@ -42,37 +43,67 @@ const MCAP_FLOORS = [
 ];
 
 const COLUMNS: DataTableColumn<BigMoveRow>[] = [
-  { id: 'event_date', header: 'Event', accessor: 'event_date', format: 'date', width: 96, sortDescFirst: true },
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 108, sticky: true, cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span> },
+  { id: 'event_date', header: 'Event', accessor: 'event_date', format: 'date', width: 92, sortDescFirst: true },
+  {
+    id: 'symbol',
+    header: 'Symbol',
+    accessor: 'symbol',
+    width: 100,
+    sticky: true,
+    cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span>,
+  },
   {
     id: 'trigger',
     header: 'Trigger',
     accessor: 'trigger',
-    width: 132,
+    width: 92,
     headerTitle: 'Upper circuit · +30% in 20 sessions · +50% in 60 sessions',
-    cell: (v) => <span className="text-fg-2">{TRIGGER_LABEL[String(v)] ?? String(v)}</span>,
+    cell: (v) => (
+      <span className="text-fg-2" title={TRIGGER_LABEL[String(v)]}>
+        {TRIGGER_SHORT[String(v)] ?? String(v)}
+      </span>
+    ),
   },
-  { id: 'move_pct', header: 'Move', accessor: 'move_pct', format: 'signedPct', width: 76, cell: (v) => <span className="num text-up">{fmtSignedPct(v as number)}</span> },
+  {
+    id: 'move_pct',
+    header: 'Move',
+    accessor: 'move_pct',
+    format: 'signedPct',
+    width: 64,
+    cell: (v) => <span className="num text-up">{fmtSignedPct(v as number)}</span>,
+  },
   {
     id: 'path',
     header: 'T-20…T+20',
     accessor: (r) => bigMoveExtras(r).path_pct?.length ?? null,
-    width: 92,
+    width: 84,
     sortable: false,
     renderNull: true,
     cell: (_v, r) => {
       const p = bigMoveExtras(r).path_pct;
-      return p ? <Spark values={p} baseline={0} tone="accent" label={`${r.symbol ?? ''} close vs T-1 around the event`} /> : <span className="text-fg-3">—</span>;
+      return p ? (
+        <Spark values={p} baseline={0} tone="accent" label={`${r.symbol ?? ''} close vs T-1 around the event`} />
+      ) : (
+        <span className="text-fg-3">—</span>
+      );
     },
   },
-  { id: 'mcap', header: 'Mcap at event', accessor: 'mcap_cr_at_event', format: 'cr', digits: 0, width: 104, metricKey: 'market_cap_cr' },
-  { id: 'catalyst', header: 'Catalyst', accessor: 'catalyst', width: 128, cell: (v) => <CatalystChip value={v} /> },
-  { id: 'industry', header: 'Industry', accessor: 'industry', width: 190, grow: true, cell: (v) => <span className="truncate text-fg-2">{String(v)}</span> },
+  { id: 'mcap', header: 'Mcap at event', accessor: 'mcap_cr_at_event', format: 'cr', digits: 0, width: 96, metricKey: 'market_cap_cr' },
+  { id: 'catalyst', header: 'Catalyst', accessor: 'catalyst', width: 116, cell: (v) => <CatalystChip value={v} /> },
+  {
+    id: 'industry',
+    header: 'Industry',
+    accessor: 'industry',
+    width: 128,
+    grow: true,
+    cell: (v) => <span className="truncate text-fg-2">{String(v)}</span>,
+  },
   {
     id: 'verdict_then',
     header: 'Env then',
     accessor: (r) => bigMoveExtras(r).verdict_then,
-    width: 104,
+    width: 96,
+    defaultHidden: true,
     metricKey: 'environment_verdict',
     cell: (v) => <span className={VERDICT_TEXT[v as keyof typeof VERDICT_TEXT] ?? 'text-fg-2'}>{String(v)}</span>,
   },
@@ -85,9 +116,18 @@ function CatalystRollup({ rows }: { rows: readonly BigMoveRow[] }) {
     <div className="space-y-1.5 p-3">
       {shares.map((s) => (
         <div key={s.catalyst} className="grid grid-cols-[120px_1fr_88px] items-center gap-2 text-xs">
-          <span>{s.catalyst === 'unknown' ? <Chip>unattributed</Chip> : <Chip tone={CATALYST_TONE[s.catalyst]}>{CATALYST_LABEL[s.catalyst]}</Chip>}</span>
+          <span>
+            {s.catalyst === 'unknown' ? (
+              <Chip>unattributed</Chip>
+            ) : (
+              <Chip tone={CATALYST_TONE[s.catalyst]}>{CATALYST_LABEL[s.catalyst]}</Chip>
+            )}
+          </span>
           <div className="h-2 rounded bg-surface-3" aria-hidden>
-            <div className={cn('h-2 rounded', s.catalyst === 'unexplained' || s.catalyst === 'unknown' ? 'bg-fg-3' : 'bg-accent')} style={{ width: `${s.share * 100}%` }} />
+            <div
+              className={cn('h-2 rounded', s.catalyst === 'unexplained' || s.catalyst === 'unknown' ? 'bg-fg-3' : 'bg-accent')}
+              style={{ width: `${s.share * 100}%` }}
+            />
           </div>
           <span className="num text-right">
             {fmtPct(s.share * 100, 0)} <span className="text-2xs text-fg-3">({s.n})</span>
@@ -133,11 +173,18 @@ function LiftTable({ meta }: { meta: EnvelopeMeta }) {
           {rows.map((r: LiftRow) => (
             <tr key={`${r.feature}-${r.bucket}`} className="h-7 border-t border-line">
               <td className="pr-2">
-                <div className="text-fg-2">{r.metric_key ? <Term k={r.metric_key}>{featureLabel(r.feature)}</Term> : featureLabel(r.feature)}</div>
+                <div className="text-fg-2">
+                  <FeatureName feature={r.feature} metricKey={r.metric_key} />
+                </div>
                 {r.bucket && <div className="text-2xs text-fg-3">{r.bucket}</div>}
               </td>
               <td className="text-right">
-                <Stat value={r.lift} n={r.n_movers} format={(v) => `${fmtNum(v, 1)}×`} className={cn(isNum(r.lift) && r.lift >= 1.5 ? '[&_.num]:text-up' : '')} />
+                <Stat
+                  value={r.lift}
+                  n={r.n_movers}
+                  format={(v) => `${fmtNum(v, 1)}×`}
+                  className={cn(isNum(r.lift) && r.lift >= 1.5 ? '[&_.num]:text-up' : '')}
+                />
               </td>
               <td className="text-right">
                 <Stat value={r.precision_20d} n={r.n_movers} format={(v) => fmtPct(v, 1)} />
@@ -201,7 +248,9 @@ function FeaturePath({ meta }: { meta: EnvelopeMeta }) {
           { id: 'm', label: 'Movers (median)', points: pts.map((p) => ({ x: p.offset, y: p.movers })), tone: 'accent', strokeWidth: 2 },
           { id: 'c', label: 'Controls (median)', points: pts.map((p) => ({ x: p.offset, y: p.controls })), tone: 'muted', dashed: true },
         ]}
-        xTicks={[...new Set([offs[0], -20, 0, offs[offs.length - 1]])].filter((x) => x !== undefined).map((x) => ({ x, label: offsetLabel(x) }))}
+        xTicks={[...new Set([offs[0], -20, 0, offs[offs.length - 1]])]
+          .filter((x) => x !== undefined)
+          .map((x) => ({ x, label: offsetLabel(x) }))}
         yFormat={(v) => fmtNum(v, 1)}
         markerX={0}
         markerLabel="T"
@@ -265,8 +314,8 @@ export function BigMoversView() {
                 <Chip onClick={() => setTrigger(null)} selected={!trigger}>
                   All
                 </Chip>
-                {Object.entries(TRIGGER_LABEL).map(([k, label]) => (
-                  <Chip key={k} onClick={() => setTrigger(trigger === k ? null : k)} selected={trigger === k}>
+                {Object.entries(TRIGGER_SHORT).map(([k, label]) => (
+                  <Chip key={k} onClick={() => setTrigger(trigger === k ? null : k)} selected={trigger === k} title={TRIGGER_LABEL[k]}>
                     {label}
                   </Chip>
                 ))}
@@ -306,7 +355,11 @@ export function BigMoversView() {
                 onRowClick={(r) => setOpen(r)}
                 onRowActivate={(r) => setOpen(r)}
                 onSortedRowsChange={setVisible}
-                emptyState={<div className="p-6 text-center text-xs text-fg-3">No big-move events match these filters on or before {fmtDate(env.as_of)}.</div>}
+                emptyState={
+                  <div className="p-6 text-center text-xs text-fg-3">
+                    No big-move events match these filters on or before {fmtDate(env.as_of)}.
+                  </div>
+                }
                 className="flex-1"
               />
             </Panel>

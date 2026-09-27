@@ -22,7 +22,8 @@ vi.mock('../../components/InspectorSidecar', () => ({ InspectorSidecar: () => <a
 vi.mock('../../components/MultiChartModal', () => ({ MultiChartModal: () => <div>legacy charts</div> }));
 vi.mock('../../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 const RESEARCH = /^\/api\/v2\/(research\/.*|evidence\/.*|stock\/[^/]+\/analogs)$/;
 
@@ -90,7 +91,9 @@ afterEach(() => {
 describe('Research tab', () => {
   it('shows an intentional "being computed" state when the evidence tables are not built', async () => {
     mockFetch((url) =>
-      RESEARCH.test(url.pathname) ? json(unavailable('market_analogs not built yet (evidence engine, spec §5)', ['market_analogs'])) : undefined,
+      RESEARCH.test(url.pathname)
+        ? json(unavailable('market_analogs not built yet (evidence engine, spec §5)', ['market_analogs']))
+        : undefined,
     );
     renderApp('/research');
     expect(await screen.findByText('Evidence is being computed — available after the next rebuild')).toBeInTheDocument();
@@ -133,7 +136,9 @@ describe('Research tab', () => {
     expect(rsRow).toHaveTextContent('7.9%');
     expect(rsRow).toHaveTextContent('n=412');
     // n = 22 < 30: lift is not printed as a number.
-    const dealRow = within(lift).getAllByRole('row').find((r) => r.textContent?.includes('Deal buy 10s'))!;
+    const dealRow = within(lift)
+      .getAllByRole('row')
+      .find((r) => r.textContent?.includes('Deal buy 10s'))!;
     expect(dealRow).toHaveTextContent('insufficient sample');
     expect(dealRow).not.toHaveTextContent('1.8×');
     expect(within(lift).getByText('in-sample')).toBeInTheDocument();
@@ -153,11 +158,15 @@ describe('Research tab', () => {
     renderApp('/research?rview=premove');
     const grid = await screen.findByRole('grid', { name: 'Pre-move watch' });
     expect(screen.getByText('Research list — not a trade signal')).toBeInTheDocument();
-    const anant = within(grid).getAllByRole('row').find((r) => r.textContent?.includes('ANANTRAJ'))!;
+    const anant = within(grid)
+      .getAllByRole('row')
+      .find((r) => r.textContent?.includes('ANANTRAJ'))!;
     expect(anant).toHaveTextContent('insufficient sample');
     expect(anant).toHaveTextContent('n=22');
     expect(anant).not.toHaveTextContent('8.6%');
-    const jyoti = within(grid).getAllByRole('row').find((r) => r.textContent?.includes('JYOTICNC'))!;
+    const jyoti = within(grid)
+      .getAllByRole('row')
+      .find((r) => r.textContent?.includes('JYOTICNC'))!;
     expect(jyoti).toHaveTextContent('9.4%');
     expect(jyoti).toHaveTextContent('n=212');
     expect(jyoti).toHaveTextContent('beats base rate');
@@ -167,10 +176,18 @@ describe('Research tab', () => {
     mockFetch(serveFixtures);
     renderApp('/research?rview=groups');
     const grid = await screen.findByRole('grid', { name: 'Big movers by Industry' });
-    expect(within(grid).getAllByRole('row').find((r) => r.textContent?.includes('Aerospace & Defense'))).toHaveTextContent('n=4');
+    expect(
+      within(grid)
+        .getAllByRole('row')
+        .find((r) => r.textContent?.includes('Aerospace & Defense')),
+    ).toHaveTextContent('n=4');
     fireEvent.click(screen.getByRole('button', { name: 'Broad Sector' }));
     const g2 = await screen.findByRole('grid', { name: 'Big movers by Broad Sector' });
-    expect(within(g2).getAllByRole('row').find((r) => r.textContent?.includes('Industrials'))).toHaveTextContent('n=7');
+    expect(
+      within(g2)
+        .getAllByRole('row')
+        .find((r) => r.textContent?.includes('Industrials')),
+    ).toHaveTextContent('n=7');
     expect(screen.getByText(/After an Industry turns Leading/)).toBeInTheDocument();
   });
 
@@ -179,7 +196,9 @@ describe('Research tab', () => {
     renderApp('/research?rview=evidence');
     const table = await screen.findByRole('table', { name: 'Setup evidence by environment' });
     await waitFor(() => expect(within(table).getAllByText(/n=/).length).toBeGreaterThan(10));
-    const vcp = within(table).getAllByRole('row').find((r) => r.textContent?.startsWith('VCP'))!;
+    const vcp = within(table)
+      .getAllByRole('row')
+      .find((r) => r.textContent?.startsWith('VCP'))!;
     const danger = vcp.querySelector('[data-bucket="Danger"]') as HTMLElement;
     expect(danger).toHaveTextContent('insufficient sample');
     expect(danger).toHaveTextContent('n=4');

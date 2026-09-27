@@ -47,7 +47,10 @@ describe('summarizeAnalogs', () => {
   });
 
   it('keeps NULL forward returns out of n (no fabricated zeros)', () => {
-    const s = summarizeAnalogs([{ analog_date: '2020-01-01', fwd_midsml400_20d_pct: null }, { analog_date: '2020-01-02', fwd_midsml400_20d_pct: 4 }]);
+    const s = summarizeAnalogs([
+      { analog_date: '2020-01-01', fwd_midsml400_20d_pct: null },
+      { analog_date: '2020-01-02', fwd_midsml400_20d_pct: 4 },
+    ]);
     expect(s.horizons[1].n).toBe(1);
     expect(s.horizons[0].n).toBe(0);
     expect(s.horizons[0].median).toBeNull();
