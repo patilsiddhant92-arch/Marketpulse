@@ -40,7 +40,7 @@ except ModuleNotFoundError:  # pragma: no cover
 DEFAULT_BATCH_ROWS = int(os.environ.get("MP_BUILD_BATCH_ROWS", "30000") or 30000)
 DEFAULT_WORKERS = int(os.environ.get("MP_BUILD_WORKERS", "4") or 4)
 # DuckDB's own buffer pool (default: 80% of RAM) is capped for the build connections.
-DUCKDB_MEMORY_LIMIT = os.environ.get("MP_BUILD_DUCKDB_MEMORY", "1GB") or "1GB"
+DUCKDB_MEMORY_LIMIT = os.environ.get("MP_BUILD_DUCKDB_MEMORY", "2GB") or "2GB"
 
 # Columns each downstream builder reads from indicators_daily.
 BREADTH_COLUMNS = (
@@ -159,8 +159,22 @@ def read_slim(
         sql += f" WHERE {where}"
     if order:
         sql += f" ORDER BY {order}"
-    frame = con.execute(sql, params or []).fetchdf()
-    return match_datetime_units(frame, date_dtype)
+    return match_datetime_units(fetch_frame(con, sql, params), date_dtype)
+
+
+def fetch_frame(con: duckdb.DuckDBPyConnection, sql: str, params: list | None = None) -> pd.DataFrame:
+    """Result of ``sql`` as one pandas frame, fetched in chunks so DuckDB never holds the whole
+    (multi-million-row) result in its own buffer next to the pandas copy."""
+    result = con.execute(sql, params or [])
+    parts = []
+    while True:
+        chunk = result.fetch_df_chunk(64)
+        if chunk is None or len(chunk) == 0:
+            break
+        parts.append(chunk)
+    if not parts:  # empty result: keep the column names / dtypes
+        return con.execute(f"SELECT * FROM ({sql}) LIMIT 0", params or []).fetchdf()
+    return parts[0] if len(parts) == 1 else pd.concat(parts, ignore_index=True)
 
 
 # --------------------------------------------------------------------------------------------
