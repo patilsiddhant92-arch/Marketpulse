@@ -54,7 +54,7 @@ export const ExposureGateHeader: React.FC<Props> = ({
         <div
           onClick={() => onNavigateTab && onNavigateTab('cockpit')}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${exposureTone} shadow-sm cursor-pointer hover:opacity-90 transition`}
-          title={exposure_gate.execution_playbook || exposure_gate.guidance}
+          title={exposure_gate.execution_playbook || exposure_gate.guidance || undefined}
         >
           <ShieldCheck className="w-4 h-4 shrink-0" />
           <div className="flex flex-col">
