@@ -64,12 +64,20 @@ def client(tmp_path, monkeypatch):
     days = sessions(LAST)
     frame = pd.DataFrame({
         "symbol": "BOXY", "series": "EQ", "trade_date": [pd.Timestamp(d) for d in days],
-        "open_price": C, "high_price": [float(h) for h in H], "low_price": [float(v) for v in L],
+        "open_price": [float(c) for c in C], "high_price": [float(h) for h in H], "low_price": [float(v) for v in L],
         "close_price": [float(c) for c in C], "volume": 1_000_000,
     })
+    # GAPPY = BOXY with every price from session 22 on divided by 3 (an unadjusted split / relisting).
+    gappy = frame.copy()
+    gappy["symbol"] = "GAPPY"
+    for c in ("open_price", "high_price", "low_price", "close_price"):
+        gappy.loc[22:, c] = gappy.loc[22:, c] / 3.0
     con = duckdb.connect(str(market))
-    con.register("_boxy", frame)
-    con.execute("INSERT INTO prices_daily BY NAME SELECT * FROM _boxy")
+    for name, f in (("_boxy", frame), ("_gappy", gappy)):
+        con.register(name, f)
+        con.execute(f"INSERT INTO prices_daily BY NAME SELECT * FROM {name}")
+    con.execute("INSERT INTO indicators_daily BY NAME SELECT symbol, series, trade_date, open_price, high_price, "
+                "low_price, close_price, volume FROM _gappy")
     con.close()
     monkeypatch.setenv("MP_DB_PATH", str(market))
     monkeypatch.setenv("MP_USER_DB_PATH", str(tmp_path / "user.duckdb"))
@@ -116,3 +124,16 @@ def test_endpoint_limit_window_and_other_timeframes(client):
         assert r.status_code == 200 and r.json()["meta"]["status"] == "ok"
     assert c.get("/api/v2/stock/NOPE/darvas").json()["meta"]["status"] == "unavailable"
     assert c.get("/api/v2/stock/BOXY/darvas?tf=X").status_code == 422
+
+
+def test_boxes_never_span_an_unexplained_gap(client):
+    c, days = client
+    body = c.get("/api/v2/stock/GAPPY/darvas").json()
+    assert body["meta"]["status"] == "ok"
+    rows = body["rows"]
+    # Box 1 is untouched; box 2 (open at the gap) is cut at the last pre-gap session, and no box straddles it.
+    assert [(r["top"], r["status"]) for r in rows[:2]] == [(110.0, "broken_up"), (113.0, "superseded")]
+    assert rows[1]["end_date"] == days[21].isoformat() and rows[1]["break_date"] is None
+    gap = days[22].isoformat()
+    assert all(r["end_date"] < gap or r["start_date"] >= gap for r in rows)
+    assert any("gap" in n for n in body["meta"].get("notes", []))

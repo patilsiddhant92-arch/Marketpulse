@@ -236,6 +236,52 @@ def bars(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> Re
     )
 
 
+def _gap_cuts(daily: pd.DataFrame, dates: list[date | None], gap_dates: list[date], tf: str) -> list[tuple[int, int]]:
+    """Clean [start, end) bar spans between unexplained price gaps.
+
+    D: a gap session starts a new span. W/M: the bar holding the gap mixes pre- and
+    post-gap prices unless the gap is its first session; such a bar is left out.
+    """
+    n = len(dates)
+    if not gap_dates or n == 0:
+        return [(0, n)]
+    sessions = sorted(d for d in (db.to_date(x) for x in daily["trade_date"]) if d is not None)
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for g in gap_dates:
+        k = next((i for i in range(start, n) if dates[i] is not None and dates[i] >= g), None)
+        if k is None:
+            break
+        nxt = k
+        if tf != "D":
+            before = [d for d in sessions if d < g]
+            prev_bar = dates[k - 1] if k > 0 else None
+            if before and (prev_bar is None or before[-1] > prev_bar):
+                nxt = k + 1  # pre-gap session sits inside bar k: drop the mixed bar
+        if k > start:
+            spans.append((start, k))
+        start = nxt
+    if start < n:
+        spans.append((start, n))
+    return spans
+
+
+def _segment_boxes(frame: pd.DataFrame, dates: list[date | None], spans: list[tuple[int, int]],
+                   fn: Any) -> list[dict[str, Any]]:
+    """Run the box finder per clean span; a span's still-open last box (cut by a gap) is superseded."""
+    out: list[dict[str, Any]] = []
+    for k, (a, b) in enumerate(spans):
+        part = frame.iloc[a:b]
+        segs = fn(part["high_price"], part["low_price"], part["close_price"], boxp=5)
+        for sg in segs:
+            sg = {**sg, **{f: (sg[f] + a if sg[f] is not None else None)
+                          for f in ("start_i", "formed_i", "end_i", "last_i", "break_i")}}
+            if sg["status"] == "active" and k < len(spans) - 1:
+                sg["status"] = "superseded"
+            out.append(sg)
+    return out
+
+
 def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> Result:
     """Historical Darvas boxes for any stock (not only queue members).
 
@@ -271,7 +317,12 @@ def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> 
             """,
             [symbol, resolved],
         ).fetchdf()
-    sources = ["prices_daily"]
+        ev = data_gaps.events(con)
+    gap_dates = sorted({
+        db.to_date(d) for d in ev.loc[ev["symbol"] == symbol, "gap_date"]
+        if db.to_date(d) is not None and db.to_date(d) <= resolved
+    }) if not ev.empty else []
+    sources = ["prices_daily", "price_adjustments"]
     if daily.empty:
         return unavailable(resolved, f"no bars for {symbol} on or before {resolved.isoformat()}", sources)
     frame = daily
@@ -281,7 +332,7 @@ def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> 
         frame = monthly_ohlc(daily, as_of=resolved)
     frame = frame.dropna(subset=["high_price", "low_price", "close_price"]).reset_index(drop=True)
     dates = [db.to_date(d) for d in frame["trade_date"]]
-    segs = darvas_box_segments(frame["high_price"], frame["low_price"], frame["close_price"], boxp=5)
+    segs = _segment_boxes(frame, dates, _gap_cuts(daily, dates, gap_dates, tf), darvas_box_segments)
     first_i = max(0, len(frame) - limit)
     rows = []
     for sg in segs:
@@ -302,11 +353,13 @@ def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> 
     return Result(
         as_of=resolved, rows=rows, sources=sources,
         extra={"symbol": symbol, "timeframe": tf, "prices_adjusted": adjusted, "box_period": 5,
-               "last_bar_date": dates[-1] if dates else None},
+               "last_bar_date": dates[-1] if dates else None, "gap_dates": gap_dates},
         notes=["Box = Pine valuewhen definition used by the Darvas Squeeze / 10-EMA queues (boxp 5); "
                "broken_up / broken_down = first close above top / below bottom; superseded = replaced by a newer box "
                "without a break; active = latest unbroken box."]
         + (["W boxes use completed weeks only (as the queue does)."] if tf == "W" else [])
+        + ([f"Boxes restart after unexplained price gap(s) on {', '.join(d.isoformat() for d in gap_dates)} "
+            "(no box spans a gap; a box cut by a gap is served as superseded)."] if gap_dates else [])
         + ([] if adjusted else ["prices_daily has no adj_* columns yet; boxes use raw prices."]),
     )
 
