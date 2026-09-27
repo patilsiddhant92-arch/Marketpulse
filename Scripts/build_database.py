@@ -951,6 +951,8 @@ def attach_52w_reference(indicators: pd.DataFrame, enrichment: pd.DataFrame) -> 
                 indicators["high_52w_date"] = pd.to_datetime(reference_rows["high_52w_date"], errors="coerce").dt.normalize().to_numpy()
             if "band_remarks" in reference_rows.columns:
                 indicators["band_remarks"] = reference_rows["band_remarks"].fillna("").astype(str).to_numpy()
+        except MemoryError:
+            raise  # out of memory is a failed build, never a silent 252d fallback
         except Exception as exc:
             print(f"Warning: as-of 52W join failed ({exc}); using only row-level 252d fallback.")
             nse_high = pd.to_numeric(indicators.get("high_252d"), errors="coerce")
@@ -1088,6 +1090,8 @@ def attach_benchmark_rs(
             for _col in TRUE_RS_COLUMNS:
                 if _col not in indicators.columns:
                     indicators[_col] = np.nan
+    except MemoryError:
+        raise  # out of memory is a failed build, never silently-NaN true RS
     except Exception as exc:
         print(f"  Warning: true RS skipped ({exc})", flush=True)
         for _col in TRUE_RS_COLUMNS:
@@ -1101,6 +1105,8 @@ def attach_benchmark_rs(
         _idx = load_all_index_history(ROOT_DIR) if index_raw is None else index_raw
         _mem = load_membership_csv() if membership is None else membership
         indicators = attach_sector_index_rs(indicators, _idx, _mem, None)
+    except MemoryError:
+        raise  # out of memory is a failed build, never silently-missing sector RS
     except Exception as exc:
         print(f"  Warning: sector-index RS skipped ({exc})", flush=True)
     return indicators
@@ -1590,6 +1596,10 @@ PRESERVED_TABLES = (
     "signal_outcomes",
     "schema_migrations",
 )
+# Scripts/derived tables: carried over from the live DB like preserved tables (so a rebuild that
+# does not recompute them - refresh_deals, or a derived-step failure - keeps the last copy), then
+# replaced when the derived step runs. Not row-count validated: a rebuild may shrink them.
+CARRIED_TABLES = ("regime_daily", "group_daily", "setup_daily", "deal_session_net")
 
 # os.replace onto a DB file another process (the app) has open fails on Windows; retry a few
 # times before giving up with the live DB intact and the new DB kept for a manual swap.
@@ -1643,7 +1653,7 @@ def _preserve_tables(con, live_db: Path, reference_history: pd.DataFrame | None)
         raise PreservationError(f"could not open live DB {live_db} to preserve tables: {exc}") from exc
     try:
         existing = {row[0] for row in old_con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
-        for table in PRESERVED_TABLES:
+        for table in (*PRESERVED_TABLES, *CARRIED_TABLES):
             if table not in existing:
                 continue
             try:
@@ -1674,10 +1684,14 @@ def build_temp_database(
     price_adjustments: pd.DataFrame | None = None,
     *,
     db_path: Path | None = None,
+    with_derived: bool = False,
 ) -> Path:
     """Write every table into ``<db>.tmp.duckdb`` (preserving user tables from the live DB),
     CHECKPOINT and close it. On any failure the temp file is removed and the error re-raised;
-    the live DB is never touched here."""
+    the live DB is never touched here.
+
+    ``with_derived`` also rebuilds the Scripts/derived tables from the finished temp tables
+    (fail-soft: a failure is reported and the carried-over copies are kept)."""
     db_path = Path(db_path) if db_path else DB_PATH
     if price_adjustments is None:
         price_adjustments = empty_adjustments_frame()
@@ -1766,6 +1780,11 @@ def build_temp_database(
                 con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
                 print(f"Created table security_reference_daily: {len(reference_history):,} rows")
 
+        if with_derived:
+            import derived_tables_step
+
+            derived_tables_step.rebuild_in_place(con, incremental=False, own_transaction=False)
+
         from migrations import _apply_always_on_repairs
 
         _apply_always_on_repairs(con)
@@ -1849,6 +1868,7 @@ def write_database(
     *,
     db_path: Path | None = None,
     materialize: bool = True,
+    with_derived: bool = False,
 ) -> Path | None:
     """Build a temp DB, then back up and atomically swap it over the live DB, under the writer
     lock. Returns the dated backup path (None for a first build)."""
@@ -1859,7 +1879,7 @@ def write_database(
         temp_db = build_temp_database(
             prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results,
             sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments,
-            db_path=db_path,
+            db_path=db_path, with_derived=with_derived,
         )
         backup_path = install_database(temp_db, db_path)
         if materialize:
@@ -1926,6 +1946,8 @@ def derived_tables_from_db(
     reference_history: pd.DataFrame,
     date_dtype=None,
     quiet: bool = False,
+    metric_reference: pd.DataFrame | None = None,
+    metric_index: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame]:
     """breadth_daily, sector_rotation, sector_metrics_daily and screener_results from the
     indicators_daily table in ``con``, each builder fed only the columns it reads."""
@@ -1938,18 +1960,7 @@ def derived_tables_from_db(
         print("  7b/8: Calculating sector rotation...")
     sector_rotation = build_sector_rotation(read_slim(con, "indicators_daily", ROTATION_COLUMNS, date_dtype=date_dtype), master)
     gc.collect()
-    try:
-        if not quiet:
-            print("  7c/8: Loading market-index history...")
-        index_raw = load_all_index_history(ROOT_DIR)
-        index_features = build_index_features(index_raw)
-    except Exception:
-        index_features = pd.DataFrame()
-    metric_reference = reference_history
-    if metric_reference.empty and {"symbol", "latest_price_date", "market_cap_cr"}.issubset(master.columns):
-        metric_reference = master[["symbol", "latest_price_date", "market_cap_cr"]].rename(
-            columns={"latest_price_date": "effective_date"}
-        )
+    index_features, metric_reference = _metric_inputs(reference_history, master, metric_reference, metric_index, quiet=quiet)
     if not quiet:
         print("  7d/8: Computing taxonomy metrics...")
     sector_metrics_daily = compute_sector_metrics(
@@ -1975,7 +1986,16 @@ def derived_tables_from_db(
     }
 
 
-def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, streaming: bool = True) -> dict:
+def compute_full_build(
+    quiet: bool = False,
+    *,
+    db_path: Path | None = None,
+    streaming: bool = True,
+    raw_prices: pd.DataFrame | None = None,
+    extra_actions: pd.DataFrame | None = None,
+    metric_reference: pd.DataFrame | None = None,
+    metric_index: pd.DataFrame | None = None,
+) -> dict:
     """Every table of a FULL rebuild. Returns keyword arguments for ``write_database`` /
     ``build_temp_database``.
 
@@ -1987,6 +2007,10 @@ def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, stre
     streaming_build) and returned as ``StagedTable`` handles, which ``build_temp_database``
     adopts as its temp DB; the other tables are built from slim column reads. The values are
     the same as ``streaming=False``, which computes everything in pandas like before.
+
+    The full-recompute fallback of the append passes ``raw_prices`` (stored history + new
+    sessions, symbol changes applied), ``extra_actions`` (the corporate_actions table) and its
+    own ``metric_reference`` / ``metric_index`` for sector metrics, as the old append did.
     """
     from streaming_build import connect_build_db, remove_db_file, stage_db_path, stream_full_indicators
 
@@ -1997,8 +2021,9 @@ def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, stre
     sector = read_sector()
     if not quiet:
         print("2/8: Reading historical price files (archive + daily)...")
-    prices = build_prices(None)
-    prices, price_adjustments = adjust_prices(prices, ROOT_DIR)
+    prices = build_prices(None) if raw_prices is None else raw_prices
+    del raw_prices
+    prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
     print(summarize_adjustments(price_adjustments))
     if not quiet:
         print("3/8: Reading market cap, price band, PE, and 52-week reference files...")
@@ -2013,10 +2038,12 @@ def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, stre
     reference_history = load_reference_history(ROOT_DIR)
     if not streaming:
         return _compute_full_build_in_memory(
-            prices, price_adjustments, master, enrichment, reference_history, mcap, bands, pe, high52, quiet=quiet
+            prices, price_adjustments, master, enrichment, reference_history, mcap, bands, pe, high52, quiet=quiet,
+            metric_reference=metric_reference, metric_index=metric_index,
         )
 
     stage_path = stage_db_path(Path(db_path) if db_path else DB_PATH)
+    stage_path.parent.mkdir(parents=True, exist_ok=True)
     remove_db_file(stage_path)
     date_dtype = prices["trade_date"].dtype
     price_info = {
@@ -2052,7 +2079,8 @@ def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, stre
             print("7/8: Building breadth and sector rotation metrics...")
         enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
         derived = derived_tables_from_db(
-            con, master=master, deals=deals, reference_history=reference_history, date_dtype=date_dtype, quiet=quiet
+            con, master=master, deals=deals, reference_history=reference_history, date_dtype=date_dtype, quiet=quiet,
+            metric_reference=metric_reference, metric_index=metric_index,
         )
         con.execute("CHECKPOINT")
     except BaseException:
@@ -2072,8 +2100,31 @@ def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, stre
     }
 
 
+def _metric_inputs(reference_history, master, metric_reference=None, metric_index=None, *, quiet: bool = False):
+    """(index features, as-of reference) for compute_sector_metrics: the full build loads the
+    MA index history and falls back to the latest market cap in master; the append passes its own."""
+    if metric_index is not None:
+        index_features = metric_index
+    else:
+        try:
+            if not quiet:
+                print("  7c/8: Loading market-index history...")
+            index_raw = load_all_index_history(ROOT_DIR)
+            index_features = build_index_features(index_raw)
+        except Exception:
+            index_features = pd.DataFrame()
+    if metric_reference is None:
+        metric_reference = reference_history
+        if metric_reference.empty and {"symbol", "latest_price_date", "market_cap_cr"}.issubset(master.columns):
+            metric_reference = master[["symbol", "latest_price_date", "market_cap_cr"]].rename(
+                columns={"latest_price_date": "effective_date"}
+            )
+    return index_features, metric_reference
+
+
 def _compute_full_build_in_memory(
-    prices, price_adjustments, master, enrichment, reference_history, mcap, bands, pe, high52, *, quiet: bool = False
+    prices, price_adjustments, master, enrichment, reference_history, mcap, bands, pe, high52, *, quiet: bool = False,
+    metric_reference: pd.DataFrame | None = None, metric_index: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame]:
     """The pre-streaming full build: every table computed in pandas (needs RAM for the whole
     indicators frame; kept for small DBs and as the reference implementation)."""
@@ -2094,18 +2145,7 @@ def _compute_full_build_in_memory(
     if not quiet:
         print("  7b/8: Calculating sector rotation...")
     sector_rotation = build_sector_rotation(indicators, master)
-    try:
-        if not quiet:
-            print("  7c/8: Loading market-index history...")
-        index_raw = load_all_index_history(ROOT_DIR)
-        index_features = build_index_features(index_raw)
-    except Exception:
-        index_features = pd.DataFrame()
-    metric_reference = reference_history
-    if metric_reference.empty and {"symbol", "latest_price_date", "market_cap_cr"}.issubset(master.columns):
-        metric_reference = master[["symbol", "latest_price_date", "market_cap_cr"]].rename(
-            columns={"latest_price_date": "effective_date"}
-        )
+    index_features, metric_reference = _metric_inputs(reference_history, master, metric_reference, metric_index, quiet=quiet)
     if not quiet:
         print("  7d/8: Computing taxonomy metrics...")
     sector_metrics_daily = compute_sector_metrics(indicators, master, metric_reference, index_features, deals)
@@ -2148,7 +2188,7 @@ def main() -> None:
     if not args.quiet:
         print("8/8: Writing database file...")
     try:
-        write_database(**frames)
+        write_database(**frames, with_derived=True)
     except BaseException:
         discard_staged(frames)
         raise

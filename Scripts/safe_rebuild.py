@@ -142,7 +142,7 @@ def run(db_path: Path, *, dry_run: bool = False, keep_temp: bool = False, quiet:
     try:
         with writer_lock(db_path, owner="safe_rebuild"):
             try:
-                temp = build_temp_database(**frames, db_path=db_path)
+                temp = build_temp_database(**frames, db_path=db_path, with_derived=True)
             except PreservationError as exc:
                 print(f"ABORTED: {exc}. Target DB untouched.")
                 return 2

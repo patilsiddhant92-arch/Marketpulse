@@ -34,11 +34,11 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     from Scripts.price_adjustment import PRICE_COLS  # type: ignore
 
-# Batch sizing: rows per symbol batch and batches in flight. A batch of 40k rows peaks at
-# roughly 0.3 GB inside a worker (the per-symbol pass + the RS/sector copies); with 6 workers
-# and 8 batches in flight the pool stays well under 3 GB.
-DEFAULT_BATCH_ROWS = int(os.environ.get("MP_BUILD_BATCH_ROWS", "40000") or 40000)
-DEFAULT_WORKERS = int(os.environ.get("MP_BUILD_WORKERS", "6") or 6)
+# Batch sizing: rows per symbol batch and worker processes. A 30k-row batch peaks at roughly
+# 0.25 GB inside a worker (per-symbol pass + RS/sector copies) on top of ~0.15 GB of imports;
+# with 4 workers and at most 2 batches per worker in flight the pool stays under ~2 GB.
+DEFAULT_BATCH_ROWS = int(os.environ.get("MP_BUILD_BATCH_ROWS", "30000") or 30000)
+DEFAULT_WORKERS = int(os.environ.get("MP_BUILD_WORKERS", "4") or 4)
 # DuckDB's own buffer pool (default: 80% of RAM) is capped for the build connections.
 DUCKDB_MEMORY_LIMIT = os.environ.get("MP_BUILD_DUCKDB_MEMORY", "2GB") or "2GB"
 
@@ -378,6 +378,8 @@ def run_batches(
                     _deliver(result)
                     del result
             return
+        except MemoryError:
+            raise
         except Exception as exc:
             if state["done"] and reset is None:
                 raise
