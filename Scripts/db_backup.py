@@ -2,7 +2,7 @@
 
 ``backup_database`` copies ``<dir>/<stem>.duckdb`` to
 ``<dir>/backups/<stem>_YYYYmmdd_HHMMSS.duckdb`` (plus its ``.wal`` if one exists) and keeps
-the newest ``keep`` copies. The copy is written under a ``.part`` name and renamed into place,
+the newest ``keep`` copies (2 by default for the market DB, 7 for the small user DB). The copy is written under a ``.part`` name and renamed into place,
 so a crash mid-copy never leaves a truncated file that looks like a backup. The source is
 CHECKPOINTed first when a write connection can be opened (it cannot while another process
 has the file open; the WAL is copied alongside in that case).
@@ -17,7 +17,10 @@ from pathlib import Path
 
 import duckdb
 
-DEFAULT_KEEP = int(os.environ.get("MP_DB_BACKUP_KEEP", "5") or 5)
+# Market-DB backups are full copies (GBs each on a multi-year history): keep the newest 2
+# (user decision). There is no other backup slot - the old single-slot copies
+# (marketpulse.backup / .preappend.backup / .predeals.backup) are no longer written anywhere.
+DEFAULT_KEEP = int(os.environ.get("MP_DB_BACKUP_KEEP", "2") or 2)
 DEFAULT_USER_KEEP = 7
 # Head-room required on the backup volume beyond the file size itself.
 _FREE_MARGIN_BYTES = 256 * 1024 * 1024

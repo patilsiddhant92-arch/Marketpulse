@@ -77,3 +77,17 @@ def test_user_db_backup_keeps_seven(tmp_path):
         db_backup.backup_user_db(user, now=datetime(2026, 9, 1 + i, 21))
     left = list((tmp_path / "backups").glob("marketpulse_user_*.duckdb"))
     assert len(left) == 7
+
+
+def test_market_db_default_keeps_two(tmp_path, monkeypatch):
+    """User decision: the market DB keeps only the 2 newest dated backups by default."""
+    from datetime import datetime, timedelta
+
+    assert db_backup.DEFAULT_KEEP == 2
+    db = tmp_path / "marketpulse.duckdb"
+    db.write_bytes(b"x" * 16)
+    start = datetime(2026, 9, 1)
+    for i in range(4):
+        db_backup.backup_database(db, now=start + timedelta(days=i), do_checkpoint=False)
+    kept = db_backup.list_backups(db)
+    assert [p.name for p in kept] == ["marketpulse_20260903_000000.duckdb", "marketpulse_20260904_000000.duckdb"]
