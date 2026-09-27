@@ -423,15 +423,15 @@ metrics:
 
   - key: delivery_vs_20d
     plain_name: Delivery % vs its 20-day average
-    unit: pct_points
-    measures: "Today's delivery % minus the stock's own average delivery % over the last 20 sessions."
+    unit: ratio
+    measures: "Today's delivery % divided by the stock's own average delivery % over the last 20 sessions (1.0x = normal)."
     zones:
-      - {range: ">= +15", label: Delivery spike, tone: good, why: "Unusually many buyers are holding; on an up day this points to accumulation."}
-      - {range: "-10 to +15", label: Normal, tone: neutral, why: "In line with the stock's usual pattern."}
-      - {range: "< -10", label: Low, tone: caution, why: "Today's move was driven by intraday trading more than usual; treat it with suspicion."}
+      - {range: ">= 1.5", label: Delivery spike, tone: good, why: "Half again more of today's volume went into delivery than usual; on an up day this points to accumulation."}
+      - {range: "0.8-1.5", label: Normal, tone: neutral, why: "In line with the stock's usual pattern."}
+      - {range: "< 0.8", label: Low, tone: caution, why: "Today's move was driven by intraday trading more than usual; treat it with suspicion."}
     read_with: [delivery_pct, change_1d_pct]
     read_with_why: "Delivery spike plus up day is accumulation; delivery spike plus down day can be holders exiting."
-    definition_sql_ref: "App/services/stock.py:delivery_vs_20d"
+    definition_sql_ref: "App/services/universe.py:delivery_vs_20d (delivery_pct / avg_delivery_pct_20d)"
 
   - key: adr_20_pct
     plain_name: Average daily range
@@ -662,10 +662,10 @@ metrics:
     unit: pct
     measures: "How far the current close is below the trigger, in %."
     zones:
-      - {range: "<= 2", label: Ready, tone: good, why: "Could trigger tomorrow; set the alert or buy-stop."}
+      - {range: "< 0", label: Past trigger, tone: caution, why: "Already above the trigger; buying now means more risk than the setup planned. Don't chase beyond ~3%."}
+      - {range: "0-2", label: Ready, tone: good, why: "Could trigger tomorrow; set the alert or buy-stop."}
       - {range: "2-5", label: Close, tone: neutral, why: "A few good days away."}
       - {range: "> 5", label: Far, tone: neutral, why: "Needs time; keep on the watchlist."}
-      - {range: "< 0", label: Past trigger, tone: caution, why: "Already above the trigger; buying now means more risk than the setup planned. Don't chase beyond ~3%."}
     read_with: [trigger_price, rvol]
     read_with_why: "Near trigger with volume building often precedes the breakout."
     definition_sql_ref: "setup_daily.distance_pct"
