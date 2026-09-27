@@ -9,7 +9,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useApiQuery } from '../../api/query';
 import type { DealHolding, DealLeaderRow, DealPrintRow, DealStarRow, DealWindowRow } from '../../api/types';
 import { cn } from '../../lib/cn';
-import { fmtDate, fmtNum } from '../../lib/fmt';
+import { fmtDate, fmtNum, fmtSignedPct } from '../../lib/fmt';
 import { useShell } from '../../shell/ShellContext';
 import { useUrlParam } from '../../shell/urlState';
 import { Chip, type ChipTone } from '../../ui/Chip';
@@ -412,7 +412,7 @@ export function StarView({ lookback, text, onHouse }: { lookback: number; text: 
       { id: 'px', header: 'Deal price', accessor: 'deal_price', format: 'num', digits: 2, width: 76 },
       { id: 'entry', header: 'Entry (next open)', accessor: 'entry_open', format: 'num', digits: 2, width: 96 },
       { id: 'cmp', header: 'CMP', accessor: 'cmp', format: 'num', digits: 2, width: 72 },
-      { id: 'gain', header: 'Gain %', accessor: 'gain_pct', format: 'signedPct', digits: 1, width: 66, cell: (v) => <span className={cn('num', (v as number) > 0 ? 'text-up' : (v as number) < 0 ? 'text-down' : '')}>{fmtNum(v as number, 1)}%</span> },
+      { id: 'gain', header: 'Gain %', accessor: 'gain_pct', format: 'signedPct', digits: 1, width: 66, cell: (v) => <span className={cn('num', (v as number) > 0 ? 'text-up' : (v as number) < 0 ? 'text-down' : '')}>{fmtSignedPct(v as number, 1)}</span> },
       { id: 'peak', header: 'Peak run-up', accessor: 'peak_runup_pct', format: 'signedPct', digits: 1, width: 78 },
       { id: 'hold', header: 'Holding days', accessor: 'holding_days', format: 'int', width: 74 },
       { id: 'value', header: 'Value ₹Cr', accessor: 'deal_cr', format: 'num', digits: 1, width: 72 },
@@ -564,8 +564,8 @@ export function LeaderView({ lookback, text, onHouse }: { lookback: number; text
                 full track record
               </button>
               <span className="ml-auto flex items-center gap-2">
-                <TvCopyBar title={`${focusRow.house.slice(0, 30)} net long`} symbols={longSyms} />
-                <TvCopyBar title={`${focusRow.house.slice(0, 30)} names`} symbols={allSyms} />
+                <TvCopyBar title={`${focusRow.house.slice(0, 30)} net long`} symbols={longSyms} label="TradingView: net long" />
+                <TvCopyBar title={`${focusRow.house.slice(0, 30)} names`} symbols={allSyms} label="TradingView: all names" />
               </span>
             </div>
             <DataTable

@@ -663,6 +663,8 @@ def _window_rows(con: Any, resolved: date, lookback: int) -> tuple[list[dict[str
     if not days or frame.empty:
         return [], days, src
     f = frame[frame["trade_date"].isin(days)].copy()
+    # Rights entitlements (-RE / -RE1 / _RE) are not tradable positions: the old desk banned them too.
+    f = f[~f["symbol"].astype(str).str.upper().str.contains(r"[-_]RE\d*$", regex=True)]
     if f.empty:
         return [], days, src
     for c in ("buy_cr", "sell_cr", "net_ex_prop_cr", "fii_net_cr", "dii_net_cr", "prop_value_cr", "matched_value_cr"):

@@ -4,7 +4,7 @@
  * as Desk / Screener (lib/tradingview): ###Section,NSE:SYM,NSE:SYM (dash -> underscore).
  */
 import { Check, ClipboardCopy } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { copyText } from '../../lib/clipboard';
 import { formatTradingViewList } from '../../lib/tradingview';
 import type { DataTableColumn, RowData } from '../../ui/DataTable';
@@ -30,7 +30,8 @@ export function useSelection() {
     });
   }, []);
   const clear = useCallback(() => setSelected(new Set()), []);
-  return { selected, toggle, setMany, clear };
+  // Stable identity: columns memoised on it must not rebuild (and re-sort the table) every render.
+  return useMemo(() => ({ selected, toggle, setMany, clear }), [selected, toggle, setMany, clear]);
 }
 
 /** Leading checkbox column; `visible` = symbols currently shown (header box ticks them all). */
@@ -75,7 +76,7 @@ export function selectColumn<T extends RowData>(
   };
 }
 
-export function TvCopyBar({ title, symbols, selected, onClear }: { title: string; symbols: readonly string[]; selected?: ReadonlySet<string>; onClear?: () => void }) {
+export function TvCopyBar({ title, symbols, selected, onClear, label = 'Copy to TradingView' }: { title: string; symbols: readonly string[]; selected?: ReadonlySet<string>; onClear?: () => void; label?: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const copy = async (list: readonly string[], label: string) => {
     const { text, count } = formatTradingViewList([{ title, symbols: list }]);
@@ -95,7 +96,7 @@ export function TvCopyBar({ title, symbols, selected, onClear }: { title: string
         title={`Copy the list as shown in TradingView watchlist format (###${title},NSE:SYM,…)`}
         className="inline-flex items-center gap-1 rounded border border-line px-2 py-0.5 text-xs text-fg-2 hover:bg-surface-3 disabled:opacity-50"
       >
-        <ClipboardCopy className="h-3.5 w-3.5" /> Copy to TradingView ({symbols.length})
+        <ClipboardCopy className="h-3.5 w-3.5" /> {label} ({symbols.length})
       </button>
       {selected && (
         <button

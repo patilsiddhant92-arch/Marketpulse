@@ -37,6 +37,7 @@ const VIEWS: readonly View[] = ['today', 'repeated', 'play', 'star', 'leader', '
 type EventFilter = 'all' | 'flow' | 'strategic' | 'churn';
 const EMPTY: DealSessionRow[] = [];
 const EMPTY_H: HouseRow[] = [];
+const EMPTY_DATES: (string | null)[] = [];
 
 function Align({ ok, label, title }: { ok: boolean | null | undefined; label: string; title: string }) {
   if (ok == null) return <span className="text-2xs text-fg-3" title={`${title}: unknown`}>·</span>;
@@ -402,7 +403,7 @@ export default function DealsRoute() {
     | { deal_session?: string | null; no_records_for_session?: boolean; excluded_below_floor?: number; event_counts?: Record<string, number>; net_10s_dates?: (string | null)[] }
     | undefined;
   const rows = q.data?.rows ?? EMPTY;
-  const dates = ctx?.net_10s_dates ?? [];
+  const dates = ctx?.net_10s_dates ?? EMPTY_DATES;
   const buySyms = useMemo(() => splitSession(rows).main.filter((r) => r.event_type === 'accumulate' || r.event_type === 'fresh').map((r) => r.symbol).filter((s): s is string => !!s), [rows]);
 
   return (
