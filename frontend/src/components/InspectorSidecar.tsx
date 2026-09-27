@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineType, LineStyle } from 'lightweight-charts';
+import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, IChartApi, ISeriesApi, LineType, LineStyle } from 'lightweight-charts';
 import { Candle, DealMarker, ChartResponse, PeerComparisonResponse } from '../types';
 import {
   Activity,
@@ -117,7 +117,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
     });
 
     // 1. Candlestick Series
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#f43f5e',
       borderVisible: false,
@@ -136,7 +136,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
     candlestickSeries.setData(formattedCandles);
 
     // 2. Darvas Box Top (Green Line) - Physical Step Line
-    const darvasTopSeries = chart.addLineSeries({
+    const darvasTopSeries = chart.addSeries(LineSeries, {
       color: '#22c55e',
       lineWidth: 2,
       lineType: LineType.WithSteps,
@@ -151,7 +151,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
     );
 
     // 3. Darvas Box Floor (Red Line) - Physical Step Line
-    const darvasBottomSeries = chart.addLineSeries({
+    const darvasBottomSeries = chart.addSeries(LineSeries, {
       color: '#ef4444',
       lineWidth: 2,
       lineType: LineType.WithSteps,
@@ -167,7 +167,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
 
     // 3b. Future 5 Trading Sessions Projection (Green/Red/Cyan Dotted Lines)
     if (chartData.darvas_future && chartData.darvas_future.length > 0) {
-      const darvasTopFutureSeries = chart.addLineSeries({
+      const darvasTopFutureSeries = chart.addSeries(LineSeries, {
         color: '#22c55e',
         lineWidth: 2,
         lineType: LineType.WithSteps,
@@ -181,7 +181,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
           .map((f) => ({ time: f.time, value: f.top }))
       );
 
-      const darvasBottomFutureSeries = chart.addLineSeries({
+      const darvasBottomFutureSeries = chart.addSeries(LineSeries, {
         color: '#ef4444',
         lineWidth: 2,
         lineType: LineType.WithSteps,
@@ -196,7 +196,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
       );
 
       // 10 EMA Future Projection (White dotted line per Pine Script SUCCESS reference)
-      const ema10FutureSeries = chart.addLineSeries({
+      const ema10FutureSeries = chart.addSeries(LineSeries, {
         color: '#f8fafc',
         lineWidth: 2,
         lineType: LineType.Simple,
@@ -213,7 +213,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
 
     if (!showSma) {
       // 4. EMA 10 (White) & EMA 20 (Yellow) per Pine Script SUCCESS reference
-      const ema10Series = chart.addLineSeries({
+      const ema10Series = chart.addSeries(LineSeries, {
         color: '#f8fafc',
         lineWidth: 2,
         priceLineVisible: false,
@@ -225,7 +225,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
           .map((c) => ({ time: c.time, value: c.ema10 }))
       );
 
-      const ema20Series = chart.addLineSeries({
+      const ema20Series = chart.addSeries(LineSeries, {
         color: '#fbbf24',
         lineWidth: 1,
         priceLineVisible: false,
@@ -238,7 +238,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
       );
     } else {
       // 5. SMA 50, 150, 200 Overlays
-      const sma50Series = chart.addLineSeries({
+      const sma50Series = chart.addSeries(LineSeries, {
         color: '#f59e0b',
         lineWidth: 1,
         priceLineVisible: false,
@@ -250,7 +250,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
           .map((c) => ({ time: c.time, value: c.sma50 }))
       );
 
-      const sma150Series = chart.addLineSeries({
+      const sma150Series = chart.addSeries(LineSeries, {
         color: '#a855f7',
         lineWidth: 1,
         priceLineVisible: false,
@@ -262,7 +262,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
           .map((c) => ({ time: c.time, value: c.sma150 }))
       );
 
-      const sma200Series = chart.addLineSeries({
+      const sma200Series = chart.addSeries(LineSeries, {
         color: '#ec4899',
         lineWidth: 2,
         priceLineVisible: false,
@@ -277,7 +277,7 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
 
     // 6. Stamp Institutional Block/Bulk Deal Markers - Clean dots above candle, no text clutter
     if (chartData.deal_markers && chartData.deal_markers.length > 0) {
-      candlestickSeries.setMarkers(
+      createSeriesMarkers(candlestickSeries, 
         chartData.deal_markers.map((m: DealMarker) => ({
           time: m.time,
           position: m.position || 'aboveBar',
@@ -609,9 +609,9 @@ export const InspectorSidecar: React.FC<InspectorSidecarProps> = ({
 
                   <div className="grid grid-cols-5 gap-1 text-center font-mono">
                     {chartData.institutional_footprint.rvol_trail_5d.map((rv, idx) => {
-                      const deliv = chartData.institutional_footprint.deliv_trail_5d?.[idx] ?? 0;
-                      const pct = chartData.institutional_footprint.day_pct_trail_5d?.[idx] ?? 0;
-                      const isLatest = idx === chartData.institutional_footprint.rvol_trail_5d.length - 1;
+                      const deliv = chartData.institutional_footprint!.deliv_trail_5d?.[idx] ?? 0;
+                      const pct = chartData.institutional_footprint!.day_pct_trail_5d?.[idx] ?? 0;
+                      const isLatest = idx === chartData.institutional_footprint!.rvol_trail_5d.length - 1;
 
                       return (
                         <div

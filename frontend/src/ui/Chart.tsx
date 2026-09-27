@@ -1,0 +1,527 @@
+/**
+ * Chart — lightweight-charts v5 wrapper (spec 9, 7.7, 7.8).
+ *
+ * Panes: 0 = candles + EMAs + overlays, 1 = volume coloured by delivery %,
+ * 2 = RS line (optional). D/W/M toggle (client-side resample of daily bars
+ * unless the caller supplies per-timeframe bars), corporate-action / results /
+ * deal markers, date-synced crosshair across charts sharing `syncGroup`,
+ * ResizeObserver sizing. Colours come from design tokens.
+ */
+import {
+  CandlestickSeries,
+  ColorType,
+  CrosshairMode,
+  HistogramSeries,
+  LineSeries,
+  LineStyle,
+  PriceScaleMode,
+  createChart,
+  createSeriesMarkers,
+  type IChartApi,
+  type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type MouseEventParams,
+  type SeriesMarker,
+  type Time,
+} from 'lightweight-charts';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '../lib/cn';
+import { fmtCompactIN, fmtDate, fmtNum, fmtPct, fmtSignedPct } from '../lib/fmt';
+import { ema, resampleBars, type OHLCBar } from '../lib/indicators';
+import { tokenColor, type TokenName } from '../lib/tokens';
+
+export type Timeframe = 'D' | 'W' | 'M';
+
+export type ChartMarkerKind = 'split' | 'bonus' | 'results' | 'ex_date' | 'demerger' | 'deal_buy' | 'deal_sell' | 'custom';
+
+export interface ChartMarker {
+  time: string; // YYYY-MM-DD
+  kind: ChartMarkerKind;
+  /** Short label drawn next to the marker (1-3 chars recommended). */
+  text?: string;
+}
+
+export interface LinePoint {
+  time: string;
+  value: number | null;
+}
+
+export interface ChartOverlay {
+  id: string;
+  label: string;
+  data: LinePoint[];
+  color?: TokenName;
+  dashed?: boolean;
+}
+
+export interface ChartProps {
+  /** Adjusted daily (or timeframe-specific) bars, oldest first. */
+  bars: readonly OHLCBar[];
+  timeframe?: Timeframe;
+  /** Show the D/W/M toggle; omit to hide it. */
+  onTimeframeChange?: (tf: Timeframe) => void;
+  /** Resample daily bars client-side for W/M (default true). Set false if `bars` already match `timeframe`. */
+  resample?: boolean;
+  /** EMA periods computed client-side from displayed closes (default 10/20/50/200). */
+  emaPeriods?: readonly number[];
+  /** Server-provided lines on the price pane (Darvas box, pivots...). */
+  overlays?: readonly ChartOverlay[];
+  /** Volume pane coloured by delivery % (default true). */
+  volume?: boolean;
+  /** RS line pane; `newHighs` marks RS new-high sessions. */
+  rs?: { label: string; data: readonly (LinePoint & { new_high?: boolean | null })[] } | null;
+  markers?: readonly ChartMarker[];
+  /** Charts with the same group share a date-synced crosshair. */
+  syncGroup?: string;
+  logScale?: boolean;
+  /** Fixed height in px; default fills the parent. */
+  height?: number;
+  /** Visible bars on first render (default 150). */
+  initialBars?: number;
+  showLegend?: boolean;
+  onCrosshairTime?: (time: string | null) => void;
+  /** Accessible name, e.g. "HAL daily chart". */
+  label: string;
+  className?: string;
+}
+
+const EMA_COLORS: Record<number, TokenName> = { 10: 'ema-10', 20: 'ema-20', 50: 'ema-50', 200: 'ema-200' };
+const DEFAULT_EMAS = [10, 20, 50, 200] as const;
+
+// ------------------------------------------------------------------ crosshair sync bus
+
+interface SyncMember {
+  id: number;
+  setTime: (time: string | null) => void;
+}
+const syncGroups = new Map<string, Set<SyncMember>>();
+let syncSeq = 1;
+
+function joinSync(group: string, member: SyncMember): () => void {
+  let set = syncGroups.get(group);
+  if (!set) {
+    set = new Set();
+    syncGroups.set(group, set);
+  }
+  set.add(member);
+  return () => {
+    set!.delete(member);
+    if (set!.size === 0) syncGroups.delete(group);
+  };
+}
+
+function broadcast(group: string, fromId: number, time: string | null) {
+  syncGroups.get(group)?.forEach((m) => {
+    if (m.id !== fromId) m.setTime(time);
+  });
+}
+
+// ------------------------------------------------------------------ helpers
+
+function timeToISO(t: Time | undefined): string | null {
+  if (t === undefined) return null;
+  if (typeof t === 'string') return t;
+  if (typeof t === 'number') return new Date(t * 1000).toISOString().slice(0, 10);
+  return `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+}
+
+/** Index of the first bar whose time >= iso (bars sorted); -1 if none. */
+function firstBarAtOrAfter(bars: readonly OHLCBar[], iso: string): number {
+  let lo = 0;
+  let hi = bars.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time >= iso) {
+      ans = mid;
+      hi = mid - 1;
+    } else lo = mid + 1;
+  }
+  return ans;
+}
+
+/** Index of the last bar whose time <= iso; -1 if none. */
+function lastBarAtOrBefore(bars: readonly OHLCBar[], iso: string): number {
+  let lo = 0;
+  let hi = bars.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time <= iso) {
+      ans = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return ans;
+}
+
+function markerStyle(kind: ChartMarkerKind): Pick<SeriesMarker<Time>, 'position' | 'shape' | 'color'> & { text: string } {
+  switch (kind) {
+    case 'split':
+      return { position: 'belowBar', shape: 'square', color: tokenColor('violet'), text: 'S' };
+    case 'bonus':
+      return { position: 'belowBar', shape: 'square', color: tokenColor('violet'), text: 'B' };
+    case 'demerger':
+      return { position: 'belowBar', shape: 'square', color: tokenColor('warn'), text: 'D' };
+    case 'results':
+      return { position: 'aboveBar', shape: 'circle', color: tokenColor('info'), text: 'R' };
+    case 'ex_date':
+      return { position: 'belowBar', shape: 'circle', color: tokenColor('warn'), text: 'X' };
+    case 'deal_buy':
+      return { position: 'belowBar', shape: 'arrowUp', color: tokenColor('up'), text: '' };
+    case 'deal_sell':
+      return { position: 'aboveBar', shape: 'arrowDown', color: tokenColor('down'), text: '' };
+    default:
+      return { position: 'aboveBar', shape: 'circle', color: tokenColor('fg-3'), text: '' };
+  }
+}
+
+/** Volume bar colour: direction hue, opacity scaled by delivery % (NULL = faint). */
+function volumeColor(bar: OHLCBar): string {
+  const up = bar.close >= bar.open;
+  const d = bar.delivery_pct;
+  const alpha = d == null ? 0.25 : Math.min(0.9, 0.25 + (Math.max(0, Math.min(100, d)) / 100) * 0.8);
+  return tokenColor(up ? 'up' : 'down', Number(alpha.toFixed(2)));
+}
+
+interface Legend {
+  bar: OHLCBar;
+  change: number | null;
+  rs: number | null;
+}
+
+// ------------------------------------------------------------------ component
+
+export function Chart({
+  bars,
+  timeframe = 'D',
+  onTimeframeChange,
+  resample = true,
+  emaPeriods = DEFAULT_EMAS,
+  overlays,
+  volume = true,
+  rs,
+  markers,
+  syncGroup,
+  logScale = false,
+  height,
+  initialBars = 150,
+  showLegend = true,
+  onCrosshairTime,
+  label,
+  className,
+}: ChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const emaRefs = useRef<Map<number, ISeriesApi<'Line'>>>(new Map());
+  const overlayRefs = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
+  const rsRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const rsMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const syncIdRef = useRef(syncSeq++);
+  const suppressRef = useRef(false);
+  const onCrosshairRef = useRef(onCrosshairTime);
+  const [hoverLegend, setHoverLegend] = useState<Legend | null>(null);
+
+  useEffect(() => {
+    onCrosshairRef.current = onCrosshairTime;
+  });
+
+  const shown = useMemo(() => (resample ? resampleBars(bars, timeframe) : bars.slice()), [bars, timeframe, resample]);
+  const rsByTime = useMemo(() => {
+    const m = new Map<string, number | null>();
+    rs?.data.forEach((p) => m.set(p.time, p.value));
+    return m;
+  }, [rs]);
+  // Latest values for chart callbacks (which are created once per structure).
+  const shownRef = useRef(shown);
+  const rsByTimeRef = useRef(rsByTime);
+  useLayoutEffect(() => {
+    shownRef.current = shown;
+    rsByTimeRef.current = rsByTime;
+  });
+
+  /** Legend: hovered bar, else the last bar. */
+  const legend = useMemo<Legend | null>(() => {
+    if (hoverLegend) return hoverLegend;
+    const n = shown.length;
+    const last = shown[n - 1];
+    if (!last) return null;
+    const prev = shown[n - 2];
+    return { bar: last, change: prev ? ((last.close - prev.close) / prev.close) * 100 : null, rs: rsByTime.get(last.time) ?? null };
+  }, [hoverLegend, shown, rsByTime]);
+
+  const emaKey = emaPeriods.join(',');
+  const overlayKey = (overlays ?? []).map((o) => `${o.id}:${o.color ?? ''}:${o.dashed ? 1 : 0}`).join('|');
+  const hasRs = !!rs;
+
+  // ---- create chart + series (structure changes rebuild)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const chart = createChart(el, {
+      width: el.clientWidth || 600,
+      height: el.clientHeight || height || 360,
+      layout: {
+        background: { type: ColorType.Solid, color: tokenColor('surface') },
+        textColor: tokenColor('fg-3'),
+        fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-mono') || 'monospace',
+        fontSize: 11,
+        attributionLogo: false,
+        panes: { separatorColor: tokenColor('line'), separatorHoverColor: tokenColor('line-strong'), enableResize: true },
+      },
+      grid: { vertLines: { color: tokenColor('chart-grid') }, horzLines: { color: tokenColor('chart-grid') } },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: tokenColor('line'), mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal },
+      timeScale: { borderColor: tokenColor('line'), rightOffset: 4, minBarSpacing: 0.5 },
+      localization: { locale: 'en-IN' },
+    });
+    chartRef.current = chart;
+
+    candleRef.current = chart.addSeries(CandlestickSeries, {
+      upColor: tokenColor('up'),
+      downColor: tokenColor('down'),
+      borderUpColor: tokenColor('up'),
+      borderDownColor: tokenColor('down'),
+      wickUpColor: tokenColor('up'),
+      wickDownColor: tokenColor('down'),
+      priceLineVisible: false,
+    });
+    markersRef.current = createSeriesMarkers(candleRef.current, []);
+
+    emaRefs.current = new Map();
+    for (const p of emaPeriods) {
+      emaRefs.current.set(
+        p,
+        chart.addSeries(LineSeries, {
+          color: tokenColor(EMA_COLORS[p] ?? 'fg-3', 0.9),
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          title: '',
+        }),
+      );
+    }
+    overlayRefs.current = new Map();
+    for (const o of overlays ?? []) {
+      overlayRefs.current.set(
+        o.id,
+        chart.addSeries(LineSeries, {
+          color: tokenColor(o.color ?? 'accent'),
+          lineWidth: 1,
+          lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        }),
+      );
+    }
+
+    volumeRef.current = null;
+    if (volume) {
+      volumeRef.current = chart.addSeries(
+        HistogramSeries,
+        { priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false },
+        1,
+      );
+    }
+    rsRef.current = null;
+    rsMarkersRef.current = null;
+    if (hasRs) {
+      rsRef.current = chart.addSeries(
+        LineSeries,
+        { color: tokenColor('accent'), lineWidth: 1, priceLineVisible: false, lastValueVisible: true },
+        volume ? 2 : 1,
+      );
+      rsMarkersRef.current = createSeriesMarkers(rsRef.current, []);
+    }
+    const panes = chart.panes();
+    if (panes[1]) panes[1].setHeight(volume && hasRs ? 70 : 90);
+    if (panes[2]) panes[2].setHeight(80);
+
+    // ---- crosshair: legend + sync
+    const onMove = (param: MouseEventParams<Time>) => {
+      const iso = timeToISO(param.time);
+      const data = shownRef.current;
+      const idx = iso ? lastBarAtOrBefore(data, iso) : -1;
+      const bar = idx >= 0 ? data[idx] : undefined;
+      if (bar) {
+        const prev = idx > 0 ? data[idx - 1] : undefined;
+        setHoverLegend({
+          bar,
+          change: prev ? ((bar.close - prev.close) / prev.close) * 100 : null,
+          rs: rsByTimeRef.current.get(bar.time) ?? null,
+        });
+      } else setHoverLegend(null);
+      if (suppressRef.current) return;
+      onCrosshairRef.current?.(iso);
+      if (syncGroup) broadcast(syncGroup, syncIdRef.current, iso);
+    };
+    chart.subscribeCrosshairMove(onMove);
+
+    const leaveSync = syncGroup
+      ? joinSync(syncGroup, {
+          id: syncIdRef.current,
+          setTime: (iso) => {
+            const c = chartRef.current;
+            const series = candleRef.current;
+            if (!c || !series) return;
+            suppressRef.current = true;
+            try {
+              if (!iso) c.clearCrosshairPosition();
+              else {
+                const data = shownRef.current;
+                const i = lastBarAtOrBefore(data, iso);
+                if (i >= 0) c.setCrosshairPosition(data[i].close, data[i].time as Time, series);
+                else c.clearCrosshairPosition();
+              }
+            } finally {
+              suppressRef.current = false;
+            }
+          },
+        })
+      : undefined;
+
+    // ---- sizing
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r && r.width > 0 && r.height > 0) chart.resize(Math.floor(r.width), Math.floor(r.height));
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      leaveSync?.();
+      chart.unsubscribeCrosshairMove(onMove);
+      chart.remove();
+      chartRef.current = null;
+      candleRef.current = null;
+      volumeRef.current = null;
+      rsRef.current = null;
+      markersRef.current = null;
+      rsMarkersRef.current = null;
+    };
+    // Rebuild only on structural change; data flows through the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emaKey, overlayKey, volume, hasRs, syncGroup]);
+
+  // ---- log / linear without rebuild
+  useEffect(() => {
+    chartRef.current?.priceScale('right').applyOptions({ mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal });
+  }, [logScale]);
+
+  // ---- data
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !candleRef.current) return;
+    candleRef.current.setData(shown.map((b) => ({ time: b.time as Time, open: b.open, high: b.high, low: b.low, close: b.close })));
+
+    const closes = shown.map((b) => b.close);
+    emaRefs.current.forEach((series, period) => {
+      const vals = ema(closes, period);
+      series.setData(shown.flatMap((b, i) => (vals[i] == null ? [] : [{ time: b.time as Time, value: vals[i] as number }])));
+    });
+
+    (overlays ?? []).forEach((o) => {
+      overlayRefs.current.get(o.id)?.setData(o.data.flatMap((p) => (p.value == null ? [] : [{ time: p.time as Time, value: p.value }])));
+    });
+
+    volumeRef.current?.setData(
+      shown.map((b) => (b.volume == null ? { time: b.time as Time } : { time: b.time as Time, value: b.volume, color: volumeColor(b) })),
+    );
+
+    if (rsRef.current && rs) {
+      rsRef.current.setData(rs.data.flatMap((p) => (p.value == null ? [] : [{ time: p.time as Time, value: p.value }])));
+      rsMarkersRef.current?.setMarkers(
+        rs.data
+          .filter((p) => p.new_high && p.value != null)
+          .map((p) => ({
+            time: p.time as Time,
+            position: 'inBar' as const,
+            shape: 'circle' as const,
+            color: tokenColor('accent'),
+            size: 0.6,
+          })),
+      );
+    }
+
+    // Snap markers onto displayed bars (a weekly bar carries its week's events).
+    const snapped: SeriesMarker<Time>[] = [];
+    for (const m of markers ?? []) {
+      const i = firstBarAtOrAfter(shown, m.time);
+      if (i < 0) continue;
+      const s = markerStyle(m.kind);
+      snapped.push({
+        time: shown[i].time as Time,
+        position: s.position,
+        shape: s.shape,
+        color: s.color,
+        text: m.text ?? s.text,
+      } as SeriesMarker<Time>);
+    }
+    snapped.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    markersRef.current?.setMarkers(snapped);
+
+    const n = shown.length;
+    if (n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + 3 });
+  }, [shown, overlays, rs, markers, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup]);
+
+  return (
+    <div className={cn('relative flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>
+      {(onTimeframeChange || showLegend) && (
+        <div className="flex h-7 shrink-0 items-center gap-3 border-b border-line bg-surface px-2 text-2xs">
+          {onTimeframeChange && (
+            <div className="flex overflow-hidden rounded border border-line" role="group" aria-label="Timeframe">
+              {(['D', 'W', 'M'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  aria-pressed={timeframe === tf}
+                  onClick={() => onTimeframeChange(tf)}
+                  className={cn(
+                    'px-2 py-0.5 font-mono',
+                    timeframe === tf ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg',
+                  )}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          )}
+          {showLegend && legend && (
+            <div className="num flex min-w-0 items-center gap-2.5 truncate text-fg-3" aria-live="off">
+              <span className="text-fg-2">{fmtDate(legend.bar.time)}</span>
+              <span>
+                O <span className="text-fg">{fmtNum(legend.bar.open)}</span>
+              </span>
+              <span>
+                H <span className="text-fg">{fmtNum(legend.bar.high)}</span>
+              </span>
+              <span>
+                L <span className="text-fg">{fmtNum(legend.bar.low)}</span>
+              </span>
+              <span>
+                C <span className="text-fg">{fmtNum(legend.bar.close)}</span>
+              </span>
+              <span className={legend.change == null ? '' : legend.change >= 0 ? 'text-up' : 'text-down'}>
+                {fmtSignedPct(legend.change, 2)}
+              </span>
+              {volume && <span>Vol {fmtCompactIN(legend.bar.volume)}</span>}
+              {volume && <span>Deliv {fmtPct(legend.bar.delivery_pct)}</span>}
+              {rs && (
+                <span>
+                  {rs.label} {fmtNum(legend.rs)}
+                </span>
+              )}
+              {emaPeriods.length > 0 && <span className="hidden xl:inline">EMA {emaPeriods.join('/')}</span>}
+            </div>
+          )}
+        </div>
+      )}
+      <div ref={containerRef} role="img" aria-label={label} className="min-h-0 flex-1" />
+    </div>
+  );
+}

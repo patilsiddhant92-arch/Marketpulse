@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, IChartApi, LineType, LineStyle, LogicalRange } from 'lightweight-charts';
+import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, AreaSeries, IChartApi, LineType, LineStyle, LogicalRange } from 'lightweight-charts';
 import { ChartResponse } from '../types';
 import {
   X,
@@ -170,7 +170,7 @@ const ChartTile: React.FC<TileProps> = ({
 
     if (chartStyle === 'line') {
       // Sleek TradingView-Style Area / Line Series
-      const areaSeries = chart.addAreaSeries({
+      const areaSeries = chart.addSeries(AreaSeries, {
         topColor: 'rgba(56, 189, 248, 0.32)',
         bottomColor: 'rgba(56, 189, 248, 0.01)',
         lineColor: '#38bdf8',
@@ -187,7 +187,7 @@ const ChartTile: React.FC<TileProps> = ({
       mainPriceSeries = areaSeries;
     } else {
       // Standard Candlestick Series
-      const candleSeries = chart.addCandlestickSeries({
+      const candleSeries = chart.addSeries(CandlestickSeries, {
         upColor: '#10b981',
         downColor: '#f43f5e',
         borderVisible: false,
@@ -208,7 +208,7 @@ const ChartTile: React.FC<TileProps> = ({
     }
 
     // 10 EMA Line (White per Pine Script SUCCESS reference)
-    const ema10Series = chart.addLineSeries({
+    const ema10Series = chart.addSeries(LineSeries, {
       color: '#f8fafc',
       lineWidth: 2,
       priceLineVisible: false,
@@ -221,7 +221,7 @@ const ChartTile: React.FC<TileProps> = ({
     );
 
     // 20 EMA Line (Yellow)
-    const ema20Series = chart.addLineSeries({
+    const ema20Series = chart.addSeries(LineSeries, {
       color: '#fbbf24',
       lineWidth: 1,
       priceLineVisible: false,
@@ -234,7 +234,7 @@ const ChartTile: React.FC<TileProps> = ({
     );
 
     // Darvas Top Step Line (Green)
-    const darvasTopSeries = chart.addLineSeries({
+    const darvasTopSeries = chart.addSeries(LineSeries, {
       color: '#22c55e',
       lineWidth: 2,
       lineType: LineType.WithSteps,
@@ -249,7 +249,7 @@ const ChartTile: React.FC<TileProps> = ({
     );
 
     // Darvas Bottom Step Line (Red)
-    const darvasBottomSeries = chart.addLineSeries({
+    const darvasBottomSeries = chart.addSeries(LineSeries, {
       color: '#ef4444',
       lineWidth: 2,
       lineType: LineType.WithSteps,
@@ -265,7 +265,7 @@ const ChartTile: React.FC<TileProps> = ({
 
     // Future 5 Sessions Projections (Dotted Lines: Top, Floor, and 10 EMA)
     if (chartData.darvas_future && chartData.darvas_future.length > 0) {
-      const darvasTopFutureSeries = chart.addLineSeries({
+      const darvasTopFutureSeries = chart.addSeries(LineSeries, {
         color: '#22c55e',
         lineWidth: 2,
         lineType: LineType.WithSteps,
@@ -279,7 +279,7 @@ const ChartTile: React.FC<TileProps> = ({
           .map((f) => ({ time: f.time, value: f.top }))
       );
 
-      const darvasBottomFutureSeries = chart.addLineSeries({
+      const darvasBottomFutureSeries = chart.addSeries(LineSeries, {
         color: '#ef4444',
         lineWidth: 2,
         lineType: LineType.WithSteps,
@@ -294,7 +294,7 @@ const ChartTile: React.FC<TileProps> = ({
       );
 
       // 10 EMA Future Projection (White dotted line per Pine Script SUCCESS reference)
-      const ema10FutureSeries = chart.addLineSeries({
+      const ema10FutureSeries = chart.addSeries(LineSeries, {
         color: '#f8fafc',
         lineWidth: 2,
         lineType: LineType.Simple,
@@ -311,7 +311,7 @@ const ChartTile: React.FC<TileProps> = ({
 
     // Stamp clean circular deal dots above the candles / price line
     if (chartData.deal_markers && chartData.deal_markers.length > 0 && mainPriceSeries) {
-      mainPriceSeries.setMarkers(
+      createSeriesMarkers(mainPriceSeries, 
         chartData.deal_markers.map((m) => ({
           time: m.time,
           position: m.position || 'aboveBar',

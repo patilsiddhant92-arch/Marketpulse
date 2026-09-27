@@ -1,0 +1,8 @@
+dist
+node_modules
+openapi.json
+src/api/types.gen.ts
+src/components
+src/utils
+src/types.ts
+package-lock.json
