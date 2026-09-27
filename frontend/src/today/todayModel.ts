@@ -113,7 +113,7 @@ export function eventWhen(ev: TodayEvent | null | undefined, asOf: string | null
   return d > 0 ? `${label} in ${d}d` : `${label} ${-d}d ago`;
 }
 
-export const BREADTH_TONE: Record<string, ChipTone> = { broad: 'positive', mixed: 'neutral', 'one-stock': 'warn', thin: 'neutral' };
+export const BREADTH_TONE: Record<string, ChipTone> = { broad: 'positive', mixed: 'neutral', 'one-stock': 'warn', flat: 'neutral', thin: 'neutral' };
 export const PERSISTENCE_TONE: Record<string, ChipTone> = {
   trend_up: 'positive',
   resume_up: 'positive',
@@ -121,6 +121,7 @@ export const PERSISTENCE_TONE: Record<string, ChipTone> = {
   pullback: 'neutral',
   fade: 'neutral',
   trend_down: 'negative',
+  flat: 'neutral',
 };
 export const PARTICIPATION_TONE: Record<string, ChipTone> = { real: 'positive', churn: 'warn', heavy: 'info', light: 'warn', normal: 'neutral' };
 
@@ -150,6 +151,7 @@ export function clauseText(when: readonly RuleClause[]): string {
     return_1d: '1D',
     return_5d: '5D',
     return_21d: '21D',
+    abs_return_1d: '|1D|',
   };
   return when.map((c) => `${NAMES[c.field] ?? c.field} ${OPS[c.op] ?? c.op}${c.value != null ? ` ${c.value}` : ''}`).join(' and ');
 }

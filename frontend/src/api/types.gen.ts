@@ -3194,9 +3194,14 @@ export interface components {
             turnover_cr?: number | null;
             /**
              * Turnover Vs 20D
-             * @description Turnover ÷ 20-day average traded value
+             * @description Turnover ÷ average traded value of the prior 20 sessions
              */
             turnover_vs_20d?: number | null;
+            /**
+             * Delivery Qty Vs 20D
+             * @description Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
+             */
+            delivery_qty_vs_20d?: number | null;
             /**
              * Delivery Spike
              * @description Delivered shares > 2 × their 20-day average
@@ -3286,7 +3291,10 @@ export interface components {
             weight_pct?: number | null;
             /** Rvol */
             rvol?: number | null;
-            /** Delivery Vs 20D */
+            /**
+             * Delivery Vs 20D
+             * @description Delivered shares ÷ prior 20-session average
+             */
             delivery_vs_20d?: number | null;
         };
         /** TodayEvent */
@@ -3338,7 +3346,7 @@ export interface components {
             turnover_vs_20d?: number | null;
             /**
              * Delivery Vs 20D
-             * @description Members' delivered shares ÷ their 20-day average
+             * @description Members' delivered shares ÷ their prior 20-session average
              */
             delivery_vs_20d?: number | null;
             /** Top Contributors */
@@ -3352,7 +3360,7 @@ export interface components {
             top1_share_pct?: number | null;
             /**
              * Breadth Label
-             * @description broad | mixed | one-stock | thin
+             * @description broad | mixed | one-stock | flat | thin
              */
             breadth_label?: string | null;
             /** Participation Id */
@@ -3533,9 +3541,14 @@ export interface components {
             turnover_cr?: number | null;
             /**
              * Turnover Vs 20D
-             * @description Turnover ÷ 20-day average traded value
+             * @description Turnover ÷ average traded value of the prior 20 sessions
              */
             turnover_vs_20d?: number | null;
+            /**
+             * Delivery Qty Vs 20D
+             * @description Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
+             */
+            delivery_qty_vs_20d?: number | null;
             /**
              * Delivery Spike
              * @description Delivered shares > 2 × their 20-day average

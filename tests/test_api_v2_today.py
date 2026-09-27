@@ -202,3 +202,13 @@ def test_as_of_time_travel_bounds_session(client):
     assert body["as_of"] == prev.isoformat()
     assert all(r["symbol"] not in {"P1", "P2", "P3", "P4"} for r in body["rows"])  # pharma was flat before today
     assert (prev + timedelta(days=1)) <= LAST
+
+
+def test_why_sentence_flat_group_lists_biggest_moves_not_shares():
+    from App.services import today
+
+    g = {"group_name": "Power", "return_1d": 0.01, "stocks": 31, "pct_up": 39.0, "breadth_label": "flat",
+         "top_contributors": [{"symbol": "JNPR", "change_1d_pct": 3.2}], "top_detractors": [{"symbol": "UEL", "change_1d_pct": -4.0}],
+         "top1_share_pct": None}
+    s = today.why_sentence(g)
+    assert s == "Power +0.01% today — flat overall (39% of 31 stocks up), biggest moves UEL -4.0%, JNPR +3.2%."

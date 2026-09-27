@@ -13762,7 +13762,19 @@
               }
             ],
             "title": "Turnover Vs 20D",
-            "description": "Turnover ÷ 20-day average traded value"
+            "description": "Turnover ÷ average traded value of the prior 20 sessions"
+          },
+          "delivery_qty_vs_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Qty Vs 20D",
+            "description": "Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
           },
           "delivery_spike": {
             "anyOf": [
@@ -14063,7 +14075,8 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Vs 20D"
+            "title": "Delivery Vs 20D",
+            "description": "Delivered shares ÷ prior 20-session average"
           }
         },
         "type": "object",
@@ -14261,7 +14274,7 @@
               }
             ],
             "title": "Delivery Vs 20D",
-            "description": "Members' delivered shares ÷ their 20-day average"
+            "description": "Members' delivered shares ÷ their prior 20-session average"
           },
           "top_contributors": {
             "items": {
@@ -14299,7 +14312,7 @@
               }
             ],
             "title": "Breadth Label",
-            "description": "broad | mixed | one-stock | thin"
+            "description": "broad | mixed | one-stock | flat | thin"
           },
           "participation_id": {
             "anyOf": [
@@ -15052,7 +15065,19 @@
               }
             ],
             "title": "Turnover Vs 20D",
-            "description": "Turnover ÷ 20-day average traded value"
+            "description": "Turnover ÷ average traded value of the prior 20 sessions"
+          },
+          "delivery_qty_vs_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Qty Vs 20D",
+            "description": "Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
           },
           "delivery_spike": {
             "anyOf": [

@@ -1286,14 +1286,14 @@ metrics:
   - key: move_quality
     plain_name: Quality of move
     unit: state
-    measures: "A label for how today's move was made, from volume (RVOL), delivery versus normal and size. Rules are evaluated in order and the first match wins; a missing input never matches."
+    measures: "A label for how today's move was made, from volume (RVOL), delivered shares versus normal (delivery x) and size. Rules are evaluated in order and the first match wins; a missing input never matches."
     zones:
-      - {range: Real, label: Real, tone: good, why: "RVOL >= 1.5 and delivery x >= 1.2: heavy volume with more shares taken into delivery than usual. Real buyers (or real sellers on a down day) are behind it. The evidence engine found delivery spikes and RVOL >= 1.5 the strongest traits before upper-circuit moves."}
-      - {range: Churn, label: Churn, tone: caution, why: "RVOL >= 1.5 but delivery x < 1.2: lots of trading, few investors taking shares home. Often intraday or operator activity; wait for delivery to confirm."}
+      - {range: Real, label: Real, tone: good, why: "RVOL >= 1.5 and delivery x >= 1.2 (delivered shares at least 1.2x their prior 20-session average): heavy volume with more shares taken home than usual. Real buyers (or real sellers on a down day) are behind it. The evidence engine found delivery spikes and RVOL >= 1.5 the strongest traits before upper-circuit moves."}
+      - {range: Churn, label: Churn, tone: caution, why: "RVOL >= 1.5 but delivered shares below 1.2x normal: lots of trading, few investors taking shares home. Often intraday or operator activity; wait for delivery to confirm."}
       - {range: Thin, label: Thin, tone: caution, why: "RVOL < 1: below-average volume. Few participants; thin moves reverse easily."}
       - {range: Normal, label: Normal, tone: neutral, why: "Ordinary volume (RVOL 1-1.5, or delivery unknown). No strong participation signal either way."}
       - {range: Operator-ish, label: Operator-ish, tone: bad, why: "Market cap under ₹500 Cr AND closing at its price band. Easy to push and often reverses; treat as a trap unless volume and delivery keep confirming."}
-    read_with: [rvol, delivery_vs_20d, delivery_spike]
+    read_with: [rvol, delivery_qty_vs_20d, delivery_spike]
     read_with_why: "The label is only a summary of RVOL and delivery x; open them to see how far above the thresholds the stock is."
     caveats: "A description of today's session, not a forecast. Thresholds are starting points, to be calibrated against the evidence engine."
     definition_sql_ref: "App/services/today.py:QUALITY_RULES"
@@ -1310,17 +1310,30 @@ metrics:
     caveats: "Quantity based (shares), unlike delivery x which compares delivery %."
     definition_sql_ref: "indicators_daily.delivery_spike"
 
+  - key: delivery_qty_vs_20d
+    plain_name: Delivery x (delivered shares vs normal)
+    unit: x
+    measures: "Shares taken into delivery today divided by the average delivered shares of the prior 20 sessions. 3.0x means three times the usual number of shares went home with buyers. Unlike 'delivery vs 20d' (a ratio of delivery percentages), it does not fall just because intraday traders piled in on a busy day."
+    zones:
+      - {range: ">= 2", label: Heavy, tone: good, why: "Far more shares than usual changed owners for real. On an up day this is an accumulation footprint; on a down day, holders delivering out."}
+      - {range: "1.2-2", label: Above normal, tone: good, why: "More delivery than usual: participation is real, not just trading."}
+      - {range: "0.8-1.2", label: Normal, tone: neutral, why: "Usual delivery."}
+      - {range: "< 0.8", label: Low, tone: caution, why: "Fewer shares delivered than usual; any price move is mostly trading."}
+    read_with: [rvol, delivery_vs_20d]
+    read_with_why: "Heavy volume with delivery x below 1.2 is churn; with delivery x above 1.2 it is real participation. If delivery % (delivery vs 20d) also rose, the footprint is stronger still."
+    definition_sql_ref: "App/services/today.py: delivery_qty / previous session's avg_delivery_qty_20d"
+
   - key: turnover_vs_20d
     plain_name: Turnover vs normal
     unit: x
-    measures: "Today's traded value divided by the stock's 20-day average traded value. 2.0x means twice the usual rupee volume."
+    measures: "Today's traded value divided by the stock's average traded value over the prior 20 sessions. 2.0x means twice the usual rupee volume."
     zones:
       - {range: ">= 2", label: Heavy, tone: good, why: "Much more money than usual changed hands; the move has attention."}
       - {range: "1.2-2", label: Above normal, tone: neutral, why: "Busier than usual."}
       - {range: "< 1.2", label: Normal or light, tone: neutral, why: "No unusual money flow."}
     read_with: [rvol, delivery_vs_20d]
     read_with_why: "Heavy turnover with delivery x below 1 is mostly trading churn; with delivery x above 1.2 it is real participation."
-    definition_sql_ref: "indicators_daily.turnover_cr / avg_traded_value_cr_20d"
+    definition_sql_ref: "App/services/today.py: turnover_cr / previous session's avg_traded_value_cr_20d"
 
   - key: market_turnover_vs_20d
     plain_name: Market turnover vs 20-day average
@@ -1373,7 +1386,7 @@ metrics:
   - key: group_turnover_vs_20d
     plain_name: Group turnover vs normal
     unit: x
-    measures: "The members' combined turnover today divided by their combined 20-day average traded value."
+    measures: "The members' combined turnover today divided by their combined average traded value over the prior 20 sessions."
     zones:
       - {range: ">= 1.3", label: Heavy, tone: good, why: "Money is flowing into (or out of) the group today."}
       - {range: "0.8-1.3", label: Normal, tone: neutral, why: "Usual activity."}
@@ -1385,7 +1398,7 @@ metrics:
   - key: group_delivery_vs_20d
     plain_name: Group delivery vs normal
     unit: x
-    measures: "Shares delivered today by the group's members divided by their 20-day average delivered shares."
+    measures: "Shares delivered today by the group's members divided by their average delivered shares over the prior 20 sessions."
     zones:
       - {range: ">= 1.2", label: Above normal, tone: good, why: "Investors took more shares home than usual: the move has real participation behind it."}
       - {range: "0.8-1.2", label: Normal, tone: neutral, why: "Usual delivery."}
@@ -1412,6 +1425,7 @@ metrics:
     unit: state
     measures: "Today's group return read against its 5-day and 21-day equal-weight returns (group_daily), to tell a one-day pop from a trend."
     zones:
+      - {range: Flat day, label: Flat day, tone: neutral, why: "The group moved less than 0.25% either way today: nothing to read into the day itself; the 5d / 21d numbers carry the trend."}
       - {range: Trend, label: Trend, tone: good, why: "Up today, up over 5 days and over 21 days: today continues an existing up-trend."}
       - {range: Dip bought, label: Dip bought, tone: good, why: "Up today after a down week inside a rising month: buyers stepped in on the pullback."}
       - {range: One-day pop, label: One-day pop, tone: caution, why: "Up today but down over 21 days: a bounce inside a falling month until it repeats."}

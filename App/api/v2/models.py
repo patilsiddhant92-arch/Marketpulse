@@ -926,7 +926,9 @@ class TodayNews(BaseModel):
 
 class TodayStockRow(StockBase):
     turnover_cr: Optional[float] = None
-    turnover_vs_20d: Optional[float] = Field(None, description="Turnover ÷ 20-day average traded value")
+    turnover_vs_20d: Optional[float] = Field(None, description="Turnover ÷ average traded value of the prior 20 sessions")
+    delivery_qty_vs_20d: Optional[float] = Field(
+        None, description="Delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)")
     delivery_spike: Optional[bool] = Field(None, description="Delivered shares > 2 × their 20-day average")
     away_52w_high_pct: Optional[float] = None
     is_52w_high: Optional[bool] = None
@@ -965,7 +967,7 @@ class TodayContributor(BaseModel):
     share_of_move_pct: Optional[float] = None
     weight_pct: Optional[float] = None
     rvol: Optional[float] = None
-    delivery_vs_20d: Optional[float] = None
+    delivery_vs_20d: Optional[float] = Field(None, description="Delivered shares ÷ prior 20-session average")
 
 
 class TodayGroupRow(BaseModel):
@@ -983,11 +985,11 @@ class TodayGroupRow(BaseModel):
     pct_down_2: Optional[float] = None
     turnover_cr: Optional[float] = None
     turnover_vs_20d: Optional[float] = None
-    delivery_vs_20d: Optional[float] = Field(None, description="Members' delivered shares ÷ their 20-day average")
+    delivery_vs_20d: Optional[float] = Field(None, description="Members' delivered shares ÷ their prior 20-session average")
     top_contributors: list[TodayContributor] = Field(default_factory=list)
     top_detractors: list[TodayContributor] = Field(default_factory=list)
     top1_share_pct: Optional[float] = Field(None, description="Largest contributor's share of the group move, %")
-    breadth_label: Optional[str] = Field(None, description="broad | mixed | one-stock | thin")
+    breadth_label: Optional[str] = Field(None, description="broad | mixed | one-stock | flat | thin")
     participation_id: Optional[str] = None
     participation: Optional[str] = None
     deal_stocks: Optional[int] = None

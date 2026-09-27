@@ -15,11 +15,13 @@ Sources
 
 Definitions (also in Scripts/data/metric_dictionary.yaml)
   * RVOL             = volume ÷ average volume of the prior 20 sessions (indicators_daily.rvol)
-  * delivery×        = delivery % ÷ 20-day average delivery % (stock rows, `delivery_vs_20d`)
+  * delivery×        = delivered shares ÷ average delivered shares of the PRIOR 20 sessions
+                       (`delivery_qty_vs_20d`; the platform's `delivery_vs_20d` is the delivery-% ratio,
+                       which falls on volume-spike days even when delivered shares multiply)
   * delivery spike   = delivered shares > 2 × their 20-day average (indicators_daily.delivery_spike)
-  * turnover×        = turnover ÷ 20-day average traded value
-  * group delivery×  = members' delivered shares ÷ their 20-day average delivered shares
-  * group turnover×  = members' turnover ÷ their 20-day average traded value
+  * turnover×        = turnover ÷ average traded value of the prior 20 sessions
+  * group delivery×  = members' delivered shares ÷ their prior-20-session average delivered shares
+  * group turnover×  = members' turnover ÷ their prior-20-session average traded value
   * contribution     = member 1D return ÷ members (points of the equal-weight group return)
 The "quality of move", group breadth / participation / persistence labels and the "why" sentence
 come from the rule tables below (served in meta.context so the UI shows the exact rules).
@@ -37,7 +39,7 @@ from App.services.common import STATUS_PARTIAL, Result, no_session, unavailable
 from App.services.groups import _GD_FLOOR_LABEL, SPLIT_DOWN, SPLIT_UP, _floor_mask, group_id
 
 TODAY_METRICS = [
-    "change_1d_pct", "rvol", "delivery_pct", "delivery_vs_20d", "delivery_spike", "turnover_vs_20d",
+    "change_1d_pct", "rvol", "delivery_pct", "delivery_vs_20d", "delivery_qty_vs_20d", "delivery_spike", "turnover_vs_20d",
     "move_quality", "away_52w_high_pct", "market_cap_cr",
 ]
 MARKET_METRICS = ["advance_pct", "new_52w_highs", "new_52w_lows", "market_turnover_vs_20d",
@@ -68,12 +70,12 @@ QUALITY_RULES: list[dict[str, Any]] = [
      "why": f"Tiny company (market cap < ₹{TINY_CAP_CR:,.0f} Cr) closing at its price band: moves like this are easy "
             "to push and often reverse; treat as a trap unless volume and delivery keep confirming."},
     {"id": "real", "label": "Real", "tone": "good",
-     "when": [("rvol", "gte", 1.5), ("delivery_vs_20d", "gte", 1.2)],
-     "why": "Heavy volume (RVOL >= 1.5) AND more shares taken into delivery than usual (delivery x >= 1.2): "
-            "real buyers (or real sellers on a down day) are behind the move."},
+     "when": [("rvol", "gte", 1.5), ("delivery_qty_vs_20d", "gte", 1.2)],
+     "why": "Heavy volume (RVOL >= 1.5) AND more shares taken into delivery than usual (delivered shares >= 1.2x "
+            "their prior 20-session average): real buyers (or real sellers on a down day) are behind the move."},
     {"id": "churn", "label": "Churn", "tone": "caution",
-     "when": [("rvol", "gte", 1.5), ("delivery_vs_20d", "lt", 1.2)],
-     "why": "Heavy volume but delivery is not above normal: mostly intraday trading, not investors taking shares home."},
+     "when": [("rvol", "gte", 1.5), ("delivery_qty_vs_20d", "lt", 1.2)],
+     "why": "Heavy volume but delivered shares are not above normal: mostly intraday trading, not investors taking shares home."},
     {"id": "thin", "label": "Thin", "tone": "caution",
      "when": [("rvol", "lt", 1.0)],
      "why": "Below-average volume (RVOL < 1): few participants; thin moves reverse easily."},
@@ -88,11 +90,13 @@ BREAKOUT_RULES: list[dict[str, Any]] = [
                                                              "on the previous session (Darvas box top / prior high / VCP pivot)"},
     {"id": "high_20d_rvol", "label": "20D high + RVOL", "rule": "close at a 20-day high (>= prior 20-day high) on RVOL >= 1.5"},
     {"id": "gap_up", "label": "Gap-up", "rule": f"open >= {GAP_UP_PCT:g}% above the previous close and close >= open (gap held)"},
-    {"id": "accumulation", "label": "Accumulation", "rule": "delivery x >= 1.5 on an up day (buyers taking delivery)"},
-    {"id": "distribution", "label": "Distribution", "rule": "delivery x >= 1.5 on a down day (holders delivering out)"},
+    {"id": "accumulation", "label": "Accumulation",
+     "rule": "delivered shares >= 1.5x their prior 20-session average AND delivery % at or above its 20-day average, on an up day"},
+    {"id": "distribution", "label": "Distribution",
+     "rule": "delivered shares >= 1.5x their prior 20-session average AND delivery % at or above its 20-day average, on a down day"},
 ]
 
-BREADTH_RULES = {"one_stock_share": 50.0, "broad_pct": 60.0, "min_members": 3}
+BREADTH_RULES = {"one_stock_share": 50.0, "broad_pct": 60.0, "min_members": 3, "flat_abs_pct": 0.25}
 PARTICIPATION_RULES: list[dict[str, Any]] = [
     {"id": "real", "phrase": "real participation", "when": [("turnover_vs_20d", "gte", 1.3), ("delivery_vs_20d", "gte", 1.2)]},
     {"id": "churn", "phrase": "volume without delivery (trading churn)", "when": [("turnover_vs_20d", "gte", 1.3), ("delivery_vs_20d", "lt", 1.0)]},
@@ -101,6 +105,8 @@ PARTICIPATION_RULES: list[dict[str, Any]] = [
     {"id": "normal", "phrase": "normal participation", "when": [("turnover_vs_20d", "gte", 0.8)]},
 ]
 PERSISTENCE_RULES: list[dict[str, Any]] = [
+    {"id": "flat", "label": "Flat day", "phrase": "a flat day for the group",
+     "when": [("abs_return_1d", "lt", 0.25)]},
     {"id": "trend_up", "label": "Trend", "phrase": "part of an up-trend",
      "when": [("return_1d", "gt", 0), ("return_5d", "gt", 0), ("return_21d", "gt", 0)]},
     {"id": "bounce", "label": "One-day pop", "phrase": "a one-day pop inside a falling month",
@@ -150,6 +156,7 @@ def rules_payload(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------
 _EXTRA = ("open_price", "high_price", "low_price", "turnover_cr", "delivery_qty", "avg_delivery_qty_20d",
           "delivery_spike", "high_52w", "low_52w", "new_20d_high")
+_PRIOR = ("avg_delivery_qty_20d", "avg_traded_value_cr_20d")  # read at the previous session = prior 20 sessions
 
 
 def _extra_cols(con: Any) -> str:
@@ -222,6 +229,15 @@ def _events(con: Any, symbols: list[str], as_of: date, start: date) -> tuple[dic
     return results, news, actions
 
 
+def _prior_averages(con: Any, prev: date | None) -> pd.DataFrame:
+    """20-session averages as of the previous session (= the 20 sessions before as_of), by symbol."""
+    have = set(db.table_columns(con, "indicators_daily"))
+    if prev is None or not all(c in have for c in _PRIOR):
+        return pd.DataFrame()
+    df = con.execute(f"SELECT symbol, {', '.join(_PRIOR)} FROM indicators_daily WHERE trade_date = ?", [prev]).df()
+    return df.drop_duplicates("symbol").set_index("symbol")
+
+
 def _stock_frame(con: Any, as_of: date) -> pd.DataFrame:
     """Every stock on as_of with today's enrichment (full universe; callers apply floors)."""
     snap = universe.snapshot_sql(con, extra_cols=_extra_cols(con))
@@ -239,7 +255,14 @@ def _stock_frame(con: Any, as_of: date) -> pd.DataFrame:
     df["at_upper_circuit"] = np.where(known_band, df["close"] >= up_lim, None)
     df["at_lower_circuit"] = np.where(known_band, df["close"] <= dn_lim, None)
     df["at_circuit"] = np.where(known_band, (df["close"] >= up_lim) | (df["close"] <= dn_lim), None)
-    df["turnover_vs_20d"] = df["x_turnover_cr"] / df["adv_cr_20d"].where(df["adv_cr_20d"] > 0)
+    prev_sess = db.session_back(con, as_of, 1)
+    prior = _prior_averages(con, prev_sess)
+    for c in _PRIOR:
+        df[f"prior_{c}"] = pd.to_numeric(df["symbol"].map(prior[c]), errors="coerce") if not prior.empty else np.nan
+    pa_to = df["prior_avg_traded_value_cr_20d"]
+    pa_dq = df["prior_avg_delivery_qty_20d"]
+    df["turnover_vs_20d"] = df["x_turnover_cr"] / pa_to.where(pa_to > 0)
+    df["delivery_qty_vs_20d"] = df["x_delivery_qty"] / pa_dq.where(pa_dq > 0)
     df["gap_pct"] = (df["x_open_price"] / prev.where(prev > 0) - 1) * 100
     h52, l52 = df["x_high_52w"], df["x_low_52w"]
     df["is_52w_high"] = np.where(h52.notna() & df["x_high_price"].notna(), df["x_high_price"] >= h52, None)
@@ -249,7 +272,6 @@ def _stock_frame(con: Any, as_of: date) -> pd.DataFrame:
     q_today = _queues(con, as_of)
     qmap = q_today.groupby("symbol")["queue"].apply(lambda s: sorted(set(s))).to_dict() if not q_today.empty else {}
     df["queues"] = df["symbol"].map(lambda s: qmap.get(s, []))
-    prev_sess = db.session_back(con, as_of, 1)
     q_prev = _queues(con, prev_sess)
     trig: dict[str, tuple[str, float]] = {}
     for r in q_prev.to_dict("records"):
@@ -311,6 +333,7 @@ def shape_stock_row(r: dict[str, Any]) -> dict[str, Any]:
     row.update({
         "turnover_cr": db.num(r.get("x_turnover_cr"), 2),
         "turnover_vs_20d": db.num(r.get("turnover_vs_20d"), 2),
+        "delivery_qty_vs_20d": db.num(r.get("delivery_qty_vs_20d"), 2),
         "delivery_spike": _b(r.get("x_delivery_spike")),
         "away_52w_high_pct": db.num(r.get("away_52w_high_pct"), 2),
         "is_52w_high": _b(r.get("is_52w_high")),
@@ -419,8 +442,9 @@ def breakout_kinds(r: dict[str, Any]) -> list[str]:
     op = db.num(r.get("x_open_price"))
     if gap is not None and gap >= GAP_UP_PCT and close is not None and op is not None and close >= op:
         kinds.append("gap_up")
-    dx = db.num(r.get("delivery_vs_20d"))
-    if dx is not None and dx >= 1.5 and chg is not None:
+    dq = db.num(r.get("delivery_qty_vs_20d"))
+    dp = db.num(r.get("delivery_vs_20d"))
+    if dq is not None and dq >= 1.5 and dp is not None and dp >= 1.0 and chg is not None:
         if chg > 0:
             kinds.append("accumulation")
         elif chg < 0:
@@ -618,11 +642,20 @@ def why_sentence(g: dict[str, Any]) -> str | None:
         return None
     up = ret >= 0
     name = g.get("group_name") or "Group"
-    s = f"{name} {ret:+.1f}% today"
+    flat = g.get("breadth_label") == "flat"
+    s = f"{name} {ret:+.2f}% today" if flat else f"{name} {ret:+.1f}% today"
     tops = g.get("top_contributors") or []
     pct_dir = g.get("pct_up") if up else g.get("pct_down")
-    if g.get("breadth_label") == "one-stock" and tops:
-        s += f", driven by one stock ({tops[0]['symbol']} {tops[0]['change_1d_pct']:+.1f}% = {g['top1_share_pct']:.0f}% of the move)"
+    share = g.get("top1_share_pct")
+    if flat:
+        pu = g.get("pct_up")
+        s += " — flat overall" + (f" ({pu:.0f}% of {n} stocks up)" if pu is not None else "")
+        moves = sorted((tops or []) + (g.get("top_detractors") or []), key=lambda c: -abs(c.get("change_1d_pct") or 0))[:3]
+        if moves:
+            s += ", biggest moves " + ", ".join(f"{c['symbol']} {c['change_1d_pct']:+.1f}%" for c in moves)
+    elif g.get("breadth_label") == "one-stock" and tops and share is not None:
+        what = f"= {share:.0f}% of the move" if share <= 100 else "outweighs all the other members combined"
+        s += f", driven by one stock ({tops[0]['symbol']} {tops[0]['change_1d_pct']:+.1f}% {what})"
     elif pct_dir is not None:
         word = {"broad": "broad", "mixed": "mixed", "thin": "thin group"}.get(g.get("breadth_label") or "", "mixed")
         s += f", {word} ({pct_dir:.0f}% of {n} stock{'s' if n != 1 else ''} {'up' if up else 'down'})"
@@ -658,7 +691,7 @@ def why_sentence(g: dict[str, Any]) -> str | None:
 
 
 def _contrib(sub: pd.DataFrame, n: int) -> pd.DataFrame:
-    c = sub[["symbol", "change_1d_pct", "rvol", "delivery_vs_20d"]].copy()
+    c = sub[["symbol", "change_1d_pct", "rvol", "delivery_qty_vs_20d"]].rename(columns={"delivery_qty_vs_20d": "delivery_vs_20d"})
     c["contribution"] = c["change_1d_pct"] / n
     return c
 
@@ -683,36 +716,42 @@ def group_rows(df: pd.DataFrame, level_key: str, floor: str, gd: dict[str, dict[
         g["pct_down"] = _pct((chg < 0).sum(), n)
         g["pct_up_2"] = _pct((chg > 2).sum(), n)
         g["pct_down_2"] = _pct((chg < -2).sum(), n)
-        to = sub[["x_turnover_cr", "adv_cr_20d"]].dropna()
+        to = sub[["x_turnover_cr", "prior_avg_traded_value_cr_20d"]].dropna()
         g["turnover_cr"] = db.num(sub["x_turnover_cr"].sum(min_count=1), 1)
-        g["turnover_vs_20d"] = db.num(to["x_turnover_cr"].sum() / to["adv_cr_20d"].sum(), 2) if len(to) and to["adv_cr_20d"].sum() > 0 else None
-        dq = sub[["x_delivery_qty", "x_avg_delivery_qty_20d"]].dropna()
-        g["delivery_vs_20d"] = db.num(dq["x_delivery_qty"].sum() / dq["x_avg_delivery_qty_20d"].sum(), 2) if len(dq) and dq["x_avg_delivery_qty_20d"].sum() > 0 else None
+        den = to["prior_avg_traded_value_cr_20d"].sum()
+        g["turnover_vs_20d"] = db.num(to["x_turnover_cr"].sum() / den, 2) if len(to) and den > 0 else None
+        dq = sub[["x_delivery_qty", "prior_avg_delivery_qty_20d"]].dropna()
+        den = dq["prior_avg_delivery_qty_20d"].sum()
+        g["delivery_vs_20d"] = db.num(dq["x_delivery_qty"].sum() / den, 2) if len(dq) and den > 0 else None
 
         tops: list[dict[str, Any]] = []
         det: list[dict[str, Any]] = []
         top1_share = None
         if n and ret is not None:
             c = _contrib(valid, n)
+            # Share of a (near-)zero move is meaningless: served NULL on flat days.
+            meaningful = abs(ret) >= BREADTH_RULES["flat_abs_pct"]
             same = c[np.sign(c["contribution"]) == (1 if ret >= 0 else -1)].sort_values("contribution", ascending=ret < 0)
             opp = c[np.sign(c["contribution"]) == (-1 if ret >= 0 else 1)].sort_values("contribution", ascending=ret >= 0)
 
             def item(x: dict[str, Any]) -> dict[str, Any]:
                 return {"symbol": x["symbol"], "change_1d_pct": db.num(x["change_1d_pct"], 2),
                         "contribution": db.num(x["contribution"], 3),
-                        "share_of_move_pct": db.num(x["contribution"] / ret * 100, 0) if ret else None,
+                        "share_of_move_pct": db.num(x["contribution"] / ret * 100, 0) if meaningful else None,
                         "weight_pct": db.num(100.0 / n, 1), "rvol": db.num(x["rvol"], 2),
                         "delivery_vs_20d": db.num(x["delivery_vs_20d"], 2)}
 
             tops = [item(x) for x in same.head(5).to_dict("records")]
             det = [item(x) for x in opp.head(3).to_dict("records")]
-            if tops and ret:
+            if tops and meaningful:
                 top1_share = tops[0]["share_of_move_pct"]
         g["top_contributors"], g["top_detractors"] = tops, det
         g["top1_share_pct"] = top1_share
         pct_dir = g["pct_up"] if (ret or 0) >= 0 else g["pct_down"]
         if n < BREADTH_RULES["min_members"]:
             g["breadth_label"] = "thin"
+        elif ret is not None and abs(ret) < BREADTH_RULES["flat_abs_pct"]:
+            g["breadth_label"] = "flat"
         elif top1_share is not None and top1_share >= BREADTH_RULES["one_stock_share"]:
             g["breadth_label"] = "one-stock"
         elif pct_dir is not None and pct_dir >= BREADTH_RULES["broad_pct"]:
@@ -749,7 +788,9 @@ def group_rows(df: pd.DataFrame, level_key: str, floor: str, gd: dict[str, dict[
             g["return_21d"] = db.num(pd.to_numeric(sub["return_1m_pct"], errors="coerce").mean(), 2) if "return_1m_pct" in sub else None
             g["rank"] = g["rank_delta_5"] = g["rank_n"] = None
             g["context_source"] = "live"
+        g["abs_return_1d"] = abs(ret) if ret is not None else None
         pe = first_rule(g, PERSISTENCE_RULES)
+        g.pop("abs_return_1d")
         g["persistence_id"] = pe["id"] if pe else None
         g["persistence"] = pe["label"] if pe else None
         g["persistence_phrase"] = pe["phrase"] if pe else None

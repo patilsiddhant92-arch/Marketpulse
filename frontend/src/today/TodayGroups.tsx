@@ -183,7 +183,7 @@ function ContribList({ title, items, tone }: { title: string; items: readonly To
                 <ZoneNum metricKey="rvol" value={c.rvol} digits={2} />
               </td>
               <td className="text-right">
-                <ZoneNum metricKey="delivery_vs_20d" value={c.delivery_vs_20d} digits={2} />
+                <ZoneNum metricKey="delivery_qty_vs_20d" value={c.delivery_vs_20d} digits={1} />
               </td>
             </tr>
           ))}
