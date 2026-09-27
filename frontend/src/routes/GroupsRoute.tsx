@@ -13,6 +13,7 @@ import { useApiQuery } from '../api/query';
 import type { GroupRow } from '../api/types';
 import { cn } from '../lib/cn';
 import { fmtDate, fmtSigned } from '../lib/fmt';
+import { useShell } from '../shell/ShellContext';
 import { useAsOf, useUrlParam } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
 import { DataTable, type DataTableColumn } from '../ui/DataTable';
@@ -41,6 +42,8 @@ import { RrgChart } from './groups/RrgChart';
 
 const EMPTY: GroupRow[] = [];
 const RRG_PER_QUADRANT = 8;
+/** Levels with this many groups or fewer (Broad Sector, Sector) always show every group. */
+const RRG_SHOW_ALL_UP_TO = 40;
 
 function NameCell({ row, onDrill }: { row: GroupRow; onDrill: (id: string) => void }) {
   return (
@@ -204,6 +207,7 @@ export default function GroupsRoute() {
   const [quadParam, setQuad] = useUrlParam('quad');
   const [rrgAll, setRrgAll] = useUrlParam('rrg');
   const [asOf] = useAsOf();
+  const sidecarOpen = !!useShell().symbol;
   const [text, setText] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const level = asLevel(levelParam);
@@ -219,7 +223,7 @@ export default function GroupsRoute() {
   const flow = useMemo(() => flowLeaders(rows), [rows]);
   const allowed = useMemo(() => (text || quadSet.size ? new Set(filtered.map((r) => r.id)) : null), [filtered, text, quadSet]);
   const rrgRows = rrg.data?.rows;
-  const rrgView = useMemo(() => rrgVisible(rrgRows ?? [], allowed, rrgAll === 'all' ? null : RRG_PER_QUADRANT), [rrgRows, allowed, rrgAll]);
+  const rrgView = useMemo(() => rrgVisible(rrgRows ?? [], allowed, rrgAll === 'all' || (rrgRows?.length ?? 0) <= RRG_SHOW_ALL_UP_TO ? null : RRG_PER_QUADRANT), [rrgRows, allowed, rrgAll]);
   const columns = useMemo(() => boardColumns((id) => setGroup(id)), [setGroup]);
   const ctx = board.data?.meta.context as { floor_label?: string; ranked?: number; benchmark?: string } | undefined;
 
@@ -301,7 +305,7 @@ export default function GroupsRoute() {
             className="min-h-0 flex-1"
           />
         </div>
-        <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-surface">
+        <aside className={cn('flex shrink-0 flex-col border-l border-line bg-surface', sidecarOpen ? 'w-[320px]' : 'w-[400px]')}>
           <div className="flex h-7 shrink-0 items-center gap-2 border-b border-line px-2 text-2xs">
             <span className="font-semibold uppercase tracking-wide text-fg-2">Rotation</span>
             <span
@@ -320,7 +324,7 @@ export default function GroupsRoute() {
                 {rrgView.shown.length}/{rrgView.total} · show all
               </button>
             )}
-            {rrgAll === 'all' && (
+            {rrgAll === 'all' && (rrgRows?.length ?? 0) > RRG_SHOW_ALL_UP_TO && (
               <button type="button" className="ml-auto shrink-0 text-accent hover:underline" onClick={() => setRrgAll(null)}>
                 best {RRG_PER_QUADRANT} per quadrant
               </button>

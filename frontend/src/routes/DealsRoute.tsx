@@ -192,7 +192,7 @@ function SessionView({ rows, dates, text, dealDate, onHouse, loading, error, onR
           )}
         </div>
       </div>
-      <aside className="w-[330px] shrink-0 overflow-auto border-l border-line bg-surface">
+      <aside className={cn('shrink-0 overflow-auto border-l border-line bg-surface', shell.symbol ? 'w-[270px]' : 'w-[330px]')}>
         <RailList
           title="Strategic / transfer"
           hint="Inter-se transfers (seller matched by buyers at the same price and quantity — promoter or group entities) and placements absorbed by FII/DII. Ownership moves, not market flow."
