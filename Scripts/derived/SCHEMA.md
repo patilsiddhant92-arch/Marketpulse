@@ -26,6 +26,8 @@ One row per session. Index: `trade_date`.
 | trade_date | TIMESTAMP | Session | never |
 | verdict | VARCHAR | `Favourable` · `Constructive` · `Mixed` · `Weak` · `Danger` — the published, smoothed verdict (see Hysteresis) | rule R0 (insufficient data) |
 | verdict_guidance | VARCHAR | press · normal size · selective, half size · mostly cash · protect capital | verdict NULL |
+| verdict_evidence | VARCHAR | `descriptive_only` — the §6.1.5 study (`regime.VERDICT_EVIDENCE`) found the verdict does not separate setup outcomes out-of-sample | verdict NULL |
+| verdict_evidence_note | VARCHAR | Text for the UI: "Verdict does not predict setup outcomes out-of-sample; use it to size risk and describe conditions, not as a trade filter." | verdict NULL |
 | rule_id | VARCHAR | Rule behind the published verdict (`R0`…`R9`, table below), or `RH` when the verdict is being held while a different candidate confirms | never |
 | rule_text | VARCHAR | Plain text of that rule; for `RH`: "Held at X: today's pillars match Y (rule Rn) …" | never |
 | raw_verdict | VARCHAR | Rules applied to the raw (unsmoothed) pillar statuses — the pre-hysteresis verdict, for audit | raw rule R0 |
@@ -55,6 +57,13 @@ A condition lists the statuses that satisfy it; a NULL pillar never satisfies a 
 | R8 | Constructive | Trend Neutral ∧ Participation Healthy ∧ Follow-through Healthy ∧ Stress ≠ Weak |
 | R9 | Mixed | default |
 | RH | (held) | Published verdict kept: today's candidate differs and has not held 2 sessions yet |
+
+**Verdict evidence (§6.1.5 ship gate).** Study of 2026-09-27
+(`docs/superpowers/handoffs/2026-09-27-verdict-calibration.md`, `python -m Scripts.evidence.verdict_study`): calibrated on
+2020-01…2024-05 (20-session purge), tested untouched on 2024-07…2026-09 with day-clustered t. Neither the current rules nor
+five pre-registered alternatives passed out-of-sample (gap ≥ 0.15R, t ≥ 2, n ≥ 30 both sides), so the rules are unchanged
+and every verdict row carries `verdict_evidence = descriptive_only`. `evidence_meta.verdict_evidence` repeats it with the
+latest in-sample gate. Change the flag only by re-running the study.
 
 ### Hysteresis (w6 calibration, `Scripts.derived.regime.HYSTERESIS`)
 

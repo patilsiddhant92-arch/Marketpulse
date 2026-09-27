@@ -22,7 +22,7 @@ Tables (column docs in each module's docstring):
   big_move_group_stats      big movers by taxonomy level (Broad Sector / Sector / Broad Industry / Industry)
   group_entry_study         forward excess return after a group enters Leading
   pre_move_watch            last 60 sessions: stock-days matching >= 2 top traits (research label)
-  evidence_meta             run metadata (sources, fallbacks, timings, row counts)
+  evidence_meta             run metadata (sources, fallbacks, timings, row counts, verdict_evidence)
 """
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+from ..derived.regime import VERDICT_EVIDENCE
 from .analogs import add_analog_ordinals, analog_validation, environment_vectors, market_analogs
 from .big_moves import build_big_moves, stock_day_frame
 from .common import (LEVELS, attach_context, environment_states, fmt_json, group_states, mcap_basis_summary,
@@ -153,6 +154,7 @@ def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyCon
     lap("outcomes", s)
     stats = aggregate_setup_outcomes(out)
     calib = environment_calibration(out)
+    meta["verdict_evidence"] = verdict_evidence_meta(calib)
 
     # ---- market analogs
     s = time.time()
@@ -201,6 +203,22 @@ def build_evidence_tables(con_or_frames: Any, *, derived_con: duckdb.DuckDBPyCon
     LAST_RUN.clear()
     LAST_RUN.update(meta)
     return tables
+
+
+def verdict_evidence_meta(calib: pd.DataFrame) -> dict[str, Any]:
+    """regime.VERDICT_EVIDENCE (the out-of-sample study's conclusion) plus this run's in-sample
+    ship gate (all queues pooled; plain Welch t, i.e. NOT day-clustered, so it overstates
+    significance). The in-sample gate passing does not lift the descriptive-only status: only a
+    re-run of Scripts/evidence/verdict_study.py (purged train/test, day-clustered t) can."""
+    gate = None
+    if calib is not None and not calib.empty:
+        g = calib.loc[(calib["queue"] == "all") & (calib["kind"] == "ship_gate")]
+        if len(g):
+            r = g.iloc[0]
+            val = lambda k, f: None if r[k] is None or pd.isna(r[k]) else f(r[k])  # noqa: E731
+            gate = {"n_good": val("n_good", int), "n_bad": val("n_bad", int), "gap_r": val("gap_r", float),
+                    "welch_t": val("welch_t", float), "passes": val("passes", bool)}
+    return {**VERDICT_EVIDENCE, "in_sample_ship_gate": gate}
 
 
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:

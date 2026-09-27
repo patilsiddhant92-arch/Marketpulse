@@ -193,6 +193,19 @@ def test_rules_are_published_as_data():
     assert all(isinstance(json.loads(c), dict) for c in t["conditions"])
 
 
+def test_verdict_evidence_flag_rides_with_every_verdict():
+    """§6.1.5: the study found no out-of-sample separation, so every row with a verdict carries the
+    descriptive-only flag and note (NULL where the verdict is NULL); rules stay unchanged."""
+    ind, idx = make_market()
+    out = R.build_regime_daily(idx, ind)
+    has = out["verdict"].notna()
+    assert has.any() and (~has).any()
+    assert (out.loc[has, "verdict_evidence"] == "descriptive_only").all()
+    assert (out.loc[has, "verdict_evidence_note"] == R.VERDICT_EVIDENCE["note"]).all()
+    assert out.loc[~has, ["verdict_evidence", "verdict_evidence_note"]].isna().all().all()
+    assert "not as a trade filter" in R.VERDICT_EVIDENCE["note"]
+
+
 def test_days_in_state_previous_state_and_change():
     seq = ["Weak", "Weak", "Mixed", "Mixed", "Mixed", "Constructive"]
     st = {"Weak": dict(trend_status="Weak", participation_status="Neutral", leadership_status="Neutral",

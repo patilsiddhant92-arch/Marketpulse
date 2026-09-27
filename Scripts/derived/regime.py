@@ -46,6 +46,22 @@ VERDICT_GUIDANCE = {
 }
 
 # ---------------------------------------------------------------------------------------------
+# Verdict evidence (§6.1.5 ship gate, study 2026-09-27: docs/superpowers/handoffs/
+# 2026-09-27-verdict-calibration.md, script Scripts/evidence/verdict_study.py). The current rules
+# and five pre-registered alternatives were calibrated on 2020-01..2024-05 (20-session purge) and
+# tested untouched on 2024-07..2026-09: none separates setup outcomes out-of-sample (the current
+# verdict's gap is -0.13R, day-clustered t -1.9, i.e. slightly BACKWARDS; the train-fitted designs
+# flip sign). So the verdict stays descriptive and says so on every row: the API/UI show this
+# note next to it instead of implying it is a trade filter. Re-run the study before changing it.
+# ---------------------------------------------------------------------------------------------
+VERDICT_EVIDENCE: dict[str, str] = {
+    "status": "descriptive_only",
+    "note": ("Verdict does not predict setup outcomes out-of-sample; use it to size risk and describe "
+             "conditions, not as a trade filter."),
+    "study": "docs/superpowers/handoffs/2026-09-27-verdict-calibration.md",
+}
+
+# ---------------------------------------------------------------------------------------------
 # Initial zones (§6.1.2). Numbers are starting points, to be calibrated in the evidence engine.
 # ---------------------------------------------------------------------------------------------
 ZONES: dict[str, Any] = {
@@ -577,6 +593,8 @@ def _verdict(d: pd.DataFrame) -> pd.DataFrame:
     d["pillars_known"] = sum(d[f"{p}_status"].notna().astype(int) for p in PILLARS)
     d["verdict"] = verdict
     d["verdict_guidance"] = [VERDICT_GUIDANCE.get(v) if v else None for v in verdict]
+    d["verdict_evidence"] = [VERDICT_EVIDENCE["status"] if v else None for v in verdict]
+    d["verdict_evidence_note"] = [VERDICT_EVIDENCE["note"] if v else None for v in verdict]
     d["rule_id"] = rule_id
     d["rule_text"] = rule_text
     d["raw_verdict"] = raw_v
@@ -766,7 +784,7 @@ def _alerts(d: pd.DataFrame) -> pd.DataFrame:
 
 
 OUTPUT_COLUMNS = [
-    "trade_date", "verdict", "verdict_guidance", "rule_id", "rule_text", "pillars_known",
+    "trade_date", "verdict", "verdict_guidance", "verdict_evidence", "verdict_evidence_note", "rule_id", "rule_text", "pillars_known",
     "raw_verdict", "raw_rule_id", "candidate_verdict", "candidate_rule_id",
     "days_in_state", "state_since", "previous_state", "state_change", "state_change_date",
     *[f"{p}_status" for p in PILLARS],
