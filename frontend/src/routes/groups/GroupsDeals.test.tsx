@@ -104,12 +104,12 @@ describe('Groups and Deals tabs', () => {
     expect(screen.getByRole('link', { name: /Show these as charts/ }).getAttribute('href')).toContain('source=group%3Aindustry%3AHeavy');
   });
 
-  it('puts buying in the main table, churn in the rail, and flags NO RECORDS', async () => {
+  it('lists every deal stock of the session (buying and churn) and flags NO RECORDS', async () => {
     mockFetch();
     renderAt('/deals');
     expect(await screen.findByText('POLICYBZR', {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText(/NO RECORDS/)).toBeInTheDocument();
-    const rail = screen.getByText('Churn / prop', { selector: 'span.uppercase' }).closest('section') as HTMLElement;
-    expect(within(rail).getByText('KSCL')).toBeInTheDocument();
+    // Today lists all deal stocks (default All caps); churn/prop names sit in the same table, tagged by event.
+    expect(await screen.findByText('KSCL')).toBeInTheDocument();
   });
 });
