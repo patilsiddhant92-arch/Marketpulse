@@ -113,10 +113,10 @@ def test_participation_direction_overrides_one_step():
 def test_follow_through_counts_breakouts_t10_to_t3():
     dates = _dates(40)
     rows = []
-    for s in range(12):
+    for s in range(40):
         c = np.full(40, 100.0)
         c[25] = 110.0  # breakout on day 25 with rvol 2
-        c[26:] = 111.0 if s < 9 else 105.0  # 9 of 12 hold above 110
+        c[26:] = 111.0 if s < 30 else 105.0  # 30 of 40 hold above 110
         rv = np.ones(40)
         rv[25] = 2.0
         cs = pd.Series(c)
@@ -125,12 +125,12 @@ def test_follow_through_counts_breakouts_t10_to_t3():
     ind = pd.concat(rows, ignore_index=True)
     out = R.build_regime_daily(pd.DataFrame(), ind).set_index("trade_date")
     t = dates[25 + 5]  # breakout is t-5, inside t-10..t-3
-    assert out.loc[t, "breakouts_n"] == 12
-    assert out.loc[t, "breakouts_holding"] == 9
+    assert out.loc[t, "breakouts_n"] == 40
+    assert out.loc[t, "breakouts_holding"] == 30
     assert out.loc[t, "follow_through_pct"] == pytest.approx(75.0)
     assert out.loc[t, "follow_through_status"] == "Healthy"
     assert out.loc[dates[25 + 2], "breakouts_n"] == 0  # t-2 is outside the window
-    assert pd.isna(out.loc[dates[25 + 2], "follow_through_pct"])  # < 10 breakouts -> NULL
+    assert pd.isna(out.loc[dates[25 + 2], "follow_through_pct"])  # < 30 breakouts -> NULL
     assert out.loc[dates[25 + 11], "breakouts_n"] == 0
 
 
@@ -158,7 +158,8 @@ def test_distribution_days_need_drop_and_higher_turnover():
 
 def _status_frame(rows):
     d = pd.DataFrame(rows)
-    return R._verdict(d)
+    verdict, rule_id, _ = R._match_rules(d)
+    return pd.DataFrame({"verdict": verdict, "rule_id": rule_id})
 
 
 def test_verdict_rules_first_match_and_insufficient():
@@ -201,11 +202,14 @@ def test_days_in_state_previous_state_and_change():
                                follow_through_status="Neutral", stress_status="Neutral")}
     d = pd.DataFrame([st[s] for s in seq], index=_dates(len(seq)))
     out = R._verdict(d)
-    assert list(out["verdict"]) == seq
-    assert list(out["days_in_state"]) == [1, 2, 1, 2, 3, 1]
+    assert list(out["raw_verdict"]) == seq
+    # Mixed confirmed on its 2nd session (index 3); Constructive (1 session) is still pending
+    assert list(out["verdict"]) == ["Weak", "Weak", "Weak", "Mixed", "Mixed", "Mixed"]
+    assert list(out["days_in_state"]) == [1, 2, 3, 1, 2, 3]
     assert out["previous_state"].iloc[3] == "Weak"
     assert out["state_change"].iloc[3] == "improved"
-    assert out["state_since"].iloc[4] == _dates(6)[2]
+    assert out["state_since"].iloc[4] == _dates(6)[3]
+    assert out["candidate_verdict"].iloc[5] == "Constructive" and out["rule_id"].iloc[5] == "RH"
     assert pd.isna(out["previous_state"].iloc[0])
 
 
@@ -241,8 +245,8 @@ def test_connected_reading_and_timing_cite_values():
 
 def test_vix_spike_alert_and_stress_weak():
     dates = _dates(30)
-    vix = np.full(30, 14.0)
-    vix[29] = 17.5  # +25%
+    vix = np.full(30, 15.0)
+    vix[29] = 18.75  # +25% to >= 18
     idx = pd.concat([make_index(dates, "India VIX", vix), make_index(dates, "NIFTY MIDSML 400", np.full(30, 100.0))])
     ind = pd.DataFrame({"symbol": "A", "trade_date": dates, "close_price": 1.0, "high_price": 1.0, "low_price": 1.0})
     out = R.build_regime_daily(idx, ind)
@@ -259,3 +263,170 @@ def test_breadth_frame_takes_precedence_when_given():
     out = R.build_regime_daily(idx, ind, breadth=breadth)
     assert (out["above_50ema_pct"] == 77.0).all()
     assert (out["participation_source"] == "breadth_daily").all()
+
+
+# ---------------------------------------------------------------------------------------------
+# Calibration (w6): hysteresis, confirmed verdict changes, immediate Danger, VIX spike level
+# ---------------------------------------------------------------------------------------------
+_PILLAR_INPUTS = ("midsml_close", "midsml_ema50", "midsml_ema200", "midsml_ema50_slope_pct", "nifty_close",
+                  "nifty_ema200", "above_50ema_pct", "above_200ema_pct", "advancers", "decliners", "new_highs",
+                  "new_lows", "breakouts_n", "breakouts_holding", "distribution_days_25", "vix_close",
+                  "vix_1d_pct", "vix_5d_pct")
+
+
+def _pillar_frame(n, **cols):
+    d = pd.DataFrame(index=_dates(n))
+    for c in _PILLAR_INPUTS:
+        d[c] = cols[c] if c in cols else np.nan
+    return d
+
+
+def _changes(s: pd.Series) -> int:
+    s = pd.Series(s).reset_index(drop=True)
+    return int((s.notna() & s.shift().notna() & (s != s.shift())).sum())
+
+
+def test_participation_hysteresis_stops_single_day_flip_flop():
+    # Level sits on the 40 line (39 / 41 alternating); A/D flat so the direction override stays off.
+    lvl = [np.nan] * 10 + [39, 41, 39, 41, 39, 41, 39, 41, 45, 45, 41, 38, 38.5, 41, 41]
+    n = len(lvl)
+    d = _pillar_frame(n, above_50ema_pct=lvl, above_200ema_pct=lvl, advancers=np.full(n, 50.0),
+                      decliners=np.full(n, 50.0))
+    out = R._pillars(d)
+    raw = out["participation_status_raw"].iloc[15:].tolist()
+    sm = out["participation_status"].iloc[15:].tolist()
+    # before: the unsmoothed status flips every session on the line
+    # (first 5 known rows are NULL: the 5-session change in % > 50 EMA needs history)
+    assert raw[:3] == ["Neutral", "Weak", "Neutral"] and _changes(out["participation_status_raw"]) == 4
+    # after: held at the first known state while inside the +/-2 point band ...
+    assert sm[:3] == ["Neutral"] * 3
+    # ... then from index 18: 45, 45, 41, 38, 38.5, 41, 41
+    assert out["participation_status"].iloc[18:].tolist() == [
+        "Neutral", "Neutral",  # 45 decisive (and already Neutral)
+        "Neutral", "Neutral",  # 41, then 38 once (inside the band) -> held
+        "Weak",                # 38.5 = 2nd session below 40 -> Weak
+        "Weak",                # 41 once -> held
+        "Neutral",             # 41 again -> Neutral
+    ]
+
+
+def test_participation_hysteresis_margin_crossing_is_immediate():
+    lvl = [np.nan] * 10 + [39.0] * 6 + [41.0, 39.0, 41.5, 42.5]
+    n = len(lvl)
+    d = _pillar_frame(n, above_50ema_pct=lvl, above_200ema_pct=lvl, advancers=np.full(n, 50.0),
+                      decliners=np.full(n, 50.0))
+    out = R._pillars(d)
+    assert out["participation_status"].iloc[15:].tolist() == ["Weak", "Weak", "Weak", "Weak", "Neutral"]
+
+
+def test_follow_through_hysteresis_margin():
+    n = 6
+    ft = [60.0, 49.0, 60.0, 49.0, 30.0, 30.0]  # 49 is only 1 pt under 50 -> held Healthy; 30 is decisive
+    d = _pillar_frame(n, breakouts_n=np.full(n, 100.0), breakouts_holding=ft)
+    out = R._pillars(d)
+    assert out["follow_through_status_raw"].tolist() == ["Healthy", "Neutral", "Healthy", "Neutral", "Weak", "Weak"]
+    assert out["follow_through_status"].tolist() == ["Healthy", "Healthy", "Healthy", "Healthy", "Weak", "Weak"]
+
+
+def test_follow_through_requires_minimum_breakouts():
+    n = 3
+    d = _pillar_frame(n, breakouts_n=[9.0, 29.0, 30.0], breakouts_holding=[5.0, 20.0, 20.0])
+    out = R._pillars(d)
+    assert R.ZONES["follow_through"]["min_breakouts"] == 30
+    assert out["follow_through_pct"].iloc[:2].isna().all()
+    assert out["follow_through_status"].iloc[:2].isna().all()
+    assert out["follow_through_pct"].iloc[2] == pytest.approx(200 / 3)
+
+
+_ST = {
+    "Weak": dict(trend_status="Weak", participation_status="Neutral", leadership_status="Neutral",
+                 follow_through_status="Neutral", stress_status="Neutral"),
+    "Mixed": dict(trend_status="Neutral", participation_status="Neutral", leadership_status="Neutral",
+                  follow_through_status="Neutral", stress_status="Neutral"),
+    "Constructive": dict(trend_status="Healthy", participation_status="Neutral", leadership_status="Neutral",
+                         follow_through_status="Neutral", stress_status="Neutral"),
+    "Danger": dict(trend_status="Weak", participation_status="Neutral", leadership_status="Neutral",
+                   follow_through_status="Neutral", stress_status="Weak"),
+}
+
+
+def _verdict_seq(seq):
+    d = pd.DataFrame([_ST[s] for s in seq], index=_dates(len(seq)))
+    return R._verdict(d)
+
+
+def test_verdict_needs_two_sessions_to_change():
+    seq = ["Mixed", "Weak", "Mixed", "Weak", "Mixed", "Weak", "Weak", "Weak", "Mixed", "Weak"]
+    out = _verdict_seq(seq)
+    assert out["raw_verdict"].tolist() == seq  # before: flips every session
+    assert _changes(out["raw_verdict"]) == 7
+    assert out["verdict"].tolist() == ["Mixed"] * 6 + ["Weak"] * 4  # after: one confirmed change
+    assert _changes(out["verdict"]) == 1
+    assert out["days_in_state"].tolist() == [1, 2, 3, 4, 5, 6, 1, 2, 3, 4]
+    assert out["previous_state"].iloc[6] == "Mixed" and out["state_change"].iloc[6] == "worsened"
+    # held sessions say so: the pending verdict and the hold rule
+    assert out["rule_id"].iloc[1] == "RH" and out["candidate_verdict"].iloc[1] == "Weak"
+    assert "Weak" in out["rule_text"].iloc[1]
+    assert out["rule_id"].iloc[6] == "R3"
+    assert out["verdict_guidance"].iloc[1] == R.VERDICT_GUIDANCE["Mixed"]
+
+
+def test_danger_is_immediate_and_leaving_it_needs_confirmation():
+    seq = ["Mixed", "Mixed", "Danger", "Mixed", "Danger", "Weak", "Weak", "Weak"]
+    out = _verdict_seq(seq)
+    assert out["verdict"].tolist() == ["Mixed", "Mixed", "Danger", "Danger", "Danger", "Danger", "Weak", "Weak"]
+    assert out["rule_id"].iloc[2] == "R1" and out["days_in_state"].iloc[2] == 1
+
+
+def test_raw_danger_overrides_smoothed_pillars():
+    # Smoothed pillars still say Mixed, but today's unsmoothed statuses say Danger -> Danger now.
+    rows = []
+    for raw_danger in (False, False, True):
+        raw = _ST["Danger" if raw_danger else "Mixed"]
+        rows.append({**_ST["Mixed"], **{k.replace("_status", "_status_raw"): v for k, v in raw.items()}})
+    out = R._verdict(pd.DataFrame(rows, index=_dates(3)))
+    assert out["verdict"].tolist() == ["Mixed", "Mixed", "Danger"]
+    assert out["raw_verdict"].iloc[2] == "Danger" and out["candidate_verdict"].iloc[2] == "Mixed"
+    assert out["rule_id"].iloc[2] == "R1"
+
+
+def test_vix_low_level_jump_is_not_a_spike():
+    dates = _dates(30)
+    vix = np.full(30, 10.0)
+    vix[20] = 12.7  # +27% but VIX only 12.7
+    vix[21:] = 12.5
+    vix[28] = 15.4  # +23% but below 18
+    idx = pd.concat([make_index(dates, "India VIX", vix), make_index(dates, "NIFTY MIDSML 400", np.full(30, 100.0))])
+    ind = pd.DataFrame({"symbol": "A", "trade_date": dates, "close_price": 1.0, "high_price": 1.0, "low_price": 1.0})
+    out = R.build_regime_daily(idx, ind)
+    assert not out["alert_vix_spike"].any()
+    assert not out["vix_spike"].any()
+    assert (out["stress_status"].dropna() != "Weak").all()
+
+
+def test_vix_five_day_surge_with_level_is_a_spike():
+    dates = _dates(30)
+    vix = np.full(30, 12.0)
+    vix[23:] = [13.0, 14.0, 15.0, 15.5, 16.4, 16.6, 16.8]  # 5D +37% at 16.4 (no single day >= +20%)
+    idx = pd.concat([make_index(dates, "India VIX", vix), make_index(dates, "NIFTY MIDSML 400", np.full(30, 100.0))])
+    ind = pd.DataFrame({"symbol": "A", "trade_date": dates, "close_price": 1.0, "high_price": 1.0, "low_price": 1.0})
+    out = R.build_regime_daily(idx, ind).set_index("trade_date")
+    assert bool(out.loc[dates[27], "vix_spike"]) and out.loc[dates[27], "stress_status"] == "Weak"
+    assert bool(out.loc[dates[27], "alert_vix_spike"])
+    assert not bool(out.loc[dates[28], "alert_vix_spike"])  # alert only on the first day of a spike
+    assert not bool(out.loc[dates[26], "vix_spike"])  # 15.5 < 16
+
+
+def test_end_to_end_verdict_changes_only_when_confirmed_or_danger():
+    ind, idx = make_market(n_days=320, seed=3)
+    dates = sorted(ind.trade_date.unique())
+    rng = np.random.default_rng(7)
+    lvl = 40 + rng.choice([-1.5, 1.5], size=len(dates))  # participation straddles 40
+    breadth = pd.DataFrame({"trade_date": dates, "above_50ema_pct": lvl, "above_200ema_pct": lvl,
+                            "above_10ema_pct": 50.0, "advancers": 10.0, "decliners": 10.0})
+    out = R.build_regime_daily(idx, ind, breadth=breadth)
+    assert _changes(out["verdict"]) < _changes(out["raw_verdict"])
+    v, c = out["verdict"], out["candidate_verdict"].where(out["raw_verdict"] != "Danger", "Danger")
+    for t in range(1, len(out)):
+        if pd.notna(v.iloc[t]) and pd.notna(v.iloc[t - 1]) and v.iloc[t] != v.iloc[t - 1] and v.iloc[t] != "Danger":
+            assert c.iloc[t - 1] == v.iloc[t], t  # a non-Danger change needs 2 sessions of the new state
