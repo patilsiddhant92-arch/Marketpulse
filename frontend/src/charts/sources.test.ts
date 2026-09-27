@@ -18,7 +18,16 @@ const it_ = (symbol: string, extra: Partial<ChartItem> = {}): ChartItem => ({ sy
 
 describe('chart sources', () => {
   it('parses and round-trips source ids', () => {
-    for (const src of ['queue:all', 'queue:vcp', 'screener:minervini_8of8', 'screener:custom', 'deals:buy', 'research:pre-move', 'watchlist', 'list']) {
+    for (const src of [
+      'queue:all',
+      'queue:vcp',
+      'screener:minervini_8of8',
+      'screener:custom',
+      'deals:buy',
+      'research:pre-move',
+      'watchlist',
+      'list',
+    ]) {
       expect(sourceId(parseSource(src)!)).toBe(src);
     }
     expect(parseSource('group:industry:Oil, Gas: Refining')).toEqual({ kind: 'group', key: 'industry', name: 'Oil, Gas: Refining' });
@@ -70,8 +79,8 @@ describe('chart sources', () => {
       { close: 120, bench: 1050 },
     ];
     const r = relativePerformance(rows, 2);
-    expect(r.stock).toBeCloseTo(((120 / 105) - 1) * 100);
-    expect(r.bench).toBeCloseTo(((1050 / 1010) - 1) * 100);
+    expect(r.stock).toBeCloseTo((120 / 105 - 1) * 100);
+    expect(r.bench).toBeCloseTo((1050 / 1010 - 1) * 100);
     expect(r.excess).toBeCloseTo(r.stock! - r.bench!);
     expect(relativePerformance([{ close: 1, bench: null }], 21).excess).toBeNull();
   });

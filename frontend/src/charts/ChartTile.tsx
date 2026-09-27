@@ -24,14 +24,10 @@ export const REL_WINDOWS = [
 
 function useInView<T extends Element>(): [React.RefObject<T | null>, boolean] {
   const ref = useRef<T>(null);
-  const [seen, setSeen] = useState(false);
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
   useEffect(() => {
     const el = ref.current;
     if (!el || seen) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      setSeen(true);
-      return;
-    }
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) {
         setSeen(true);
@@ -60,7 +56,18 @@ export interface ChartTileProps {
   onToggleExpand: (sym: string) => void;
 }
 
-export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, volume, active, expanded, onInspect, onToggleExpand }: ChartTileProps) {
+export function ChartTile({
+  item,
+  timeframe,
+  relWindow,
+  syncGroup,
+  compact,
+  volume,
+  active,
+  expanded,
+  onInspect,
+  onToggleExpand,
+}: ChartTileProps) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const sym = item.symbol;
   const bars = useApiQuery('stock/{sym}/bars', { params: { sym }, query: { tf: timeframe } }, { enabled: inView });
@@ -74,7 +81,10 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, volu
 
   const rel = useMemo(() => {
     const w = REL_WINDOWS.find((x) => x.id === relWindow)?.sessions ?? 63;
-    return relativePerformance((rs.data?.rows ?? []).map((r) => ({ close: r.close, bench: r.midsml400_close })), w);
+    return relativePerformance(
+      (rs.data?.rows ?? []).map((r) => ({ close: r.close, bench: r.midsml400_close })),
+      w,
+    );
   }, [rs.data, relWindow]);
 
   const overlays = useMemo<ChartOverlay[]>(() => {
@@ -82,10 +92,7 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, volu
     const span = chartBars.slice(-Math.min(chartBars.length, timeframe === 'D' ? 40 : 12));
     const line = (id: string, label: string, v: number | null | undefined, color: ChartOverlay['color'], dashed?: boolean) =>
       v == null ? [] : [{ id, label, color, dashed, data: span.map((b) => ({ time: b.time, value: v })) }];
-    return [
-      ...line('trigger', 'Trigger', item.trigger_price, 'accent'),
-      ...line('stop', 'Stop', item.stop_price, 'down', true),
-    ];
+    return [...line('trigger', 'Trigger', item.trigger_price, 'accent'), ...line('stop', 'Stop', item.stop_price, 'down', true)];
   }, [chartBars, item.trigger_price, item.stop_price, timeframe]);
 
   const served = bars.data?.rows ?? [];
@@ -94,10 +101,7 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, volu
   return (
     <div
       ref={ref}
-      className={cn(
-        'flex min-h-0 min-w-0 flex-col overflow-hidden rounded border bg-surface',
-        active ? 'border-accent/70' : 'border-line',
-      )}
+      className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded border bg-surface', active ? 'border-accent/70' : 'border-line')}
     >
       <div className="flex h-7 shrink-0 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-line px-2 text-2xs">
         <button
@@ -158,7 +162,9 @@ export function ChartTile({ item, timeframe, relWindow, syncGroup, compact, volu
         ) : bars.error ? (
           <ErrorState error={bars.error} onRetry={() => void bars.refetch()} compact />
         ) : chartBars.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-fg-3">{bars.data?.meta.reason ?? 'No bars for this date.'}</div>
+          <div className="flex h-full items-center justify-center text-xs text-fg-3">
+            {bars.data?.meta.reason ?? 'No bars for this date.'}
+          </div>
         ) : (
           <Chart
             bars={chartBars}

@@ -34,7 +34,7 @@ export interface SourceList {
   refetch: () => void;
 }
 
-const nonNull = <T,>(x: T | null): x is T => x !== null;
+const nonNull = <T>(x: T | null): x is T => x !== null;
 
 export function useSourceList(
   src: ParsedSource | null,
@@ -44,8 +44,16 @@ export function useSourceList(
   const key = src?.key ?? '';
   const isQueue = kind === 'queue';
   const qEnabled = (name: string) => isQueue && (key === 'all' || key === name);
-  const q1 = useApiQuery('desk/queue/{name}', { params: { name: 'darvas_squeeze' }, query: { tf: 'D', limit: 5000 } }, { enabled: qEnabled('darvas_squeeze') });
-  const q2 = useApiQuery('desk/queue/{name}', { params: { name: 'darvas_10ema' }, query: { tf: 'D', limit: 5000 } }, { enabled: qEnabled('darvas_10ema') });
+  const q1 = useApiQuery(
+    'desk/queue/{name}',
+    { params: { name: 'darvas_squeeze' }, query: { tf: 'D', limit: 5000 } },
+    { enabled: qEnabled('darvas_squeeze') },
+  );
+  const q2 = useApiQuery(
+    'desk/queue/{name}',
+    { params: { name: 'darvas_10ema' }, query: { tf: 'D', limit: 5000 } },
+    { enabled: qEnabled('darvas_10ema') },
+  );
   const q3 = useApiQuery('desk/queue/{name}', { params: { name: 'vcp' }, query: { tf: 'D', limit: 5000 } }, { enabled: qEnabled('vcp') });
 
   const lastRun = useMemo(() => (kind === 'screener' && key === 'custom' ? loadLastRun() : null), [kind, key]);
@@ -53,10 +61,15 @@ export function useSourceList(
   const scr = useApiQuery('screener/run', { query: (screenerQuery ?? {}) as never }, { enabled: !!screenerQuery });
 
   const groupId = kind === 'group' ? `${key}:${src?.name ?? ''}` : '';
-  const grp = useApiQuery('groups/{group_id}/members', { params: { group_id: groupId }, query: { floor: '1000', limit: 5000 } }, { enabled: kind === 'group' });
+  const grp = useApiQuery(
+    'groups/{group_id}/members',
+    { params: { group_id: groupId }, query: { floor: '1000', limit: 5000 } },
+    { enabled: kind === 'group' },
+  );
 
   const deals = useApiQuery('deals/session', { query: { limit: 5000 } }, { enabled: kind === 'deals' });
   const pre = useApiQuery('research/pre-move', { query: { limit: 5000 } }, { enabled: kind === 'research' });
+  const { watchlist, syms, presetLabel } = opts;
 
   return useMemo<SourceList>(() => {
     const base = { total: null, asOf: null, loading: false, error: null, status: null, reason: null, note: null, refetch: () => {} };
@@ -81,10 +94,15 @@ export function useSourceList(
       }
       case 'screener': {
         if (src.key === 'custom' && !lastRun) {
-          return { ...base, items: [], label: 'Screener · last custom run', note: 'No custom screener run saved yet — edit rules or floors in the Screener first.' };
+          return {
+            ...base,
+            items: [],
+            label: 'Screener · last custom run',
+            note: 'No custom screener run saved yet — edit rules or floors in the Screener first.',
+          };
         }
         const d = scr.data;
-        const label = src.key === 'custom' ? `Screener · ${lastRun?.label ?? 'custom'}` : `Screener · ${opts.presetLabel?.(src.key) ?? src.key}`;
+        const label = src.key === 'custom' ? `Screener · ${lastRun?.label ?? 'custom'}` : `Screener · ${presetLabel?.(src.key) ?? src.key}`;
         return {
           items: (d?.rows ?? []).map((r) => fromScreenerRow(r)).filter(nonNull),
           total: d?.total ?? null,
@@ -133,7 +151,9 @@ export function useSourceList(
       case 'research': {
         const d = pre.data;
         return {
-          items: (d?.rows ?? []).map((r) => ((r as { symbol?: string | null }).symbol ? fromSymbol((r as { symbol: string }).symbol) : null)).filter(nonNull),
+          items: (d?.rows ?? [])
+            .map((r) => ((r as { symbol?: string | null }).symbol ? fromSymbol((r as { symbol: string }).symbol) : null))
+            .filter(nonNull),
           total: d?.total ?? null,
           label: 'Research · pre-move watch',
           asOf: d?.as_of ?? null,
@@ -146,9 +166,15 @@ export function useSourceList(
         };
       }
       case 'watchlist':
-        return { ...base, items: opts.watchlist.map(fromSymbol), total: opts.watchlist.length, label: 'Watchlist', note: opts.watchlist.length ? null : 'Watchlist is empty — star stocks (W) to add them.' };
+        return {
+          ...base,
+          items: watchlist.map(fromSymbol),
+          total: watchlist.length,
+          label: 'Watchlist',
+          note: watchlist.length ? null : 'Watchlist is empty — star stocks (W) to add them.',
+        };
       case 'list':
-        return { ...base, items: opts.syms.map(fromSymbol), total: opts.syms.length, label: 'Selected symbols' };
+        return { ...base, items: syms.map(fromSymbol), total: syms.length, label: 'Selected symbols' };
     }
-  }, [src, q1, q2, q3, scr, grp, deals, pre, lastRun, opts.watchlist, opts.syms, opts.presetLabel]);
+  }, [src, q1, q2, q3, scr, grp, deals, pre, lastRun, watchlist, syms, presetLabel]);
 }

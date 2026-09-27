@@ -4,7 +4,7 @@
  * threshold. Darvas / VCP presets explain the Desk pool gates and geometry.
  */
 import { Check, Search, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useApiQuery } from '../api/query';
 import type { DebugRow } from '../api/types';
 import { cn } from '../lib/cn';
@@ -48,7 +48,11 @@ function threshold(r: DebugRow, fieldLabel: (f: string) => string): string {
 
 export function RuleDebugger({ symbol, onSymbol, query, inList, fieldLabel, onClose }: RuleDebuggerProps) {
   const [draft, setDraft] = useState(symbol);
-  useEffect(() => setDraft(symbol), [symbol]);
+  const [seen, setSeen] = useState(symbol);
+  if (seen !== symbol) {
+    setSeen(symbol);
+    setDraft(symbol);
+  }
   const valid = isSymbol(symbol);
   const { lookback_days: _lb, limit: _l, ...q } = query as Record<string, unknown> & { lookback_days?: unknown; limit?: unknown };
   const dbg = useApiQuery('screener/debug', { query: { symbol, ...(q as object) } as never }, { enabled: valid });
@@ -87,16 +91,30 @@ export function RuleDebugger({ symbol, onSymbol, query, inList, fieldLabel, onCl
               ? listed
                 ? 'passes every check and is in the list.'
                 : 'passes every check on this date.'
-              : `fails ${failed.length} check${failed.length === 1 ? '' : 's'}${failed.length ? `: ${failed.map((f) => f.label).slice(0, 3).join(' · ')}` : ''}.`}
+              : `fails ${failed.length} check${failed.length === 1 ? '' : 's'}${
+                  failed.length
+                    ? `: ${failed
+                        .map((f) => f.label)
+                        .slice(0, 3)
+                        .join(' · ')}`
+                    : ''
+                }.`}
             {dbg.data.as_of && <span className="ml-1 text-fg-3">({fmtDate(dbg.data.as_of)})</span>}
           </span>
         )}
-        <button type="button" onClick={onClose} aria-label="Close rule debugger" className="ml-auto rounded p-0.5 text-fg-3 hover:bg-surface-3 hover:text-fg">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close rule debugger"
+          className="ml-auto rounded p-0.5 text-fg-3 hover:bg-surface-3 hover:text-fg"
+        >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
       {!valid ? (
-        <div className="text-xs text-fg-3">Type a symbol, or select a row / open a stock in the sidecar to check it against the current preset, rules and floors.</div>
+        <div className="text-xs text-fg-3">
+          Type a symbol, or select a row / open a stock in the sidecar to check it against the current preset, rules and floors.
+        </div>
       ) : dbg.isLoading ? (
         <SkeletonRows rows={4} label="Checking rules" />
       ) : dbg.error ? (
@@ -118,7 +136,11 @@ export function RuleDebugger({ symbol, onSymbol, query, inList, fieldLabel, onCl
             {rows.map((r, i) => (
               <tr key={i} className={cn('border-t border-line/60', r.kind === 'result' && 'font-medium')}>
                 <td className="py-0.5">
-                  {r.passed ? <Check className="h-3.5 w-3.5 text-up" aria-label="pass" /> : <X className="h-3.5 w-3.5 text-down" aria-label="fail" />}
+                  {r.passed ? (
+                    <Check className="h-3.5 w-3.5 text-up" aria-label="pass" />
+                  ) : (
+                    <X className="h-3.5 w-3.5 text-down" aria-label="fail" />
+                  )}
                 </td>
                 <td className="py-0.5 text-fg">
                   {r.label.replace(/>=/g, '≥').replace(/<=/g, '≤')}
@@ -128,7 +150,13 @@ export function RuleDebugger({ symbol, onSymbol, query, inList, fieldLabel, onCl
                   {r.missing_input ? 'missing' : fmtActual(r.actual)}
                 </td>
                 <td className="num py-0.5 pl-3 text-fg-3">{threshold(r, fieldLabel)}</td>
-                <td className="max-w-[260px] truncate py-0.5 text-fg-3" title={r.detail ?? undefined}>{r.missing_input ? (r.passed ? 'no data — this gate lets unknowns pass' : 'no data → fails (fail-closed)') : (r.detail ?? '')}</td>
+                <td className="max-w-[260px] truncate py-0.5 text-fg-3" title={r.detail ?? undefined}>
+                  {r.missing_input
+                    ? r.passed
+                      ? 'no data — this gate lets unknowns pass'
+                      : 'no data → fails (fail-closed)'
+                    : (r.detail ?? '')}
+                </td>
               </tr>
             ))}
           </tbody>

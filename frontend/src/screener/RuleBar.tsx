@@ -113,17 +113,8 @@ function RuleChip({
     </button>
   );
   return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded border bg-surface-2',
-        isBoolOp(rule.op) ? 'border-info/30' : 'border-accent/30',
-      )}
-    >
-      {field?.metric_key ? (
-        <Tooltip content={<MetricTooltipBody def={def} metricKey={field.metric_key} />}>{body}</Tooltip>
-      ) : (
-        body
-      )}
+    <span className={cn('inline-flex items-center rounded border bg-surface-2', isBoolOp(rule.op) ? 'border-info/30' : 'border-accent/30')}>
+      {field?.metric_key ? <Tooltip content={<MetricTooltipBody def={def} metricKey={field.metric_key} />}>{body}</Tooltip> : body}
       <button
         type="button"
         onClick={onRemove}
@@ -231,7 +222,12 @@ function RuleEditor({
               </option>
             ))}
           </select>
-          <select aria-label="Compare with" className={input} value={rhsMode} onChange={(e) => setRhsMode(e.target.value as 'value' | 'ref')}>
+          <select
+            aria-label="Compare with"
+            className={input}
+            value={rhsMode}
+            onChange={(e) => setRhsMode(e.target.value as 'value' | 'ref')}
+          >
             <option value="value">number</option>
             <option value="ref">field</option>
           </select>

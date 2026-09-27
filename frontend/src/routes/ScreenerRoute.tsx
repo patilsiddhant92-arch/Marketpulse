@@ -67,7 +67,7 @@ export default function ScreenerRoute() {
   const shell = useShell();
   const navigate = useNavigate();
   const location = useLocation();
-  const [state, setState, active] = useTabUrlState('/screener', SCREENER_DEFAULTS);
+  const [state, setState] = useTabUrlState('/screener', SCREENER_DEFAULTS);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [debugOpen, setDebugOpen] = useState(false);
@@ -101,7 +101,8 @@ export default function ScreenerRoute() {
   const tweaked =
     custom || (['mcap', 'price', 'vol', 'avgvol', 'lb', 'ipo', 'level', 'group'] as const).some((k) => state[k] !== SCREENER_DEFAULTS[k]);
   useEffect(() => {
-    if (tweaked && run.data && !unavailable) saveLastRun({ label: `${custom ? 'custom rules' : 'custom floors'} on ${preset?.label ?? state.preset}`, query });
+    if (tweaked && run.data && !unavailable)
+      saveLastRun({ label: `${custom ? 'custom rules' : 'custom floors'} on ${preset?.label ?? state.preset}`, query });
   }, [tweaked, custom, run.data, unavailable, preset, state.preset, query]);
 
   const evidence = useApiQuery('evidence/{setup}', { params: { setup: state.preset } }, { enabled: !!preset && !custom });
@@ -126,10 +127,8 @@ export default function ScreenerRoute() {
   );
   const activeRow = activeId ? rows.find((r) => r.symbol === activeId) : undefined;
 
-  // Keep the debugger on the focused / sidecar symbol unless the user typed one.
-  useEffect(() => {
-    if (active && shell.symbol && !debugSym) setDebugSym(shell.symbol);
-  }, [active, shell.symbol, debugSym]);
+  // The debugger follows the focused / sidecar symbol unless the user typed one.
+  const debugTarget = debugSym || shell.symbol || '';
 
   const selectPreset = (id: string) => {
     setState({ preset: id, rules: null });
@@ -174,14 +173,26 @@ export default function ScreenerRoute() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* presets */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5" role="tablist" aria-label="Screener presets">
+      <div
+        className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5"
+        role="tablist"
+        aria-label="Screener presets"
+      >
         {presetsQ.isLoading && <Skeleton width={480} height={18} />}
         {presetsQ.error && <ErrorState error={presetsQ.error} onRetry={() => void presetsQ.refetch()} compact />}
         {categories.map(([cat, list]) => (
           <div key={cat} className="flex shrink-0 items-center gap-1">
             <span className="mr-0.5 text-2xs uppercase tracking-wide text-fg-3">{cat}</span>
             {list.map((p) => (
-              <Tooltip key={p.id} content={<div className="max-w-xs">{p.description}{!p.available && <div className="mt-1 text-warn">Not ported to v2 yet.</div>}</div>}>
+              <Tooltip
+                key={p.id}
+                content={
+                  <div className="max-w-xs">
+                    {p.description}
+                    {!p.available && <div className="mt-1 text-warn">Not ported to v2 yet.</div>}
+                  </div>
+                }
+              >
                 <button
                   type="button"
                   role="tab"
@@ -235,7 +246,11 @@ export default function ScreenerRoute() {
             </span>
             <span className="text-fg-3">as of {fmtDate(run.data.as_of)}</span>
             {ctx.new_count != null && (
-              <Chip tone={ctx.new_count ? 'accent' : 'neutral'} size="xs" title={`Matched on ${fmtDate(run.data.as_of)} but not on ${fmtDate(ctx.previous_session)}`}>
+              <Chip
+                tone={ctx.new_count ? 'accent' : 'neutral'}
+                size="xs"
+                title={`Matched on ${fmtDate(run.data.as_of)} but not on ${fmtDate(ctx.previous_session)}`}
+              >
                 {ctx.new_count} new
               </Chip>
             )}
@@ -251,7 +266,9 @@ export default function ScreenerRoute() {
               </Chip>
               {droppedOpen && dropped.length > 0 && (
                 <div className="absolute left-0 top-full z-30 mt-1 max-h-64 w-72 overflow-auto rounded-md border border-line-strong bg-surface-2 p-1 shadow-2xl">
-                  <div className="px-1 pb-1 text-2xs text-fg-3">Shown as of {fmtDate(ctx.previous_session)} — click to inspect or debug</div>
+                  <div className="px-1 pb-1 text-2xs text-fg-3">
+                    Shown as of {fmtDate(ctx.previous_session)} — click to inspect or debug
+                  </div>
                   {dropped.map((d) => (
                     <button
                       key={d.symbol}
@@ -296,13 +313,32 @@ export default function ScreenerRoute() {
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           {copied && <span className="text-2xs text-fg-3">{copied}</span>}
-          <button type="button" onClick={() => setDebugOpen((o) => !o)} aria-pressed={debugOpen} className={cn('flex items-center gap-1 rounded border px-2 py-0.5', debugOpen ? 'border-accent text-accent' : 'border-line text-fg-2 hover:text-fg')}>
+          <button
+            type="button"
+            onClick={() => setDebugOpen((o) => !o)}
+            aria-pressed={debugOpen}
+            className={cn(
+              'flex items-center gap-1 rounded border px-2 py-0.5',
+              debugOpen ? 'border-accent text-accent' : 'border-line text-fg-2 hover:text-fg',
+            )}
+          >
             <Bug className="h-3 w-3" /> Why not?
           </button>
-          <button type="button" onClick={() => void copyTv()} disabled={!sorted.length} className="flex items-center gap-1 rounded border border-line px-2 py-0.5 text-fg-2 hover:text-fg disabled:opacity-40" title="Copy the visible rows (current sort / filter) as a TradingView watchlist">
+          <button
+            type="button"
+            onClick={() => void copyTv()}
+            disabled={!sorted.length}
+            className="flex items-center gap-1 rounded border border-line px-2 py-0.5 text-fg-2 hover:text-fg disabled:opacity-40"
+            title="Copy the visible rows (current sort / filter) as a TradingView watchlist"
+          >
             <Copy className="h-3 w-3" /> TradingView
           </button>
-          <button type="button" onClick={openInCharts} disabled={!rows.length} className="flex items-center gap-1 rounded border border-line px-2 py-0.5 text-fg-2 hover:text-fg disabled:opacity-40">
+          <button
+            type="button"
+            onClick={openInCharts}
+            disabled={!rows.length}
+            className="flex items-center gap-1 rounded border border-line px-2 py-0.5 text-fg-2 hover:text-fg disabled:opacity-40"
+          >
             <LayoutGrid className="h-3 w-3" /> Open in Charts
           </button>
         </div>
@@ -310,7 +346,7 @@ export default function ScreenerRoute() {
 
       {debugOpen && (
         <RuleDebugger
-          symbol={debugSym}
+          symbol={debugTarget}
           onSymbol={(s) => {
             setDebugSym(s);
             shell.openSymbol(s);
@@ -331,7 +367,7 @@ export default function ScreenerRoute() {
             columns={columns}
             rows={filtered}
             getRowId={(r, i) => r.symbol ?? `row-${i}`}
-            total={deferredSearch ? filtered.length : run.data?.total ?? null}
+            total={deferredSearch ? filtered.length : (run.data?.total ?? null)}
             loading={run.isLoading || presetsQ.isLoading}
             error={run.error}
             onRetry={() => void run.refetch()}
@@ -346,7 +382,8 @@ export default function ScreenerRoute() {
                 title="Nothing matched"
                 detail={
                   <>
-                    No stock passed every rule and floor on {fmtDate(run.data?.as_of)}. Loosen a rule chip, lower a floor, widen the lookback — or use{' '}
+                    No stock passed every rule and floor on {fmtDate(run.data?.as_of)}. Loosen a rule chip, lower a floor, widen the
+                    lookback — or use{' '}
                     <button type="button" className="text-accent underline" onClick={() => setDebugOpen(true)}>
                       Why not?
                     </button>{' '}

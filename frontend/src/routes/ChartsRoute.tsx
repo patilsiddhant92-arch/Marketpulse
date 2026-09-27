@@ -16,16 +16,7 @@ import { apiGet } from '../api/client';
 import { apiQueryKey, useApiQuery } from '../api/query';
 import { ChartTile, REL_WINDOWS } from '../charts/ChartTile';
 import { SourcePicker } from '../charts/SourcePicker';
-import {
-  SORTS,
-  TILE_COUNTS,
-  clampPage,
-  gridShape,
-  pageCount,
-  pageSlice,
-  parseSource,
-  sortItems,
-} from '../charts/sources';
+import { SORTS, TILE_COUNTS, clampPage, gridShape, pageCount, pageSlice, parseSource, sortItems } from '../charts/sources';
 import { useSourceList } from '../charts/useSourceList';
 import { copyText } from '../lib/clipboard';
 import { cn } from '../lib/cn';
@@ -83,7 +74,10 @@ export default function ChartsRoute() {
   const focus = state.focus && items.some((i) => i.symbol === state.focus) ? state.focus : '';
   const shape = gridShape(focus ? 1 : visible.length || perPage);
 
-  const goPage = useCallback((p: number) => setState({ page: String(clampPage(p, items.length, perPage) + 1) }), [setState, items.length, perPage]);
+  const goPage = useCallback(
+    (p: number) => setState({ page: String(clampPage(p, items.length, perPage) + 1) }),
+    [setState, items.length, perPage],
+  );
 
   // Prefetch the next page's bars + RS so paging feels instant (shared cache with Stock 360).
   useEffect(() => {
@@ -166,13 +160,19 @@ export default function ChartsRoute() {
               type="button"
               aria-pressed={tf === t}
               onClick={() => setState({ tf: t })}
-              className={cn('px-2 py-1 font-mono text-xs', tf === t ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg')}
+              className={cn(
+                'px-2 py-1 font-mono text-xs',
+                tf === t ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg',
+              )}
             >
               {t}
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-1 text-2xs text-fg-3" title="Window for the stock's return minus the NIFTY MidSml 400 return shown on each tile">
+        <label
+          className="flex items-center gap-1 text-2xs text-fg-3"
+          title="Window for the stock's return minus the NIFTY MidSml 400 return shown on each tile"
+        >
           vs MidSml400
           <select aria-label="Relative performance window" className={seg} value={rel} onChange={(e) => setState({ rel: e.target.value })}>
             {REL_WINDOWS.map((w) => (
@@ -184,10 +184,22 @@ export default function ChartsRoute() {
         </label>
         <div className="ml-auto flex items-center gap-2 text-xs">
           {copied && <span className="text-2xs text-fg-3">{copied}</span>}
-          <button type="button" onClick={() => void copyTv()} disabled={!items.length} className="flex items-center gap-1 rounded border border-line px-2 py-1 text-fg-2 hover:text-fg disabled:opacity-40" title="Copy the whole list (current sort) as a TradingView watchlist">
+          <button
+            type="button"
+            onClick={() => void copyTv()}
+            disabled={!items.length}
+            className="flex items-center gap-1 rounded border border-line px-2 py-1 text-fg-2 hover:text-fg disabled:opacity-40"
+            title="Copy the whole list (current sort) as a TradingView watchlist"
+          >
             <Copy className="h-3 w-3" /> TradingView
           </button>
-          <button type="button" onClick={() => goPage(page - 1)} disabled={page === 0 || !!focus} aria-label="Previous page (K)" className="rounded border border-line p-1 text-fg-2 hover:text-fg disabled:opacity-40">
+          <button
+            type="button"
+            onClick={() => goPage(page - 1)}
+            disabled={page === 0 || !!focus}
+            aria-label="Previous page (K)"
+            className="rounded border border-line p-1 text-fg-2 hover:text-fg disabled:opacity-40"
+          >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
           <span className="num whitespace-nowrap text-fg-2" aria-live="polite">
@@ -199,14 +211,24 @@ export default function ChartsRoute() {
               '0 of 0'
             )}
           </span>
-          <button type="button" onClick={() => goPage(page + 1)} disabled={page + 1 >= pages || !!focus} aria-label="Next page (J)" className="rounded border border-line p-1 text-fg-2 hover:text-fg disabled:opacity-40">
+          <button
+            type="button"
+            onClick={() => goPage(page + 1)}
+            disabled={page + 1 >= pages || !!focus}
+            aria-label="Next page (J)"
+            className="rounded border border-line p-1 text-fg-2 hover:text-fg disabled:opacity-40"
+          >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
       <div className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap border-b border-line bg-surface px-3 text-2xs text-fg-3">
         {list.asOf && <span>as of {fmtDate(list.asOf)}</span>}
-        {list.total != null && list.total !== list.items.length && <span className="text-warn">{list.items.length} of {list.total} returned</span>}
+        {list.total != null && list.total !== list.items.length && (
+          <span className="text-warn">
+            {list.items.length} of {list.total} returned
+          </span>
+        )}
         {list.status === 'partial' && list.reason && (
           <span className="shrink-0 text-warn" title={list.reason}>
             partial data
@@ -217,7 +239,10 @@ export default function ChartsRoute() {
             {list.note}
           </span>
         )}
-        <span className="ml-auto shrink-0" title="J / K (or ] / [) page · click a symbol to open Stock 360 · double-click or ⤢ to expand · crosshair synced by date · tile shows return vs NIFTY MidSml 400 over the chosen window">
+        <span
+          className="ml-auto shrink-0"
+          title="J / K (or ] / [) page · click a symbol to open Stock 360 · double-click or ⤢ to expand · crosshair synced by date · tile shows return vs NIFTY MidSml 400 over the chosen window"
+        >
           J/K page · click symbol = Stock 360 · ⤢ expand
         </span>
       </div>
@@ -225,7 +250,13 @@ export default function ChartsRoute() {
         {list.error ? (
           <ErrorState error={list.error} onRetry={list.refetch} />
         ) : list.loading ? (
-          <div className="grid h-full gap-1.5" style={{ gridTemplateColumns: `repeat(${gridShape(perPage).cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${gridShape(perPage).rows}, minmax(0, 1fr))` }}>
+          <div
+            className="grid h-full gap-1.5"
+            style={{
+              gridTemplateColumns: `repeat(${gridShape(perPage).cols}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${gridShape(perPage).rows}, minmax(0, 1fr))`,
+            }}
+          >
             {Array.from({ length: perPage }, (_, i) => (
               <div key={i} className="animate-pulse rounded border border-line bg-surface" />
             ))}
@@ -237,7 +268,10 @@ export default function ChartsRoute() {
         ) : (
           <div
             className="grid h-full gap-1.5"
-            style={{ gridTemplateColumns: `repeat(${shape.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${shape.rows}, minmax(0, 1fr))` }}
+            style={{
+              gridTemplateColumns: `repeat(${shape.cols}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${shape.rows}, minmax(0, 1fr))`,
+            }}
           >
             {tiles.map((it) => (
               <ChartTile

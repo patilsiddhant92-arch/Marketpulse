@@ -56,7 +56,6 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
   useEscapeLayer(open, () => setOpen(false));
   useEffect(() => {
     if (!open) return;
-    setCat(catOf(parseSource(value)));
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
@@ -65,7 +64,11 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
   }, [open, value]);
 
   const presets = useApiQuery('screener/presets', {}, { staleTime: Infinity, enabled: open });
-  const board = useApiQuery('groups/board', { query: { level: level as 'industry', floor: '1000', limit: 500 } }, { enabled: open && cat === 'groups' });
+  const board = useApiQuery(
+    'groups/board',
+    { query: { level: level as 'industry', floor: '1000', limit: 500 } },
+    { enabled: open && cat === 'groups' },
+  );
   const groups = useMemo(() => {
     const s = q.trim().toLowerCase();
     return (board.data?.rows ?? [])
@@ -98,7 +101,10 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) setCat(catOf(parseSource(value)));
+          setOpen(!open);
+        }}
         aria-expanded={open}
         aria-haspopup="dialog"
         className="flex h-7 max-w-[340px] items-center gap-1.5 rounded border border-line-strong bg-surface-2 px-2 text-xs text-fg hover:border-accent"
@@ -109,14 +115,21 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
         <ChevronDown className="h-3 w-3 shrink-0 text-fg-3" />
       </button>
       {open && (
-        <div role="dialog" aria-label="Choose chart source" className="absolute left-0 top-full z-40 mt-1 flex h-[380px] w-[560px] overflow-hidden rounded-md border border-line-strong bg-surface-2 shadow-2xl">
+        <div
+          role="dialog"
+          aria-label="Choose chart source"
+          className="absolute left-0 top-full z-40 mt-1 flex h-[380px] w-[560px] overflow-hidden rounded-md border border-line-strong bg-surface-2 shadow-2xl"
+        >
           <div className="w-36 shrink-0 border-r border-line p-1">
             {CATS.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setCat(c.id)}
-                className={cn('block w-full rounded px-2 py-1 text-left text-xs', cat === c.id ? 'bg-surface-3 text-fg' : 'text-fg-2 hover:text-fg')}
+                className={cn(
+                  'block w-full rounded px-2 py-1 text-left text-xs',
+                  cat === c.id ? 'bg-surface-3 text-fg' : 'text-fg-2 hover:text-fg',
+                )}
               >
                 {c.label}
               </button>
@@ -127,7 +140,9 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
               <div className="overflow-auto">
                 {item('queue:all', 'All queues', 'merged, de-duplicated')}
                 {Object.entries(QUEUE_LABELS).map(([k, l]) => item(`queue:${k}`, l))}
-                <p className="px-2 pt-2 text-2xs text-fg-3">Same predicates as the Desk. The first call of a session computes live and can take 10–30 s.</p>
+                <p className="px-2 pt-2 text-2xs text-fg-3">
+                  Same predicates as the Desk. The first call of a session computes live and can take 10–30 s.
+                </p>
               </div>
             )}
             {cat === 'screener' && (
@@ -162,7 +177,9 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
                 />
                 <div className="min-h-0 flex-1 overflow-auto">
                   {board.isLoading && <div className="px-2 py-1 text-xs text-fg-3">Loading groups…</div>}
-                  {groups.map((g) => item(`group:${level}:${g.group_name}`, g.group_name ?? '', g.rank != null ? `rank #${g.rank}` : undefined))}
+                  {groups.map((g) =>
+                    item(`group:${level}:${g.group_name}`, g.group_name ?? '', g.rank != null ? `rank #${g.rank}` : undefined),
+                  )}
                   {!board.isLoading && groups.length === 0 && <div className="px-2 py-1 text-xs text-fg-3">No group matches.</div>}
                 </div>
               </>
@@ -171,7 +188,9 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
               <div className="overflow-auto">
                 {item('deals:buy', 'Net buying (session)')}
                 {item('deals:sell', 'Net selling (session)')}
-                <p className="px-2 pt-2 text-2xs text-fg-3">Accumulate / Fresh buyer / Distribute groupings need deal_session_net (not built yet).</p>
+                <p className="px-2 pt-2 text-2xs text-fg-3">
+                  Accumulate / Fresh buyer / Distribute groupings need deal_session_net (not built yet).
+                </p>
               </div>
             )}
             {cat === 'research' && <div className="overflow-auto">{item('research:pre-move', 'Pre-move watch', 'research')}</div>}

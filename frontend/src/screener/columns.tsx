@@ -168,17 +168,16 @@ const common = {
     headerTitle: 'Calendar days since the 52-week high was set',
     accessor: 'days_since_52w_high',
     format: 'int',
-    width: 80,
+    width: 76,
     sortDescFirst: false,
   } as DataTableColumn<SRow>,
   stage2: {
     id: 'days_in_stage2',
     header: 'S2 days',
-    headerTitle:
-      'Consecutive sessions with close > 200 EMA and 50 EMA > 200 EMA (Stage 2). "≥" = held for the whole 252-session window.',
+    headerTitle: 'Consecutive sessions with close > 200 EMA and 50 EMA > 200 EMA (Stage 2). "≥" = held for the whole 252-session window.',
     accessor: 'days_in_stage2',
     format: 'int',
-    width: 74,
+    width: 82,
     cell: (v, r) => (
       <span className="num">
         {r.days_in_stage2_capped ? '≥' : ''}
@@ -345,7 +344,10 @@ export function queueColumns(ctx: ColumnCtx, queue: string | null | undefined): 
           {
             id: 'vcp_depth_pct',
             header: 'Last T',
-            accessor: (r) => { const ts = r.vcp_contractions ?? []; return ts.length ? (ts[ts.length - 1].depth_pct ?? null) : null; },
+            accessor: (r) => {
+              const ts = r.vcp_contractions ?? [];
+              return ts.length ? (ts[ts.length - 1].depth_pct ?? null) : null;
+            },
             headerTitle: 'Depth of the last (tightest) contraction, %',
             format: 'pct',
             width: 64,
@@ -412,7 +414,11 @@ export function queueColumns(ctx: ColumnCtx, queue: string | null | undefined): 
       width: 64,
       cell: (v, r) =>
         v ? (
-          <Chip tone="warn" size="xs" title={r.next_event ? `${r.next_event.event_type ?? ''} ${r.next_event.event_date ?? ''}` : undefined}>
+          <Chip
+            tone="warn"
+            size="xs"
+            title={r.next_event ? `${r.next_event.event_type ?? ''} ${r.next_event.event_date ?? ''}` : undefined}
+          >
             soon
           </Chip>
         ) : (

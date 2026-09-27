@@ -39,7 +39,16 @@ const presets = env(
         { field: 'rs_percentile', op: 'gte', value: 70, ref: null },
       ],
     },
-    { id: 'vcp', label: 'VCP', description: 'Desk VCP queue.', kind: 'queue', queue: 'vcp', category: 'Setups', available: true, rules: [] },
+    {
+      id: 'vcp',
+      label: 'VCP',
+      description: 'Desk VCP queue.',
+      kind: 'queue',
+      queue: 'vcp',
+      category: 'Setups',
+      available: true,
+      rules: [],
+    },
   ],
   {
     context: {
@@ -52,7 +61,16 @@ const presets = env(
 );
 
 const runRows = [
-  { symbol: 'AAA', industry: 'Pharma', close: 100, change_1d_pct: 1.5, rs_percentile: 95, rs_is_ipo_rank: false, is_new: true, delivery_pct: null },
+  {
+    symbol: 'AAA',
+    industry: 'Pharma',
+    close: 100,
+    change_1d_pct: 1.5,
+    rs_percentile: 95,
+    rs_is_ipo_rank: false,
+    is_new: true,
+    delivery_pct: null,
+  },
   { symbol: 'BBB', industry: 'Cement', close: 50, change_1d_pct: -0.5, rs_percentile: 80, rs_is_ipo_rank: false, is_new: false },
 ];
 
@@ -70,7 +88,11 @@ describe('ScreenerRoute', () => {
         if (url.pathname === '/api/v2/screener/run')
           return json(
             env(runRows, {
-              context: { new_count: 1, previous_session: '2026-09-24', dropped: [{ symbol: 'CCC', close: 10, rs_percentile: 60, industry: 'Steel' }] },
+              context: {
+                new_count: 1,
+                previous_session: '2026-09-24',
+                dropped: [{ symbol: 'CCC', close: 10, rs_percentile: 60, industry: 'Steel' }],
+              },
             }),
           );
         if (url.pathname === '/api/v2/screener/debug')
@@ -78,7 +100,16 @@ describe('ScreenerRoute', () => {
             env(
               [
                 { kind: 'floor', label: 'market_cap_cr >= 1000', passed: true, actual: null },
-                { kind: 'rule', label: 'Strength rank >= 70', field: 'rs_percentile', op: 'gte', value: 70, actual: null, passed: false, missing_input: true },
+                {
+                  kind: 'rule',
+                  label: 'Strength rank >= 70',
+                  field: 'rs_percentile',
+                  op: 'gte',
+                  value: 70,
+                  actual: null,
+                  passed: false,
+                  missing_input: true,
+                },
               ],
               { context: { passes_all: false } },
             ),
@@ -95,7 +126,9 @@ describe('ScreenerRoute', () => {
     expect(screen.getByText('matches', { exact: false })).toHaveTextContent('2 matches');
     expect(screen.getByText('1 new')).toBeInTheDocument();
     await waitFor(() =>
-      expect(calls.some((c) => c.startsWith('/api/v2/screener/run?') && c.includes('preset=minervini_8of8') && c.includes('as_of=2026-09-25'))).toBe(true),
+      expect(
+        calls.some((c) => c.startsWith('/api/v2/screener/run?') && c.includes('preset=minervini_8of8') && c.includes('as_of=2026-09-25')),
+      ).toBe(true),
     );
     expect(calls.some((c) => c.startsWith('/api/v2/screener/run?') && c.includes('rules='))).toBe(false);
 
