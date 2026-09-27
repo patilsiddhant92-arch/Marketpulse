@@ -212,7 +212,7 @@ describe('Shell', () => {
       fireEvent.keyDown(window, { key: '4' });
     });
     await waitFor(() => expect(router.state.location.pathname).toBe('/deals'));
-    expect(await screen.findByText('legacy deals')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Deals' })).toBeVisible();
     expect(screen.getByText('legacy cockpit')).not.toBeVisible();
   });
 
