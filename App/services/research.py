@@ -46,12 +46,13 @@ def _passthrough(con: Any, table: str, date_col_candidates: tuple[str, ...], as_
                  where: str = "", params: list[Any] | None = None, order: str | None = None) -> list[dict[str, Any]]:
     cols = db.table_columns(con, table)
     date_col = next((c for c in date_col_candidates if c in cols), None)
-    clauses, p = [], list(params or [])
+    clauses, p = [], []
     if date_col:
         clauses.append(f"{db.quote_ident(date_col)} <= ?")
         p.append(as_of)
     if where:
         clauses.append(where)
+        p.extend(params or [])
     sql = f"SELECT * FROM {db.quote_ident(table)}"
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)

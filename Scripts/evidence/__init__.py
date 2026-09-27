@@ -194,14 +194,16 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     for c in out.columns:
         if str(out[c].dtype) in ("float32",):
             out[c] = out[c].astype("float64")
-        if out[c].dtype == object:
+        if str(out[c].dtype).startswith("datetime64"):
+            out[c] = out[c].astype("datetime64[us]")  # DuckDB TIMESTAMP (not TIMESTAMP_NS)
+        if out[c].dtype == object or str(out[c].dtype) in ("str", "string"):
             sample = out[c].dropna().head(50)
             if len(sample) and all(isinstance(x, (list, tuple)) for x in sample):
                 continue
             if len(sample) and all(isinstance(x, (bool, np.bool_)) for x in sample):
                 out[c] = out[c].astype("boolean")
             elif len(sample) and all(isinstance(x, pd.Timestamp) for x in sample):
-                out[c] = pd.to_datetime(out[c])
+                out[c] = pd.to_datetime(out[c]).astype("datetime64[us]")
             elif len(sample) and all(isinstance(x, (int, float, np.integer, np.floating)) for x in sample):
                 out[c] = pd.to_numeric(out[c], errors="coerce")
             else:
@@ -216,6 +218,8 @@ def write_evidence_tables(con: duckdb.DuckDBPyConnection, tables: dict[str, pd.D
         if name.startswith("_") or df is None:
             continue
         view = f"_ev_{name}"
+        if df.shape[1] == 0:
+            df = pd.DataFrame({"_empty": pd.Series(dtype="object")})
         con.register(view, _prepare(df))
         try:
             con.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM {view}')

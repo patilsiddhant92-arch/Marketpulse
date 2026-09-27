@@ -83,7 +83,7 @@ def pit_mcap(
          Uses today's share count: NOT point-in-time (documented fallback).
     Returns the rows with ``mcap_cr`` and ``mcap_basis`` added (index preserved).
     """
-    out = rows[["symbol", "trade_date", "close_price"]].copy()
+    out = to_ts_col(rows[["symbol", "trade_date", "close_price"]].copy(), "trade_date")
     out["_i"] = np.arange(len(out))
     out["mcap_cr"] = np.nan
     out["mcap_basis"] = pd.Series([None] * len(out), dtype="object")
@@ -265,3 +265,24 @@ def grolling(values: Any, codes: np.ndarray, window: int, how: str, min_periods:
             exp = np.where(cnt >= 0, exp, np.nan)
         full[head] = exp[head]
     return full
+
+
+def gshift(values: Any, codes: np.ndarray, k: int) -> np.ndarray:
+    """``s.groupby(codes).shift(k)`` for rows sorted by contiguous groups (NaN across group edges)."""
+    v = np.asarray(values, dtype=float)
+    c = np.asarray(codes)
+    n = len(v)
+    out = np.full(n, np.nan)
+    if k == 0 or n == 0:
+        return v.copy()
+    if k > 0:
+        out[k:] = v[:-k] if k < n else out[k:]
+        same = np.zeros(n, bool)
+        same[k:] = c[k:] == c[:-k]
+    else:
+        m = -k
+        out[:-m] = v[m:] if m < n else out[:-m]
+        same = np.zeros(n, bool)
+        same[:-m] = c[:-m] == c[m:]
+    out[~same] = np.nan
+    return out

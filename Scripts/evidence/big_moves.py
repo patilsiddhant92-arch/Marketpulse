@@ -3,13 +3,15 @@ catalyst attribution, taxonomy studies and the pre-move watch.
 
 Event definition
 ----------------
-A stock-day t *qualifies* when any of:
-  * ``upper_circuit`` — high_t >= close_{t-1} × (1 + band/100) × 0.9995 (band as of t: security_reference_daily
+Confirmation days (all backward-looking, knowable on the day):
+  * ``upper_circuit`` - high_t >= close_{t-1} x (1 + band/100) x 0.9995 (band as of t: security_reference_daily
     price_band <= 10 days old, else stocks_master band = current band, flagged ``band_basis``);
-  * ``up30_20d`` — max(close_t … close_{t+19}) >= 1.30 × close_{t-1} (needs 20 forward sessions);
-  * ``up50_60d`` — max(close_t … close_{t+59}) >= 1.50 × close_{t-1} (needs 60 forward sessions).
-Qualifying days of one symbol form an *episode* until 20 sessions pass without a qualifying day; the
-event date T is the episode's first qualifying day (the move starts on T; T-1 is the last pre-move close).
+  * ``up30_20d`` - close_t >= 1.30 x the lowest close of the previous 20 sessions;
+  * ``up50_60d`` - close_t >= 1.50 x the lowest close of the previous 60 sessions.
+Confirmation days of one symbol form an *episode* until 20 sessions pass without one. The episode's first
+confirmation day is ``confirmed_date``; the event date T (move start) is that day for an upper circuit, else
+the session after the lowest close of the look-back window (never reaching into the previous episode).
+T-1 is therefore the last pre-move close; move_pct = max close over T..T+59 vs close T-1.
 Eligible events: series EQ, market cap at T-1 >= ₹1,000 Cr (point-in-time, see common.pit_mcap;
 ``mcap_basis`` says when it falls back to price-scaled current mcap), 20-day ADV at T-1 >= ₹1 Cr,
 >= 60 sessions of history.
@@ -18,7 +20,7 @@ Fingerprint
 -----------
 Features (FEATURES) are computed for every stock-day from data dated <= that day, then read at
 T-1, T-5, T-20, T-60. Controls: up to 3 per event, same T-1 date, same Industry (falls back to Broad
-Industry, then Sector), same mcap quintile (that day, among eligible stock-days), no qualifying day in
+Industry, then Sector, then Industry / Broad Industry with an adjacent mcap quintile), same mcap quintile (that day, among eligible stock-days), no qualifying day in
 [T-20, T+60]; seeded draw. Lift = P(rule | event) / P(rule | control) with n for both, on all events and on a
 purged chronological split (train / 60-session embargo / test). Thresholds are fixed a priori (RULES);
 a second threshold per feature is fitted on train only (quantile grid) and reported on test.
@@ -33,11 +35,12 @@ import numpy as np
 import pandas as pd
 
 from .common import (INSUFFICIENT, LEVEL_COLS, LEVELS, MCAP_FLOOR_CR, MIN_SAMPLE, QUADRANT_ORDER, VERDICT_ORDER,
-                     grolling, purged_split, to_ts_col)
+                     grolling, gshift, purged_split, to_ts_col)
 
 log = logging.getLogger(__name__)
 
 EPISODE_GAP = 20
+MIN_RULE_HITS = 10  # movers showing a trait before its lift is read
 ADV_FLOOR_CR = 1.0
 MIN_HISTORY = 60
 N_CONTROLS = 3
@@ -85,7 +88,7 @@ def _sessions(frame: pd.DataFrame) -> np.ndarray:
 
 
 def _gshift(s: pd.Series, g: np.ndarray, k: int) -> pd.Series:
-    return s.groupby(g, sort=False).shift(k)
+    return pd.Series(gshift(s.to_numpy(float), g, k), index=s.index)
 
 
 def _sessions_since_flag(flag: np.ndarray, grp: np.ndarray) -> np.ndarray:
@@ -103,7 +106,7 @@ def stock_day_frame(ind: pd.DataFrame, *, mcap: pd.DataFrame, master: pd.DataFra
     d = ind.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
     sym = d["symbol"].to_numpy()
     grp = pd.factorize(sym)[0]
-    out = pd.DataFrame({"symbol": d["symbol"], "series": d["series"], "trade_date": d["trade_date"]})
+    out = to_ts_col(pd.DataFrame({"symbol": d["symbol"], "series": d["series"], "trade_date": d["trade_date"]}), "trade_date")
     out["row_in_symbol"] = pd.Series(np.ones(len(d))).groupby(grp).cumsum().to_numpy() - 1
     c = d["close_price"].astype(float)
     out["close_price"] = c
@@ -149,7 +152,8 @@ def stock_day_frame(ind: pd.DataFrame, *, mcap: pd.DataFrame, master: pd.DataFra
             out[col] = out["symbol"].map(tax[col]) if col in tax.columns else None
         if "band" in tax.columns:
             out["band_current"] = out["symbol"].map(tax["band"]).astype(float)
-    for level, gs in group_levels.items():
+    for level in LEVELS:
+        gs = group_levels.get(level)
         col = LEVEL_COLS[level]
         name = f"{col}_leading"
         if gs is None or gs.empty or col not in out.columns:
@@ -270,73 +274,87 @@ def _fwd_max(c: pd.Series, grp: np.ndarray, h: int) -> pd.Series:
 
 
 def label_events(sd: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Returns (events, qualifying-day flags per stock-day: q, uc, up30, up50, event_start)."""
+    """Returns (events, per-stock-day flags q / uc / up30 / up50 / start). See module docstring."""
     grp = pd.factorize(sd["symbol"].to_numpy())[0]
     c = sd["close_price"]
+    cc = c.to_numpy(float)
     pc = sd["prev_close"]
     band = sd["band"]
-    uc = (band.notna() & pc.notna() & (sd["high_price"] >= pc * (1 + band / 100) * 0.9995)).to_numpy()
-    f20 = _fwd_max(c, grp, 20)
-    f60 = _fwd_max(c, grp, 60)
-    up30 = (f20 >= pc * 1.30).fillna(False).to_numpy()
-    up50 = (f60 >= pc * 1.50).fillna(False).to_numpy()
-    q = uc | up30 | up50
-    since = _sessions_since_flag(np.r_[False, q[:-1]] & (np.r_[-1, grp[:-1]] == grp), grp)
-    # a qualifying day starts an episode if no qualifying day in the previous EPISODE_GAP rows of the symbol
-    prev_q_gap = np.where(np.isnan(since), np.inf, since + 1)
-    start = q & (prev_q_gap > EPISODE_GAP)
-    flags = pd.DataFrame({"q": q, "uc": uc, "up30": up30, "up50": up50, "start": start}, index=sd.index)
-    ev = sd.loc[start, ["symbol", "series", "trade_date", "mcap_cr", "mcap_basis", "adv_cr", "band", "band_basis",
-                        "row_in_symbol", "prev_close", *[c_ for c_ in LEVEL_COLS.values() if c_ in sd.columns],
-                        *[c_ for c_ in ("environment_state", "industry_quadrant") if c_ in sd.columns]]].copy()
-    pos = ev.index.to_numpy()
-    prev = pos - 1
-    ev["mcap_cr_at_event"] = sd["mcap_cr"].to_numpy()[prev]
-    ev["mcap_basis"] = sd["mcap_basis"].to_numpy()[prev]
-    ev["adv_cr_t1"] = sd["adv_cr"].to_numpy()[prev]
-    trig = np.where(uc[pos], "upper_circuit", np.where(up30[pos], "up30_20d", "up50_60d"))
-    ev["trigger"] = trig
-    ev["triggers"] = [",".join(n for n, f in (("upper_circuit", uc), ("up30_20d", up30), ("up50_60d", up50)) if f[p])
-                      for p in pos]
-    cc = c.to_numpy(float)
     n = len(sd)
+    uc = (band.notna() & pc.notna() & (sd["high_price"] >= pc * (1 + band / 100) * 0.9995)).to_numpy()
+    prior = gshift(cc, grp, 1)
+    min20 = grolling(prior, grp, 20, "min", 1)
+    min60 = grolling(prior, grp, 60, "min", 1)
+    with np.errstate(invalid="ignore"):
+        up30 = np.nan_to_num(cc >= 1.30 * min20, nan=0).astype(bool)
+        up50 = np.nan_to_num(cc >= 1.50 * min60, nan=0).astype(bool)
+    q = uc | up30 | up50
+    same_prev = np.r_[False, grp[1:] == grp[:-1]]
+    since = _sessions_since_flag(np.r_[False, q[:-1]] & same_prev, grp)
+    prev_q_gap = np.where(np.isnan(since), np.inf, since + 1)
+    first_q = q & (prev_q_gap > EPISODE_GAP)  # confirmation day c0 of a new episode
+    rig = sd["row_in_symbol"].to_numpy(int)
     dates = sd["trade_date"].to_numpy()
-    moves, peaks, m20, streak, confirmed, wend = [], [], [], [], [], []
-    for p in pos:
+    c0s = np.flatnonzero(first_q)
+    lqb = pd.Series(np.where(q, np.arange(n), np.nan)).groupby(grp).ffill().groupby(grp).shift(1).to_numpy()
+    starts, trig, confirmed = [], [], []
+    for c0 in c0s:
+        if uc[c0]:
+            t, tg = c0, "upper_circuit"
+        else:
+            L = 20 if up30[c0] else 60
+            lo = c0 - min(L, rig[c0])
+            if np.isfinite(lqb[c0]):
+                lo = max(lo, int(lqb[c0]) + 1)  # never reach back into the previous episode
+            win = cc[lo:c0]
+            t = (lo + int(np.nanargmin(win)) + 1) if len(win) and np.isfinite(win).any() else c0
+            tg = "up30_20d" if up30[c0] else "up50_60d"
+        starts.append(min(t, c0))
+        trig.append(tg)
+        confirmed.append(dates[c0])
+    pos = np.asarray(starts, dtype=np.int64)
+    start = np.zeros(n, bool)
+    start[pos] = True
+    flags = pd.DataFrame({"q": q, "uc": uc, "up30": up30, "up50": up50, "start": start}, index=sd.index)
+    ev = sd.iloc[pos][["symbol", "series", "trade_date", "adv_cr", "band", "band_basis", "row_in_symbol",
+                       *[c_ for c_ in LEVEL_COLS.values() if c_ in sd.columns],
+                       *[c_ for c_ in ("environment_state", "industry_quadrant") if c_ in sd.columns]]].copy()
+    prev = np.maximum(pos - 1, 0)
+    ok_prev = (pos - 1 >= 0) & (grp[prev] == grp[pos])
+    ev["mcap_cr_at_event"] = np.where(ok_prev, sd["mcap_cr"].to_numpy(float)[prev], np.nan)
+    ev["mcap_basis"] = np.where(ok_prev, sd["mcap_basis"].to_numpy()[prev], None)
+    ev["adv_cr_t1"] = np.where(ok_prev, sd["adv_cr"].to_numpy(float)[prev], np.nan)
+    ev["trigger"] = trig
+    ev["confirmed_date"] = pd.to_datetime(confirmed)
+    moves, peaks, m20, streak, wend = [], [], [], [], []
+    for p, okp in zip(pos, ok_prev):
         g = grp[p]
         e60 = p
         while e60 + 1 < n and e60 - p < 59 and grp[e60 + 1] == g:
             e60 += 1
         win = cc[p:e60 + 1]
         j = int(np.nanargmax(win)) if np.isfinite(win).any() else 0
-        base = cc[p - 1]
+        base = cc[p - 1] if okp else np.nan
         moves.append((win[j] / base - 1) * 100)
-        peaks.append(sd["trade_date"].iat[p + j])
+        peaks.append(dates[p + j])
         m20.append((np.nanmax(cc[p:min(e60, p + 19) + 1]) / base - 1) * 100)
         k = 0
         while p + k < n and grp[p + k] == g and uc[p + k]:
             k += 1
         streak.append(k)
         wend.append(dates[e60] if e60 - p == 59 else np.datetime64("NaT"))
-        # the date the move became knowable: UC on T, else the first close through the +30 % / +50 % line
-        if uc[p]:
-            confirmed.append(dates[p])
-        else:
-            hit = [i for i in range(p, e60 + 1) if (up30[p] and i - p < 20 and cc[i] >= 1.30 * base)
-                   or (up50[p] and cc[i] >= 1.50 * base)]
-            confirmed.append(dates[hit[0]] if hit else np.datetime64("NaT"))
     ev["move_pct"] = moves
     ev["move_20d_pct"] = m20
-    ev["peak_date"] = peaks
+    ev["peak_date"] = pd.to_datetime(peaks)
     ev["uc_streak"] = streak
-    ev["confirmed_date"] = pd.to_datetime(confirmed)
     ev["window_end_date"] = pd.to_datetime(wend)
     ev = ev.rename(columns={"trade_date": "event_date"})
     ev["eligible"] = ((ev["series"] == "EQ") & (ev["mcap_cr_at_event"] >= MCAP_FLOOR_CR) & (ev["adv_cr_t1"] >= ADV_FLOOR_CR)
                       & (ev["row_in_symbol"] >= MIN_HISTORY))
     ev["event_id"] = ev["symbol"] + ":" + pd.to_datetime(ev["event_date"]).dt.strftime("%Y%m%d")
     ev["_pos"] = pos
-    return ev, flags
+    ev = ev.drop_duplicates("event_id")
+    return ev.reset_index(drop=True), flags
 
 
 def eligible_mask(sd: pd.DataFrame) -> np.ndarray:
@@ -374,27 +392,28 @@ def match_controls(sd: pd.DataFrame, events: pd.DataFrame, flags: pd.DataFrame, 
     ev["t1_date"] = sd["trade_date"].to_numpy()[ev["_pos"].to_numpy() - 1]
     ev["bucket"] = _bucket(ev["t1_date"], ev["mcap_cr_at_event"].to_numpy(float))
     rng = np.random.default_rng(seed)
-    by_date = {d: g for d, g in cand.groupby("trade_date")}
-    recs = []
-    for r in ev.itertuples(index=False):
-        pool = by_date.get(r.t1_date)
-        if pool is None:
+    cand = cand.assign(_r=rng.random(len(cand)))
+    left = ev[["event_id", "symbol", "t1_date", "bucket", *[c for c in ("industry", "broad_industry", "sector") if c in ev.columns]]]
+    parts = []
+    done: set = set()
+    for col, tol in (("industry", 0), ("broad_industry", 0), ("sector", 0), ("industry", 1), ("broad_industry", 1)):
+        if col not in left.columns:
             continue
-        pool = pool.loc[pool["symbol"] != r.symbol]
-        chosen, level = None, None
-        for col in ("industry", "broad_industry", "sector"):
-            key = getattr(r, col, None)
-            if key is None or (isinstance(key, float) and np.isnan(key)):
-                continue
-            m = pool.loc[(pool[col] == key) & (pool["bucket"] == r.bucket)]
-            if len(m):
-                chosen, level = m, f"{col}+mcap_quintile"
-                break
-        if chosen is None:
+        todo = left.loc[~left["event_id"].isin(done) & left[col].notna()]
+        if todo.empty:
             continue
-        take = chosen.iloc[rng.permutation(len(chosen))[:n_controls]]
-        for c in take.itertuples(index=False):
-            recs.append({"event_id": r.event_id, "control_symbol": c.symbol, "control_pos_t1": int(c.pos), "match_level": level})
+        m = todo.merge(cand[["pos", "symbol", "trade_date", "bucket", col, "_r"]].rename(
+            columns={"symbol": "control_symbol", "trade_date": "t1_date", "bucket": "c_bucket"}), on=["t1_date", col], how="inner")
+        m = m.loc[(m["control_symbol"] != m["symbol"]) & ((m["c_bucket"] - m["bucket"]).abs() <= tol)]
+        if m.empty:
+            continue
+        m = m.sort_values(["event_id", "_r"])
+        m = m.loc[m.groupby("event_id").cumcount() < n_controls]
+        m["match_level"] = f"{col}+mcap_quintile" + ("" if tol == 0 else "+-1")
+        parts.append(m[["event_id", "control_symbol", "pos", "match_level"]].rename(columns={"pos": "control_pos_t1"}))
+        done |= set(m["event_id"])
+    recs = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(
+        columns=["event_id", "control_symbol", "control_pos_t1", "match_level"])
     return pd.DataFrame(recs, columns=["event_id", "control_symbol", "control_pos_t1", "match_level"])
 
 
@@ -461,8 +480,10 @@ def lift_table(fp: pd.DataFrame, sessions: pd.Series, offset: int = 1) -> tuple[
             ct = sub.loc[sub["role"] == "control", feat].to_numpy(float)
             er, cr, lift, ne, nc = _rates(ev, ct, op, thr)
             sfx = "" if tag == "all" else f"_{tag}"
+            k_e = int(round(er * ne)) if er is not None else 0
+            k_c = int(round(cr * nc)) if cr is not None else 0
             rec.update({f"event_rate{sfx}": er, f"control_rate{sfx}": cr, f"lift{sfx}": lift,
-                        f"n_events{sfx}": ne, f"n_controls{sfx}": nc})
+                        f"n_events{sfx}": ne, f"n_controls{sfx}": nc, f"k_events{sfx}": k_e, f"k_controls{sfx}": k_c})
             if tag == "all":
                 rec["event_median"] = float(np.nanmedian(ev)) if np.isfinite(ev).any() else None
                 rec["control_median"] = float(np.nanmedian(ct)) if np.isfinite(ct).any() else None
@@ -485,12 +506,16 @@ def lift_table(fp: pd.DataFrame, sessions: pd.Series, offset: int = 1) -> tuple[
             er, cr, lift, ne, nc = _rates(te.loc[te["role"] == "event", feat].to_numpy(float),
                                           te.loc[te["role"] == "control", feat].to_numpy(float), op, best[0])
             rec.update({"fit_threshold": best[0], "fit_lift_train": best[1], "fit_lift_test": lift})
-        n_ok = min(rec.get("n_events_train") or 0, rec.get("n_events_test") or 0) >= MIN_SAMPLE
+        # stable out of sample: >= 30 movers with data and >= MIN_RULE_HITS movers showing the trait in both halves
+        n_ok = (min(rec.get("n_events_train") or 0, rec.get("n_events_test") or 0) >= MIN_SAMPLE
+                and min(rec.get("k_events_train") or 0, rec.get("k_events_test") or 0) >= MIN_RULE_HITS)
         rec["stable_oos"] = bool(n_ok and (rec.get("lift_train") or 0) >= 1.2 and (rec.get("lift_test") or 0) >= 1.2)
-        rec["label"] = None if (rec.get("n_events") or 0) >= MIN_SAMPLE else INSUFFICIENT
+        rec["label"] = None if ((rec.get("n_events") or 0) >= MIN_SAMPLE and (rec.get("k_events") or 0) >= MIN_RULE_HITS)             else INSUFFICIENT
         recs.append(rec)
     out = pd.DataFrame(recs)
-    return out.sort_values("lift", ascending=False, na_position="last").reset_index(drop=True), test_start
+    out["_ins"] = out["label"].notna()
+    out = out.sort_values(["_ins", "lift"], ascending=[True, False], na_position="last").drop(columns=["_ins"])
+    return out.reset_index(drop=True), test_start
 
 
 def forward_event_label(sd: pd.DataFrame, events: pd.DataFrame, horizon: int = 20) -> np.ndarray:
@@ -631,8 +656,8 @@ def attribute_catalysts(sd: pd.DataFrame, events: pd.DataFrame, pr: dict | None,
     # sector-wide: share of Industry members up >= sector_move_pct from T-1 to T+19
     grp = pd.factorize(sd["symbol"].to_numpy())[0]
     c = sd["close_price"]
-    f19 = c.groupby(grp, sort=False).shift(-19)
-    p1 = c.groupby(grp, sort=False).shift(1)
+    f19 = pd.Series(gshift(c.to_numpy(float), grp, -19), index=c.index)
+    p1 = pd.Series(gshift(c.to_numpy(float), grp, 1), index=c.index)
     fwd = ((f19 / p1 - 1) * 100).to_numpy(float)
     share = np.full(len(ev), np.nan)
     if "industry" in sd.columns:
@@ -687,7 +712,7 @@ def catalyst_stats(events: pd.DataFrame) -> pd.DataFrame:
             recs.append({"scope": scope, "catalyst": cat, "n_events": n, "n_with": k,
                          "share_pct": round(k / n * 100, 1), "primary_n": int((g["catalyst"] == cat).sum()),
                          "label": None if n >= MIN_SAMPLE else INSUFFICIENT})
-    return pd.DataFrame(recs)
+    return pd.DataFrame(recs, columns=["scope", "catalyst", "n_events", "n_with", "share_pct", "primary_n", "label"])
 
 
 # --------------------------------------------------------------------------
@@ -717,7 +742,9 @@ def group_studies(sd: pd.DataFrame, events: pd.DataFrame, label: np.ndarray) -> 
                          "median_move_pct": round(float(med.get(name)), 1) if ne else None,
                          "upper_circuit_share_pct": round(float(uc.get(name)), 1) if ne else None,
                          "label": None if ne >= MIN_SAMPLE else INSUFFICIENT})
-    return pd.DataFrame(recs).sort_values(["level", "n_events"], ascending=[True, False]).reset_index(drop=True)
+    cols = ["level", "group_name", "n_events", "eligible_stock_days", "events_per_1000_days", "lift_vs_all",
+            "median_move_pct", "upper_circuit_share_pct", "label"]
+    return pd.DataFrame(recs, columns=cols).sort_values(["level", "n_events"], ascending=[True, False]).reset_index(drop=True)
 
 
 def group_entry_study(sd: pd.DataFrame, group_levels: dict[str, pd.DataFrame], index_daily: pd.DataFrame,
@@ -729,7 +756,7 @@ def group_entry_study(sd: pd.DataFrame, group_levels: dict[str, pd.DataFrame], i
         "trade_date").set_index("trade_date")["close_price"].astype(float).sort_index()
     recs = []
     for h in horizons:
-        fwd = (c.groupby(grp, sort=False).shift(-h) / c - 1) * 100
+        fwd = (pd.Series(gshift(c.to_numpy(float), grp, -h), index=c.index) / c - 1) * 100
         mfwd = (mid.shift(-h) / mid - 1) * 100
         for level, gs in group_levels.items():
             col = LEVEL_COLS[level]
@@ -753,7 +780,8 @@ def group_entry_study(sd: pd.DataFrame, group_levels: dict[str, pd.DataFrame], i
                          "hit_rate_pct": round(float((ex > 0).mean() * 100), 1) if ok else None,
                          "label": None if ok else INSUFFICIENT,
                          "quadrant_source": gs["quadrant_source"].iloc[0] if "quadrant_source" in gs.columns and len(gs) else None})
-    return pd.DataFrame(recs)
+    return pd.DataFrame(recs, columns=["level", "horizon", "n_entries", "avg_excess_pct", "median_excess_pct",
+                                       "hit_rate_pct", "label", "quadrant_source"])
 
 
 def pre_move_watch(sd: pd.DataFrame, traits: list[str], precision: pd.DataFrame, last_sessions: int = 60) -> pd.DataFrame:

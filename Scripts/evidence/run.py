@@ -48,8 +48,10 @@ def _peak_rss_mb() -> float | None:
                             ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
             pmc = PMC()
             pmc.cb = ctypes.sizeof(PMC)
-            h = ctypes.windll.kernel32.GetCurrentProcess()
-            ctypes.windll.psapi.GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb)
+            k32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
+            psapi.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb)
             return round(pmc.PeakWorkingSetSize / 2**20, 1)
         import resource
         return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)

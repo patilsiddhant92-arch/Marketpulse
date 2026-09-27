@@ -33,7 +33,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .common import INSUFFICIENT, MIN_SAMPLE, QUADRANT_ORDER, VERDICT_ORDER, grolling, to_ts_col
+from .common import INSUFFICIENT, MIN_SAMPLE, QUADRANT_ORDER, VERDICT_ORDER, grolling, gshift, to_ts_col
 
 K_ANALOGS = 10
 EXCLUDE_RECENT = 60
@@ -49,15 +49,14 @@ OPTIONAL_FEATURES = {"follow_through_pct"}
 def follow_through_series(ind: pd.DataFrame, lo: int = 3, hi: int = 10, min_breakouts: int = 10) -> pd.DataFrame:
     """(trade_date, breakouts_n, breakouts_holding, follow_through_pct) from indicators rows sorted by symbol/date."""
     d = ind[["symbol", "trade_date", "close_price", "high_price", "rvol"]].sort_values(["symbol", "trade_date"])
-    g = d.groupby("symbol", sort=False)
     codes = pd.factorize(d["symbol"].to_numpy())[0]
-    prior_hi20 = grolling(g["high_price"].shift(1).to_numpy(float), codes, 20, "max", 20)
+    prior_hi20 = grolling(gshift(d["high_price"].to_numpy(float), codes, 1), codes, 20, "max", 20)
     brk = (d["close_price"] > prior_hi20) & (pd.to_numeric(d["rvol"], errors="coerce") >= 1.5)
     n = np.zeros(len(d))
     hold = np.zeros(len(d))
     for j in range(lo, hi + 1):
-        b = brk.groupby(d["symbol"], sort=False).shift(j).fillna(False).astype(bool).to_numpy()
-        cj = g["close_price"].shift(j).to_numpy(float)
+        b = np.nan_to_num(gshift(brk.to_numpy(float), codes, j), nan=0).astype(bool)
+        cj = gshift(d["close_price"].to_numpy(float), codes, j)
         n += b
         hold += b & (d["close_price"].to_numpy(float) > cj)
     agg = pd.DataFrame({"trade_date": d["trade_date"].to_numpy(), "n": n, "h": hold}).groupby("trade_date").sum()
