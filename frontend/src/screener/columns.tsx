@@ -5,6 +5,7 @@ import { cn } from '../lib/cn';
 import { fmtInt } from '../lib/fmt';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Chip } from '../ui/Chip';
+import { DataWarningChip } from '../ui/DataWarningChip';
 import { RankSpark, SignedNum, ZoneNum } from './cells';
 
 /** Rows from /screener/run: rule presets return ScreenerRow, Darvas/VCP presets return Desk queue rows. */
@@ -69,6 +70,7 @@ const symbolCol: DataTableColumn<SRow> = {
           IPO
         </Chip>
       )}
+      <DataWarningChip warning={r.data_warning} />
     </span>
   ),
 };

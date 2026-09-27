@@ -12,6 +12,7 @@ import { fmtCr, fmtNum, fmtSignedPct } from '../lib/fmt';
 import { ZoneNum, SignedNum } from '../screener/cells';
 import { Chart, type ChartOverlay, type Timeframe } from '../ui/Chart';
 import { Chip } from '../ui/Chip';
+import { DataWarningChip } from '../ui/DataWarningChip';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
 import { barsToOHLC, relativePerformance, type ChartItem } from './sources';
@@ -77,15 +78,17 @@ export function ChartTile({
   const last = chartBars[chartBars.length - 1];
   const prev = chartBars[chartBars.length - 2];
   const close = item.close ?? last?.close ?? null;
-  const change = item.change_1d_pct ?? (timeframe === 'D' && last && prev ? ((last.close - prev.close) / prev.close) * 100 : null);
+  // A served data_warning means an unexplained price gap: never re-derive the hidden % from bars.
+  const change = item.change_1d_pct ?? (!item.data_warning && timeframe === 'D' && last && prev ? ((last.close - prev.close) / prev.close) * 100 : null);
 
   const rel = useMemo(() => {
+    if (item.data_warning) return { stock: null, bench: null, excess: null };
     const w = REL_WINDOWS.find((x) => x.id === relWindow)?.sessions ?? 63;
     return relativePerformance(
       (rs.data?.rows ?? []).map((r) => ({ close: r.close, bench: r.midsml400_close })),
       w,
     );
-  }, [rs.data, relWindow]);
+  }, [rs.data, relWindow, item.data_warning]);
 
   const overlays = useMemo<ChartOverlay[]>(() => {
     if (chartBars.length === 0) return [];
@@ -121,7 +124,9 @@ export function ChartTile({
         <span
           className="flex items-center gap-1 text-fg-3"
           title={
-            rel.excess == null
+            item.data_warning
+              ? item.data_warning
+              : rel.excess == null
               ? 'Relative performance needs stock and MidSml400 closes'
               : `${relWindow}: stock ${fmtSignedPct(rel.stock, 1)} vs MidSml400 ${fmtSignedPct(rel.bench, 1)}`
           }
@@ -140,6 +145,7 @@ export function ChartTile({
                 {t}
               </Chip>
             ))}
+          <DataWarningChip warning={item.data_warning} />
           {partial && (
             <Chip size="xs" tone="warn" title="The last bar's week / month is not complete yet">
               partial

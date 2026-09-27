@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from App.services import db, deals, desk, universe
+from App.services import data_gaps, db, deals, desk, universe
 from App.services.common import Result, no_session, unavailable
 
 SYMBOL_RE = re.compile(r"^[A-Z0-9&\-_.]{1,20}$")
@@ -73,7 +73,8 @@ def header(as_of: date | None, symbol: str) -> Result:
             return no_session(as_of)
         snap = universe.snapshot_sql(
             con, extra_where="AND i.symbol = ?",
-            extra_cols=", i.high_52w, i.low_52w, i.band_remarks AS band_remarks_i, i.rs_vs_sector_index_21d, "
+            extra_cols=", i.high_52w, i.low_52w, i.band_remarks AS band_remarks_i, "
+                       f"{data_gaps.guard('i.rs_vs_sector_index_21d', 'rs_vs_sector_index_21d')} AS rs_vs_sector_index_21d, "
                        "m.band_remarks, m.listing_date, m.isin",
         )
         recs = db.records(con, f"WITH s AS ({snap}) SELECT * FROM s", [resolved, symbol])

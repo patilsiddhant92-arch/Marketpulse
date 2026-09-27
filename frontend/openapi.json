@@ -4085,6 +4085,18 @@
             ],
             "title": "Adv Cr 20D"
           },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning",
+            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
+          },
           "trade_date": {
             "anyOf": [
               {
@@ -7608,6 +7620,18 @@
             ],
             "title": "Adv Cr 20D"
           },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning",
+            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
+          },
           "rs_vs_sector_index_63d": {
             "anyOf": [
               {
@@ -8451,6 +8475,18 @@
               }
             ],
             "title": "Adv Cr 20D"
+          },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning",
+            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
           },
           "queue": {
             "type": "string",
@@ -9331,6 +9367,18 @@
             ],
             "title": "Adv Cr 20D"
           },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning",
+            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
+          },
           "rs_is_ipo_rank": {
             "type": "boolean",
             "title": "Rs Is Ipo Rank",
@@ -9890,6 +9938,18 @@
               }
             ],
             "title": "Adv Cr 20D"
+          },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning",
+            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
           },
           "trade_date": {
             "anyOf": [

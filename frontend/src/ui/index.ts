@@ -1,5 +1,6 @@
 export { Chart, type ChartMarker, type ChartMarkerKind, type ChartOverlay, type ChartProps, type LinePoint, type Timeframe } from './Chart';
 export { Chip, type ChipProps, type ChipTone } from './Chip';
+export { DataWarningChip } from './DataWarningChip';
 export {
   DataTable,
   compareValues,
