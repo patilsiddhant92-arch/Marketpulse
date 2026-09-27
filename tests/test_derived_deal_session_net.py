@@ -109,3 +109,50 @@ def test_schema_and_rules_published():
     out = build_deal_session_net(pd.DataFrame(), None)
     assert list(out.columns) == OUTPUT_COLUMNS and out.empty
     assert event_rules_table()["event_type"].tolist() == [r["event_type"] for r in EVENT_RULES]
+
+
+def test_split_transfer_matches_in_aggregate():
+    # One promoter sells 1.0M; three group entities buy 400k + 350k + 250k at the same price (ADANIENT-style).
+    t = pd.DataFrame([deal(25, "AAA", "PROMOTER A", "SELL", 1_000_000, 100.0, "CORPORATE"),
+                      deal(25, "AAA", "ENTITY B", "BUY", 400_000, 100.0, "CORPORATE"),
+                      deal(25, "AAA", "ENTITY C", "BUY", 350_000, 100.1, "CORPORATE"),
+                      deal(25, "AAA", "ENTITY D", "BUY", 250_000, 99.95, "OTHER")])
+    out = build_deal_session_net(t, prices()).iloc[0]
+    assert out["event_type"] == "transfer_interse"
+    assert out["matched_value_cr"] == pytest.approx(out["buy_value_cr"])
+
+
+def test_prop_removed_before_churn_test():
+    # A PROP desk round-trips 900 Cr beside a 300 Cr fund sale (POLICYBZR-style): distribute, not churn.
+    t = pd.DataFrame([deal(25, "AAA", "HFT DESK", "BUY", 4_500_000, 1000.0, "PROP"),
+                      deal(25, "AAA", "HFT DESK", "SELL", 4_500_000, 1000.5, "PROP"),
+                      deal(25, "AAA", "SOME FUND", "SELL", 3_000_000, 1000.0, "FII")])
+    out = build_deal_session_net(t, prices()).iloc[0]
+    assert out["event_type"] == "distribute"
+    assert out["round_trip_ex_prop_cr"] == 0 and out["gross_ex_prop_cr"] == pytest.approx(300.0)
+
+
+def test_is_prop_flag_and_stated_value_win():
+    t = pd.DataFrame([deal(25, "AAA", "ALGO LLP", "BUY", 1000, 100.0, "OTHER")])
+    t["is_prop"] = True
+    t["deal_value_cr"] = 0.011
+    p = normalise_deals(t)
+    assert p["clientele"].iloc[0] == "PROP" and p["value_cr"].iloc[0] == pytest.approx(0.011)
+    assert build_deal_session_net(t, prices())["event_type"].iloc[0] == "churn"  # nothing left after PROP
+
+
+def test_float_noise_net_is_not_a_buy_session():
+    # PROP-only day leaves a ~1e-14 net ex-PROP: it must not count as a prior net-buy session.
+    rows = [deal(20, "AAA", "HFT", "BUY", 30_000, 100.1, "PROP"), deal(20, "AAA", "HFT", "SELL", 30_000, 100.1, "PROP"),
+            deal(22, "AAA", "F1", "BUY", 10_000, 100.0, "FII")]
+    out = build_deal_session_net(pd.DataFrame(rows), prices()).set_index("trade_date")
+    assert out.loc[D[20], "net_buy_sessions_10"] == 0
+    assert out.loc[D[22], "event_type"] == "fresh"
+
+
+def test_live_service_uses_the_same_rules():
+    from App.services import deals as live
+    from Scripts.derived import deal_rules
+
+    assert live.EVENT_RULES is deal_rules.EVENT_RULES
+    assert live.classify_events is deal_rules.classify_events

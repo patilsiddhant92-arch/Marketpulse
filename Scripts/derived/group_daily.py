@@ -3,7 +3,8 @@
 One row per (trade_date, level, floor, group_name):
   level  ∈ Broad Sector · Sector · Broad Industry · Industry (stocks_master columns
            broad_sector, sector, broad_industry, industry — current mapping, documented limitation)
-  floor  ∈ 'all' · '1000cr' (member market cap >= ₹1,000 Cr on that session)
+  floor  ∈ 'all' · '1000cr' (member market cap >= ₹1,000 Cr on that session) ·
+           'watch' (₹300 Cr <= market cap < ₹1,000 Cr — the API's watch band, App/services/groups.py)
 
 Market cap on session t (point-in-time):
   1. security_reference_daily.market_cap_cr as-of t (effective_date <= t, at most 10 calendar days
@@ -11,6 +12,10 @@ Market cap on session t (point-in-time):
   2. otherwise stocks_master.market_cap_cr scaled by close_t / close on the master's
      market_cap_date ("price-scaled current": exact for constant share count, and exact across
      splits/bonuses once prices are adjusted). Column mcap_basis says which one a row used.
+
+Unadjusted corporate actions: a 1-day move <= -35 % or >= +100 % (SPLIT_DOWN / SPLIT_UP) is treated as an
+unadjusted split/bonus; that member's returns over any window containing it are excluded (never filled).
+Same rule and constants as the live API fallback (App/services/groups.py imports them from here).
 
 Everything is vectorised: per-stock features via groupby-shift, group stats via one
 groupby-sum per (level, floor), time-series stats via groupby rolling/ewm on an integer group id.
@@ -45,15 +50,18 @@ from ._common import (
 from .deal_session_net import normalise_deals
 
 LEVELS = {"Broad Sector": "broad_sector", "Sector": "sector", "Broad Industry": "broad_industry", "Industry": "industry"}
-FLOORS = {"all": None, "1000cr": 1000.0}
+# floor label -> (min mcap inclusive, max mcap exclusive); None = unbounded. Same bands as App/services/groups.py.
+FLOORS: dict[str, tuple[float | None, float | None]] = {"all": (None, None), "1000cr": (1000.0, None),
+                                                        "watch": (300.0, 1000.0)}
 HORIZONS = (1, 5, 21, 63)
 MIN_MEMBERS_RANK = 3
 RS_FAST, RS_SLOW, RS_MOM_LAG = 10, 50, 10
 CONCENTRATION_TOP1_SHARE = 50.0
 DEAL_WINDOW = 10
+SPLIT_DOWN, SPLIT_UP = -0.35, 1.0  # 1-day move treated as an unadjusted corporate action
 
 INDICATOR_COLUMNS = (
-    "close_price", "turnover_cr", "ema_50", "ema_200", "trend_template_pass", "delivery_qty",
+    "close_price", "prev_close", "turnover_cr", "ema_50", "ema_200", "trend_template_pass", "delivery_qty",
     "delivery_pct", "avg_delivery_pct_20d", "high_price", "low_price", "high_52w", "low_52w", "high_52w_date",
 )
 
@@ -107,16 +115,23 @@ def _stock_frame(indicators, master, reference, deals) -> tuple[pd.DataFrame, pd
     f["mcap_known"] = mcap.notna().to_numpy(dtype=float)
 
     f["n"] = 1.0
+    prev = gc.shift(1)
+    if "prev_close" in ind.columns:  # first stored row: the exchange's previous close
+        prev = prev.fillna(num(ind, "prev_close"))
+    r1_raw = c / prev.where(prev > 0) - 1.0
+    bad = ((r1_raw <= SPLIT_DOWN) | (r1_raw >= SPLIT_UP)).fillna(False)
+    n_bad = bad.astype(int).groupby(sym, sort=False).cumsum()
     for h in HORIZONS:
         ch = gc.shift(h)
-        r_h = (c / ch - 1.0)
+        clean = (n_bad - n_bad.groupby(sym, sort=False).shift(h)) == 0
+        r_h = (c / ch - 1.0).where(clean)
         known = r_h.notna()
         f[f"rs_{h}"] = r_h.fillna(0.0).to_numpy()
         f[f"rc_{h}"] = known.astype(float).to_numpy()
         w = (mcap * ch / c).where(known & mcap.notna())
         f[f"cwd_{h}"] = w.fillna(0.0).to_numpy()
         f[f"cwn_{h}"] = (w * r_h).fillna(0.0).to_numpy()
-    f["r1"] = (c / gc.shift(1) - 1.0).to_numpy()
+    f["r1"] = (c / gc.shift(1) - 1.0).where(~bad).to_numpy()
 
     def add_ratio(name: str, s: pd.Series) -> None:
         f[name] = s.fillna(0.0).to_numpy()
@@ -154,15 +169,18 @@ def _stock_frame(indicators, master, reference, deals) -> tuple[pd.DataFrame, pd
     return f, deal_start
 
 
-def _aggregate(f: pd.DataFrame, level: str, col: str, floor: str, floor_min: float | None,
+def _aggregate(f: pd.DataFrame, level: str, col: str, floor: str, bounds: tuple[float | None, float | None],
                dates: pd.DatetimeIndex, dcode: np.ndarray) -> pd.DataFrame:
     """Sum every feature column per (date, group) with one np.bincount per column."""
     cat = f[col].cat
     codes = cat.codes.to_numpy()
     n_groups = len(cat.categories)
     mask = codes >= 0
-    if floor_min is not None:
-        mask &= (f["mcap"].to_numpy() >= floor_min)
+    lo, hi = bounds
+    if lo is not None:
+        mask &= (f["mcap"].to_numpy() >= lo)
+    if hi is not None:
+        mask &= (f["mcap"].to_numpy() < hi)
     key = dcode[mask].astype(np.int64) * n_groups + codes[mask]
     size = len(dates) * n_groups
     counts = np.bincount(key, minlength=size)

@@ -26,12 +26,17 @@ import pandas as pd
 
 from App.services import db, universe
 from App.services.common import STATUS_PARTIAL, Result, no_session, unavailable
+# Classification rules live in ONE module shared with the nightly deal_session_net builder, so the
+# stored table and this live fallback can never label a session differently.
+from Scripts.derived.deal_rules import (  # noqa: F401  (constants re-exported for callers/tests)
+    CHURN_SHARE_MIN, EVENT_RULES, INSTITUTIONAL, MATCH_SHARE_MIN, PERSISTENCE_SESSIONS, RULE_TEXT,
+    TRANSFER_PRICE_TOL, TRANSFER_QTY_TOL, classify_events, client_day_stats, matched_transfers, net_buy_sessions, net_sign,
+)
 
 DEAL_METRICS = ["deal_net_cr", "deal_vs_adv", "buying_houses", "persistence_days", "deal_vwap_vs_cmp",
                 "deal_price_vs_close", "deal_event_type"]
 MIN_HOUSE_BETS = 5
 MIN_FOLLOW_N = 30
-PERSISTENCE_SESSIONS = 10
 MIDSML400 = "NIFTY MIDSML 400"
 _LOCK = threading.RLock()
 
@@ -40,29 +45,6 @@ def _cached(tag: str, key: tuple, fn: Any) -> Any:
     """Fingerprint cache with one computation at a time (concurrent requests wait, then hit the cache)."""
     with _LOCK:
         return db.cached(tag, key, fn)
-
-TRANSFER_QTY_TOL = 0.01
-TRANSFER_PRICE_TOL = 0.0025
-MATCH_SHARE_MIN = 0.5
-CHURN_SHARE_MIN = 0.5
-INSTITUTIONAL = ("FII", "DII")
-
-EVENT_RULES: list[dict[str, str]] = [
-    {"event_type": "transfer_interse",
-     "rule": "Matched BUY/SELL prints between different clients (qty within ±1%, price within ±0.25% — print by print, "
-             "or in aggregate when one seller is split across several buyers) cover ≥ 50% of the session's buy value, "
-             "and the matched buyers are not all FII/DII."},
-    {"event_type": "placement",
-     "rule": "Same match, but every matched buyer is FII or DII (institutions absorbing a promoter/corporate block)."},
-    {"event_type": "churn",
-     "rule": "After removing PROP desks: same-client round trips are ≥ 50% of the remaining deal value, or nothing is left "
-             "(PROP-only day, or buys and sells cancel exactly)."},
-    {"event_type": "accumulate",
-     "rule": "Net value excluding PROP > 0 and another net-buy session in the prior 9 market sessions."},
-    {"event_type": "fresh", "rule": "Net value excluding PROP > 0 with no net-buy session in the prior 9 market sessions."},
-    {"event_type": "distribute", "rule": "Net value excluding PROP < 0."},
-]
-RULE_TEXT = {r["event_type"]: r["rule"] for r in EVENT_RULES}
 
 # Frame column -> deal_session_net candidates (SCHEMA.md names first).
 _DSN_FIELDS: dict[str, tuple[str, ...]] = {
@@ -113,48 +95,6 @@ def _prints(con: Any, as_of: date, where: str = "", params: list[Any] | None = N
     return p
 
 
-def _matched(p: pd.DataFrame) -> pd.DataFrame:
-    buys = p[p["side"] == "BUY"].reset_index(names="buy_id")
-    sells = p[p["side"] == "SELL"][["trade_date", "symbol", "client", "quantity", "price"]]
-    empty = pd.DataFrame(columns=["trade_date", "symbol", "matched_value_cr", "matched_inst"])
-    if buys.empty or sells.empty:
-        return empty
-    m = buys.merge(sells, on=["trade_date", "symbol"], suffixes=("", "_s"))
-    ok = ((m["client"] != m["client_s"])
-          & ((m["quantity"] - m["quantity_s"]).abs() <= TRANSFER_QTY_TOL * m[["quantity", "quantity_s"]].max(axis=1))
-          & ((m["price"] - m["price_s"]).abs() <= TRANSFER_PRICE_TOL * m[["price", "price_s"]].max(axis=1)))
-    m = m[ok.to_numpy(dtype=bool)].drop_duplicates("buy_id")
-    m["inst"] = m["clientele"].isin(INSTITUTIONAL).astype(float)
-    one = m.groupby(["trade_date", "symbol"], as_index=False).agg(matched_value_cr=("value_cr", "sum"), inst=("inst", "min"))
-    # Aggregate match (one seller -> several buyers, or the reverse): non-PROP buy and sell quantities agree
-    # within ±1% and their VWAPs within ±0.25%, with no client on both sides. Catches promoter inter-se
-    # transfers split across entities, which a 1:1 print match misses.
-    q = p[p["clientele"] != "PROP"].copy()
-    q["bq"] = np.where(q["side"] == "BUY", q["quantity"], 0.0)
-    q["sq"] = np.where(q["side"] == "SELL", q["quantity"], 0.0)
-    q["bpx"] = q["bq"] * q["price"]
-    q["spx"] = q["sq"] * q["price"]
-    q["bv"] = np.where(q["side"] == "BUY", q["value_cr"], 0.0)
-    q["binst"] = np.where(q["side"] == "BUY", q["clientele"].isin(INSTITUTIONAL).astype(float), np.nan)
-    both = q.groupby(["trade_date", "symbol", "client"])["side"].nunique().groupby(level=[0, 1]).max()
-    g = q.groupby(["trade_date", "symbol"]).agg(bq=("bq", "sum"), sq=("sq", "sum"), bpx=("bpx", "sum"),
-                                               spx=("spx", "sum"), bv=("bv", "sum"), binst=("binst", "min"))
-    g["two_sided_client"] = both.reindex(g.index).fillna(1) > 1
-    bvw, svw = g["bpx"] / g["bq"].where(g["bq"] > 0), g["spx"] / g["sq"].where(g["sq"] > 0)
-    agg_ok = ((g["bq"] > 0) & (g["sq"] > 0) & ~g["two_sided_client"]
-              & ((g["bq"] - g["sq"]).abs() <= TRANSFER_QTY_TOL * g[["bq", "sq"]].max(axis=1))
-              & ((bvw - svw).abs() <= TRANSFER_PRICE_TOL * pd.concat([bvw, svw], axis=1).max(axis=1)))
-    ag = g[agg_ok.fillna(False)].reset_index()
-    ag = pd.DataFrame({"trade_date": ag["trade_date"], "symbol": ag["symbol"], "matched_value_cr": ag["bv"],
-                       "inst": ag["binst"]})
-    a = pd.concat([x for x in (one, ag) if not x.empty], ignore_index=True) if not (one.empty and ag.empty) else one
-    if a.empty:
-        return empty
-    a = a.sort_values("matched_value_cr", ascending=False).drop_duplicates(["trade_date", "symbol"])
-    a["matched_inst"] = a["inst"] == 1.0
-    return a.drop(columns=["inst"])
-
-
 def _sessions(con: Any, start: Any, as_of: date) -> list[pd.Timestamp]:
     rows = con.execute("SELECT DISTINCT trade_date FROM indicators_daily WHERE trade_date BETWEEN ? AND ? ORDER BY 1",
                        [start, as_of]).fetchall()
@@ -175,16 +115,7 @@ def _live_frame(con: Any, as_of: date) -> pd.DataFrame:
     p["qpx"] = p["quantity"] * p["price"]
     p["bqpx"] = np.where(buy, p["qpx"], 0.0)
 
-    cd = p.groupby([*keys, "client", "clientele"], as_index=False)[["buy_val", "sell_val"]].sum()
-    cd["cnet"] = cd["buy_val"] - cd["sell_val"]
-    nonprop = cd["clientele"] != "PROP"
-    cd["is_buyer"] = ((cd["cnet"] > 0) & nonprop).astype(float)
-    cd["is_seller"] = ((cd["cnet"] < 0) & nonprop).astype(float)
-    cd["rt"] = np.minimum(cd["buy_val"], cd["sell_val"])
-    cd["rt_np"] = cd["rt"].where(nonprop, 0.0)
-    cd["gross_np"] = (cd["buy_val"] + cd["sell_val"]).where(nonprop, 0.0)
-    houses = cd.groupby(keys).agg(buying_houses=("is_buyer", "sum"), selling_houses=("is_seller", "sum"),
-                                  round_trip_value_cr=("rt", "sum"), rt_np=("rt_np", "sum"), gross_np=("gross_np", "sum"))
+    houses = client_day_stats(p).drop(columns=["n_clients"])
     s = p.groupby(keys).agg(prints=("side", "size"), buy_cr=("buy_val", "sum"), sell_cr=("sell_val", "sum"),
                             buy_qty=("buy_qty", "sum"), sell_qty=("sell_qty", "sum"), qty=("quantity", "sum"),
                             qpx=("qpx", "sum"), bqpx=("bqpx", "sum"),
@@ -199,7 +130,7 @@ def _live_frame(con: Any, as_of: date) -> pd.DataFrame:
     s["gross"] = s["buy_cr"] + s["sell_cr"]
     s["vwap"] = (s["qpx"] / s["qty"]).where(s["qty"] > 0)
     s["buy_vwap"] = (s["bqpx"] / s["buy_qty"]).where(s["buy_qty"] > 0)
-    s = s.merge(_matched(p), on=keys, how="left")
+    s = s.merge(matched_transfers(p), on=keys, how="left")
     s["matched_value_cr"] = pd.to_numeric(s["matched_value_cr"], errors="coerce").fillna(0.0)
 
     # Close on the deal day and ADV as of the previous session.
@@ -231,27 +162,14 @@ def _live_frame(con: Any, as_of: date) -> pd.DataFrame:
     s = s[s["_si"].notna()].copy()
     s["_si"] = s["_si"].astype(int)
     s = s.sort_values(["symbol", "_si"]).reset_index(drop=True)
-    pos = (s["net_ex_prop_cr"] > 0).to_numpy(dtype=float)
-    pers = np.zeros(len(s))
-    for _, ix in s.groupby("symbol", sort=False).indices.items():
-        si = s["_si"].to_numpy()[ix]
-        cs = np.concatenate([[0.0], np.cumsum(pos[ix])])
-        left = np.searchsorted(si, si - (PERSISTENCE_SESSIONS - 1), side="left")
-        pers[ix] = cs[np.arange(1, len(ix) + 1)] - cs[left]
-    s["persistence_days"] = pers
-    prior = s["persistence_days"] - pos
+    s["persistence_days"] = net_buy_sessions(s["symbol"], s["_si"], s["net_ex_prop_cr"])
+    prior = s["persistence_days"] - (net_sign(s["net_ex_prop_cr"]) > 0).astype(float)
 
-    matched = (s["matched_value_cr"] >= MATCH_SHARE_MIN * s["buy_cr"]) & (s["matched_value_cr"] > 0)
-    inst = s["matched_inst"].astype("boolean").fillna(False).astype(bool)
-    # PROP is stripped first: a PROP desk churning 900 Cr must not hide a 300 Cr fund sale beside it
-    # (POLICYBZR 2026-09-25). Churn = non-PROP round trips dominate, or nothing is left once PROP is removed.
-    gross_np = s["gross_np"].where(s["gross_np"] > 0)
-    churn = ((2 * s["rt_np"] / gross_np) >= CHURN_SHARE_MIN) | (s["net_ex_prop_cr"].round(6) == 0)
-    net = s["net_ex_prop_cr"]
-    conds = [matched & ~inst, matched & inst, churn, (net > 0) & (prior > 0), (net > 0) & (prior <= 0), net < 0]
-    s["event_type"] = np.select([c.fillna(False).to_numpy(dtype=bool) for c in conds],
-                                [r["event_type"] for r in EVENT_RULES], default="")
-    s["event_type"] = s["event_type"].replace("", None)
+    # Shared rules (Scripts/derived/deal_rules.py): aggregate transfer match; PROP stripped before churn.
+    s["event_type"] = classify_events(
+        matched_value_cr=s["matched_value_cr"], buy_value_cr=s["buy_cr"], matched_inst=s["matched_inst"],
+        round_trip_ex_prop_cr=s["round_trip_ex_prop_cr"], gross_ex_prop_cr=s["gross_ex_prop_cr"],
+        net_ex_prop_cr=s["net_ex_prop_cr"], prior_net_buy_sessions=prior)
     s["event_rule"] = s["event_type"].map(RULE_TEXT)
     return s[["trade_date", "symbol", *_DSN_FIELDS.keys()]]
 
