@@ -22,6 +22,7 @@ Group id format: ``<level>:<name>`` e.g. ``industry:2/3 Wheelers``.
 """
 from __future__ import annotations
 
+import threading
 from collections import Counter
 from datetime import date
 from typing import Any
@@ -50,6 +51,7 @@ MIN_MEMBERS_RANK = 3
 CONCENTRATION_TOP1 = 50.0
 DEAL_WINDOW = 10
 LEVEL_ORDER = ["broad_sector", "sector", "broad_industry", "industry"]
+_LIVE_LOCK = threading.Lock()
 
 # Response field -> group_daily column candidates (first present wins). Names from
 # Scripts/derived/SCHEMA.md first, then spec §4.5 names.
@@ -370,7 +372,8 @@ def _frame(con: Any, as_of: date, level_key: str, floor: str) -> tuple[pd.DataFr
         gd = db.cached("groups.gd", (as_of, level_key, floor), lambda: _gd_frame(con, as_of, level_key, floor))
         if gd is not None and not gd.empty:
             return gd, "group_daily"
-    live = db.cached("groups.live", (as_of, floor), lambda: _live_frames(con, as_of, floor))
+    with _LIVE_LOCK:  # one live computation at a time; concurrent requests wait and hit the cache
+        live = db.cached("groups.live", (as_of, floor), lambda: _live_frames(con, as_of, floor))
     return live.get(level_key, pd.DataFrame()), "live"
 
 

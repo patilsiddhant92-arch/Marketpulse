@@ -17,6 +17,7 @@ Excess = stock return − NIFTY MIDSML 400 over the same entry/exit sessions.
 """
 from __future__ import annotations
 
+import threading
 from datetime import date
 from typing import Any
 
@@ -32,6 +33,13 @@ MIN_HOUSE_BETS = 5
 MIN_FOLLOW_N = 30
 PERSISTENCE_SESSIONS = 10
 MIDSML400 = "NIFTY MIDSML 400"
+_LOCK = threading.RLock()
+
+
+def _cached(tag: str, key: tuple, fn: Any) -> Any:
+    """Fingerprint cache with one computation at a time (concurrent requests wait, then hit the cache)."""
+    with _LOCK:
+        return db.cached(tag, key, fn)
 
 TRANSFER_QTY_TOL = 0.01
 TRANSFER_PRICE_TOL = 0.0025
@@ -47,7 +55,8 @@ EVENT_RULES: list[dict[str, str]] = [
     {"event_type": "placement",
      "rule": "Same match, but every matched buyer is FII or DII (institutions absorbing a promoter/corporate block)."},
     {"event_type": "churn",
-     "rule": "Same-client round trips or PROP prints are ≥ 50% of gross deal value, or net value excluding PROP is zero."},
+     "rule": "After removing PROP desks: same-client round trips are ≥ 50% of the remaining deal value, or nothing is left "
+             "(PROP-only day, or buys and sells cancel exactly)."},
     {"event_type": "accumulate",
      "rule": "Net value excluding PROP > 0 and another net-buy session in the prior 9 market sessions."},
     {"event_type": "fresh", "rule": "Net value excluding PROP > 0 with no net-buy session in the prior 9 market sessions."},
@@ -172,8 +181,10 @@ def _live_frame(con: Any, as_of: date) -> pd.DataFrame:
     cd["is_buyer"] = ((cd["cnet"] > 0) & nonprop).astype(float)
     cd["is_seller"] = ((cd["cnet"] < 0) & nonprop).astype(float)
     cd["rt"] = np.minimum(cd["buy_val"], cd["sell_val"])
+    cd["rt_np"] = cd["rt"].where(nonprop, 0.0)
+    cd["gross_np"] = (cd["buy_val"] + cd["sell_val"]).where(nonprop, 0.0)
     houses = cd.groupby(keys).agg(buying_houses=("is_buyer", "sum"), selling_houses=("is_seller", "sum"),
-                                  round_trip_value_cr=("rt", "sum"))
+                                  round_trip_value_cr=("rt", "sum"), rt_np=("rt_np", "sum"), gross_np=("gross_np", "sum"))
     s = p.groupby(keys).agg(prints=("side", "size"), buy_cr=("buy_val", "sum"), sell_cr=("sell_val", "sum"),
                             buy_qty=("buy_qty", "sum"), sell_qty=("sell_qty", "sum"), qty=("quantity", "sum"),
                             qpx=("qpx", "sum"), bqpx=("bqpx", "sum"),
@@ -232,9 +243,10 @@ def _live_frame(con: Any, as_of: date) -> pd.DataFrame:
 
     matched = (s["matched_value_cr"] >= MATCH_SHARE_MIN * s["buy_cr"]) & (s["matched_value_cr"] > 0)
     inst = s["matched_inst"].astype("boolean").fillna(False).astype(bool)
-    gross = s["gross"].where(s["gross"] > 0)
-    churn = (((2 * s["round_trip_value_cr"] / gross) >= CHURN_SHARE_MIN) | ((s["prop_value_cr"] / gross) >= CHURN_SHARE_MIN)
-             | (s["net_ex_prop_cr"].round(6) == 0))
+    # PROP is stripped first: a PROP desk churning 900 Cr must not hide a 300 Cr fund sale beside it
+    # (POLICYBZR 2026-09-25). Churn = non-PROP round trips dominate, or nothing is left once PROP is removed.
+    gross_np = s["gross_np"].where(s["gross_np"] > 0)
+    churn = ((2 * s["rt_np"] / gross_np) >= CHURN_SHARE_MIN) | (s["net_ex_prop_cr"].round(6) == 0)
     net = s["net_ex_prop_cr"]
     conds = [matched & ~inst, matched & inst, churn, (net > 0) & (prior > 0), (net > 0) & (prior <= 0), net < 0]
     s["event_type"] = np.select([c.fillna(False).to_numpy(dtype=bool) for c in conds],
@@ -258,9 +270,9 @@ def _table_frame(con: Any, as_of: date) -> pd.DataFrame:
 
 def _frame(con: Any, as_of: date) -> tuple[pd.DataFrame, str]:
     if db.table_exists(con, "deal_session_net"):
-        return db.cached("deals.table", (as_of,), lambda: _table_frame(con, as_of)), "deal_session_net"
+        return _cached("deals.table", (as_of,), lambda: _table_frame(con, as_of)), "deal_session_net"
     if db.table_exists(con, "deals"):
-        return db.cached("deals.live", (as_of,), lambda: _live_frame(con, as_of)), "live"
+        return _cached("deals.live", (as_of,), lambda: _live_frame(con, as_of)), "live"
     return pd.DataFrame(), "none"
 
 
@@ -296,7 +308,7 @@ def session(as_of: date | None, min_mcap_cr: float = 1000.0) -> Result:
         df, src = _frame(con, resolved)
         if src == "none":
             return unavailable(resolved, "no deals table", ["deals"])
-        snap = db.cached("deals.snap", (resolved,), lambda: con.execute(
+        snap = _cached("deals.snap", (resolved,), lambda: con.execute(
             f"WITH s AS ({universe.snapshot_sql(con)}) SELECT symbol, security_name, industry, close, market_cap_cr, "
             "rs_percentile, ema_200, away_52w_high_pct FROM s", [resolved]).df())
         cal = [pd.Timestamp(d) for d in reversed(db.recent_sessions(con, resolved, 60))]
@@ -398,7 +410,7 @@ def _forward(con: Any, as_of: date) -> pd.DataFrame:
 
 
 def _fwd_cached(con: Any, as_of: date) -> pd.DataFrame:
-    return db.cached("deals.forward", (as_of,), lambda: _forward(con, as_of))
+    return _cached("deals.forward", (as_of,), lambda: _forward(con, as_of))
 
 
 def _stats(sub: pd.DataFrame) -> dict[str, Any]:
@@ -476,10 +488,10 @@ def houses(as_of: date | None, session_only: bool = False) -> Result:
             return no_session(as_of)
         if not db.table_exists(con, "deals"):
             return unavailable(resolved, "no deals table", ["deals"])
-        p = db.cached("deals.house_frame", (resolved,), lambda: _house_frame(con, resolved))
+        p = _cached("deals.house_frame", (resolved,), lambda: _house_frame(con, resolved))
     if p.empty:
         return unavailable(resolved, "no deal prints on or before as_of", ["deals"])
-    rows = db.cached("deals.houses", (resolved,), lambda: _house_rows(p))
+    rows = _cached("deals.houses", (resolved,), lambda: _house_rows(p))
     if session_only:
         rows = [r for r in rows if r["active_in_session"]]
     return Result(
@@ -550,7 +562,7 @@ def house(as_of: date | None, house_id: str) -> Result:
             return no_session(as_of)
         if not db.table_exists(con, "deals"):
             return unavailable(resolved, "no deals table", ["deals"])
-        p = db.cached("deals.house_frame", (resolved,), lambda: _house_frame(con, resolved))
+        p = _cached("deals.house_frame", (resolved,), lambda: _house_frame(con, resolved))
     g = p[p["client"] == client].sort_values(["trade_date", "value_cr"], ascending=[False, False]) if not p.empty else p
     rows = [{
         "trade_date": db.to_date(r["trade_date"]), "symbol": db.text(r["symbol"]), "side": db.text(r["side"]),
