@@ -339,8 +339,11 @@ def bullets(ctx: dict[str, Any], snap: dict[str, Any], deliv_qty_x: float | None
             t += f", #{g['health_rank']} of its level"
         if g.get("rrg_quadrant"):
             t += f"; {g['rrg_quadrant']} vs peers"
-            if g.get("quadrant_note"):
-                t += f" but {g['quadrant_note']}"
+            note = g.get("quadrant_note") or ""
+            short = ("falling in absolute terms" if "falling" in note else "on narrow breadth" if "narrow" in note
+                     else "rising in absolute terms" if "rising" in note else note)
+            if short:
+                t += f" but {short}"
         spark = [v for v in (g.get("health_spark_21") or []) if v is not None]
         if len(spark) >= 2:
             d = spark[-1] - spark[0]

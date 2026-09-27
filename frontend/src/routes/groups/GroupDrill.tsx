@@ -221,7 +221,7 @@ function GroupSetupsList({ members, loading, known, queues }: { members: readonl
                   {fmtSignedPct(st.distance_to_trigger_pct, 1)} to trigger
                 </span>
               )}
-              {st?.setup_age_sessions != null && <span className="num ml-auto text-fg-3">{st.setup_age_sessions}s</span>}
+              {st?.setup_age_sessions != null && <span className="num ml-auto text-fg-3" title="Sessions in the queue">age {st.setup_age_sessions}</span>}
             </li>
           ))}
           {items.length > 12 && <li className="text-2xs text-fg-3">+{items.length - 12} more on the Desk</li>}
