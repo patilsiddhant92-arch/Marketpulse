@@ -45,7 +45,7 @@ def _read(db_path: Path, name: str, sql: str | None = None) -> pd.DataFrame:
 
 def _action_texts(adjustments: pd.DataFrame, corporate_actions: pd.DataFrame) -> pd.DataFrame:
     """(symbol, ex_date, text) for every known corporate action: corporate_actions rows plus the
-    bc/mcap rows of the reconciled frame (anything that is not itself a gap)."""
+    bc/mcap rows of the reconciled frame (anything that is not itself an open row under review)."""
     frames = []
     if corporate_actions is not None and not corporate_actions.empty:
         ca = corporate_actions.copy()
@@ -54,7 +54,7 @@ def _action_texts(adjustments: pd.DataFrame, corporate_actions: pd.DataFrame) ->
         text = [f"{k}: {d}".strip(": ") if d else str(k) for k, d in zip(kind, desc)]
         frames.append(pd.DataFrame({"symbol": ca["symbol"], "ex_date": ca["ex_date"], "text": text}))
     if adjustments is not None and not adjustments.empty:
-        adj = adjustments[adjustments["kind"] != "unexplained_gap"]
+        adj = adjustments[(adjustments["kind"] != "unexplained_gap") & (adjustments["confidence"] != OPEN_CONFIDENCE)]
         if not adj.empty:
             desc = adj["description"].astype("string").fillna("")
             text = [f"{k} ({s}): {d}".rstrip(": ") for k, s, d in zip(adj["kind"], adj["source"], desc)]

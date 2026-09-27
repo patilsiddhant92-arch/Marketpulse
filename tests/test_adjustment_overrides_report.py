@@ -48,6 +48,14 @@ def test_report_lists_open_gaps_with_prices_and_nearest_action():
     assert "FV SPLIT RS 10 TO RS 2" in row["nearest_action"] and row["action_days_off"] == -3
 
 
+def test_open_row_is_not_its_own_nearest_action():
+    adj = _adjustments()
+    adj.loc[len(adj)] = {"symbol": "ABC", "ex_date": pd.Timestamp("2025-06-30"), "kind": "bonus", "factor": 0.75,
+                         "source": "mcap_issue", "confidence": "unconfirmed", "applied": False, "description": "ISSUE x1.33"}
+    out = rep.build_report(_prices(), adj, _corp(), window_days=30).set_index("symbol")
+    assert out.loc["ABC", "nearest_action"] == ""
+
+
 def test_nearest_action_outside_window_is_blank():
     out = rep.build_report(_prices(), _adjustments(), _corp(), window_days=1)
     assert out.iloc[0]["nearest_action"] == ""
