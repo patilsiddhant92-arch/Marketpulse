@@ -122,6 +122,15 @@ _INDICATORS_DAILY_SIDE_COLUMNS = (
     "ALTER TABLE indicators_daily ADD COLUMN IF NOT EXISTS wema_20 DOUBLE",
 )
 
+# signal_ledger.price_scale_factor: the price_factor in force on last_seen_date as seen by the
+# writer. Trigger/invalidation prices written from already-adjusted indicators (e.g. a
+# backfill_decisions run over history) carry it so outcomes does not rescale them a second
+# time; NULL = legacy row on the raw scale of last_seen_date. Always applied (additive; no
+# version bump) so CTAS-copied ledgers pick it up too.
+_SIGNAL_LEDGER_SIDE_COLUMNS = (
+    "ALTER TABLE signal_ledger ADD COLUMN IF NOT EXISTS price_scale_factor DOUBLE",
+)
+
 # Additive sector-rotation share/leader columns. Applied even when schema
 # version is already current so the append path grows live DBs without a rebuild.
 _SECTOR_ROTATION_SHARE_COLUMNS = (
@@ -267,8 +276,16 @@ def _ensure_stocks_master_security_name(db: duckdb.DuckDBPyConnection) -> None:
     db.execute(f"UPDATE stocks_master SET security_name = {coalesced}")
 
 
+def _ensure_signal_ledger_side_columns(db: duckdb.DuckDBPyConnection) -> None:
+    if not _table_exists(db, "signal_ledger"):
+        return
+    for statement in _SIGNAL_LEDGER_SIDE_COLUMNS:
+        db.execute(statement)
+
+
 def _apply_always_on_repairs(db: duckdb.DuckDBPyConnection) -> None:
     _ensure_sector_rotation_share_columns(db)
+    _ensure_signal_ledger_side_columns(db)
     _ensure_indicators_daily_side_columns(db)
     _ensure_stocks_master_security_name(db)
     ensure_on_conflict_indexes(db)
