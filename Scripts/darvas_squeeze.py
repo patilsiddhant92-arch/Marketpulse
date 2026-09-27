@@ -311,18 +311,23 @@ def monthly_ohlc(daily: pd.DataFrame, *, as_of: Any = None) -> pd.DataFrame:
     return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
 
 
-def calculate_darvas_box(
+def _darvas_box_core(
     high: np.ndarray | pd.Series,
     low: np.ndarray | pd.Series,
     boxp: int = 5,
-) -> tuple[np.ndarray, np.ndarray]:
-    """TopBox (Green Line) and BottomBox (Red Line) matching TradingView Pine."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Pine box state per bar plus a mask of the bars where a box is (re)confirmed.
+
+    Single implementation behind `calculate_darvas_box` (queues) and
+    `darvas_box_segments` (charts) so both share one box definition.
+    """
     h = np.asarray(high, dtype=float)
     l = np.asarray(low, dtype=float)
     n = len(h)
+    formed = np.zeros(n, dtype=bool)
 
     if n < boxp:
-        return np.full(n, np.nan), np.full(n, np.nan)
+        return np.full(n, np.nan), np.full(n, np.nan), formed
 
     ll = pd.Series(l).rolling(boxp).min().values
     k1 = pd.Series(h).rolling(boxp).max().values
@@ -347,11 +352,76 @@ def calculate_darvas_box(
         if bars_since_nh == (boxp - 2) and box1:
             current_top = nh
             current_bottom = ll[i]
+            formed[i] = True
 
         top_box[i] = current_top
         bottom_box[i] = current_bottom
 
+    return top_box, bottom_box, formed
+
+
+def calculate_darvas_box(
+    high: np.ndarray | pd.Series,
+    low: np.ndarray | pd.Series,
+    boxp: int = 5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """TopBox (Green Line) and BottomBox (Red Line) matching TradingView Pine."""
+    top_box, bottom_box, _formed = _darvas_box_core(high, low, boxp=boxp)
     return top_box, bottom_box
+
+
+def darvas_box_segments(
+    high: np.ndarray | pd.Series,
+    low: np.ndarray | pd.Series,
+    close: np.ndarray | pd.Series,
+    boxp: int = 5,
+) -> list[dict[str, Any]]:
+    """Historical Darvas boxes as index spans, using the queues' box definition.
+
+    One box per Pine confirmation bar (`formed_i`). Its price range is fixed at
+    confirmation: top = the new high made `boxp - 2` bars earlier (`start_i`),
+    bottom = lowest low of the last `boxp` bars. The box lives until the next
+    confirmation (`last_i` = bar before it, or the final bar).
+    Within that life the first close above top is a breakout (`broken_up`),
+    the first close below bottom a breakdown (`broken_down`); `end_i` is that
+    bar. A box never broken is `active` when it is the latest box, else
+    `superseded` (a new box replaced it while price stayed inside).
+    Point-in-time: bar i uses only bars <= i.
+    """
+    top_box, bottom_box, formed = _darvas_box_core(high, low, boxp=boxp)
+    c = np.asarray(close, dtype=float)
+    n = len(c)
+    starts = [int(i) for i in np.flatnonzero(formed) if np.isfinite(top_box[i]) and np.isfinite(bottom_box[i])]
+    out: list[dict[str, Any]] = []
+    for k, fi in enumerate(starts):
+        last_i = (starts[k + 1] - 1) if k + 1 < len(starts) else n - 1
+        top = float(top_box[fi])
+        bottom = float(bottom_box[fi])
+        status = "active" if k + 1 == len(starts) else "superseded"
+        end_i = last_i
+        break_i: int | None = None
+        for j in range(fi + 1, last_i + 1):
+            if not np.isfinite(c[j]):
+                continue
+            if c[j] > top:
+                status, break_i = "broken_up", j
+                break
+            if c[j] < bottom:
+                status, break_i = "broken_down", j
+                break
+        if break_i is not None:
+            end_i = break_i
+        out.append({
+            "start_i": max(0, fi - (boxp - 2)),
+            "formed_i": fi,
+            "end_i": end_i,
+            "last_i": last_i,
+            "top": top,
+            "bottom": bottom,
+            "status": status,
+            "break_i": break_i,
+        })
+    return out
 
 
 def compute_darvas_metrics(

@@ -236,6 +236,81 @@ def bars(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> Re
     )
 
 
+def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> Result:
+    """Historical Darvas boxes for any stock (not only queue members).
+
+    Same box definition as the Darvas Squeeze / 10-EMA queues
+    (`Scripts.darvas_squeeze.darvas_box_segments` shares `calculate_darvas_box`'s
+    core). Adjusted OHLC (COALESCE(adj_*, raw)), bounded to as_of; W = completed
+    weeks only and M = calendar months, exactly as the queues resample.
+    Returns boxes that overlap the last `limit` bars of that timeframe.
+    """
+    try:
+        from Scripts.darvas_squeeze import darvas_box_segments, monthly_ohlc, weekly_ohlc
+    except ModuleNotFoundError:  # pragma: no cover - script-style import
+        from darvas_squeeze import darvas_box_segments, monthly_ohlc, weekly_ohlc  # type: ignore
+
+    tf = tf.upper()
+    if tf not in ("D", "W", "M"):
+        raise ValueError("tf must be D, W or M")
+    limit = max(1, min(int(limit), MAX_BARS))
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        ex, adjusted = _adj_exprs(con)
+        daily = con.execute(
+            f"""
+            SELECT p.symbol, p.trade_date,
+                   {ex['open_price']} AS open_price, {ex['high_price']} AS high_price,
+                   {ex['low_price']} AS low_price, {ex['close_price']} AS close_price,
+                   {ex['volume']} AS volume
+            FROM prices_daily p
+            WHERE p.symbol = ? AND p.trade_date <= ?
+            ORDER BY p.trade_date
+            """,
+            [symbol, resolved],
+        ).fetchdf()
+    sources = ["prices_daily"]
+    if daily.empty:
+        return unavailable(resolved, f"no bars for {symbol} on or before {resolved.isoformat()}", sources)
+    frame = daily
+    if tf == "W":
+        frame = weekly_ohlc(daily, as_of=resolved)
+    elif tf == "M":
+        frame = monthly_ohlc(daily, as_of=resolved)
+    frame = frame.dropna(subset=["high_price", "low_price", "close_price"]).reset_index(drop=True)
+    dates = [db.to_date(d) for d in frame["trade_date"]]
+    segs = darvas_box_segments(frame["high_price"], frame["low_price"], frame["close_price"], boxp=5)
+    first_i = max(0, len(frame) - limit)
+    rows = []
+    for sg in segs:
+        if sg["last_i"] < first_i:
+            continue
+        bi = sg["break_i"]
+        rows.append({
+            "start_date": dates[sg["start_i"]],
+            "formed_date": dates[sg["formed_i"]],
+            "end_date": dates[sg["end_i"]],
+            "top": db.num(sg["top"], 2),
+            "bottom": db.num(sg["bottom"], 2),
+            "status": sg["status"],
+            "break_date": dates[bi] if bi is not None else None,
+            "break_close": db.num(float(frame["close_price"].iloc[bi]), 2) if bi is not None else None,
+            "bars": int(sg["end_i"] - sg["start_i"] + 1),
+        })
+    return Result(
+        as_of=resolved, rows=rows, sources=sources,
+        extra={"symbol": symbol, "timeframe": tf, "prices_adjusted": adjusted, "box_period": 5,
+               "last_bar_date": dates[-1] if dates else None},
+        notes=["Box = Pine valuewhen definition used by the Darvas Squeeze / 10-EMA queues (boxp 5); "
+               "broken_up / broken_down = first close above top / below bottom; superseded = replaced by a newer box "
+               "without a break; active = latest unbroken box."]
+        + (["W boxes use completed weeks only (as the queue does)."] if tf == "W" else [])
+        + ([] if adjusted else ["prices_daily has no adj_* columns yet; boxes use raw prices."]),
+    )
+
+
 def rs_line(as_of: date | None, symbol: str, limit: int = 400) -> Result:
     limit = max(20, min(int(limit), MAX_BARS))
     with db.market_conn() as con:
