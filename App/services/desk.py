@@ -62,10 +62,15 @@ QUEUE_METRICS = [
     "setup_age_sessions", "squeeze_pct", "candle_range_pct", "darvas_box_top", "darvas_box_bottom",
     "darvas_10ema_flavor", "vcp_contractions", "vcp_depth_pct", "vdu_ratio", "deal_net_10s_cr", "rrg_quadrant",
 ]
+# Same VCP rule as the served queue (Scripts/derived/setup_daily.py): 150-session window, close at or
+# below the pivot, Stage-2 gates from Scripts.vcp.VCP (close >= 30, within 25% of the 52W high, 20d
+# volume >= 100k) - so "why / why not" answers match queue membership.
 VCP_MIN_CONTRACTIONS = 2
-VCP_MAX_ABOVE_PIVOT = 1.03
+VCP_WINDOW = 150
+VCP_MAX_ABOVE_PIVOT = 1.0
 VCP_MIN_AVG_VOLUME_20D = 100_000
 VCP_MIN_CLOSE = 30.0
+VCP_MAX_AWAY_52W_HIGH_PCT = -25.0
 STOP_BUFFER = 0.985
 
 
@@ -220,13 +225,15 @@ def _vcp(pool: pd.DataFrame, hist: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     avg_vol = pd.to_numeric(base["avg_volume_20d"], errors="coerce")
     close = pd.to_numeric(base["close"], errors="coerce")
-    base = base.loc[(avg_vol.isna() | (avg_vol >= VCP_MIN_AVG_VOLUME_20D)) & (close >= VCP_MIN_CLOSE)]
+    away = pd.to_numeric(base["away_52w_high_pct"], errors="coerce") if "away_52w_high_pct" in base else pd.Series(np.nan, index=base.index)
+    base = base.loc[(avg_vol.isna() | (avg_vol >= VCP_MIN_AVG_VOLUME_20D)) & (close >= VCP_MIN_CLOSE)
+                    & (away.isna() | (away >= VCP_MAX_AWAY_52W_HIGH_PCT))]
     wanted = set(base["symbol"])
     rows = []
     for sym, g in hist.groupby("symbol"):
         if sym not in wanted or len(g) < 60:
             continue
-        g = g.tail(252).reset_index(drop=True)
+        g = g.tail(VCP_WINDOW).reset_index(drop=True)
         seq = detect_contractions(g[["trade_date", "open_price", "high_price", "low_price", "close_price", "volume"]])
         if len(seq.contractions) < VCP_MIN_CONTRACTIONS or seq.pivot is None or seq.stop is None:
             continue
