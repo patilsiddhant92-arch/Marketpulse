@@ -13,7 +13,7 @@ import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
 import type { GroupRow } from '../api/types';
 import { cn } from '../lib/cn';
-import { fmtDate, fmtSigned, fmtSignedPct } from '../lib/fmt';
+import { fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { useShell } from '../shell/ShellContext';
 import { useAsOf, useUrlParam } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
@@ -25,6 +25,7 @@ import { Spark } from '../ui/Spark';
 import { Tooltip } from '../ui/Tooltip';
 import { TodayGroups } from '../today/TodayGroups';
 import { GroupDrill } from './groups/GroupDrill';
+import { GroupsGlance } from './groups/GroupsGlance';
 import {
   asFloor,
   asLevel,
@@ -283,6 +284,20 @@ export default function GroupsRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* at-a-glance band (board data only) */}
+      <div className="shrink-0 px-2 pb-1.5 pt-2">
+        <GroupsGlance
+          rows={rows}
+          market={ctx?.market}
+          contextLine={contextLine}
+          quadrants={counts}
+          levelLabel={levelLabel(level)}
+          floorLabel={ctx?.floor_label ?? FLOORS.find((f) => f.value === floor)?.title}
+          asOf={board.data?.as_of}
+          loading={board.isLoading}
+          onDrill={(id) => setGroup(id)}
+        />
+      </div>
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line bg-surface px-3 py-1.5">
         <h1 className="text-sm font-semibold text-fg">Groups</h1>
         <Segmented label="Taxonomy level" options={LEVELS.map((l) => ({ value: l.value, label: l.short, title: l.label }))} value={level} onChange={(v) => setLevel(v === 'industry' ? null : v)} />
@@ -320,24 +335,6 @@ export default function GroupsRoute() {
             </span>
           </Tooltip>
         </div>
-      </div>
-      <div className="flex min-h-6 shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line bg-surface px-3 py-0.5 text-2xs text-fg-3">
-        {contextLine && (
-          <span className="font-medium text-fg" data-testid="groups-context">
-            {contextLine}
-          </span>
-        )}
-        {ctx?.market?.health_zones && (
-          <span title="Groups (≥ 3 members) per Health zone">
-            Health: <span className="num text-up">{ctx.market.health_zones.Healthy ?? 0}</span> healthy ·{' '}
-            <span className="num text-warn">{ctx.market.health_zones.Mixed ?? 0}</span> mixed ·{' '}
-            <span className="num text-down">{ctx.market.health_zones.Weak ?? 0}</span> weak
-          </span>
-        )}
-        <span>
-          <span className="num text-fg-2">{rows.length}</span> {levelLabel(level).toLowerCase()} groups · floor {ctx?.floor_label ?? FLOORS.find((f) => f.value === floor)?.title}
-        </span>
-        {board.data?.as_of && <span className="ml-auto">As of {fmtDate(board.data.as_of)}</span>}
       </div>
       {view === 'today' ? (
         <div className="min-h-0 flex-1">

@@ -14,6 +14,7 @@ import { AlertTriangle, HelpCircle, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
+import { DealsGlance } from './deals/DealsGlance';
 import type { DealSessionRow, FollowThroughRow, HouseRow } from '../api/types';
 import { cn } from '../lib/cn';
 import { fmtDate, fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
@@ -408,6 +409,11 @@ export default function DealsRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {sessionView && (
+        <div className="shrink-0 px-2 pb-1.5 pt-2">
+          <DealsGlance rows={rows} session={ctx?.deal_session} eventCounts={ctx?.event_counts} loading={q.isLoading} onHouse={setHouse} />
+        </div>
+      )}
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line bg-surface px-3 py-1.5">
         <h1 className="text-sm font-semibold text-fg">Deals</h1>
         <Segmented

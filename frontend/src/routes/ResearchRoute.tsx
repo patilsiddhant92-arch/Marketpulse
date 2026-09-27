@@ -16,6 +16,7 @@ import { FixtureModeProvider, useFixtureMode } from './research/data';
 import { EvidenceView } from './research/EvidenceView';
 import { GroupStudiesView } from './research/GroupStudiesView';
 import { PreMoveView } from './research/PreMoveView';
+import { ResearchGlance } from './research/ResearchGlance';
 
 export const RESEARCH_VIEWS = [
   { id: 'analogs', label: 'Market analogs', hint: 'When did the market last look like today — and what happened next' },
@@ -61,6 +62,9 @@ function ResearchBody() {
   const active = RESEARCH_VIEWS.find((v) => v.id === view)!;
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 px-2 pb-1.5 pt-2">
+        <ResearchGlance />
+      </div>
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5">
         <nav aria-label="Research studies" className="flex flex-wrap gap-0.5">
           {RESEARCH_VIEWS.map((v) => (

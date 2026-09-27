@@ -69,7 +69,7 @@ export function Tooltip({ content, children, side = 'bottom', delay = 250, class
             id={id}
             role="tooltip"
             className={cn(
-              'pointer-events-none fixed z-[1000] max-w-[320px] rounded border border-line-strong bg-surface-2 px-2.5 py-2 text-xs text-fg-2 shadow-xl',
+              'mp-fade-in pointer-events-none fixed z-[1000] max-w-[320px] rounded-card border border-line-strong bg-surface-2 px-3 py-2 text-xs leading-relaxed text-fg-2 shadow-pop',
               panelClassName,
             )}
             style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999 }}

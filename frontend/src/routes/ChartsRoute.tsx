@@ -14,13 +14,13 @@ import { ChevronLeft, ChevronRight, Copy } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../api/client';
 import { apiQueryKey, useApiQuery } from '../api/query';
+import { ChartsGlance } from '../charts/ChartsGlance';
 import { ChartTile, REL_WINDOWS } from '../charts/ChartTile';
 import { SourcePicker } from '../charts/SourcePicker';
 import { SORTS, TILE_COUNTS, clampPage, gridShape, pageCount, pageSlice, parseSource, sortItems } from '../charts/sources';
 import { useSourceList } from '../charts/useSourceList';
 import { copyText } from '../lib/clipboard';
 import { cn } from '../lib/cn';
-import { fmtDate } from '../lib/fmt';
 import { useChartPrefs } from '../lib/chartPrefs';
 import { openLayerCount, useEscapeLayer } from '../lib/layers';
 import { setNavList } from '../lib/navList';
@@ -237,29 +237,18 @@ export default function ChartsRoute() {
           </button>
         </div>
       </div>
-      <div className="flex min-h-6 shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap border-b border-line bg-surface px-3 text-2xs text-fg-3">
-        {list.asOf && <span>as of {fmtDate(list.asOf)}</span>}
-        {list.total != null && list.total !== list.items.length && (
-          <span className="text-warn">
-            {list.items.length} of {list.total} returned
-          </span>
-        )}
-        {list.status === 'partial' && list.reason && (
-          <span className="shrink-0 text-warn" title={list.reason}>
-            partial data
-          </span>
-        )}
-        {list.note && (
-          <span className="min-w-0 truncate" title={list.note}>
-            {list.note}
-          </span>
-        )}
-        <span
-          className="ml-auto shrink-0"
-          title="J / K (or ] / [) page · click a symbol to open Stock 360 · double-click or ⤢ to expand · crosshair synced by date · tile shows return vs NIFTY MidSml 400 over the chosen window"
-        >
-          J/K page · click symbol = Stock 360 · ⤢ expand
-        </span>
+      <div className="shrink-0 px-1.5 pt-1.5">
+        <ChartsGlance
+          label={list.label}
+          items={items}
+          total={list.total}
+          asOf={list.asOf}
+          partialReason={list.status === 'partial' ? list.reason : null}
+          note={list.note}
+          page={page}
+          pages={pages}
+          loading={list.loading}
+        />
       </div>
       <div className="min-h-0 flex-1 p-1.5">
         {list.error ? (

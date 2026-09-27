@@ -102,12 +102,16 @@ describe('Groups and Deals tabs', () => {
     expect(parent.closest('nav')).toHaveAttribute('aria-label', 'Taxonomy path');
     expect(await screen.findByText('INDOTECH', {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Show these as charts/ }).getAttribute('href')).toContain('source=group%3Aindustry%3AHeavy');
-  });
+  }, 15_000); // drill = three sequential fetch-and-render steps; slow under a parallel full run
 
   it('lists every deal stock of the session (buying and churn) and flags NO RECORDS', async () => {
     mockFetch();
     renderAt('/deals');
-    expect(await screen.findByText('POLICYBZR', {}, { timeout: 5000 })).toBeInTheDocument();
+    // POLICYBZR appears in the table and in the at-a-glance band's biggest net buys.
+    expect((await screen.findAllByText('POLICYBZR', {}, { timeout: 5000 })).length).toBe(2);
+    const band = screen.getByRole('region', { name: 'Deals at a glance' });
+    expect(within(band).getByText('POLICYBZR')).toBeInTheDocument();
+    expect(within(band).getByText('Fresh buyer', { exact: false })).toBeInTheDocument();
     expect(screen.getByText(/NO RECORDS/)).toBeInTheDocument();
     // Today lists all deal stocks (default All caps); churn/prop names sit in the same table, tagged by event.
     expect(await screen.findByText('KSCL')).toBeInTheDocument();

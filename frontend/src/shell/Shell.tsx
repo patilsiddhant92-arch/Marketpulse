@@ -15,7 +15,6 @@ import { Stock360Sidecar } from '../stock360/Stock360';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { SkeletonRows } from '../ui/Skeleton';
 import { CommandPalette } from './CommandPalette';
-import { EnvironmentStrip } from './environment';
 import { ShellProvider, useShell } from './ShellContext';
 import { StockSidecar } from './StockSidecar';
 import { TABS, tabFromPath, type TabId } from './tabs';
@@ -28,8 +27,11 @@ function HistoryBanner() {
   const [asOf, setAsOf] = useAsOf();
   if (!asOf) return null;
   return (
-    <div role="status" className="flex h-7 shrink-0 items-center gap-3 border-b border-violet/40 bg-violet/10 px-3 text-xs text-violet">
-      <span className="font-semibold uppercase tracking-wide">History mode</span>
+    <div
+      role="status"
+      className="mp-fade-in flex h-7 shrink-0 items-center gap-3 border-b border-violet/40 bg-violet/10 px-3 text-xs text-violet"
+    >
+      <span className="mp-label !text-violet">History mode</span>
       <span className="text-fg-2">
         Viewing data as of <span className="num text-fg">{fmtDate(asOf)}</span>. Every v2 query uses this date.
       </span>
@@ -97,7 +99,6 @@ function ShellLayout() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg text-fg">
       <TopBar freshness={freshness} />
-      <EnvironmentStrip />
       <HistoryBanner />
       {freshness.apiDown && <ApiDownBanner onRetry={freshness.refetch} />}
       <div className="relative flex min-h-0 flex-1">

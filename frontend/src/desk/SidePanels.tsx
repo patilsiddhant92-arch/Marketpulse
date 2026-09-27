@@ -26,7 +26,7 @@ function SymChip({ r, tone }: { r: DiffRow; tone: 'accent' | 'neutral' }) {
       title={`${r.symbol} · ${r.industry ?? 'no industry'} · rank ${fmtNum(r.rs_percentile, 0)} · close ${fmtNum(r.close)}`}
       className={cn(
         'rounded border px-1.5 py-0.5 font-mono text-2xs hover:brightness-125',
-        tone === 'accent' ? 'border-accent/30 bg-accent/10 text-accent' : 'border-line bg-surface-2 text-fg-3 line-through decoration-fg-3/50',
+        tone === 'accent' ? 'border-accent/20 bg-accent/[0.08] text-accent' : 'border-transparent text-fg-3 line-through decoration-fg-3/50',
         shell.symbol === r.symbol && 'ring-1 ring-accent',
       )}
     >

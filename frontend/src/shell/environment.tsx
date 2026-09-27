@@ -1,5 +1,5 @@
 /**
- * Market Environment (spec 6.1): compact strip under the top bar + detail
+ * Market Environment (spec 6.1): compact pill in the top bar + detail
  * drawer. Reads GET /api/v2/market/regime and degrades gracefully when the
  * endpoint 404s (v2 not deployed) or meta.status === "unavailable".
  */
@@ -71,51 +71,68 @@ export function useEnvironment() {
   return { q, view, unavailable: isUnavailable(q.data) || (!!q.data && !view) };
 }
 
-/** The one-line strip. */
+/**
+ * Environment pill for the top bar: verdict word (verdict colour), pillar
+ * dots and the what-changed line; click opens the detail drawer. Replaces the
+ * old full-width strip so the tab content gets that row back.
+ */
 export function EnvironmentStrip() {
   const { q, view, unavailable } = useEnvironment();
   const [open, setOpen] = useState(false);
 
   let content: ReactNode;
   if (q.isLoading) {
-    content = <Skeleton width={320} height={10} />;
+    content = <Skeleton width={180} height={8} />;
   } else if (q.error) {
     const notShipped = isApiError(q.error) && (q.error.kind === 'not_found' || q.error.kind === 'parse');
     content = (
-      <span className="text-fg-3">Market environment {notShipped ? 'not available yet (API v2 pending)' : 'could not be loaded'}</span>
+      <span className="truncate px-2 text-fg-3">
+        Market environment {notShipped ? 'not available yet (API v2 pending)' : 'could not be loaded'}
+      </span>
     );
   } else if (unavailable || !view) {
     const reason = q.data?.meta?.reason;
-    content = <span className="text-fg-3">Market environment unavailable{reason ? ` — ${reason}` : ''}</span>;
+    content = (
+      <span className="truncate px-2 text-fg-3" title={reason ?? undefined}>
+        Market environment unavailable{reason ? ` — ${reason}` : ''}
+      </span>
+    );
   } else {
     content = (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group flex min-w-0 items-center gap-3 text-left"
+        className="group flex h-7 min-w-0 items-center gap-2 rounded border border-line bg-surface-2 pl-2 pr-1.5 text-left transition-colors duration-fast hover:border-line-strong"
         aria-label="Open market environment details"
+        title={view.verdict ? `Environment: ${view.verdict} (${VERDICT_ACTION[view.verdict]})` : 'Environment'}
       >
-        <span className="text-2xs uppercase tracking-wide text-fg-3">Environment</span>
-        <span className={cn('text-sm font-semibold', view.verdict ? VERDICT_TEXT[view.verdict] : 'text-fg-3')}>{view.verdict ?? '—'}</span>
-        {view.verdict && <span className="hidden text-xs text-fg-3 lg:inline">({VERDICT_ACTION[view.verdict]})</span>}
-        {view.whatChanged && <span className="min-w-0 truncate text-xs text-fg-2">{view.whatChanged}</span>}
-        <span className="flex items-center gap-1" aria-label="Pillars">
+        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', view.verdict ? VERDICT_BG[view.verdict] : 'bg-line-strong')} aria-hidden />
+        <span className="mp-label hidden xl:inline">Env</span>
+        <span className={cn('text-xs font-semibold', view.verdict ? VERDICT_TEXT[view.verdict] : 'text-fg-3')}>{view.verdict ?? '—'}</span>
+        {view.verdict && (
+          <span className="hidden whitespace-nowrap text-2xs text-fg-3 min-[1560px]:inline">{VERDICT_ACTION[view.verdict]}</span>
+        )}
+        {view.whatChanged && <span className="hidden min-w-0 truncate text-2xs text-fg-3 min-[1800px]:inline">{view.whatChanged}</span>}
+        <span className="flex items-center gap-[3px] pl-0.5" aria-label="Pillars">
           {view.pillars.map((p) => (
             <Tooltip key={p.key} content={`${p.name}: ${p.status ?? 'no data'}${p.sentence ? ` — ${p.sentence}` : ''}`}>
               <span
-                className={cn('h-2 w-2 rounded-full', p.status ? PILLAR_DOT[p.status] : 'bg-line-strong')}
+                className={cn('h-[7px] w-[7px] rounded-[2px]', p.status ? PILLAR_DOT[p.status] : 'bg-line-strong')}
                 aria-label={`${p.name} ${p.status ?? 'no data'}`}
               />
             </Tooltip>
           ))}
         </span>
-        <ChevronRight className="h-3.5 w-3.5 text-fg-3 group-hover:text-fg" aria-hidden />
+        <ChevronRight
+          className="h-3.5 w-3.5 text-fg-3 transition-transform duration-fast group-hover:translate-x-0.5 group-hover:text-fg"
+          aria-hidden
+        />
       </button>
     );
   }
 
   return (
-    <div className="flex h-envstrip shrink-0 items-center gap-3 border-b border-line bg-surface px-3 text-xs">
+    <div className="flex min-w-0 shrink items-center text-xs" data-env-pill>
       {content}
       {view && <EnvironmentDrawer open={open} onClose={() => setOpen(false)} view={view} />}
     </div>
