@@ -1,4 +1,4 @@
-import { Activity, Command as CommandIcon, Star } from 'lucide-react';
+import { Activity, BarChart2, Command as CommandIcon, Star } from 'lucide-react';
 import { NavLink } from 'react-router';
 import { cn } from '../lib/cn';
 import { EnvironmentStrip } from './environment';
@@ -71,9 +71,20 @@ export function TopBar({ freshness }: { freshness: FreshnessInfo }) {
         </button>
         <button
           type="button"
+          onClick={() => shell.setBreadthOpen(true)}
+          className={cn(TOPBAR_CTL, 'text-fg-3 hover:text-fg')}
+          title="180-session market breadth & liquidity history (the old Breadth Radar)"
+          aria-label="Open breadth history"
+        >
+          <BarChart2 className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden xl:inline">Breadth</span>
+        </button>
+        <button
+          type="button"
           onClick={() => shell.setPaletteOpen(true)}
           className={cn(TOPBAR_CTL, 'text-fg-3 hover:text-fg')}
           aria-label="Open command palette"
+          title="Command palette · keys: 1-6 tabs · J/K rows · W or Space watchlist · C copy NSE:SYM · T TradingView · F big chart · M Charts · / filter"
         >
           <CommandIcon className="h-3.5 w-3.5" aria-hidden />
           <kbd className="font-mono text-2xs">Ctrl K</kbd>

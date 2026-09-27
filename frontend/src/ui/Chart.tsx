@@ -91,6 +91,10 @@ export interface ChartProps {
   markers?: readonly ChartMarker[];
   /** Charts with the same group share a date-synced crosshair. */
   syncGroup?: string;
+  /** Also sync pan / zoom (visible date range) across the group (old Tiles window "Sync ON"). */
+  syncRange?: boolean;
+  /** 'line' draws a close line instead of candles (old Tiles window Candles / Line toggle). */
+  priceStyle?: 'candles' | 'line';
   logScale?: boolean;
   /** Lower pane heights in px (defaults: volume 90 / 70 with RS, RS 80). */
   paneHeights?: { volume?: number; rs?: number };
@@ -133,6 +137,33 @@ function joinSync(group: string, member: SyncMember): () => void {
 function broadcast(group: string, fromId: number, time: string | null) {
   syncGroups.get(group)?.forEach((m) => {
     if (m.id !== fromId) m.setTime(time);
+  });
+}
+
+// ------------------------------------------------------------------ pan / zoom (date range) sync bus
+
+interface RangeMember {
+  id: number;
+  setRange: (from: string, to: string) => void;
+}
+const rangeGroups = new Map<string, Set<RangeMember>>();
+
+function joinRange(group: string, member: RangeMember): () => void {
+  let set = rangeGroups.get(group);
+  if (!set) {
+    set = new Set();
+    rangeGroups.set(group, set);
+  }
+  set.add(member);
+  return () => {
+    set!.delete(member);
+    if (set!.size === 0) rangeGroups.delete(group);
+  };
+}
+
+function broadcastRange(group: string, fromId: number, from: string, to: string) {
+  rangeGroups.get(group)?.forEach((m) => {
+    if (m.id !== fromId) m.setRange(from, to);
   });
 }
 
@@ -228,6 +259,8 @@ export function Chart({
   rs,
   markers,
   syncGroup,
+  syncRange = false,
+  priceStyle = 'candles',
   logScale = false,
   paneHeights,
   height,
@@ -240,6 +273,8 @@ export function Chart({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const closeLineRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ignoreRangeUntil = useRef(0);
   const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const emaRefs = useRef<Map<number, ISeriesApi<'Line'>>>(new Map());
   const overlayRefs = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
@@ -307,15 +342,23 @@ export function Chart({
     });
     chartRef.current = chart;
 
+    // Line mode keeps the candle series (markers, boxes, crosshair and price scale live on it) but
+    // makes it transparent, and draws the closes as a line on top.
+    const line = priceStyle === 'line';
+    const clear = 'rgba(0,0,0,0)';
     candleRef.current = chart.addSeries(CandlestickSeries, {
-      upColor: tokenColor('up'),
-      downColor: tokenColor('down'),
-      borderUpColor: tokenColor('up'),
-      borderDownColor: tokenColor('down'),
-      wickUpColor: tokenColor('up'),
-      wickDownColor: tokenColor('down'),
+      upColor: line ? clear : tokenColor('up'),
+      downColor: line ? clear : tokenColor('down'),
+      borderUpColor: line ? clear : tokenColor('up'),
+      borderDownColor: line ? clear : tokenColor('down'),
+      wickUpColor: line ? clear : tokenColor('up'),
+      wickDownColor: line ? clear : tokenColor('down'),
       priceLineVisible: false,
+      lastValueVisible: !line,
     });
+    closeLineRef.current = line
+      ? chart.addSeries(LineSeries, { color: tokenColor('info'), lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: true })
+      : null;
     markersRef.current = createSeriesMarkers(candleRef.current, []);
     boxesRef.current = new DarvasBoxesPrimitive();
     candleRef.current.attachPrimitive(boxesRef.current);
@@ -415,6 +458,31 @@ export function Chart({
         })
       : undefined;
 
+    // ---- pan / zoom sync (dates, so stocks with different histories line up)
+    const onRange = (r: { from: Time; to: Time } | null) => {
+      if (!syncGroup || !syncRange || !r || performance.now() < ignoreRangeUntil.current) return;
+      const from = timeToISO(r.from);
+      const to = timeToISO(r.to);
+      if (from && to) broadcastRange(syncGroup, syncIdRef.current, from, to);
+    };
+    const leaveRange =
+      syncGroup && syncRange
+        ? joinRange(syncGroup, {
+            id: syncIdRef.current,
+            setRange: (from, to) => {
+              const c = chartRef.current;
+              if (!c || shownRef.current.length === 0) return;
+              ignoreRangeUntil.current = performance.now() + 200;
+              try {
+                c.timeScale().setVisibleRange({ from: from as Time, to: to as Time });
+              } catch {
+                /* range outside this chart's data */
+              }
+            },
+          })
+        : undefined;
+    if (syncGroup && syncRange) chart.timeScale().subscribeVisibleTimeRangeChange(onRange);
+
     // ---- sizing
     const ro = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect;
@@ -425,10 +493,13 @@ export function Chart({
     return () => {
       ro.disconnect();
       leaveSync?.();
+      leaveRange?.();
+      if (syncGroup && syncRange) chart.timeScale().unsubscribeVisibleTimeRangeChange(onRange);
       chart.unsubscribeCrosshairMove(onMove);
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
+      closeLineRef.current = null;
       volumeRef.current = null;
       rsRef.current = null;
       markersRef.current = null;
@@ -437,7 +508,7 @@ export function Chart({
     };
     // Rebuild only on structural change; data flows through the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
+  }, [emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
 
   // ---- log / linear without rebuild
   useEffect(() => {
@@ -449,6 +520,7 @@ export function Chart({
     const chart = chartRef.current;
     if (!chart || !candleRef.current) return;
     candleRef.current.setData(shown.map((b) => ({ time: b.time as Time, open: b.open, high: b.high, low: b.low, close: b.close })));
+    closeLineRef.current?.setData(shown.map((b) => ({ time: b.time as Time, value: b.close })));
 
     const closes = shown.map((b) => b.close);
     emaRefs.current.forEach((series, period) => {
@@ -497,7 +569,7 @@ export function Chart({
     markersRef.current?.setMarkers(snapped);
 
     boxesRef.current?.setBoxes(boxes ?? []);
-  }, [shown, overlays, boxes, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
+  }, [shown, overlays, boxes, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
 
   // ---- initial visible range: only when the bars (or chart structure) change, so toggling
   // overlays / boxes keeps the user's zoom.
@@ -505,7 +577,7 @@ export function Chart({
     const chart = chartRef.current;
     const n = shown.length;
     if (chart && n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + 3 });
-  }, [shown, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
+  }, [shown, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
 
   return (
     <div className={cn('relative flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>

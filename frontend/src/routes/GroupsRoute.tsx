@@ -7,13 +7,15 @@
  * money-flow panel and a taxonomy heatmap view. Enter / double-click (or the RRG) drills into a group:
  * breadcrumb, history and members (row focus opens Stock 360).
  */
-import { ChevronRight, HelpCircle, LineChart } from 'lucide-react';
+import { Check, ChevronRight, ClipboardCopy, HelpCircle, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
 import type { GroupRow } from '../api/types';
+import { copyText } from '../lib/clipboard';
 import { cn } from '../lib/cn';
 import { fmtSigned, fmtSignedPct } from '../lib/fmt';
+import { formatTradingViewList } from '../lib/tradingview';
 import { useShell } from '../shell/ShellContext';
 import { useAsOf, useUrlParam } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
@@ -24,6 +26,7 @@ import { Skeleton } from '../ui/Skeleton';
 import { Spark } from '../ui/Spark';
 import { Tooltip } from '../ui/Tooltip';
 import { TodayGroups } from '../today/TodayGroups';
+import { AccumulatorsView } from './groups/AccumulatorsView';
 import { GroupDrill } from './groups/GroupDrill';
 import { GroupsGlance } from './groups/GroupsGlance';
 import {
@@ -80,7 +83,7 @@ function NameCell({ row, onDrill }: { row: GroupRow; onDrill: (id: string) => vo
   );
 }
 
-function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[] {
+function boardColumns(onDrill: (id: string) => void, onOpenSymbol: (sym: string) => void): DataTableColumn<GroupRow>[] {
   return [
     { id: 'health_rank', header: '#', accessor: 'health_rank', format: 'int', width: 40, metricKey: 'group_health', sticky: true, sortDescFirst: false, headerTitle: 'Rank by Health (1 = healthiest); groups with < 3 members are not ranked' },
     {
@@ -196,18 +199,39 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
     { id: 'deliv', header: 'Deliv acc', accessor: 'delivery_accumulation', format: 'signed', digits: 0, width: 64, metricKey: 'group_delivery_accumulation', cell: (v) => <ZoneNum metricKey="group_delivery_accumulation" value={v as number} format="signed" digits={0} /> },
     { id: 'deal', header: 'Deals 10s', accessor: 'deal_net_10s_cr', format: 'signed', digits: 0, width: 70, metricKey: 'deal_net_10s_cr', cell: (v) => <ZoneNum metricKey="deal_net_10s_cr" value={v as number} format="signed" digits={0} /> },
     { id: 'top1', header: 'Top-1', accessor: 'top1_turnover_share_pct', format: 'pct', digits: 0, width: 52, metricKey: 'group_top1_turnover_share', cell: (v) => <ZoneNum metricKey="group_top1_turnover_share" value={v as number} format="pct" digits={0} /> },
+    { id: 'turnover_cr', header: 'T/O ₹Cr', accessor: 'turnover_cr', format: 'num', digits: 0, width: 70, defaultHidden: true, headerTitle: "Group turnover that session, ₹ Cr (old Sector matrix 'Flow' figure)" },
+    { id: 'to_share_1d', header: 'T/O 1d', accessor: 'turnover_share_pct', format: 'pct', digits: 2, width: 60, defaultHidden: true, headerTitle: "Group's share of the floor universe's turnover that session, %" },
+    { id: 'legacy_state', header: 'Old state', accessor: 'legacy_rotation_state', width: 84, defaultHidden: true, headerTitle: 'Legacy sector_rotation label from the old Sector matrix (Leading / Emerging / Improving / Weakening / Lagging / Neutral), not an RRG quadrant' },
+    { id: 'legacy_median_rs', header: 'Med RS', accessor: 'legacy_median_rs_percentile', format: 'num', digits: 0, width: 56, defaultHidden: true, headerTitle: "Median member strength rank (the old Sector matrix 'Avg RS')" },
     {
       id: 'leaders',
       header: 'Leaders',
       accessor: (r) => r.leader_symbols?.join(' ') ?? null,
       width: 190,
-      headerTitle: 'Top members by strength rank (RS percentile) at as-of',
-      cell: (v) => <span className="truncate font-mono text-2xs text-fg-2">{String(v)}</span>,
+      headerTitle: 'Top members by strength rank (RS percentile) at as-of; click one for Stock 360',
+      cell: (_v, r) => (
+        <span className="flex min-w-0 gap-1 overflow-hidden">
+          {(r.leader_symbols ?? []).map((sym) => (
+            <button
+              key={sym}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSymbol(sym);
+              }}
+              title={`${sym}: open Stock 360`}
+              className="shrink-0 font-mono text-2xs text-fg-2 hover:text-accent hover:underline"
+            >
+              {sym}
+            </button>
+          ))}
+        </span>
+      ),
     },
   ];
 }
 
-function FlowList({ title, items, tone, onDrill }: { title: string; items: FlowItem[]; tone: 'up' | 'down'; onDrill: (id: string) => void }) {
+function FlowList({ title, items, tone, onDrill, asOf }: { title: string; items: FlowItem[]; tone: 'up' | 'down'; onDrill: (id: string) => void; asOf: string | null }) {
   return (
     <div className="min-w-0 flex-1">
       <div className={cn('mb-1 text-2xs font-semibold uppercase tracking-wide', tone === 'up' ? 'text-up' : 'text-down')}>{title}</div>
@@ -216,11 +240,11 @@ function FlowList({ title, items, tone, onDrill }: { title: string; items: FlowI
       ) : (
         <ul className="space-y-0.5">
           {items.map(({ row, delta }) => (
-            <li key={row.id}>
+            <li key={row.id} className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => onDrill(row.id)}
-                className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-2xs hover:bg-surface-3"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-2xs hover:bg-surface-3"
                 title={`Turnover share 5d avg ${row.turnover_share_5d?.toFixed(2) ?? '—'}% vs 20d ${row.turnover_share_20d?.toFixed(2) ?? '—'}%`}
               >
                 <span className="min-w-0 flex-1 truncate text-fg">{row.group_name}</span>
@@ -235,11 +259,41 @@ function FlowList({ title, items, tone, onDrill }: { title: string; items: FlowI
                   {row.deal_net_10s_cr != null ? fmtSigned(row.deal_net_10s_cr, 0) : '—'}
                 </span>
               </button>
+              <LeadersCopy name={row.group_name ?? row.id} symbols={row.leader_symbols ?? []} />
+              <Link
+                to={chartsSourceHref(row.id, [], asOf)}
+                className="shrink-0 text-fg-3 hover:text-accent"
+                title={`Open ${row.group_name ?? ''} in Charts`}
+                aria-label={`Open ${row.group_name ?? ''} in Charts`}
+              >
+                <LineChart className="h-3 w-3" />
+              </Link>
             </li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+/** Copy a group's leaders as a TradingView watchlist (the old Capital Flow per-group "TV" button). */
+function LeadersCopy({ name, symbols }: { name: string; symbols: readonly string[] }) {
+  const [ok, setOk] = useState<boolean | null>(null);
+  if (!symbols.length) return null;
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        const { text, count } = formatTradingViewList([{ title: name, symbols }]);
+        setOk(count > 0 && (await copyText(text)));
+        window.setTimeout(() => setOk(null), 2000);
+      }}
+      title={`Copy ${symbols.length} leaders of ${name} to TradingView (###${name},NSE:…)`}
+      aria-label={`Copy ${name} leaders to TradingView`}
+      className={cn('shrink-0 text-2xs', ok === true ? 'text-up' : ok === false ? 'text-down' : 'text-fg-3 hover:text-accent')}
+    >
+      {ok === true ? <Check className="h-3 w-3" /> : <ClipboardCopy className="h-3 w-3" />}
+    </button>
   );
 }
 
@@ -276,9 +330,10 @@ export default function GroupsRoute() {
   const [quadParam, setQuad] = useUrlParam('quad');
   const [rrgAll, setRrgAll] = useUrlParam('rrg');
   const [viewParam, setView] = useUrlParam('view');
-  const view = viewParam === 'map' ? 'map' : viewParam === 'today' ? 'today' : viewParam === 'rotation' ? 'rotation' : 'board';
+  const view = viewParam === 'map' ? 'map' : viewParam === 'today' ? 'today' : viewParam === 'rotation' ? 'rotation' : viewParam === 'acc' ? 'acc' : 'board';
   const [asOf] = useAsOf();
-  const sidecarOpen = !!useShell().symbol;
+  const shell = useShell();
+  const sidecarOpen = !!shell.symbol;
   const [text, setText] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const level = asLevel(levelParam);
@@ -299,7 +354,8 @@ export default function GroupsRoute() {
   const allowed = useMemo(() => (text || quadSet.size ? new Set(filtered.map((r) => r.id)) : null), [filtered, text, quadSet]);
   const rrgRows = rrg.data?.rows;
   const rrgView = useMemo(() => rrgVisible(rrgRows ?? [], allowed, rrgAll === 'all' || (rrgRows?.length ?? 0) <= RRG_SHOW_ALL_UP_TO ? null : RRG_PER_QUADRANT), [rrgRows, allowed, rrgAll]);
-  const columns = useMemo(() => boardColumns((id) => setGroup(id)), [setGroup]);
+  const { openSymbol } = shell;
+  const columns = useMemo(() => boardColumns((id) => setGroup(id), openSymbol), [setGroup, openSymbol]);
   const ctx = board.data?.meta.context as { floor_label?: string; ranked?: number; benchmark?: string; market?: MarketContext } | undefined;
   const contextLine = marketContextLine(ctx?.market);
 
@@ -349,6 +405,7 @@ export default function GroupsRoute() {
             { value: 'map', label: 'Map', title: 'Taxonomy heatmap: Broad Sector › … sized by turnover, coloured by Health or 21d return' },
             { value: 'today', label: 'Today', title: 'What moved today and why: 1D return, breadth, contributors, turnover and delivery vs 20 days, deals, catalysts' },
             { value: 'rotation', label: 'Rotation', title: 'Groups × the last 12 weeks coloured by weekly Health: who rotated in and out' },
+            { value: 'acc', label: 'Accumulators', title: 'Liquid stocks with a turnover surge on an up day (the old Capital Flow accumulators), ranked by rupees' },
           ]}
           value={view}
           onChange={(v) => setView(v === 'board' ? null : v)}
@@ -369,6 +426,19 @@ export default function GroupsRoute() {
           ))}
         </div>
         <Chip
+          tone={quadSet.size === 2 && quadSet.has('Leading') && quadSet.has('Improving') ? 'positive' : 'neutral'}
+          selected={quadSet.size === 2 && quadSet.has('Leading') && quadSet.has('Improving')}
+          onClick={() => setQuad(quadSet.size === 2 && quadSet.has('Leading') && quadSet.has('Improving') ? null : 'Leading,Improving')}
+          title="Strong groups preset: Leading + Improving (the old Sector matrix 'Strong (L+E+I)' chip; the RRG has no separate Emerging state)"
+        >
+          Strong <span className="num text-fg-3">{counts.Leading + counts.Improving}</span>
+        </Chip>
+        {quadSet.size > 0 && (
+          <button type="button" onClick={() => setQuad(null)} className="text-2xs text-fg-3 hover:text-fg hover:underline" title="Show every quadrant">
+            clear ({quadSet.size})
+          </button>
+        )}
+        <Chip
           selected={showThin}
           onClick={() => setThin(showThin ? null : '1')}
           title="Groups with fewer than 3 members are hidden, not ranked and not counted in the quadrant chips. Click to list them."
@@ -384,7 +454,11 @@ export default function GroupsRoute() {
           </Tooltip>
         </div>
       </div>
-      {view === 'rotation' ? (
+      {view === 'acc' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AccumulatorsView text={text} />
+        </div>
+      ) : view === 'rotation' ? (
         <div className="min-h-0 flex-1">
           <RotationGrid level={level} floor={floor} text={text} onDrill={(id) => setGroup(id)} />
         </div>
@@ -470,8 +544,8 @@ export default function GroupsRoute() {
               <Skeleton height={120} />
             ) : (
               <div className="flex flex-col gap-2">
-                <FlowList title="Inflow" items={flow.inflow} tone="up" onDrill={(id) => setGroup(id)} />
-                <FlowList title="Outflow" items={flow.outflow} tone="down" onDrill={(id) => setGroup(id)} />
+                <FlowList title="Inflow" items={flow.inflow} tone="up" onDrill={(id) => setGroup(id)} asOf={asOf} />
+                <FlowList title="Outflow" items={flow.outflow} tone="down" onDrill={(id) => setGroup(id)} asOf={asOf} />
               </div>
             )}
             {selected && (

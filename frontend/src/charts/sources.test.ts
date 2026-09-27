@@ -69,6 +69,11 @@ describe('chart sources', () => {
     expect(gridShape(4)).toEqual({ cols: 2, rows: 2 });
     expect(gridShape(6)).toEqual({ cols: 3, rows: 2 });
     expect(gridShape(9)).toEqual({ cols: 3, rows: 3 });
+    // old Tiles window layouts restored: 1, 2, 2x4, 3x4
+    expect(gridShape(1)).toEqual({ cols: 1, rows: 1 });
+    expect(gridShape(2)).toEqual({ cols: 2, rows: 1 });
+    expect(gridShape(8)).toEqual({ cols: 4, rows: 2 });
+    expect(gridShape(12)).toEqual({ cols: 4, rows: 3 });
   });
 
   it('computes relative performance over the chosen window, NULL when data is missing', () => {

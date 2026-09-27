@@ -748,6 +748,53 @@ class EventRow(BaseModel):
     upcoming: bool = False
 
 
+class TrendCriterion(BaseModel):
+    key: str
+    label: str
+    passed: Optional[bool] = Field(None, description="NULL when an input is missing or the 252-session window spans a price gap")
+
+
+class TrailPoint(BaseModel):
+    trade_date: Optional[date] = None
+    change_pct: Optional[float] = None
+    rvol: Optional[float] = None
+    delivery_pct: Optional[float] = None
+    turnover_cr: Optional[float] = None
+
+
+class StockProfileRow(StockBase):
+    """Old Inspector sidecar blocks: Minervini checklist, institutional footprint, 5-session trail."""
+    trade_date: Optional[date] = None
+    trend_template_pass_n: Optional[int] = None
+    trend_template_pass: Optional[bool] = None
+    criteria: list[TrendCriterion]
+    turnover_cr: Optional[float] = Field(None, description="Traded value that session, ₹ Cr")
+    turnover_surge_pct: Optional[float] = Field(None, description="Turnover vs its 20-day average traded value, % above (+) / below (-)")
+    avg_delivery_pct_20d: Optional[float] = None
+    ticket_ratio: Optional[float] = Field(None, description="Average trade size ÷ its 20-day average")
+    whale_ticket: Optional[bool] = Field(None, description="ticket_ratio >= 1.25")
+    delivery_spike: Optional[bool] = None
+    price_up_delivery_up: Optional[bool] = None
+    nr7: Optional[bool] = None
+    trail: list[TrailPoint]
+
+
+class PeerRow(StockBase):
+    rank: Optional[int] = Field(None, description="Rank by strength rank within the industry (1 = strongest); NULL = no rank")
+    away_10ema_pct: Optional[float] = None
+    is_target: bool = False
+    stronger_near_10ema: bool = Field(False, description="Higher strength rank than the target and within ±3% of its 10 EMA")
+
+
+class AccumulatorRow(StockBase):
+    turnover_cr: Optional[float] = None
+    turnover_surge_pct: Optional[float] = Field(None, description="Turnover vs its 20-day average traded value, % above")
+    ticket_ratio: Optional[float] = None
+    whale_ticket: Optional[bool] = None
+    delivery_spike: Optional[bool] = None
+    price_up_delivery_up: Optional[bool] = None
+
+
 class StockDealRow(BaseModel):
     trade_date: Optional[date] = None
     client: Optional[str] = None

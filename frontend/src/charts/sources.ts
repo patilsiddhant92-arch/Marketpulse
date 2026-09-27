@@ -227,7 +227,8 @@ export function sortItems(items: readonly ChartItem[], sort: string): ChartItem[
     .map((x) => x.it);
 }
 
-export const TILE_COUNTS = [4, 6, 9] as const;
+/** 1 / 2 / 8 / 12 restored from the old Tiles window (1, 2, 2x2, 2x3, 2x4, 3x3, 3x4). */
+export const TILE_COUNTS = [1, 2, 4, 6, 8, 9, 12] as const;
 
 export function pageCount(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / Math.max(1, perPage)));
@@ -243,12 +244,15 @@ export function pageSlice<T>(items: readonly T[], page: number, perPage: number)
   return items.slice(p * perPage, p * perPage + perPage);
 }
 
-/** Grid columns for a tile count (4 -> 2x2, 6 -> 3x2, 9 -> 3x3). */
+/** Grid columns for a tile count (2 -> 2x1, 4 -> 2x2, 6 -> 3x2, 8 -> 4x2, 9 -> 3x3, 12 -> 4x3). */
 export function gridShape(n: number): { cols: number; rows: number } {
   if (n <= 1) return { cols: 1, rows: 1 };
+  if (n <= 2) return { cols: 2, rows: 1 };
   if (n <= 4) return { cols: 2, rows: 2 };
   if (n <= 6) return { cols: 3, rows: 2 };
-  return { cols: 3, rows: 3 };
+  if (n <= 8) return { cols: 4, rows: 2 };
+  if (n <= 9) return { cols: 3, rows: 3 };
+  return { cols: 4, rows: 3 };
 }
 
 /**

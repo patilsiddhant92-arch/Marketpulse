@@ -181,6 +181,23 @@ export function SetupsBlock({ setups, loading, className }: SetupsBlockProps) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
         <span className="text-2xs font-semibold uppercase tracking-wide text-fg-3">Sizer</span>
         <RupeeInput label="₹ risk" value={sizer.riskRupees} onChange={(v) => update({ riskRupees: v })} placeholder="per trade" />
+        <span className="inline-flex gap-0.5" role="group" aria-label="Quick ₹ risk">
+          {[10000, 25000, 50000].map((amt) => (
+            <button
+              key={amt}
+              type="button"
+              aria-pressed={sizer.riskRupees === amt}
+              onClick={() => update({ riskRupees: amt })}
+              title={`Set ₹ risk to ₹${amt.toLocaleString('en-IN')} (the old VCP workbench budget buttons)`}
+              className={cn(
+                'num rounded border px-1 text-2xs',
+                sizer.riskRupees === amt ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line text-fg-3 hover:bg-surface-3 hover:text-fg',
+              )}
+            >
+              {amt / 1000}k
+            </button>
+          ))}
+        </span>
         <RupeeInput label="Capital" value={sizer.capital} onChange={(v) => update({ capital: v })} placeholder="optional" />
         <span className="text-2xs text-fg-3">Kept in this browser. Shares = ₹ risk ÷ (trigger − stop).</span>
       </div>

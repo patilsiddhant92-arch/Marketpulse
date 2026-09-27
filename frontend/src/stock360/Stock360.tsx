@@ -14,6 +14,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
 import { DealsBlock, EventsBlock, NotesBlock } from './ListsBlocks';
 import { DeliveryBlock, StrengthBlock, TrendBlock } from './MetricsBlock';
+import { PeersBlock, ProfileBlock } from './ParityBlocks';
 import { SetupsBlock } from './SetupsBlock';
 import { StockChartPanel } from './StockChartPanel';
 import { StockHeader } from './StockHeader';
@@ -119,7 +120,9 @@ export function Stock360Sidecar({ symbol }: { symbol: string }) {
       <SetupsBlock setups={s?.setups} loading={header.isLoading} />
       {s && <StrengthBlock s={s} />}
       {s && <TrendBlock s={s} />}
+      <ProfileBlock symbol={symbol} />
       {s && <DeliveryBlock values={s.delivery_spark_60} />}
+      <PeersBlock symbol={symbol} />
       <EventsBlock q={data.events} />
       <DealsBlock q={data.deals} />
       <NotesBlock symbol={symbol} />
@@ -194,6 +197,7 @@ export function Stock360Page({ symbol }: { symbol: string }) {
             <div className="grid grid-cols-2 gap-2">
               {s && <StrengthBlock s={s} />}
               {s && <TrendBlock s={s} />}
+              <ProfileBlock symbol={symbol} />
               <EventsBlock q={data.events} />
               <DealsBlock q={data.deals} />
             </div>
@@ -202,6 +206,7 @@ export function Stock360Page({ symbol }: { symbol: string }) {
             <WhyCard symbol={symbol} />
             <SetupsBlock setups={s?.setups} loading={header.isLoading} />
             {s && <DeliveryBlock values={s.delivery_spark_60} />}
+            <PeersBlock symbol={symbol} />
             <NotesBlock symbol={symbol} />
           </div>
         </div>

@@ -11,7 +11,7 @@
  */
 import { useStockContext } from '../context/stockContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Copy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Crosshair, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../api/client';
 import { apiQueryKey, useApiQuery } from '../api/query';
@@ -33,7 +33,9 @@ import type { Timeframe } from '../ui/Chart';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
 
-const DEFAULTS = { src: 'queue:all', syms: '', sort: 'source', n: '6', tf: 'D', rel: '3M', page: '1', focus: '' };
+const DEFAULTS = { src: 'queue:all', syms: '', sort: 'source', n: '6', tf: 'D', rel: '3M', page: '1', focus: '', style: 'candles', sync: 'on' };
+/** Typed lists are kept in the URL; cap what an "add symbol" converts into one. */
+const MAX_TYPED = 300;
 
 const seg = 'h-7 rounded border border-line bg-surface-2 px-1.5 text-xs text-fg focus:border-accent focus:outline-none';
 
@@ -69,7 +71,11 @@ export default function ChartsRoute() {
   const list = useSourceList(parsed, { watchlist: shell.watchlist, syms, presetLabel });
 
   const items = useMemo(() => sortItems(list.items, state.sort), [list.items, state.sort]);
-  const perPage = TILE_COUNTS.includes(Number(state.n) as 4 | 6 | 9) ? Number(state.n) : 6;
+  const perPage = (TILE_COUNTS as readonly number[]).includes(Number(state.n)) ? Number(state.n) : 6;
+  const priceStyle = state.style === 'line' ? 'line' : 'candles';
+  const syncRange = state.sync !== 'off';
+  const [centerKey, setCenterKey] = useState(0);
+  const [addText, setAddText] = useState('');
   const pages = pageCount(items.length, perPage);
   const page = clampPage(Number(state.page) - 1, items.length, perPage);
   const visible = useMemo(() => pageSlice(items, page, perPage), [items, page, perPage]);
@@ -121,6 +127,21 @@ export default function ChartsRoute() {
     const ok = await copyText(text);
     setCopied(ok ? `Copied ${count}` : 'Copy failed');
     window.setTimeout(() => setCopied(null), 2500);
+  };
+
+  const editable = parsed?.kind === 'list';
+  const addSymbol = () => {
+    const sym = addText.trim().toUpperCase();
+    if (!isSymbol(sym)) return;
+    // A long source (e.g. all queues) becomes an editable list of the page on screen, never a silently cut list.
+    const base = editable ? syms : items.length <= MAX_TYPED ? items.map((i) => i.symbol) : visible.map((i) => i.symbol);
+    const next = [...base.filter((s) => s !== sym), sym];
+    setState({ src: 'list', syms: next.join(','), page: String(pageCount(next.length, perPage)), focus: null });
+    setAddText('');
+  };
+  const removeSymbol = (sym: string) => {
+    const next = syms.filter((s) => s !== sym);
+    setState({ syms: next.join(',') || null, focus: null });
   };
 
   const first = items.length ? page * perPage + 1 : 0;
@@ -187,6 +208,56 @@ export default function ChartsRoute() {
         >
           Darvas boxes
         </button>
+        <div className="flex overflow-hidden rounded border border-line" role="group" aria-label="Price style">
+          {(['candles', 'line'] as const).map((st) => (
+            <button
+              key={st}
+              type="button"
+              aria-pressed={priceStyle === st}
+              onClick={() => setState({ style: st === 'candles' ? null : st })}
+              title={st === 'candles' ? 'Candlesticks on every tile' : 'Close line on every tile (TradingView line style)'}
+              className={cn('px-2 py-1 text-xs', priceStyle === st ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg')}
+            >
+              {st === 'candles' ? 'Candles' : 'Line'}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-pressed={syncRange}
+          onClick={() => setState({ sync: syncRange ? 'off' : null })}
+          title="Sync pan / zoom across tiles by date (crosshair is always synced)"
+          className={cn('rounded border border-line px-2 py-1 text-xs', syncRange ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg')}
+        >
+          Sync {syncRange ? 'on' : 'off'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setCenterKey((k) => k + 1)}
+          title="Re-center every tile on the latest bars"
+          className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-xs text-fg-3 hover:bg-surface-3 hover:text-fg"
+        >
+          <Crosshair className="h-3 w-3" /> Center
+        </button>
+        <form
+          className="flex items-center"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addSymbol();
+          }}
+        >
+          <input
+            value={addText}
+            onChange={(e) => setAddText(e.target.value)}
+            placeholder="Add symbol"
+            aria-label="Add a symbol to this list"
+            title={editable ? 'Add a symbol to this list' : `Turns the current list (or, above ${MAX_TYPED} names, the page on screen) into an editable list and adds the symbol`}
+            className="h-7 w-24 rounded-l border border-line bg-surface-2 px-1.5 text-xs uppercase text-fg placeholder:normal-case placeholder:text-fg-3 focus:border-accent focus:outline-none"
+          />
+          <button type="submit" aria-label="Add symbol" className="h-7 rounded-r border border-l-0 border-line px-1.5 text-fg-3 hover:bg-surface-3 hover:text-fg">
+            <Plus className="h-3 w-3" />
+          </button>
+        </form>
         <label
           className="flex items-center gap-1 text-2xs text-fg-3"
           title="Window for the stock's return minus the NIFTY MidSml 400 return shown on each tile"
@@ -282,12 +353,12 @@ export default function ChartsRoute() {
           >
             {tiles.map((it) => (
               <ChartTile
-                key={`${it.symbol}-${tf}`}
+                key={`${it.symbol}-${tf}-${centerKey}`}
                 item={it}
                 timeframe={tf}
                 relWindow={rel}
                 syncGroup="charts-grid"
-                compact={!focus && perPage >= 9}
+                compact={!focus && perPage >= 8}
                 volume={!!focus || perPage <= 4}
                 active={shell.symbol === it.symbol}
                 expanded={!!focus}
@@ -301,6 +372,9 @@ export default function ChartsRoute() {
                 }}
                 onToggleExpand={(s) => setState({ focus: focus ? null : s })}
                 context={sctx.map.get(it.symbol.toUpperCase())}
+                priceStyle={priceStyle}
+                syncRange={syncRange && !focus}
+                onRemove={editable ? removeSymbol : undefined}
               />
             ))}
           </div>
