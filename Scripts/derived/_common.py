@@ -113,8 +113,10 @@ def new_high_low_flags(ind: pd.DataFrame) -> pd.DataFrame:
     Source: indicators_daily.high_52w / low_52w, which the EOD build fills point-in-time from
     NSE's official 52W snapshots (CM_52_wk_High_low / PR `hl`, via security_reference_daily,
     as-of join, never future) with a trailing 252-session fallback where no snapshot exists.
-    A new high on t is high_t > the symbol's high_52w as of the PREVIOUS session (today's bar is
-    never compared with a 52W value that may already contain it); new low mirrors with low_52w.
+    A new high on t is high_t > max(the symbol's high_52w as of the PREVIOUS session, the previous
+    session's high) (today's bar is never compared with a 52W value that may already contain it;
+    the official snapshot of session t-1 covers only up to t-2, so the t-1 bar is folded in);
+    new low mirrors with low_52w.
     A row is valid only if the prior value exists and either came from an official snapshot
     (high_52w_date not NULL on the prior row) or the symbol has > 252 own sessions of history.
     Without high_52w/low_52w columns a 252-session rolling max/min of high/low is used.
@@ -125,8 +127,14 @@ def new_high_low_flags(ind: pd.DataFrame) -> pd.DataFrame:
     low = num(ind, "low_price")
     n_hist = ind.groupby("symbol", sort=False).cumcount() + 1
     if "high_52w" in ind.columns and "low_52w" in ind.columns:
-        prior_hi = num(ind, "high_52w").groupby(sym, sort=False).shift(1)
-        prior_lo = num(ind, "low_52w").groupby(sym, sort=False).shift(1)
+        # NSE's official snapshot effective on a session covers sessions up to the one before it,
+        # so the prior row's official value misses the prior session's own bar; fold that bar in
+        # (a no-op for the 252-session fallback, which already contains it).
+        prior_hi52 = num(ind, "high_52w").groupby(sym, sort=False).shift(1)
+        prior_lo52 = num(ind, "low_52w").groupby(sym, sort=False).shift(1)
+        # np.fmax/fmin ignore a missing prior bar; validity still requires the prior 52W value
+        prior_hi = np.fmax(prior_hi52, high.groupby(sym, sort=False).shift(1)).where(prior_hi52.notna())
+        prior_lo = np.fmin(prior_lo52, low.groupby(sym, sort=False).shift(1)).where(prior_lo52.notna())
         if "high_52w_date" in ind.columns:
             off = ind["high_52w_date"].notna().astype(float).groupby(sym, sort=False).shift(1)
             official_prev = off.fillna(0.0).astype(bool)

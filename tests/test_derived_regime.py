@@ -242,6 +242,26 @@ def test_new_high_uses_prior_session_52w_and_validity():
     assert f2["new_high"].isna().all()
 
 
+def test_new_high_not_counted_again_the_day_after_a_breakout_with_official_snapshots():
+    # NSE's CM_52_wk_High_low file effective on day t covers sessions up to t-1 (audit 2026-09-27:
+    # 86-93% exact vs intraday highs through t-1). So the PRIOR row's official high_52w covers only
+    # up to t-2 and misses the prior session's own high: a stock that broke out on t-1 and trades
+    # below that high on t must not count as a new high again on t.
+    dates = _dates(4)
+    ind = pd.DataFrame({"symbol": "A", "trade_date": dates,
+                        "high_price": [11.0, 11.5, 15.0, 14.0], "low_price": [9.0, 9.5, 10.0, 9.8],
+                        # file for day t = 52W high/low through t-1
+                        "high_52w": [12.0, 12.0, 12.0, 15.0], "low_52w": [8.0, 8.0, 8.0, 8.0],
+                        "high_52w_date": pd.to_datetime(["2022-12-01", "2022-12-01", "2022-12-01", "2023-01-04"])})
+    f = new_high_low_flags(prep_indicators(ind, ind.columns))
+    assert list(f["new_high"].iloc[1:]) == [0.0, 1.0, 0.0]
+    # mirror for lows: a breakdown on t-1, t holds above that low -> not a new low on t
+    ind["low_price"] = [9.0, 8.5, 7.0, 7.5]
+    ind["low_52w"] = [8.0, 8.0, 8.0, 7.0]
+    f = new_high_low_flags(prep_indicators(ind, ind.columns))
+    assert list(f["new_low"].iloc[1:]) == [0.0, 1.0, 0.0]
+
+
 def test_connected_reading_and_timing_cite_values():
     ind, idx = make_market(n_days=320)
     out = R.build_regime_daily(idx, ind)
