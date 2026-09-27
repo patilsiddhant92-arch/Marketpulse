@@ -427,7 +427,9 @@ def build_setup_daily(
 ) -> pd.DataFrame:
     """Build setup_daily. Without `master` the market-cap/band pool gates are skipped (all other
     gates apply). `since`/`previous` enable incremental runs (see module docstring). `workers` > 1
-    runs the per-window 10 EMA / VCP predicates in a process pool (full rebuilds); results are identical."""
+    runs the per-window 10 EMA / VCP predicates in a process pool (full rebuilds); results are identical.
+    Windows uses spawn: the calling script MUST guard its entry point with `if __name__ == "__main__":`,
+    otherwise every worker re-runs the caller's top-level code."""
     ind = _frame(indicators, prices)
     if ind.empty:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
@@ -443,7 +445,9 @@ def build_setup_daily(
     in_sq = np.zeros(len(ind), dtype=bool)
     in_sq[sq["_row"].to_numpy(dtype=np.int64)] = True
     executor = None
-    if workers and workers > 1:
+    import multiprocessing
+    # Never nest pools: a spawned child (e.g. an unguarded caller script re-imported by spawn) runs serially.
+    if workers and workers > 1 and multiprocessing.parent_process() is None:
         from concurrent.futures import ProcessPoolExecutor
         executor = ProcessPoolExecutor(max_workers=int(workers))
     try:
