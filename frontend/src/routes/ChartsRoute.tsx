@@ -133,8 +133,9 @@ export default function ChartsRoute() {
   const addSymbol = () => {
     const sym = addText.trim().toUpperCase();
     if (!isSymbol(sym)) return;
-    const base = editable ? syms : items.map((i) => i.symbol);
-    const next = [...base.filter((s) => s !== sym), sym].slice(-MAX_TYPED);
+    // A long source (e.g. all queues) becomes an editable list of the page on screen, never a silently cut list.
+    const base = editable ? syms : items.length <= MAX_TYPED ? items.map((i) => i.symbol) : visible.map((i) => i.symbol);
+    const next = [...base.filter((s) => s !== sym), sym];
     setState({ src: 'list', syms: next.join(','), page: String(pageCount(next.length, perPage)), focus: null });
     setAddText('');
   };
@@ -250,7 +251,7 @@ export default function ChartsRoute() {
             onChange={(e) => setAddText(e.target.value)}
             placeholder="Add symbol"
             aria-label="Add a symbol to this list"
-            title={editable ? 'Add a symbol to this list' : 'Turns the current list into an editable one and adds the symbol'}
+            title={editable ? 'Add a symbol to this list' : `Turns the current list (or, above ${MAX_TYPED} names, the page on screen) into an editable list and adds the symbol`}
             className="h-7 w-24 rounded-l border border-line bg-surface-2 px-1.5 text-xs uppercase text-fg placeholder:normal-case placeholder:text-fg-3 focus:border-accent focus:outline-none"
           />
           <button type="submit" aria-label="Add symbol" className="h-7 rounded-r border border-l-0 border-line px-1.5 text-fg-3 hover:bg-surface-3 hover:text-fg">
