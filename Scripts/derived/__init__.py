@@ -61,7 +61,7 @@ def build_derived_tables(
 ) -> dict[str, pd.DataFrame]:
     """Build every derived table. `setup_since`/`setup_previous` make setup_daily incremental
     (recompute sessions >= setup_since, keep the stored rows before it); omit both for a full build.
-    `setup_workers` > 1 parallelises setup_daily's per-window predicates (use on full rebuilds; the calling
+    `setup_workers` > 1 runs setup_daily's symbol chunks on a process pool (use on full rebuilds; the calling
     script must have an `if __name__ == "__main__":` guard because Windows spawns workers by re-importing it)."""
     jobs: dict[str, Callable[[], pd.DataFrame]] = {
         "regime_daily": lambda: build_regime_daily(index_daily, indicators, breadth=breadth, reference=reference),

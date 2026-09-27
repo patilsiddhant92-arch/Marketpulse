@@ -183,3 +183,85 @@ def test_process_pool_gives_identical_result():
     two = S.build_setup_daily(ind, workers=2)
     assert len(one) > 0
     pd.testing.assert_frame_equal(one, two)
+
+
+# ---------------------------------------------------------------------------------------------
+# Symbol chunking / DuckDB source: identical output for any chunk size, worker count or source
+# ---------------------------------------------------------------------------------------------
+def _universe():
+    parts = [squeeze_stock("A", seed=1), ema_pullback_stock("PB"), vcp_stock("V"),
+             squeeze_stock("B", n_up=35, n_flat=20, seed=2), ema_pullback_stock("PB2"), vcp_stock("V2"),
+             bars("C", 100 * 0.99 ** np.arange(55)), squeeze_stock("GSM", seed=4)]
+    ind = pd.concat(parts, ignore_index=True)
+    ind.loc[ind.symbol == "GSM", "band_remarks"] = "GSM Stage I"
+    ind["turnover_cr"] = 10.0
+    last = ind.trade_date.max()
+    syms = sorted(ind.symbol.unique())
+    master = pd.DataFrame({"symbol": syms, "market_cap_cr": [5000.0] * (len(syms) - 1) + [500.0],
+                           "market_cap_date": [last] * len(syms), "band": [20.0] * len(syms)})
+    ref_dates = sorted(ind.trade_date.unique())[::7]
+    reference = pd.DataFrame([{"symbol": s, "effective_date": d, "market_cap_cr": 4000.0 + i, "price_band": 10.0}
+                              for i, s in enumerate(syms[:4]) for d in ref_dates])
+    return ind, master, reference
+
+
+def _shuffled_dirty(ind):
+    """Rows interleaved across symbols, lower-case / padded symbols and an aggregate TOTAL row."""
+    out = ind.sample(frac=1.0, random_state=7).reset_index(drop=True)
+    out["symbol"] = out["symbol"].astype(object)
+    out.loc[out.index % 3 == 0, "symbol"] = out.loc[out.index % 3 == 0, "symbol"].str.lower()
+    out.loc[out.index % 5 == 0, "symbol"] = " " + out.loc[out.index % 5 == 0, "symbol"] + " "
+    total = out.iloc[:1].copy()
+    total["symbol"] = "TOTAL"
+    return pd.concat([out, total], ignore_index=True)
+
+
+def test_chunk_size_does_not_change_output():
+    ind, master, reference = _universe()
+    whole = S.build_setup_daily(ind, master=master, reference=reference, rows_per_chunk=10**9)
+    assert set(whole.queue) == set(S.QUEUES) and whole["mcap_basis"].eq("reference_asof").any()
+    for rows in (1, 60, 150):
+        got = S.build_setup_daily(ind, master=master, reference=reference, rows_per_chunk=rows)
+        pd.testing.assert_frame_equal(whole, got)
+    dirty = S.build_setup_daily(_shuffled_dirty(ind), master=master, reference=reference, rows_per_chunk=100)
+    pd.testing.assert_frame_equal(whole, dirty)
+
+
+def test_chunked_incremental_equals_full():
+    ind, master, reference = _universe()
+    full = S.build_setup_daily(ind, master=master, reference=reference, rows_per_chunk=80)
+    since = sorted(ind.trade_date.unique())[-6]
+    inc = S.build_setup_daily(ind, master=master, reference=reference, since=since,
+                              previous=full[full.trade_date < since], rows_per_chunk=80)
+    pd.testing.assert_frame_equal(full, inc, check_dtype=False)
+
+
+def test_prices_fill_missing_ohlcv_per_chunk():
+    ind, master, _ = _universe()
+    prices = ind[["symbol", "trade_date", "open_price", "high_price", "low_price", "close_price", "volume"]]
+    want = S.build_setup_daily(ind, master=master, rows_per_chunk=10**9)
+    slim = ind.drop(columns=["open_price", "high_price", "low_price", "volume"])
+    got = S.build_setup_daily(slim, prices, master=master, rows_per_chunk=70)
+    pd.testing.assert_frame_equal(want, got)
+
+
+def test_duckdb_source_matches_frame():
+    duckdb = pytest.importorskip("duckdb")
+    ind, master, reference = _universe()
+    want = S.build_setup_daily(ind, master=master, reference=reference)
+    con = duckdb.connect()
+    con.register("_ind", ind)
+    con.execute("CREATE TABLE indicators_daily AS SELECT * FROM _ind")
+    got = S.build_setup_daily(con=con, master=master, reference=reference, rows_per_chunk=90)
+    pd.testing.assert_frame_equal(want, got, check_dtype=False)
+    since = sorted(ind.trade_date.unique())[-5]
+    inc = S.build_setup_daily(con=con, master=master, reference=reference, since=since,
+                              previous=want[want.trade_date < since])
+    pd.testing.assert_frame_equal(want, inc, check_dtype=False)
+
+
+def test_process_pool_over_chunks_gives_identical_result():
+    ind, master, reference = _universe()
+    one = S.build_setup_daily(ind, master=master, reference=reference, rows_per_chunk=100)
+    two = S.build_setup_daily(ind, master=master, reference=reference, rows_per_chunk=100, workers=3)
+    pd.testing.assert_frame_equal(one, two)

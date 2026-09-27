@@ -238,6 +238,11 @@ Queue definitions reuse the desk predicates (see the module docstring of `setup_
 20-day ADV ≥ ₹3 Cr, band > 5 % (NULL passes), no GSM/`STAGE 2` remark, no `-RE`/`_RE`, close > 200 EMA (or 200 EMA NULL).
 Windows: squeeze on full history (box warm-up 300 bars in incremental runs), 10 EMA on the last 60 sessions, VCP on the last 150.
 Full builds cost ~1 ms per candidate window (10 EMA, VCP); pass `setup_workers` to parallelise, or run incrementally (`incremental_setup_args`).
+Symbols are processed in chunks of whole histories (`rows_per_chunk`, default 150k indicator rows; `setup_workers` > 1 runs chunks
+on a process pool with at most 2 chunks per worker in flight), so memory is bounded by a chunk, not the history; output is identical
+for any chunk size / worker count. `build_setup_daily(con=..., table=...)` reads the chunks straight from DuckDB instead of a frame.
+Measured (3 workers): 594 sessions 208 s; 5-year proxy (3.55M rows, 1,674 sessions) 533 s, 1.99 GB peak working set incl. ~1.07 GB
+of caller-held input frames; incremental (last 5 sessions) 8 s / 17 s.
 
 ---
 
