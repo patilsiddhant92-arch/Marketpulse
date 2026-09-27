@@ -6,11 +6,12 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5199,
+    // Overridable for parallel dev servers: MP_VITE_PORT=5172 MP_API_TARGET=http://127.0.0.1:8772
+    port: Number(process.env.MP_VITE_PORT ?? 5199),
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.MP_API_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

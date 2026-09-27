@@ -1,0 +1,184 @@
+/**
+ * Charts source picker (spec 7.8): Desk queues · Screener presets / last custom
+ * run · Groups at any level (searchable) · Deals · Research · Watchlist.
+ */
+import { ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useApiQuery } from '../api/query';
+import { cn } from '../lib/cn';
+import { useEscapeLayer } from '../lib/layers';
+import { loadLastRun } from '../screener/model';
+import { LEVEL_LABELS, QUEUE_LABELS, parseSource, type ParsedSource } from './sources';
+
+type Cat = 'desk' | 'screener' | 'groups' | 'deals' | 'research' | 'watchlist';
+const CATS: { id: Cat; label: string }[] = [
+  { id: 'desk', label: 'Desk queues' },
+  { id: 'screener', label: 'Screener' },
+  { id: 'groups', label: 'Groups' },
+  { id: 'deals', label: 'Deals' },
+  { id: 'research', label: 'Research' },
+  { id: 'watchlist', label: 'Watchlist' },
+];
+
+function catOf(src: ParsedSource | null): Cat {
+  switch (src?.kind) {
+    case 'screener':
+      return 'screener';
+    case 'group':
+      return 'groups';
+    case 'deals':
+      return 'deals';
+    case 'research':
+      return 'research';
+    case 'watchlist':
+    case 'list':
+      return 'watchlist';
+    default:
+      return 'desk';
+  }
+}
+
+export interface SourcePickerProps {
+  value: string;
+  label: string;
+  count: number | null;
+  watchCount: number;
+  onChange: (src: string) => void;
+}
+
+export function SourcePicker({ value, label, count, watchCount, onChange }: SourcePickerProps) {
+  const [open, setOpen] = useState(false);
+  const parsed = parseSource(value);
+  const [cat, setCat] = useState<Cat>(catOf(parsed));
+  const [level, setLevel] = useState<string>(parsed?.kind === 'group' ? parsed.key : 'industry');
+  const [q, setQ] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  useEscapeLayer(open, () => setOpen(false));
+  useEffect(() => {
+    if (!open) return;
+    setCat(catOf(parseSource(value)));
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [open, value]);
+
+  const presets = useApiQuery('screener/presets', {}, { staleTime: Infinity, enabled: open });
+  const board = useApiQuery('groups/board', { query: { level: level as 'industry', floor: '1000', limit: 500 } }, { enabled: open && cat === 'groups' });
+  const groups = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return (board.data?.rows ?? [])
+      .filter((g) => g.group_name && (!s || g.group_name.toLowerCase().includes(s)))
+      .sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+  }, [board.data, q]);
+  const lastRun = open ? loadLastRun() : null;
+
+  const pick = (src: string) => {
+    onChange(src);
+    setOpen(false);
+  };
+  const item = (src: string, text: string, sub?: string, disabled?: boolean) => (
+    <button
+      key={src}
+      type="button"
+      disabled={disabled}
+      onClick={() => pick(src)}
+      className={cn(
+        'flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40',
+        value === src ? 'bg-accent/10 text-accent' : 'text-fg',
+      )}
+    >
+      <span className="truncate">{text}</span>
+      {sub && <span className="ml-auto shrink-0 text-2xs text-fg-3">{sub}</span>}
+    </button>
+  );
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="flex h-7 max-w-[340px] items-center gap-1.5 rounded border border-line-strong bg-surface-2 px-2 text-xs text-fg hover:border-accent"
+      >
+        <span className="text-2xs uppercase tracking-wide text-fg-3">Source</span>
+        <span className="truncate font-medium">{label}</span>
+        {count != null && <span className="num text-fg-3">({count})</span>}
+        <ChevronDown className="h-3 w-3 shrink-0 text-fg-3" />
+      </button>
+      {open && (
+        <div role="dialog" aria-label="Choose chart source" className="absolute left-0 top-full z-40 mt-1 flex h-[380px] w-[560px] overflow-hidden rounded-md border border-line-strong bg-surface-2 shadow-2xl">
+          <div className="w-36 shrink-0 border-r border-line p-1">
+            {CATS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setCat(c.id)}
+                className={cn('block w-full rounded px-2 py-1 text-left text-xs', cat === c.id ? 'bg-surface-3 text-fg' : 'text-fg-2 hover:text-fg')}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-1">
+            {cat === 'desk' && (
+              <div className="overflow-auto">
+                {item('queue:all', 'All queues', 'merged, de-duplicated')}
+                {Object.entries(QUEUE_LABELS).map(([k, l]) => item(`queue:${k}`, l))}
+                <p className="px-2 pt-2 text-2xs text-fg-3">Same predicates as the Desk. The first call of a session computes live and can take 10–30 s.</p>
+              </div>
+            )}
+            {cat === 'screener' && (
+              <div className="overflow-auto">
+                {item('screener:custom', lastRun ? `Last custom run — ${lastRun.label}` : 'Last custom run', undefined, !lastRun)}
+                <div className="my-1 border-t border-line" />
+                {(presets.data?.rows ?? []).map((p) => item(`screener:${p.id}`, p.label, p.category ?? undefined, !p.available))}
+                {presets.isLoading && <div className="px-2 py-1 text-xs text-fg-3">Loading presets…</div>}
+              </div>
+            )}
+            {cat === 'groups' && (
+              <>
+                <div className="flex shrink-0 gap-1 pb-1">
+                  {Object.entries(LEVEL_LABELS).map(([k, l]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setLevel(k)}
+                      className={cn('rounded px-1.5 py-0.5 text-2xs', level === k ? 'bg-accent/15 text-accent' : 'text-fg-2 hover:text-fg')}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  autoFocus
+                  aria-label="Search groups"
+                  placeholder={`Search ${LEVEL_LABELS[level]}…`}
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="mb-1 h-6 shrink-0 rounded border border-line bg-surface px-1.5 text-xs text-fg focus:border-accent focus:outline-none"
+                />
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {board.isLoading && <div className="px-2 py-1 text-xs text-fg-3">Loading groups…</div>}
+                  {groups.map((g) => item(`group:${level}:${g.group_name}`, g.group_name ?? '', `${g.stocks ?? '—'} stocks${g.rank != null ? ` · #${g.rank}` : ''}`))}
+                  {!board.isLoading && groups.length === 0 && <div className="px-2 py-1 text-xs text-fg-3">No group matches.</div>}
+                </div>
+              </>
+            )}
+            {cat === 'deals' && (
+              <div className="overflow-auto">
+                {item('deals:buy', 'Net buying (session)')}
+                {item('deals:sell', 'Net selling (session)')}
+                <p className="px-2 pt-2 text-2xs text-fg-3">Accumulate / Fresh buyer / Distribute groupings need deal_session_net (not built yet).</p>
+              </div>
+            )}
+            {cat === 'research' && <div className="overflow-auto">{item('research:pre-move', 'Pre-move watch', 'research')}</div>}
+            {cat === 'watchlist' && <div className="overflow-auto">{item('watchlist', 'Watchlist', `${watchCount} stocks`)}</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
