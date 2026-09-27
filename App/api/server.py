@@ -71,6 +71,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# API v2 (spec §8) — mounted before the SPA static mount so /api/v2/* wins.
+from App.api.v2 import router as v2_router  # noqa: E402
+
+app.include_router(v2_router)
+
 _SYMBOL_RE = re.compile(r"^[A-Z0-9&\-_.]{1,20}$")
 
 
