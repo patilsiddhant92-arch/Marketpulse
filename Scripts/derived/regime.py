@@ -6,6 +6,8 @@ NULL (the UI shows "Insufficient data"); nothing is defaulted.
 
 Pillars and initial zones (§6.1.2, calibrated later by the evidence engine) live in ZONES;
 verdict rules (§6.1.3) live in VERDICT_RULES as data so the UI can show the matched rule.
+HYSTERESIS (w6 calibration) damps single-session flips: pillar statuses need a margin past the
+zone line or 2 sessions across it, and the verdict needs 2 sessions, except moves into Danger.
 """
 from __future__ import annotations
 
@@ -81,11 +83,13 @@ ZONES: dict[str, Any] = {
         "window": (3, 10),
         "healthy_min": 50.0,
         "weak_below": 35.0,
-        "min_breakouts": 10,
+        # 30, not 10: at n=10 one stock moves the % by 10 points (binomial SE ~16 pts at 50%);
+        # at n=30 the SE is ~9 pts. Live median is ~450 breakouts, so this only blanks thin sessions.
+        "min_breakouts": 30,
         "rule": (
             "Breakouts = close above the prior session's 20-day high on RVOL >= 1.5, in sessions "
             "t-10..t-3. Follow-through = % of those still closing above their breakout close on t. "
-            ">=50 Healthy, 35-50 Neutral, <35 Weak; NULL when fewer than 10 breakouts."
+            ">=50 Healthy, 35-50 Neutral, <35 Weak; NULL (Insufficient data) when fewer than 30 breakouts."
         ),
     },
     "stress": {
@@ -93,15 +97,23 @@ ZONES: dict[str, Any] = {
         "dist_sessions": 25,
         "dist_weak_min": 5,
         "dist_healthy_max": 3,
+        # VIX spike (w6 calibration): a % jump alone fires on noise at low levels (live: +22.6% to
+        # 12.7 on 2026-09-24). A spike needs a fear LEVEL too: +20% in a day ending at VIX >= 18
+        # (18 = the Healthy ceiling, ~85th percentile of live VIX), or a 5-session rise >= +30%
+        # ending at VIX >= 16 (a surge built over several days, ~75th percentile).
         "vix_spike_1d_pct": 20.0,
+        "vix_spike_1d_min_level": 18.0,
+        "vix_spike_5d_pct": 30.0,
+        "vix_spike_5d_min_level": 16.0,
         "vix_weak_level": 25.0,
         "vix_healthy_below": 18.0,
         "vix_healthy_5d_max_pct": 10.0,
         "rule": (
             "Distribution day = MidSml400 down >= 0.2% on higher index turnover than the prior "
             "session (index_daily.turnover_cr; volume if turnover missing); counted over 25 index "
-            "sessions. Weak if >= 5 distribution days, or India VIX +20% in a day, or VIX >= 25. "
-            "Healthy if <= 3 distribution days, VIX < 18 and VIX 5-session change <= +10%. Else Neutral."
+            "sessions. Weak if >= 5 distribution days, or a VIX spike (+20% in a day to >= 18, or "
+            "+30% over 5 sessions to >= 16), or VIX >= 25. Healthy if <= 3 distribution days, "
+            "VIX < 18 and VIX 5-session change <= +10%. Else Neutral."
         ),
     },
     "timing": {
@@ -110,6 +122,36 @@ ZONES: dict[str, Any] = {
         "rule": "% above 10 EMA > 80 stretched (wait 2-3 days), < 20 washed out; never sets the verdict.",
     },
 }
+
+# ---------------------------------------------------------------------------------------------
+# Hysteresis (w6 calibration). Deterministic and point-in-time: each session uses only its own
+# inputs, the previous session's raw status and the previous smoothed state.
+#
+# Pillar status: `{p}_status_raw` is the zone status of today's inputs. The published
+# `{p}_status` moves from its previous value only when
+#   (a) the input is past the zone boundary by at least the margin (the status is re-evaluated
+#       with every input nudged `margin` AGAINST the move; if it still clears, the move is
+#       decisive), or
+#   (b) the raw status has been on the new side for `confirm_sessions` sessions in a row
+#       (it then moves to the least extreme of those sessions' statuses).
+# Verdict: `raw_verdict` = rules on raw statuses (the old, unsmoothed behaviour).
+# `candidate_verdict` = rules on smoothed statuses. The published `verdict` changes to the
+# candidate only after the candidate has held `verdict_confirm_sessions` sessions, EXCEPT a move
+# into Danger (candidate or raw verdict Danger), which is immediate: protecting capital beats
+# stability. Leaving Danger needs the usual confirmation.
+# ---------------------------------------------------------------------------------------------
+HYSTERESIS: dict[str, Any] = {
+    "confirm_sessions": 2,
+    "verdict_confirm_sessions": 2,
+    "margins": {
+        "trend": {"price_pct": 0.5, "slope_pct": 0.05},      # % vs EMA; 50 EMA 5-session slope, %
+        "participation": {"level_pts": 2.0, "chg_pts": 1.0},  # level points; % > 50 EMA 5-session change
+        "leadership": {"avg": 2.0, "chg": 1.0},               # 10-day avg net new highs; its 5-session change
+        "follow_through": {"pct_pts": 2.0},
+        "stress": {"dist_days": 1.0, "vix_pts": 1.0, "vix_5d_pts": 2.0},  # dist_days: improving moves only; VIX spike never damped
+    },
+}
+HOLD_RULE_ID = "RH"
 
 # ---------------------------------------------------------------------------------------------
 # Verdict rules (§6.1.3) — evaluated top to bottom, first match wins. A condition lists the
@@ -321,72 +363,144 @@ def _stock_block(ind: pd.DataFrame, dates: pd.DatetimeIndex, breadth: pd.DataFra
 # ---------------------------------------------------------------------------------------------
 # Pillar statuses
 # ---------------------------------------------------------------------------------------------
-def _status(weak: pd.Series, healthy: pd.Series, known: pd.Series) -> pd.Series:
-    out = pd.Series(None, index=weak.index, dtype="object")
+def _rank(weak: pd.Series, healthy: pd.Series, known: pd.Series) -> np.ndarray:
+    """Status rank per row: 0 Weak, 1 Neutral, 2 Healthy, NaN unknown (Weak wins over Healthy)."""
     k = known.fillna(False).to_numpy(dtype=bool)
     w = weak.fillna(False).to_numpy(dtype=bool)
     h = healthy.fillna(False).to_numpy(dtype=bool)
-    out[k] = "Neutral"
-    out[k & h] = "Healthy"
-    out[k & w] = "Weak"
+    out = np.where(w, 0.0, np.where(h, 2.0, 1.0))
+    return np.where(k, out, np.nan)
+
+
+def _names(rank: np.ndarray, index: pd.Index) -> pd.Series:
+    out = pd.Series(None, index=index, dtype="object")
+    for r, name in enumerate(STATUSES):
+        out[rank == r] = name
     return out
 
 
-def _pillars(d: pd.DataFrame) -> pd.DataFrame:
-    # Trend
-    known = d[["midsml_close", "midsml_ema50", "midsml_ema200", "midsml_ema50_slope_pct", "nifty_close", "nifty_ema200"]].notna().all(axis=1)
-    weak = d["midsml_close"] < d["midsml_ema200"]
-    healthy = (d["midsml_close"] > d["midsml_ema50"]) & (d["midsml_ema50_slope_pct"] > 0) & (d["nifty_close"] > d["nifty_ema200"])
-    d["trend_status"] = _status(weak, healthy, known)
-    d["trend_score"] = (d["midsml_close"] / d["midsml_ema50"] - 1.0) * 100.0
+def _smooth_ranks(raw: np.ndarray, pess: np.ndarray, opt: np.ndarray, confirm: int) -> np.ndarray:
+    """Hysteresis on a status rank series (see HYSTERESIS). `pess`/`opt` are the ranks with every input
+    nudged by the margin against / towards goodness (pess <= raw <= opt)."""
+    out = np.full(len(raw), np.nan)
+    prev = np.nan
+    for t, r in enumerate(raw):
+        if np.isnan(r):
+            prev = np.nan  # unknown today -> unknown; the next known session starts fresh
+            continue
+        if np.isnan(prev) or r == prev:
+            s = r
+        else:
+            window = raw[max(0, t - confirm + 1): t + 1]
+            full = len(window) == confirm and not np.isnan(window).any()
+            if r > prev:
+                confirmed = window.min() if full else -np.inf
+                decisive = pess[t] if not np.isnan(pess[t]) else -np.inf
+                s = max(prev, min(max(decisive, confirmed), r))
+            else:
+                confirmed = window.max() if full else np.inf
+                decisive = opt[t] if not np.isnan(opt[t]) else np.inf
+                s = min(prev, max(min(decisive, confirmed), r))
+        out[t] = s
+        prev = s
+    return out
 
-    # Participation
+
+def _trend_rank(d: pd.DataFrame, shift: float) -> np.ndarray:
+    m = HYSTERESIS["margins"]["trend"]
+    known = d[["midsml_close", "midsml_ema50", "midsml_ema200", "midsml_ema50_slope_pct", "nifty_close", "nifty_ema200"]].notna().all(axis=1)
+    rel50 = (d["midsml_close"] / d["midsml_ema50"] - 1.0) * 100.0 + shift * m["price_pct"]
+    rel200 = (d["midsml_close"] / d["midsml_ema200"] - 1.0) * 100.0 + shift * m["price_pct"]
+    nrel200 = (d["nifty_close"] / d["nifty_ema200"] - 1.0) * 100.0 + shift * m["price_pct"]
+    slope = d["midsml_ema50_slope_pct"] + shift * m["slope_pct"]
+    return _rank(rel200 < 0, (rel50 > 0) & (slope > 0) & (nrel200 > 0), known)
+
+
+def _participation_rank(d: pd.DataFrame, shift: float) -> np.ndarray:
+    zp, m = ZONES["participation"], HYSTERESIS["margins"]["participation"]
+    level = d["participation_level"] + shift * m["level_pts"]
+    chg = d["above_50ema_chg_5d"] + shift * m["chg_pts"]
+    base = np.where(level > zp["healthy_min"], 2, np.where(level >= zp["weak_below"], 1, 0)).astype(float)
+    up = ((d["ad_line_10d"] > 0) & (chg > 0)).to_numpy(dtype=bool)
+    down = ((d["ad_line_10d"] < 0) & (chg < 0)).to_numpy(dtype=bool)
+    lvl = np.clip(base + np.where(up, 1, np.where(down, -1, 0)), 0, 2)
+    known = (d["participation_level"].notna() & d["ad_line_10d"].notna() & d["above_50ema_chg_5d"].notna()).to_numpy(dtype=bool)
+    return np.where(known, lvl, np.nan)
+
+
+def _leadership_rank(d: pd.DataFrame, shift: float) -> np.ndarray:
+    m = HYSTERESIS["margins"]["leadership"]
+    avg = d["net_new_highs_10d_avg"] + shift * m["avg"]
+    chg = d["net_new_highs_10d_chg_5d"] + shift * m["chg"]
+    known = d["net_new_highs_10d_avg"].notna() & d["net_new_highs_10d_chg_5d"].notna()
+    return _rank((avg < 0) & (chg < 0), (avg > 0) & (chg > 0), known)
+
+
+def _follow_through_rank(d: pd.DataFrame, shift: float) -> np.ndarray:
+    zf, m = ZONES["follow_through"], HYSTERESIS["margins"]["follow_through"]
+    ft = d["follow_through_pct"] + shift * m["pct_pts"]
+    return _rank(ft < zf["weak_below"], ft >= zf["healthy_min"], d["follow_through_pct"].notna())
+
+
+def _stress_rank(d: pd.DataFrame, shift: float) -> np.ndarray:
+    """Any known Weak condition decides; Healthy/Neutral need every input known. The VIX spike is an
+    event and is never damped (shift does not touch it)."""
+    zs, m = ZONES["stress"], HYSTERESIS["margins"]["stress"]
+    # Distribution days are already a 25-session count: the margin applies only against an IMPROVING
+    # move (reaching 5 is Weak at once; leaving Weak needs <= 3 or 2 sessions at 4).
+    dd = d["distribution_days_25"] - min(shift, 0.0) * m["dist_days"]
+    vix = d["vix_close"] - shift * m["vix_pts"]
+    v5 = d["vix_5d_pct"] - shift * m["vix_5d_pts"]
+    weak = (dd >= zs["dist_weak_min"]) | d["vix_spike"].fillna(False).astype(bool) | (vix >= zs["vix_weak_level"])
+    all_known = d["distribution_days_25"].notna() & d["vix_close"].notna() & d["vix_1d_pct"].notna() & d["vix_5d_pct"].notna()
+    healthy = (dd <= zs["dist_healthy_max"]) & (vix < zs["vix_healthy_below"]) & (v5 <= zs["vix_healthy_5d_max_pct"])
+    return _rank(weak, healthy & all_known, all_known | weak.fillna(False))
+
+
+def vix_spike(d: pd.DataFrame) -> pd.Series:
+    """VIX spike (ZONES['stress']): +20% in a day to >= 18, or +30% over 5 sessions to >= 16."""
+    zs = ZONES["stress"]
+    one = (d["vix_1d_pct"] >= zs["vix_spike_1d_pct"]) & (d["vix_close"] >= zs["vix_spike_1d_min_level"])
+    five = (d["vix_5d_pct"] >= zs["vix_spike_5d_pct"]) & (d["vix_close"] >= zs["vix_spike_5d_min_level"])
+    return (one | five).fillna(False).astype(bool)
+
+
+_RANKERS = {"trend": _trend_rank, "participation": _participation_rank, "leadership": _leadership_rank,
+            "follow_through": _follow_through_rank, "stress": _stress_rank}
+
+
+def _pillars(d: pd.DataFrame) -> pd.DataFrame:
+    # Derived inputs
     zp = ZONES["participation"]
+    d["trend_score"] = (d["midsml_close"] / d["midsml_ema50"] - 1.0) * 100.0
     d["ad_line_10d"] = (d["advancers"] - d["decliners"]).rolling(zp["ad_sessions"], min_periods=zp["ad_sessions"]).sum()
     d["above_50ema_chg_5d"] = d["above_50ema_pct"] - d["above_50ema_pct"].shift(zp["change_sessions"])
-    level = (d["above_50ema_pct"] + d["above_200ema_pct"]) / 2.0
-    d["participation_level"] = level
-    base = np.where(level > zp["healthy_min"], 2, np.where(level >= zp["weak_below"], 1, 0)).astype(float)
+    d["participation_level"] = (d["above_50ema_pct"] + d["above_200ema_pct"]) / 2.0
     up = (d["ad_line_10d"] > 0) & (d["above_50ema_chg_5d"] > 0)
     down = (d["ad_line_10d"] < 0) & (d["above_50ema_chg_5d"] < 0)
-    step = np.where(up, 1, np.where(down, -1, 0))
     d["participation_direction"] = np.where(up, "up", np.where(down, "down", "none"))
-    lvl = np.clip(base + step, 0, 2)
-    pknown = level.notna() & d["ad_line_10d"].notna() & d["above_50ema_chg_5d"].notna()
-    status = pd.Series(None, index=d.index, dtype="object")
-    for rank, name in enumerate(STATUSES):
-        status[(pknown & (lvl == rank)).to_numpy()] = name
-    d["participation_status"] = status
-    d["participation_score"] = level
+    d["participation_score"] = d["participation_level"]
 
-    # Leadership
     zl = ZONES["leadership"]
     d["net_new_highs"] = d["new_highs"] - d["new_lows"]
     d["net_new_highs_10d_avg"] = d["net_new_highs"].rolling(zl["smooth_sessions"], min_periods=zl["smooth_sessions"]).mean()
     d["net_new_highs_10d_chg_5d"] = d["net_new_highs_10d_avg"] - d["net_new_highs_10d_avg"].shift(zl["change_sessions"])
-    known = d["net_new_highs_10d_avg"].notna() & d["net_new_highs_10d_chg_5d"].notna()
-    healthy = (d["net_new_highs_10d_avg"] > 0) & (d["net_new_highs_10d_chg_5d"] > 0)
-    weak = (d["net_new_highs_10d_avg"] < 0) & (d["net_new_highs_10d_chg_5d"] < 0)
-    d["leadership_status"] = _status(weak, healthy, known)
     d["leadership_score"] = d["net_new_highs_10d_avg"]
 
-    # Follow-through
     zf = ZONES["follow_through"]
     enough = d["breakouts_n"] >= zf["min_breakouts"]
     d["follow_through_pct"] = (d["breakouts_holding"] / d["breakouts_n"] * 100.0).where(enough)
-    ft = d["follow_through_pct"]
-    d["follow_through_status"] = _status(ft < zf["weak_below"], ft >= zf["healthy_min"], ft.notna())
-    d["follow_through_score"] = ft
+    d["follow_through_score"] = d["follow_through_pct"]
 
-    # Stress: any known Weak condition decides; Healthy/Neutral need every input known.
-    zs = ZONES["stress"]
-    dd = d["distribution_days_25"]
-    weak = (dd >= zs["dist_weak_min"]) | (d["vix_1d_pct"] >= zs["vix_spike_1d_pct"]) | (d["vix_close"] >= zs["vix_weak_level"])
-    all_known = dd.notna() & d["vix_close"].notna() & d["vix_1d_pct"].notna() & d["vix_5d_pct"].notna()
-    healthy = (dd <= zs["dist_healthy_max"]) & (d["vix_close"] < zs["vix_healthy_below"]) & (d["vix_5d_pct"] <= zs["vix_healthy_5d_max_pct"])
-    known = all_known | weak.fillna(False)
-    d["stress_status"] = _status(weak, healthy & all_known, known)
+    d["vix_spike"] = vix_spike(d)
     d["stress_score"] = -d["vix_close"]  # goodness-oriented: falling VIX = improving
+
+    # Statuses: raw zone status, then hysteresis
+    confirm = HYSTERESIS["confirm_sessions"]
+    for p, ranker in _RANKERS.items():
+        raw, pess, opt = ranker(d, 0.0), ranker(d, -1.0), ranker(d, 1.0)
+        d[f"{p}_status_raw"] = _names(raw, d.index)
+        d[f"{p}_status"] = _names(_smooth_ranks(raw, pess, opt, confirm), d.index)
 
     for p in PILLARS:
         for label, h in DIRECTION_HORIZONS.items():
@@ -397,31 +511,78 @@ def _pillars(d: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------------------------
 # Verdict
 # ---------------------------------------------------------------------------------------------
-def _rule_mask(d: pd.DataFrame, rule: dict[str, Any]) -> np.ndarray:
+def _rule_mask(d: pd.DataFrame, rule: dict[str, Any], suffix: str = "") -> np.ndarray:
     mask = np.ones(len(d), dtype=bool)
     for pillar, allowed in rule["conditions"].items():
-        mask &= d[f"{pillar}_status"].isin(allowed).to_numpy(dtype=bool)
+        mask &= d[f"{pillar}_status{suffix}"].isin(allowed).to_numpy(dtype=bool)
     return mask
 
 
-def _verdict(d: pd.DataFrame) -> pd.DataFrame:
-    n_known = sum(d[f"{p}_status"].notna().astype(int) for p in PILLARS)
-    sufficient = (d["trend_status"].notna() & d["participation_status"].notna() & (n_known >= 4)).to_numpy(dtype=bool)
+def _match_rules(d: pd.DataFrame, suffix: str = "") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """First-match rule evaluation on `{p}_status{suffix}` columns, row by row (no memory).
+    Returns (verdict, rule_id, rule_text) arrays; R0 (verdict None) when data is insufficient."""
+    cols = [f"{p}_status{suffix}" for p in PILLARS]
+    s = d.reindex(columns=cols)
+    n_known = s.notna().sum(axis=1)
+    sufficient = (s[f"trend_status{suffix}"].notna() & s[f"participation_status{suffix}"].notna() & (n_known >= 4)).to_numpy(dtype=bool)
     verdict = np.full(len(d), None, dtype=object)
     rule_id = np.full(len(d), INSUFFICIENT_RULE["rule_id"], dtype=object)
     rule_text = np.full(len(d), INSUFFICIENT_RULE["text"], dtype=object)
     decided = ~sufficient
     for rule in VERDICT_RULES:
-        hit = _rule_mask(d, rule) & ~decided
+        hit = _rule_mask(s, rule, suffix) & ~decided
         verdict[hit] = rule["verdict"]
         rule_id[hit] = rule["rule_id"]
         rule_text[hit] = rule["text"]
         decided |= hit
-    d["pillars_known"] = n_known
+    return verdict, rule_id, rule_text
+
+
+def _confirm_verdict(effective: np.ndarray, confirm: int) -> np.ndarray:
+    """Published verdict: follows `effective` only after it has held `confirm` sessions; Danger and
+    NULL (insufficient data) apply at once; the first known session starts fresh."""
+    out = np.full(len(effective), None, dtype=object)
+    prev = None
+    for t, c in enumerate(effective):
+        if c is None:
+            v = None
+        elif prev is None or c == prev or c == "Danger":
+            v = c
+        elif t + 1 >= confirm and all(effective[t - k] == c for k in range(confirm)):
+            v = c
+        else:
+            v = prev
+        out[t] = v
+        prev = v
+    return out
+
+
+def _verdict(d: pd.DataFrame) -> pd.DataFrame:
+    has_raw = all(f"{p}_status_raw" in d.columns for p in PILLARS)
+    raw_v, raw_rule, raw_text = _match_rules(d, "_raw" if has_raw else "")
+    cand_v, cand_rule, cand_text = _match_rules(d)
+    raw_danger = np.array([v == "Danger" for v in raw_v], dtype=bool) & np.array([v != "Danger" for v in cand_v], dtype=bool)
+    effective = np.where(raw_danger, "Danger", cand_v).astype(object)
+    eff_rule = np.where(raw_danger, raw_rule, cand_rule).astype(object)
+    eff_text = np.where(raw_danger, [f"{t} (today's unsmoothed pillar statuses; moves into Danger are immediate)" for t in raw_text],
+                        cand_text).astype(object)
+    confirm = HYSTERESIS["verdict_confirm_sessions"]
+    verdict = _confirm_verdict(effective, confirm)
+    held = np.array([v is not None and v != e for v, e in zip(verdict, effective)], dtype=bool)
+    rule_id = np.where(held, HOLD_RULE_ID, eff_rule).astype(object)
+    rule_text = np.array([
+        (f"Held at {v}: today's pillars match {e} (rule {r}); the verdict changes once that holds {confirm} sessions"
+         if h else t) for v, e, r, t, h in zip(verdict, effective, eff_rule, eff_text, held)], dtype=object)
+
+    d["pillars_known"] = sum(d[f"{p}_status"].notna().astype(int) for p in PILLARS)
     d["verdict"] = verdict
     d["verdict_guidance"] = [VERDICT_GUIDANCE.get(v) if v else None for v in verdict]
     d["rule_id"] = rule_id
     d["rule_text"] = rule_text
+    d["raw_verdict"] = raw_v
+    d["raw_rule_id"] = raw_rule
+    d["candidate_verdict"] = cand_v
+    d["candidate_rule_id"] = cand_rule
 
     v = pd.Series(verdict, index=d.index, dtype="object")
     key = v.fillna("__NULL__")
@@ -580,10 +741,13 @@ def _alerts(d: pd.DataFrame) -> pd.DataFrame:
     d["alert_state_change"] = (d["verdict"].notna() & prev_v.notna() & (d["verdict"] != prev_v)).to_numpy(dtype=bool)
     dd = d["distribution_days_25"]
     d["alert_distribution_5"] = ((dd >= zs["dist_weak_min"]) & (dd.shift(1) < zs["dist_weak_min"])).fillna(False).to_numpy(dtype=bool)
-    ft = d["follow_through_pct"]
-    wf = ZONES["follow_through"]["weak_below"]
-    d["alert_follow_through_low"] = ((ft < wf) & (ft.shift(1) >= wf)).fillna(False).to_numpy(dtype=bool)
-    d["alert_vix_spike"] = (d["vix_1d_pct"] >= zs["vix_spike_1d_pct"]).fillna(False).to_numpy(dtype=bool)
+    # Follow-through alert on the smoothed status turning Weak (not the raw % dipping under 35 for a day).
+    fs = d["follow_through_status"]
+    fs_prev = fs.shift(1)
+    d["alert_follow_through_low"] = ((fs == "Weak") & fs_prev.notna() & (fs_prev != "Weak")).to_numpy(dtype=bool)
+    # VIX spike alert on the first session of a spike only (the 5-session rule can stay true for days).
+    spike = d["vix_spike"].fillna(False).astype(bool)
+    d["alert_vix_spike"] = (spike & ~spike.shift(1, fill_value=False)).to_numpy(dtype=bool)
     texts = []
     for i, r in enumerate(d.itertuples()):
         a = []
@@ -592,9 +756,9 @@ def _alerts(d: pd.DataFrame) -> pd.DataFrame:
         if r.alert_distribution_5:
             a.append({"id": "distribution_5", "text": f"Distribution days reached {fmt(r.distribution_days_25, 0)} in 25 sessions."})
         if r.alert_follow_through_low:
-            a.append({"id": "follow_through_low", "text": f"Follow-through fell to {fmt(r.follow_through_pct, 0)}% (< 35%)."})
+            a.append({"id": "follow_through_low", "text": f"Follow-through turned Weak: {fmt(r.follow_through_pct, 0)}% of breakouts holding (< 35%)."})
         if r.alert_vix_spike:
-            a.append({"id": "vix_spike", "text": f"India VIX spiked {fmt_signed(r.vix_1d_pct, 1)}% to {fmt(r.vix_close, 1)}."})
+            a.append({"id": "vix_spike", "text": f"India VIX spiked to {fmt(r.vix_close, 1)} ({fmt_signed(r.vix_1d_pct, 1)}% 1D, {fmt_signed(r.vix_5d_pct, 1)}% 5D)."})
         texts.append(json.dumps(a))
     d["alerts"] = texts
     d["alert_any"] = d[["alert_state_change", "alert_distribution_5", "alert_follow_through_low", "alert_vix_spike"]].any(axis=1)
@@ -603,8 +767,10 @@ def _alerts(d: pd.DataFrame) -> pd.DataFrame:
 
 OUTPUT_COLUMNS = [
     "trade_date", "verdict", "verdict_guidance", "rule_id", "rule_text", "pillars_known",
+    "raw_verdict", "raw_rule_id", "candidate_verdict", "candidate_rule_id",
     "days_in_state", "state_since", "previous_state", "state_change", "state_change_date",
     *[f"{p}_status" for p in PILLARS],
+    *[f"{p}_status_raw" for p in PILLARS],
     *[f"{p}_dir_{h}" for p in PILLARS for h in DIRECTION_HORIZONS],
     *[f"{p}_text" for p in PILLARS],
     # trend inputs
@@ -619,7 +785,7 @@ OUTPUT_COLUMNS = [
     # follow-through inputs
     "breakouts_n", "breakouts_holding", "follow_through_pct",
     # stress inputs
-    "vix_close", "vix_1d_pct", "vix_5d_pct", "midsml_dist_day", "distribution_days_25",
+    "vix_close", "vix_1d_pct", "vix_5d_pct", "vix_spike", "midsml_dist_day", "distribution_days_25",
     "nifty_distribution_days_25", "distribution_source",
     # timing, readings, alerts
     "timing_state", "timing_note", "connected_readings", "connected_readings_n",
@@ -660,4 +826,7 @@ def verdict_rules_table() -> pd.DataFrame:
     rows = [{"rule_id": INSUFFICIENT_RULE["rule_id"], "verdict": None, "conditions": "{}", "text": INSUFFICIENT_RULE["text"]}]
     rows += [{"rule_id": r["rule_id"], "verdict": r["verdict"], "conditions": json.dumps(r["conditions"]), "text": r["text"]}
              for r in VERDICT_RULES]
+    rows.append({"rule_id": HOLD_RULE_ID, "verdict": None, "conditions": "{}", "text": (
+        f"Held: today's pillars match a different verdict; it is published once it holds "
+        f"{HYSTERESIS['verdict_confirm_sessions']} sessions (moves into Danger are immediate)")})
     return pd.DataFrame(rows)

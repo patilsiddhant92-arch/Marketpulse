@@ -59,9 +59,10 @@ def test_one_row_per_session_and_columns():
 
 
 def test_point_in_time_truncation_invariance():
-    ind, idx = make_market(n_days=300)
+    ind, idx = make_market(n_days=300, n_sym=80)  # >= 30 breakouts so every pillar is known
     full = R.build_regime_daily(idx, ind)
-    cut = full["trade_date"].iloc[260]
+    assert full["verdict"].iloc[270:].notna().all()
+    cut = full["trade_date"].iloc[280]
     part = R.build_regime_daily(idx[idx.trade_date <= cut], ind[ind.trade_date <= cut])
     a = full[full.trade_date <= cut].reset_index(drop=True)
     pd.testing.assert_frame_equal(a, part.reset_index(drop=True), check_dtype=False)
@@ -418,14 +419,19 @@ def test_vix_five_day_surge_with_level_is_a_spike():
 
 
 def test_end_to_end_verdict_changes_only_when_confirmed_or_danger():
-    ind, idx = make_market(n_days=320, seed=3)
+    # MidSml400 and Nifty flat for 260 sessions, then alternating +/-0.3% around their 200 EMA (inside the
+    # 0.5% margin): the raw Trend status flips Weak/not-Weak every session. Flat turnover -> no distribution.
+    n = 320
+    ind, idx = make_market(n_days=n, n_sym=80, seed=3)
     dates = sorted(ind.trade_date.unique())
-    rng = np.random.default_rng(7)
-    lvl = 40 + rng.choice([-1.5, 1.5], size=len(dates))  # participation straddles 40
-    breadth = pd.DataFrame({"trade_date": dates, "above_50ema_pct": lvl, "above_200ema_pct": lvl,
-                            "above_10ema_pct": 50.0, "advancers": 10.0, "decliners": 10.0})
-    out = R.build_regime_daily(idx, ind, breadth=breadth)
-    assert _changes(out["verdict"]) < _changes(out["raw_verdict"])
+    close = np.full(n, 1000.0)
+    close[260:] = 1000.0 * (1 + 0.003 * np.where(np.arange(260, n) % 2 == 0, 1, -1))
+    vix = idx[idx.index_name == "India VIX"]
+    idx = pd.concat([make_index(dates, "NIFTY MIDSML 400", close), make_index(dates, "Nifty 50", close * 2), vix],
+                    ignore_index=True)
+    out = R.build_regime_daily(idx, ind)
+    raw_changes, changes = _changes(out["raw_verdict"]), _changes(out["verdict"])
+    assert raw_changes >= 20 and changes <= 2, (raw_changes, changes)
     v, c = out["verdict"], out["candidate_verdict"].where(out["raw_verdict"] != "Danger", "Danger")
     for t in range(1, len(out)):
         if pd.notna(v.iloc[t]) and pd.notna(v.iloc[t - 1]) and v.iloc[t] != v.iloc[t - 1] and v.iloc[t] != "Danger":
