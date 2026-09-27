@@ -296,7 +296,12 @@ class GroupRow(BaseModel):
     rank_delta_5: Optional[int] = None
     rank_delta_20: Optional[int] = None
     rank_delta_63: Optional[int] = None
+    rank_n: Optional[int] = Field(None, description="Groups ranked at this level and floor that session")
+    rank_score: Optional[float] = Field(None, description="mean(excess vs MidSml400 21d, 63d), points")
+    return_ew_1d: Optional[float] = None
+    return_ew_5d: Optional[float] = None
     return_ew_21d: Optional[float] = None
+    return_ew_63d: Optional[float] = None
     return_cw_21d: Optional[float] = None
     excess_vs_midsml400_21d: Optional[float] = None
     excess_vs_midsml400_63d: Optional[float] = None
@@ -306,14 +311,22 @@ class GroupRow(BaseModel):
     breadth_200: Optional[float] = None
     trend_template_pct: Optional[float] = None
     new_highs: Optional[int] = None
+    pct_new_highs: Optional[float] = None
     turnover_share_5d: Optional[float] = None
     turnover_share_20d: Optional[float] = None
     turnover_share_delta: Optional[float] = None
     turnover_share_pct: Optional[float] = None
-    delivery_accumulation: Optional[float] = None
+    delivery_accumulation: Optional[float] = Field(
+        None, description="(delivery value on up days - on down days) / delivery value over 10 sessions, % (-100..100)")
+    acc_day_members_pct: Optional[float] = Field(None, description="% of members with an accumulation day today")
     deal_net_10s_cr: Optional[float] = None
     concentration_top3: Optional[float] = None
+    top1_turnover_share_pct: Optional[float] = Field(None, description="Largest member's share of group turnover, %")
+    concentration_flag: Optional[bool] = Field(None, description="Top member >= 50% of group turnover (>= 3 members)")
+    flow_up_days_10: Optional[int] = Field(None, description="Sessions of the last 10 with turnover_share_delta > 0")
     rank_spark_60: Optional[list[Optional[int]]] = None
+    rs_line_60: Optional[list[Optional[float]]] = Field(
+        None, description="Equal-weight group index / MidSml400, last 60 sessions, rebased to 100")
     legacy_rotation_state: Optional[str] = Field(None, description="Legacy sector_rotation label (not an RRG quadrant)")
     legacy_median_rs_percentile: Optional[float] = None
     leader_symbols: Optional[list[str]] = None
@@ -333,6 +346,8 @@ class RrgRow(BaseModel):
     rs_momentum: Optional[float] = None
     rrg_quadrant: Optional[str] = None
     days_in_quadrant: Optional[int] = None
+    stocks: Optional[int] = None
+    rank: Optional[int] = None
     tail: list[RrgPoint]
 
 
@@ -343,7 +358,13 @@ class MemberRow(StockBase):
     rs_rank_t15: Optional[float] = None
     rs_rank_t30: Optional[float] = None
     trend_template_pass_n: Optional[int] = None
+    trend_template_pass: Optional[bool] = None
+    return_1m_pct: Optional[float] = None
+    return_3m_pct: Optional[float] = None
+    excess_vs_midsml400_21d: Optional[float] = None
+    away_52w_high_pct: Optional[float] = None
     delivery_accumulation_days: Optional[int] = None
+    deal_net_10s_cr: Optional[float] = Field(None, description="Bulk/block net over 10 sessions, PROP excluded, Rs Cr")
     active_setups: Optional[list[str]] = None
 
 
@@ -361,19 +382,32 @@ class DealSessionRow(BaseModel):
     buy_cr: Optional[float] = None
     sell_cr: Optional[float] = None
     net_cr: Optional[float] = None
+    net_ex_prop_cr: Optional[float] = Field(None, description="Net excluding PROP desks (drives events and ADV ratio)")
     institutional_net_cr: Optional[float] = None
     fii_net_cr: Optional[float] = None
     dii_net_cr: Optional[float] = None
     prop_net_cr: Optional[float] = None
+    corporate_net_cr: Optional[float] = None
     buying_houses: Optional[int] = None
     selling_houses: Optional[int] = None
     prints: Optional[int] = None
+    deal_types: Optional[str] = None
     vwap: Optional[float] = None
+    buy_vwap: Optional[float] = None
+    vwap_vs_cmp_pct: Optional[float] = Field(None, description="Close on as_of vs buy VWAP (else VWAP), %")
+    adv_cr: Optional[float] = None
     vs_adv: Optional[float] = None
     deal_price_vs_close_pct: Optional[float] = None
+    deal_qty_pct_volume: Optional[float] = None
+    round_trip_value_cr: Optional[float] = None
+    prop_value_cr: Optional[float] = None
+    matched_value_cr: Optional[float] = None
     all_prop: Optional[bool] = None
     event_type: Optional[str] = None
+    event_rule: Optional[str] = None
     persistence_days: Optional[int] = None
+    net_10s: Optional[list[Optional[float]]] = Field(
+        None, description="Net ex-PROP Rs Cr on each of the last 10 sessions (dates in meta.context.net_10s_dates); NULL = no deal")
     above_200ema: Optional[bool] = None
     rs_ge_70: Optional[bool] = None
     within_15pct_of_high: Optional[bool] = None
@@ -392,16 +426,47 @@ class HousePrintRow(BaseModel):
     entry_open: Optional[float] = None
     fwd_t5_pct: Optional[float] = None
     fwd_t20_pct: Optional[float] = None
+    excess_t20_pct: Optional[float] = None
+
+
+class HouseRow(BaseModel):
+    house: str
+    clientele: Optional[str] = None
+    prints: int
+    buy_prints: int
+    sell_prints: int
+    buy_value_cr: Optional[float] = None
+    sell_value_cr: Optional[float] = None
+    net_cr: Optional[float] = None
+    symbols: int
+    first_date: Optional[date] = None
+    last_date: Optional[date] = None
+    buy_bets_t20: int
+    avg_fwd_t20_pct: Optional[float] = None
+    avg_excess_t20_pct: Optional[float] = None
+    hit_rate_t20: Optional[float] = None
+    ranked: bool
+    round_trip_pct: Optional[float] = None
+    churner: bool
+    active_in_session: bool
+    session_net_cr: Optional[float] = None
+    session_symbols: Optional[list[str]] = None
 
 
 class FollowThroughRow(BaseModel):
     event_type: Optional[str] = None
+    label: Optional[str] = None
+    rule: Optional[str] = None
+    is_baseline: bool = False
     n: int
+    n_t5: Optional[int] = None
     insufficient_sample: bool
     avg_fwd_t5_pct: Optional[float] = None
     avg_fwd_t20_pct: Optional[float] = None
     median_fwd_t20_pct: Optional[float] = None
     hit_rate_t20: Optional[float] = None
+    avg_excess_t5_pct: Optional[float] = None
+    avg_excess_t20_pct: Optional[float] = None
 
 
 # --------------------------------------------------------------------------

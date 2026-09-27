@@ -57,6 +57,7 @@ export type RrgRow = Schemas['RrgRow'];
 export type MemberRow = Schemas['MemberRow'];
 export type DealSessionRow = Schemas['DealSessionRow'];
 export type HousePrintRow = Schemas['HousePrintRow'];
+export type HouseRow = Schemas['HouseRow'];
 export type FollowThroughRow = Schemas['FollowThroughRow'];
 export type StockHeaderRow = Schemas['StockHeaderRow'];
 export type StockAdjustment = Schemas['Adjustment'];

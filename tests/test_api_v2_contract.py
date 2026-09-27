@@ -234,7 +234,7 @@ def test_symbol_normalised_and_allowed_chars(client):
 # Unavailable tables
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize("url", [
-    "/api/v2/market/regime", "/api/v2/groups/rrg", "/api/v2/deals/followthrough", "/api/v2/evidence/vcp",
+    "/api/v2/market/regime", "/api/v2/groups/rrg", "/api/v2/evidence/vcp",
     "/api/v2/research/analogs", "/api/v2/research/big-moves", "/api/v2/research/big-moves/1",
     "/api/v2/research/pre-move", "/api/v2/stock/AAA/analogs",
 ])
@@ -246,12 +246,81 @@ def test_missing_tables_return_unavailable_envelope(client, url):
 
 def test_legacy_fallbacks_are_labelled_partial(client):
     board = _ok(client, "/api/v2/groups/board")
-    assert board["meta"]["status"] == "partial"
+    assert board["meta"]["status"] == "partial" and "computed live" in board["meta"]["reason"]
+    # 30 fixture sessions < the 50 needed for EMA50 of the RS line: RS-Ratio stays NULL, never defaulted.
     assert all(r["rs_ratio"] is None and r["rrg_quadrant"] is None for r in board["rows"])
-    assert all(r["breadth_50"] is None for r in board["rows"])  # NULL in source stays NULL
+    assert all(r["rank"] is None for r in board["rows"])  # < 3 members or no 63d excess -> unranked, not 0
     assert "TOTAL" not in {r["group_name"] for r in board["rows"]}
     assert _ok(client, "/api/v2/deals/session")["meta"]["status"] == "partial"
     assert _ok(client, "/api/v2/desk/queue/vcp")["meta"]["status"] == "partial"
+
+
+def test_followthrough_small_sample_shows_no_numbers(client):
+    body = _ok(client, "/api/v2/deals/followthrough?min_mcap_cr=0")
+    assert body["meta"]["status"] == "partial"
+    assert {r["event_type"] for r in body["rows"]} >= {"accumulate", "fresh", "distribute", "baseline"}
+    for r in body["rows"]:
+        assert r["insufficient_sample"] is True and r["avg_fwd_t20_pct"] is None and r["hit_rate_t20"] is None
+
+
+def test_live_group_board_matches_hand_computed_return(client):
+    body = _ok(client, "/api/v2/groups/board?level=industry&floor=all")
+    heavy = next(r for r in body["rows"] if r["group_name"] == "Heavy Electrical")
+    # Members AAA (100+i), NULLRS (50+i), SMALL (20+i); 21d EW return on the last of 30 sessions (i=29 vs i=8).
+    expected = ((129 / 108 - 1) + (79 / 58 - 1) + (49 / 28 - 1)) / 3 * 100
+    assert abs(heavy["return_ew_21d"] - expected) < 1e-3
+    assert heavy["stocks"] == 3 and heavy["leader_symbols"][0] == "AAA"
+
+
+def test_deal_session_live_event_types(client):
+    rows = _ok(client, "/api/v2/deals/session")["rows"]
+    aaa = next(r for r in rows if r["symbol"] == "AAA")
+    assert aaa["event_type"] == "fresh" and aaa["persistence_days"] == 1 and aaa["net_ex_prop_cr"] == 1.28
+    houses = _ok(client, "/api/v2/deals/houses")["rows"]
+    good = next(h for h in houses if h["house"] == "GOOD FUND LP")
+    assert good["prints"] == 1 and good["ranked"] is False and good["avg_fwd_t20_pct"] is None
+
+
+def test_groups_and_deals_switch_to_derived_tables(tmp_path, monkeypatch):
+    """When group_daily / deal_session_net exist (Scripts/derived/SCHEMA.md names) they are the source."""
+    market = build_market_db(tmp_path / "m3.duckdb")
+    con = duckdb.connect(str(market))
+    days = sessions()
+    con.execute("""CREATE TABLE group_daily (trade_date TIMESTAMP, level VARCHAR, floor VARCHAR, group_name VARCHAR,
+                   members BIGINT, ret_ew_1d DOUBLE, ret_ew_21d DOUBLE, excess_midsml_21d DOUBLE, excess_midsml_63d DOUBLE,
+                   rs_ratio DOUBLE, rs_momentum DOUBLE, rrg_quadrant VARCHAR, days_in_quadrant DOUBLE, rank DOUBLE,
+                   rank_n DOUBLE, rank_chg_5d DOUBLE, pct_above_50ema DOUBLE, turnover_share_delta DOUBLE,
+                   top1_turnover_share_pct DOUBLE, concentration_flag BOOLEAN, deliv_acc_10d_pct DOUBLE)""")
+    for i, d in enumerate(days):
+        for fl in ("all", "1000cr"):
+            con.execute("INSERT INTO group_daily VALUES (?, 'Industry', ?, 'Heavy Electrical', 3, 0.5, 7.5, 2.0, 4.0, "
+                        "101.5, 100.4, 'Leading', ?, 1, 1, 2, 66.7, 0.1, 40, FALSE, 12.5)", [d, fl, i + 1])
+    con.execute("""CREATE TABLE deal_session_net (trade_date TIMESTAMP, symbol VARCHAR, n_prints BIGINT,
+                   buy_value_cr DOUBLE, sell_value_cr DOUBLE, net_value_cr DOUBLE, net_value_cr_ex_prop DOUBLE,
+                   buying_houses DOUBLE, net_vs_adv DOUBLE, net_buy_sessions_10 DOUBLE, event_type VARCHAR)""")
+    con.execute("INSERT INTO deal_session_net VALUES (?, 'AAA', 1, 1.28, 0, 1.28, 1.28, 1, 0.07, 2, 'accumulate')", [days[-1]])
+    con.close()
+    monkeypatch.setenv("MP_DB_PATH", str(market))
+    monkeypatch.setenv("MP_HOLIDAYS_PATH", str(tmp_path / "none.json"))
+    from App.api.v2 import create_app
+    from App.services import db
+
+    db.clear_cache()
+    c = TestClient(create_app())
+    board = _ok(c, "/api/v2/groups/board?level=industry")
+    assert board["meta"]["status"] == "ok" and board["meta"]["context"]["source"] == "group_daily"
+    row = board["rows"][0]
+    assert row["rrg_quadrant"] == "Leading" and row["rank_delta_5"] == 2 and row["excess_vs_midsml400_63d"] == 4.0
+    assert row["delivery_accumulation"] == 12.5 and row["days_in_quadrant"] == len(days)
+    rrg = _ok(c, "/api/v2/groups/rrg?level=industry")
+    assert rrg["meta"]["status"] == "ok" and rrg["rows"][0]["tail"][-1]["rs_ratio"] == 101.5
+    watch = _ok(c, "/api/v2/groups/board?level=industry&floor=watch")  # not in group_daily -> live, labelled
+    assert watch["meta"]["status"] == "partial"
+    deals_body = _ok(c, "/api/v2/deals/session")
+    assert deals_body["meta"]["status"] == "ok"
+    aaa = deals_body["rows"][0]
+    assert aaa["event_type"] == "accumulate" and aaa["persistence_days"] == 2 and aaa["vs_adv"] == 0.07
+    db.clear_cache()
 
 
 def test_regime_read_from_regime_daily_when_present(tmp_path, monkeypatch):

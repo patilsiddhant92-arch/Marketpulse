@@ -265,6 +265,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/deals/houses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deals Houses
+         * @description Every deal client with its print summary and next-open track record.
+         */
+        get: operations["deals_houses_api_v2_deals_houses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/deals/house/{house_id}": {
         parameters: {
             query?: never;
@@ -660,6 +680,11 @@ export interface components {
             sell_cr?: number | null;
             /** Net Cr */
             net_cr?: number | null;
+            /**
+             * Net Ex Prop Cr
+             * @description Net excluding PROP desks (drives events and ADV ratio)
+             */
+            net_ex_prop_cr?: number | null;
             /** Institutional Net Cr */
             institutional_net_cr?: number | null;
             /** Fii Net Cr */
@@ -668,24 +693,52 @@ export interface components {
             dii_net_cr?: number | null;
             /** Prop Net Cr */
             prop_net_cr?: number | null;
+            /** Corporate Net Cr */
+            corporate_net_cr?: number | null;
             /** Buying Houses */
             buying_houses?: number | null;
             /** Selling Houses */
             selling_houses?: number | null;
             /** Prints */
             prints?: number | null;
+            /** Deal Types */
+            deal_types?: string | null;
             /** Vwap */
             vwap?: number | null;
+            /** Buy Vwap */
+            buy_vwap?: number | null;
+            /**
+             * Vwap Vs Cmp Pct
+             * @description Close on as_of vs buy VWAP (else VWAP), %
+             */
+            vwap_vs_cmp_pct?: number | null;
+            /** Adv Cr */
+            adv_cr?: number | null;
             /** Vs Adv */
             vs_adv?: number | null;
             /** Deal Price Vs Close Pct */
             deal_price_vs_close_pct?: number | null;
+            /** Deal Qty Pct Volume */
+            deal_qty_pct_volume?: number | null;
+            /** Round Trip Value Cr */
+            round_trip_value_cr?: number | null;
+            /** Prop Value Cr */
+            prop_value_cr?: number | null;
+            /** Matched Value Cr */
+            matched_value_cr?: number | null;
             /** All Prop */
             all_prop?: boolean | null;
             /** Event Type */
             event_type?: string | null;
+            /** Event Rule */
+            event_rule?: string | null;
             /** Persistence Days */
             persistence_days?: number | null;
+            /**
+             * Net 10S
+             * @description Net ex-PROP Rs Cr on each of the last 10 sessions (dates in meta.context.net_10s_dates); NULL = no deal
+             */
+            net_10s?: (number | null)[] | null;
             /** Above 200Ema */
             above_200ema?: boolean | null;
             /** Rs Ge 70 */
@@ -951,6 +1004,19 @@ export interface components {
             rows: components["schemas"]["HousePrintRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[HouseRow] */
+        Envelope_HouseRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["HouseRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[MarketAnalogRow] */
         Envelope_MarketAnalogRow_: {
             /** As Of */
@@ -1213,8 +1279,19 @@ export interface components {
         FollowThroughRow: {
             /** Event Type */
             event_type?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Rule */
+            rule?: string | null;
+            /**
+             * Is Baseline
+             * @default false
+             */
+            is_baseline: boolean;
             /** N */
             n: number;
+            /** N T5 */
+            n_t5?: number | null;
             /** Insufficient Sample */
             insufficient_sample: boolean;
             /** Avg Fwd T5 Pct */
@@ -1225,6 +1302,10 @@ export interface components {
             median_fwd_t20_pct?: number | null;
             /** Hit Rate T20 */
             hit_rate_t20?: number | null;
+            /** Avg Excess T5 Pct */
+            avg_excess_t5_pct?: number | null;
+            /** Avg Excess T20 Pct */
+            avg_excess_t20_pct?: number | null;
         };
         /** Freshness */
         Freshness: {
@@ -1275,8 +1356,24 @@ export interface components {
             rank_delta_20?: number | null;
             /** Rank Delta 63 */
             rank_delta_63?: number | null;
+            /**
+             * Rank N
+             * @description Groups ranked at this level and floor that session
+             */
+            rank_n?: number | null;
+            /**
+             * Rank Score
+             * @description mean(excess vs MidSml400 21d, 63d), points
+             */
+            rank_score?: number | null;
+            /** Return Ew 1D */
+            return_ew_1d?: number | null;
+            /** Return Ew 5D */
+            return_ew_5d?: number | null;
             /** Return Ew 21D */
             return_ew_21d?: number | null;
+            /** Return Ew 63D */
+            return_ew_63d?: number | null;
             /** Return Cw 21D */
             return_cw_21d?: number | null;
             /** Excess Vs Midsml400 21D */
@@ -1295,6 +1392,8 @@ export interface components {
             trend_template_pct?: number | null;
             /** New Highs */
             new_highs?: number | null;
+            /** Pct New Highs */
+            pct_new_highs?: number | null;
             /** Turnover Share 5D */
             turnover_share_5d?: number | null;
             /** Turnover Share 20D */
@@ -1303,14 +1402,42 @@ export interface components {
             turnover_share_delta?: number | null;
             /** Turnover Share Pct */
             turnover_share_pct?: number | null;
-            /** Delivery Accumulation */
+            /**
+             * Delivery Accumulation
+             * @description (delivery value on up days - on down days) / delivery value over 10 sessions, % (-100..100)
+             */
             delivery_accumulation?: number | null;
+            /**
+             * Acc Day Members Pct
+             * @description % of members with an accumulation day today
+             */
+            acc_day_members_pct?: number | null;
             /** Deal Net 10S Cr */
             deal_net_10s_cr?: number | null;
             /** Concentration Top3 */
             concentration_top3?: number | null;
+            /**
+             * Top1 Turnover Share Pct
+             * @description Largest member's share of group turnover, %
+             */
+            top1_turnover_share_pct?: number | null;
+            /**
+             * Concentration Flag
+             * @description Top member >= 50% of group turnover (>= 3 members)
+             */
+            concentration_flag?: boolean | null;
+            /**
+             * Flow Up Days 10
+             * @description Sessions of the last 10 with turnover_share_delta > 0
+             */
+            flow_up_days_10?: number | null;
             /** Rank Spark 60 */
             rank_spark_60?: (number | null)[] | null;
+            /**
+             * Rs Line 60
+             * @description Equal-weight group index / MidSml400, last 60 sessions, rebased to 100
+             */
+            rs_line_60?: (number | null)[] | null;
             /**
              * Legacy Rotation State
              * @description Legacy sector_rotation label (not an RRG quadrant)
@@ -1376,6 +1503,53 @@ export interface components {
             fwd_t5_pct?: number | null;
             /** Fwd T20 Pct */
             fwd_t20_pct?: number | null;
+            /** Excess T20 Pct */
+            excess_t20_pct?: number | null;
+        };
+        /** HouseRow */
+        HouseRow: {
+            /** House */
+            house: string;
+            /** Clientele */
+            clientele?: string | null;
+            /** Prints */
+            prints: number;
+            /** Buy Prints */
+            buy_prints: number;
+            /** Sell Prints */
+            sell_prints: number;
+            /** Buy Value Cr */
+            buy_value_cr?: number | null;
+            /** Sell Value Cr */
+            sell_value_cr?: number | null;
+            /** Net Cr */
+            net_cr?: number | null;
+            /** Symbols */
+            symbols: number;
+            /** First Date */
+            first_date?: string | null;
+            /** Last Date */
+            last_date?: string | null;
+            /** Buy Bets T20 */
+            buy_bets_t20: number;
+            /** Avg Fwd T20 Pct */
+            avg_fwd_t20_pct?: number | null;
+            /** Avg Excess T20 Pct */
+            avg_excess_t20_pct?: number | null;
+            /** Hit Rate T20 */
+            hit_rate_t20?: number | null;
+            /** Ranked */
+            ranked: boolean;
+            /** Round Trip Pct */
+            round_trip_pct?: number | null;
+            /** Churner */
+            churner: boolean;
+            /** Active In Session */
+            active_in_session: boolean;
+            /** Session Net Cr */
+            session_net_cr?: number | null;
+            /** Session Symbols */
+            session_symbols?: string[] | null;
         };
         /** MarketAnalogRow */
         MarketAnalogRow: {
@@ -1500,8 +1674,23 @@ export interface components {
             rs_rank_t30?: number | null;
             /** Trend Template Pass N */
             trend_template_pass_n?: number | null;
+            /** Trend Template Pass */
+            trend_template_pass?: boolean | null;
+            /** Return 1M Pct */
+            return_1m_pct?: number | null;
+            /** Return 3M Pct */
+            return_3m_pct?: number | null;
+            /** Excess Vs Midsml400 21D */
+            excess_vs_midsml400_21d?: number | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
             /** Delivery Accumulation Days */
             delivery_accumulation_days?: number | null;
+            /**
+             * Deal Net 10S Cr
+             * @description Bulk/block net over 10 sessions, PROP excluded, Rs Cr
+             */
+            deal_net_10s_cr?: number | null;
             /** Active Setups */
             active_setups?: string[] | null;
         };
@@ -1821,6 +2010,10 @@ export interface components {
             rrg_quadrant?: string | null;
             /** Days In Quadrant */
             days_in_quadrant?: number | null;
+            /** Stocks */
+            stocks?: number | null;
+            /** Rank */
+            rank?: number | null;
             /** Tail */
             tail: components["schemas"]["RrgPoint"][];
         };
@@ -2688,6 +2881,41 @@ export interface operations {
             };
         };
     };
+    deals_houses_api_v2_deals_houses_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                session_only?: boolean;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_HouseRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     deals_house_api_v2_deals_house__house_id__get: {
         parameters: {
             query?: {
@@ -2729,6 +2957,7 @@ export interface operations {
             query?: {
                 /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
                 as_of?: string | null;
+                min_mcap_cr?: number;
             };
             header?: never;
             path?: never;

@@ -1624,6 +1624,89 @@
         }
       }
     },
+    "/api/v2/deals/houses": {
+      "get": {
+        "summary": "Deals Houses",
+        "description": "Every deal client with its print summary and next-open track record.",
+        "operationId": "deals_houses_api_v2_deals_houses_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "session_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Session Only"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_HouseRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/deals/house/{house_id}": {
       "get": {
         "summary": "Deals House",
@@ -1729,6 +1812,17 @@
               "title": "As Of"
             },
             "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "min_mcap_cr",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "default": 1000.0,
+              "title": "Min Mcap Cr"
+            }
           }
         ],
         "responses": {
@@ -3284,6 +3378,18 @@
             ],
             "title": "Net Cr"
           },
+          "net_ex_prop_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Ex Prop Cr",
+            "description": "Net excluding PROP desks (drives events and ADV ratio)"
+          },
           "institutional_net_cr": {
             "anyOf": [
               {
@@ -3328,6 +3434,17 @@
             ],
             "title": "Prop Net Cr"
           },
+          "corporate_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corporate Net Cr"
+          },
           "buying_houses": {
             "anyOf": [
               {
@@ -3361,6 +3478,17 @@
             ],
             "title": "Prints"
           },
+          "deal_types": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Types"
+          },
           "vwap": {
             "anyOf": [
               {
@@ -3371,6 +3499,40 @@
               }
             ],
             "title": "Vwap"
+          },
+          "buy_vwap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buy Vwap"
+          },
+          "vwap_vs_cmp_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vwap Vs Cmp Pct",
+            "description": "Close on as_of vs buy VWAP (else VWAP), %"
+          },
+          "adv_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adv Cr"
           },
           "vs_adv": {
             "anyOf": [
@@ -3394,6 +3556,50 @@
             ],
             "title": "Deal Price Vs Close Pct"
           },
+          "deal_qty_pct_volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Qty Pct Volume"
+          },
+          "round_trip_value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Trip Value Cr"
+          },
+          "prop_value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prop Value Cr"
+          },
+          "matched_value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Value Cr"
+          },
           "all_prop": {
             "anyOf": [
               {
@@ -3416,6 +3622,17 @@
             ],
             "title": "Event Type"
           },
+          "event_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Rule"
+          },
           "persistence_days": {
             "anyOf": [
               {
@@ -3426,6 +3643,28 @@
               }
             ],
             "title": "Persistence Days"
+          },
+          "net_10s": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net 10S",
+            "description": "Net ex-PROP Rs Cr on each of the last 10 sessions (dates in meta.context.net_10s_dates); NULL = no deal"
           },
           "above_200ema": {
             "anyOf": [
@@ -4463,6 +4702,52 @@
         ],
         "title": "Envelope[HousePrintRow]"
       },
+      "Envelope_HouseRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/HouseRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[HouseRow]"
+      },
       "Envelope_MarketAnalogRow_": {
         "properties": {
           "as_of": {
@@ -5399,9 +5684,47 @@
             ],
             "title": "Event Type"
           },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "is_baseline": {
+            "type": "boolean",
+            "title": "Is Baseline",
+            "default": false
+          },
           "n": {
             "type": "integer",
             "title": "N"
+          },
+          "n_t5": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N T5"
           },
           "insufficient_sample": {
             "type": "boolean",
@@ -5450,6 +5773,28 @@
               }
             ],
             "title": "Hit Rate T20"
+          },
+          "avg_excess_t5_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Excess T5 Pct"
+          },
+          "avg_excess_t20_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Excess T20 Pct"
           }
         },
         "type": "object",
@@ -5661,6 +6006,52 @@
             ],
             "title": "Rank Delta 63"
           },
+          "rank_n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank N",
+            "description": "Groups ranked at this level and floor that session"
+          },
+          "rank_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Score",
+            "description": "mean(excess vs MidSml400 21d, 63d), points"
+          },
+          "return_ew_1d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ew 1D"
+          },
+          "return_ew_5d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ew 5D"
+          },
           "return_ew_21d": {
             "anyOf": [
               {
@@ -5671,6 +6062,17 @@
               }
             ],
             "title": "Return Ew 21D"
+          },
+          "return_ew_63d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ew 63D"
           },
           "return_cw_21d": {
             "anyOf": [
@@ -5771,6 +6173,17 @@
             ],
             "title": "New Highs"
           },
+          "pct_new_highs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct New Highs"
+          },
           "turnover_share_5d": {
             "anyOf": [
               {
@@ -5824,7 +6237,20 @@
                 "type": "null"
               }
             ],
-            "title": "Delivery Accumulation"
+            "title": "Delivery Accumulation",
+            "description": "(delivery value on up days - on down days) / delivery value over 10 sessions, % (-100..100)"
+          },
+          "acc_day_members_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acc Day Members Pct",
+            "description": "% of members with an accumulation day today"
           },
           "deal_net_10s_cr": {
             "anyOf": [
@@ -5848,6 +6274,42 @@
             ],
             "title": "Concentration Top3"
           },
+          "top1_turnover_share_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top1 Turnover Share Pct",
+            "description": "Largest member's share of group turnover, %"
+          },
+          "concentration_flag": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concentration Flag",
+            "description": "Top member >= 50% of group turnover (>= 3 members)"
+          },
+          "flow_up_days_10": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow Up Days 10",
+            "description": "Sessions of the last 10 with turnover_share_delta > 0"
+          },
           "rank_spark_60": {
             "anyOf": [
               {
@@ -5868,6 +6330,28 @@
               }
             ],
             "title": "Rank Spark 60"
+          },
+          "rs_line_60": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Line 60",
+            "description": "Equal-weight group index / MidSml400, last 60 sessions, rebased to 100"
           },
           "legacy_rotation_state": {
             "anyOf": [
@@ -6131,10 +6615,211 @@
               }
             ],
             "title": "Fwd T20 Pct"
+          },
+          "excess_t20_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excess T20 Pct"
           }
         },
         "type": "object",
         "title": "HousePrintRow"
+      },
+      "HouseRow": {
+        "properties": {
+          "house": {
+            "type": "string",
+            "title": "House"
+          },
+          "clientele": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientele"
+          },
+          "prints": {
+            "type": "integer",
+            "title": "Prints"
+          },
+          "buy_prints": {
+            "type": "integer",
+            "title": "Buy Prints"
+          },
+          "sell_prints": {
+            "type": "integer",
+            "title": "Sell Prints"
+          },
+          "buy_value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buy Value Cr"
+          },
+          "sell_value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sell Value Cr"
+          },
+          "net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Cr"
+          },
+          "symbols": {
+            "type": "integer",
+            "title": "Symbols"
+          },
+          "first_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Date"
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Date"
+          },
+          "buy_bets_t20": {
+            "type": "integer",
+            "title": "Buy Bets T20"
+          },
+          "avg_fwd_t20_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Fwd T20 Pct"
+          },
+          "avg_excess_t20_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Excess T20 Pct"
+          },
+          "hit_rate_t20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate T20"
+          },
+          "ranked": {
+            "type": "boolean",
+            "title": "Ranked"
+          },
+          "round_trip_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Trip Pct"
+          },
+          "churner": {
+            "type": "boolean",
+            "title": "Churner"
+          },
+          "active_in_session": {
+            "type": "boolean",
+            "title": "Active In Session"
+          },
+          "session_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Net Cr"
+          },
+          "session_symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Symbols"
+          }
+        },
+        "type": "object",
+        "required": [
+          "house",
+          "prints",
+          "buy_prints",
+          "sell_prints",
+          "symbols",
+          "buy_bets_t20",
+          "ranked",
+          "churner",
+          "active_in_session"
+        ],
+        "title": "HouseRow"
       },
       "MarketAnalogRow": {
         "properties": {
@@ -6759,6 +7444,61 @@
             ],
             "title": "Trend Template Pass N"
           },
+          "trend_template_pass": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend Template Pass"
+          },
+          "return_1m_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 1M Pct"
+          },
+          "return_3m_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 3M Pct"
+          },
+          "excess_vs_midsml400_21d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excess Vs Midsml400 21D"
+          },
+          "away_52w_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W High Pct"
+          },
           "delivery_accumulation_days": {
             "anyOf": [
               {
@@ -6769,6 +7509,18 @@
               }
             ],
             "title": "Delivery Accumulation Days"
+          },
+          "deal_net_10s_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Net 10S Cr",
+            "description": "Bulk/block net over 10 sessions, PROP excluded, Rs Cr"
           },
           "active_setups": {
             "anyOf": [
@@ -7975,6 +8727,28 @@
               }
             ],
             "title": "Days In Quadrant"
+          },
+          "stocks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stocks"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
           },
           "tail": {
             "items": {

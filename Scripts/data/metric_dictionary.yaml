@@ -934,6 +934,55 @@ metrics:
     read_with_why: "High concentration plus narrow breadth means the group label is misleading."
     definition_sql_ref: "group_daily.concentration_top3"
 
+  - key: group_top1_turnover_share
+    plain_name: Top stock's share of group turnover
+    unit: pct
+    measures: "The single most-traded member's share of the group's ₹ turnover today. High means one stock is the group's activity."
+    zones:
+      - {range: "< 35", label: Spread out, tone: good, why: "Trading is spread across members; group flow figures are meaningful."}
+      - {range: "35-50", label: Top-heavy, tone: neutral, why: "One stock carries a big share; glance at it before reading the group."}
+      - {range: ">= 50", label: One-stock group, tone: bad, why: "Flow and turnover share mostly reflect one stock's news, not a sector move."}
+    read_with: [group_breadth_50, turnover_share_delta_20d]
+    read_with_why: "A flow spike with a one-stock share is that stock's story, not rotation."
+    definition_sql_ref: "group_daily.top1_turnover_share_pct"
+
+  - key: group_delivery_accumulation
+    plain_name: Delivery accumulation (10 sessions)
+    unit: pct
+    measures: "Delivery value traded on up days minus on down days, as % of all delivery value over the last 10 sessions (−100 to +100). Positive: holders took delivery on rising days."
+    zones:
+      - {range: ">= 20", label: Accumulation, tone: good, why: "Committed buying on up days outweighs selling on down days."}
+      - {range: "-20 to 20", label: Neutral, tone: neutral, why: "No clear delivery bias."}
+      - {range: "< -20", label: Distribution, tone: bad, why: "Delivery-backed selling dominates."}
+    read_with: [turnover_share_delta_20d, group_breadth_50]
+    read_with_why: "Accumulation plus rising turnover share is the cleanest money-flow-in signal."
+    caveats: "BE-series stocks have no delivery data and are skipped."
+    definition_sql_ref: "group_daily.deliv_acc_10d_pct"
+
+  - key: group_flow_up_days
+    plain_name: Money-flow persistence (10 sessions)
+    unit: count
+    measures: "Sessions of the last 10 where the group's 5-day average turnover share was above its 20-day average."
+    zones:
+      - {range: ">= 7", label: Persistent inflow, tone: good, why: "Traders have kept rotating into the group for most of two weeks."}
+      - {range: "4-6", label: Mixed, tone: neutral, why: "Flow comes and goes."}
+      - {range: "<= 3", label: Persistent outflow, tone: caution, why: "Attention has been leaving the group."}
+    read_with: [turnover_share_delta_20d, group_excess_21d]
+    read_with_why: "Persistent inflow with positive excess return is real rotation; inflow with falling prices is selling."
+    definition_sql_ref: "group_daily.turnover_share_delta"
+
+  - key: group_return_ew_21d
+    plain_name: Group return (1 month, equal-weight)
+    unit: pct
+    measures: "Average 21-session return of the group's members, each stock weighted equally."
+    zones:
+      - {range: ">= 5", label: Rising, tone: good, why: "Most of the group's money is being made on the long side."}
+      - {range: "-5 to 5", label: Flat, tone: neutral, why: "No strong trend."}
+      - {range: "< -5", label: Falling, tone: bad, why: "The group is in a short-term decline."}
+    read_with: [group_excess_21d, group_breadth_50]
+    read_with_why: "Compare with the benchmark (excess) and check it is broad (breadth)."
+    definition_sql_ref: "group_daily.ret_ew_21d"
+
   # ---------------------------------------------------------------------------
   # Deals
   # ---------------------------------------------------------------------------
@@ -998,6 +1047,32 @@ metrics:
     read_with: [deal_price_vs_close, deal_event_type]
     read_with_why: "Deal level as support only matters if the event was genuine accumulation."
     definition_sql_ref: "deal_session_net.vwap"
+
+  - key: deal_fwd_excess_t20
+    plain_name: Follow-through vs MidSml400 (20 sessions)
+    unit: pct_points
+    measures: "Average return from the next open after the deal to the close 20 sessions later, minus NIFTY MIDSML 400 over the same sessions."
+    zones:
+      - {range: ">= 2", label: Beat the index, tone: good, why: "Stocks with this deal pattern have outperformed afterwards."}
+      - {range: "-2 to 2", label: No edge, tone: neutral, why: "Performance afterwards was in line with the market."}
+      - {range: "< -2", label: Lagged, tone: bad, why: "Stocks with this pattern underperformed afterwards."}
+    read_with: [sample_n, deal_event_type]
+    read_with_why: "Only trust it with a large sample; compare with the baseline row (all stocks, same dates)."
+    caveats: "Deal history starts 2026-04-29, so samples are small; n < 30 shows no numbers."
+    definition_sql_ref: "deal_session_net.event_type + prices_daily (next open -> close T+20)"
+
+  - key: house_hit_rate_t20
+    plain_name: House hit rate (T+20)
+    unit: pct
+    measures: "Share of this house's buy prints where the stock was higher 20 sessions after the next-open entry."
+    zones:
+      - {range: ">= 60", label: Good record, tone: good, why: "More of its buys worked than failed."}
+      - {range: "40-60", label: Coin flip, tone: neutral, why: "No better than chance."}
+      - {range: "< 40", label: Poor record, tone: bad, why: "Its buys have mostly lost money short term."}
+    read_with: [sample_n, deal_fwd_excess_t20]
+    read_with_why: "Hit rate needs a sample of at least 5 bets and should beat the market over the same window."
+    caveats: "Individuals (HNI/OTHER) and PROP desks are never ranked as funds; short history."
+    definition_sql_ref: "deals (collapsed prints) + prices_daily"
 
   - key: deal_price_vs_close
     plain_name: Deal price vs day's close
