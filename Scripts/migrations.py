@@ -303,8 +303,15 @@ def schema_version(db_path: Path) -> int:
 
 
 def run_migrations(db_path: Path) -> None:
+    from db_lock import writer_lock
+
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    with writer_lock(db_path, owner="run_migrations"):
+        _run_migrations_locked(db_path)
+
+
+def _run_migrations_locked(db_path: Path) -> None:
     schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
     with duckdb.connect(str(db_path)) as db:
         _ensure_migration_table(db)

@@ -101,7 +101,14 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame | None, ledger: pd.DataF
 
 
 def materialize_decision_tables(db_path: Path, as_of: date | None = None, policy: DecisionPolicy | None = None) -> pd.DataFrame:
+    from db_lock import writer_lock
+
     db_path = Path(db_path)
+    with writer_lock(db_path, owner="materialize_decision_tables"):
+        return _materialize_locked(db_path, as_of, policy)
+
+
+def _materialize_locked(db_path: Path, as_of: date | None, policy: DecisionPolicy | None) -> pd.DataFrame:
     policy = policy or DecisionPolicy()
     run_migrations(db_path)
     reference_history = _load(db_path, "security_reference_daily")
