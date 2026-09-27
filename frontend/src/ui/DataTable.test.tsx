@@ -157,3 +157,27 @@ describe('DataTable', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('boom');
   });
 });
+
+describe('DataTable design helpers', () => {
+  it('columnGroupRuns merges adjacent columns of the same group', async () => {
+    const { columnGroupRuns } = await import('./DataTable');
+    type R = { a: number };
+    const col = (id: string, group?: string) => ({ id, header: id, accessor: 'a' as const, group });
+    expect(columnGroupRuns<R>([col('x'), col('y')])).toBeNull();
+    const runs = columnGroupRuns<R>([col('sym'), col('r1', 'Returns'), col('r3', 'Returns'), col('rs', 'Strength')]);
+    expect(runs?.map((r) => [r.label, r.cols.map((c) => c.id)])).toEqual([
+      [null, ['sym']],
+      ['Returns', ['r1', 'r3']],
+      ['Strength', ['rs']],
+    ]);
+  });
+
+  it('heatStyle tints by sign and magnitude with tokens only', async () => {
+    const { heatStyle } = await import('./DataTable');
+    expect(heatStyle(null)).toBeUndefined();
+    expect(heatStyle(0)).toBeUndefined();
+    expect(heatStyle(1)?.backgroundColor).toBe('rgb(var(--c-up) / 0.250)');
+    expect(heatStyle(-0.5)?.backgroundColor).toBe('rgb(var(--c-down) / 0.150)');
+    expect(heatStyle(-3)?.backgroundColor).toBe('rgb(var(--c-down) / 0.250)');
+  });
+});
