@@ -57,14 +57,17 @@ def build_derived_tables(
     reference: pd.DataFrame | None = None,
     setup_since: Any = None,
     setup_previous: pd.DataFrame | None = None,
+    setup_workers: int = 1,
 ) -> dict[str, pd.DataFrame]:
     """Build every derived table. `setup_since`/`setup_previous` make setup_daily incremental
-    (recompute sessions >= setup_since, keep the stored rows before it); omit both for a full build."""
+    (recompute sessions >= setup_since, keep the stored rows before it); omit both for a full build.
+    `setup_workers` > 1 parallelises setup_daily's per-window predicates (use on full rebuilds)."""
     jobs: dict[str, Callable[[], pd.DataFrame]] = {
         "regime_daily": lambda: build_regime_daily(index_daily, indicators, breadth=breadth, reference=reference),
         "group_daily": lambda: build_group_daily(indicators, master, index_daily, deals=deals, reference=reference),
         "setup_daily": lambda: build_setup_daily(indicators, prices, master=master, reference=reference,
-                                                 since=setup_since, previous=setup_previous),
+                                                 since=setup_since, previous=setup_previous,
+                                                 workers=setup_workers),
         "deal_session_net": lambda: build_deal_session_net(deals, prices, indicators),
     }
     LAST_RUN.update({"timings_s": {}, "errors": {}, "rows": {}})

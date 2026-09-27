@@ -199,6 +199,7 @@ One row per `(queue, symbol, trade_date)` while the symbol is in the queue. Inde
 Queue definitions reuse the desk predicates (see the module docstring of `setup_daily.py`); pool = mcap ≥ ₹1,000 Cr,
 20-day ADV ≥ ₹3 Cr, band > 5 % (NULL passes), no GSM/`STAGE 2` remark, no `-RE`/`_RE`, close > 200 EMA (or 200 EMA NULL).
 Windows: squeeze on full history (box warm-up 300 bars in incremental runs), 10 EMA on the last 60 sessions, VCP on the last 150.
+Full builds cost ~1 ms per candidate window (10 EMA, VCP); pass `setup_workers` to parallelise, or run incrementally (`incremental_setup_args`).
 
 ---
 

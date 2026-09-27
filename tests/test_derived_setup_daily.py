@@ -175,3 +175,11 @@ def test_incremental_equals_full_rebuild():
 def test_empty_and_schema():
     out = S.build_setup_daily(pd.DataFrame(columns=["symbol", "trade_date"]))
     assert list(out.columns) == S.OUTPUT_COLUMNS and out.empty
+
+
+def test_process_pool_gives_identical_result():
+    ind = pd.concat([squeeze_stock("A", seed=1), ema_pullback_stock("PB"), vcp_stock("V")], ignore_index=True)
+    one = S.build_setup_daily(ind)
+    two = S.build_setup_daily(ind, workers=2)
+    assert len(one) > 0
+    pd.testing.assert_frame_equal(one, two)

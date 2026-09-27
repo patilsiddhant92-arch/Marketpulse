@@ -58,6 +58,7 @@ SQUEEZE_STOP_FACTOR = 0.985
 SQUEEZE_AGE_LOOKBACK = 60
 BOX_WARMUP = 300  # Action Desk _assemble_darvas_queue: stop = 10 EMA x 0.985
 CHUNK = 20_000
+VCP_CHUNK = 4_000
 
 INDICATOR_COLUMNS = (
     "open_price", "high_price", "low_price", "close_price", "volume", "ema_10", "ema_20", "ema_200",
@@ -264,7 +265,8 @@ def _windows(rows: np.ndarray, sym_start: np.ndarray, width: int) -> tuple[np.nd
     return np.repeat(lo, lengths) + offsets, owner
 
 
-def _darvas_10ema(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, exclude: np.ndarray, sym_start: np.ndarray) -> pd.DataFrame:
+def _darvas_10ema(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, exclude: np.ndarray, sym_start: np.ndarray,
+                  executor=None) -> pd.DataFrame:
     n = len(ind)
     close = ind["close_price"].to_numpy(dtype=float)
     high = ind["high_price"].to_numpy(dtype=float)
@@ -277,13 +279,17 @@ def _darvas_10ema(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, exclu
     rows = np.flatnonzero(cand)
     cols = ["open_price", "high_price", "low_price", "close_price", "volume", "ema_10", "rvol", "trade_date"]
     arrays = {c: ind[c].to_numpy() for c in cols}
+    chunks = [rows[k:k + CHUNK] for k in range(0, len(rows), CHUNK)]
+
+    def frames():
+        for chunk in chunks:
+            widx, owner = _windows(chunk, sym_start, EMA10_WINDOW)
+            frame = pd.DataFrame({c: arrays[c][widx] for c in cols})
+            frame.insert(0, "symbol", owner)
+            yield frame
+
     results = []
-    for k in range(0, len(rows), CHUNK):
-        chunk = rows[k:k + CHUNK]
-        widx, owner = _windows(chunk, sym_start, EMA10_WINDOW)
-        frame = pd.DataFrame({c: arrays[c][widx] for c in cols})
-        frame.insert(0, "symbol", owner)
-        res = classify_darvas_10ema_frame(frame)
+    for chunk, res in zip(chunks, _map(classify_darvas_10ema_frame, frames(), executor)):
         if res.empty:
             continue
         res["_row"] = chunk[res["symbol"].astype(int).to_numpy()]
@@ -312,7 +318,31 @@ def _darvas_10ema(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, exclu
 # ---------------------------------------------------------------------------------------------
 # VCP
 # ---------------------------------------------------------------------------------------------
-def _vcp(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, sym_start: np.ndarray) -> pd.DataFrame:
+def _vcp_chunk(task) -> list[tuple]:
+    """Worker: detect_contractions on each candidate window of one chunk (picklable, top level)."""
+    dates, high, low, volume, close, los, rows, offset = task
+    frame = pd.DataFrame({"trade_date": dates, "high_price": high, "low_price": low, "volume": volume})
+    out = []
+    for lo, row in zip(los, rows):
+        seq = detect_contractions(frame.iloc[lo:row + 1].reset_index(drop=True))
+        if len(seq.contractions) < 2 or seq.pivot is None or seq.stop is None:
+            continue
+        if not (seq.stop < close[row] <= seq.pivot):
+            continue
+        cons = [(c.depth_pct, c.bars, c.volume_ratio) for c in seq.contractions]
+        out.append((int(row + offset), int(lo + offset), seq.contractions[-1].end_date, float(seq.pivot),
+                    float(seq.stop), cons, seq.weeks, seq.footprint))
+    return out
+
+
+def _map(fn, items, executor):
+    """map() in-process, or over a ProcessPoolExecutor when one is given (order preserved)."""
+    if executor is None:
+        return map(fn, items)
+    return executor.map(fn, items)
+
+
+def _vcp(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, sym_start: np.ndarray, executor=None) -> pd.DataFrame:
     n = len(ind)
     close = ind["close_price"].to_numpy(dtype=float)
     pos = np.arange(n) - sym_start
@@ -328,32 +358,34 @@ def _vcp(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray, sym_start: np.
     v20 = g.rolling(20, min_periods=20).mean().reset_index(level=0, drop=True).sort_index().to_numpy()
     with np.errstate(divide="ignore", invalid="ignore"):
         vdu = np.where(v20 > 0, np.round(v3 / v20, 2), np.nan)
-    ohlcv = pd.DataFrame({"trade_date": ind["trade_date"].to_numpy(), "high_price": ind["high_price"].to_numpy(dtype=float),
-                          "low_price": ind["low_price"].to_numpy(dtype=float), "volume": ind["volume"].to_numpy(dtype=float)})
     dates = ind["trade_date"].to_numpy()
+    high = ind["high_price"].to_numpy(dtype=float)
+    low = ind["low_price"].to_numpy(dtype=float)
+    volume = ind["volume"].to_numpy(dtype=float)
+    rows = np.flatnonzero(cand)
+    los = np.maximum(sym_start[rows], rows - VCP_WINDOW + 1)
+
+    def tasks():
+        for k in range(0, len(rows), VCP_CHUNK):
+            r, lo = rows[k:k + VCP_CHUNK], los[k:k + VCP_CHUNK]
+            a, b = int(lo.min()), int(r.max()) + 1
+            yield (dates[a:b], high[a:b], low[a:b], volume[a:b], close[a:b], lo - a, r - a, a)
+
     recs = []
-    for row in np.flatnonzero(cand):
-        lo = max(sym_start[row], row - VCP_WINDOW + 1)
-        seq = detect_contractions(ohlcv.iloc[lo:row + 1].reset_index(drop=True))
-        if len(seq.contractions) < 2 or seq.pivot is None or seq.stop is None:
-            continue
-        c = close[row]
-        if not (seq.stop < c <= seq.pivot):
-            continue
-        last = seq.contractions[-1]
-        end_row = int(np.searchsorted(dates[lo:row + 1], np.datetime64(pd.Timestamp(last.end_date)))) + lo
-        recs.append({
-            "_row": row, "signal_date": pd.Timestamp(last.end_date), "trigger_price": float(seq.pivot),
-            "stop_price": float(seq.stop),
-            "features": json.dumps({
-                "n_contractions": len(seq.contractions),
-                "depths_pct": [round(x.depth_pct, 2) for x in seq.contractions],
-                "bars": [x.bars for x in seq.contractions],
-                "volume_ratios": [round(x.volume_ratio, 3) for x in seq.contractions],
-                "weeks": seq.weeks, "footprint": seq.footprint, "vdu_ratio": _r(vdu[row], 2),
-                "sessions_since_last_t": int(row - end_row),
-            }),
-        })
+    for part in _map(_vcp_chunk, tasks(), executor):
+        for row, lo, end_date, pivot, stop, cons, weeks, footprint in part:
+            end_row = int(np.searchsorted(dates[lo:row + 1], np.datetime64(pd.Timestamp(end_date)))) + lo
+            recs.append({
+                "_row": row, "signal_date": pd.Timestamp(end_date), "trigger_price": pivot, "stop_price": stop,
+                "features": json.dumps({
+                    "n_contractions": len(cons),
+                    "depths_pct": [round(c[0], 2) for c in cons],
+                    "bars": [c[1] for c in cons],
+                    "volume_ratios": [round(c[2], 3) for c in cons],
+                    "weeks": weeks, "footprint": footprint, "vdu_ratio": _r(vdu[row], 2),
+                    "sessions_since_last_t": int(row - end_row),
+                }),
+            })
     if not recs:
         return pd.DataFrame(columns=["_row", "signal_date", "trigger_price", "stop_price", "features"])
     return pd.DataFrame(recs)
@@ -391,9 +423,11 @@ def build_setup_daily(
     reference: pd.DataFrame | None = None,
     since: Any = None,
     previous: pd.DataFrame | None = None,
+    workers: int = 1,
 ) -> pd.DataFrame:
     """Build setup_daily. Without `master` the market-cap/band pool gates are skipped (all other
-    gates apply). `since`/`previous` enable incremental runs (see module docstring)."""
+    gates apply). `since`/`previous` enable incremental runs (see module docstring). `workers` > 1
+    runs the per-window 10 EMA / VCP predicates in a process pool (full rebuilds); results are identical."""
     ind = _frame(indicators, prices)
     if ind.empty:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
@@ -408,8 +442,16 @@ def build_setup_daily(
     sq = _darvas_squeeze(ind, pool, target)
     in_sq = np.zeros(len(ind), dtype=bool)
     in_sq[sq["_row"].to_numpy(dtype=np.int64)] = True
-    e10 = _darvas_10ema(ind, pool, target, in_sq, sym_start)
-    vcp = _vcp(ind, pool, target, sym_start)
+    executor = None
+    if workers and workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        executor = ProcessPoolExecutor(max_workers=int(workers))
+    try:
+        e10 = _darvas_10ema(ind, pool, target, in_sq, sym_start, executor)
+        vcp = _vcp(ind, pool, target, sym_start, executor)
+    finally:
+        if executor is not None:
+            executor.shutdown()
     parts = []
     for q, frame in (("darvas_squeeze", sq), ("darvas_10ema", e10), ("vcp", vcp)):
         if frame.empty:
