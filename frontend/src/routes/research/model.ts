@@ -9,7 +9,7 @@
  * Optional extras this UI understands (all may be absent):
  *   BigMoveRow:  security_name, broad_sector, sector, broad_industry,
  *                verdict_then, catalyst_detail, path_pct (number[]: close vs
- *                T-1 close in %, T-20..T+20)
+ *                T-1 close in %; first point is at offset path_start_offset, e.g. -60)
  *   big-moves meta.context.lift:          LiftRow[]   (out-of-sample lift table)
  *   big-moves meta.context.feature_path:  PathRow[]   (median path movers vs controls)
  *   big-moves/{id} meta.context.features: FeatureRow[] (event fingerprint vs controls)
@@ -345,6 +345,8 @@ export interface BigMoveExtras {
   verdict_then: Verdict | null;
   catalyst_detail: string | null;
   path_pct: (number | null)[] | null;
+  /** Session offset of path_pct[0] relative to the event day (T = 0). */
+  path_start_offset: number | null;
 }
 
 export function bigMoveExtras(r: BigMoveRow): BigMoveExtras {
@@ -354,6 +356,7 @@ export function bigMoveExtras(r: BigMoveRow): BigMoveExtras {
     verdict_then: asVerdictWord(o.verdict_then ?? o.environment_state),
     catalyst_detail: str(o.catalyst_detail),
     path_pct: numArray(o.path_pct),
+    path_start_offset: typeof o.path_start_offset === 'number' ? o.path_start_offset : null,
   };
 }
 

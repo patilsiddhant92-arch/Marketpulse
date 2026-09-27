@@ -78,10 +78,10 @@ function PricePath({ row }: { row: BigMoveRow }) {
       </div>
     );
   }
-  // Bars unavailable: fall back to the served close path (T-20…T+20), if any.
+  // Bars unavailable: fall back to the served close path (starts at path_start_offset), if any.
   if (extras.path_pct) {
     const n = extras.path_pct.length;
-    const start = -Math.floor(n / 2);
+    const start = extras.path_start_offset ?? -Math.floor(n / 2);
     return (
       <div className="space-y-1">
         <PathChart
