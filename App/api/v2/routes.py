@@ -12,8 +12,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from App.api.v2 import models as m
-from App.services import (common, context, db, deals, desk, evidence, groups, history, market, metrics, research, screener,
-                          stock, today, user)
+from App.services import (common, context, db, deals, desk, evidence, footprint, groups, history, market, metrics, research,
+                          screener, stock, today, user)
 from App.services.common import Result
 
 API_VERSION = "2.0.0"
@@ -149,6 +149,14 @@ def health(response: Response) -> dict[str, Any]:
 def market_regime(as_of: Optional[date] = AsOf, days: int = Query(126, ge=1, le=2000),
                   offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
     return envelope(_call(market.regime, as_of, days), offset, limit)
+
+
+@router.get("/market/accumulators", response_model=m.Envelope[m.AccumulatorRow],
+            description="Liquid stocks with a turnover surge on an up day (old Capital Flow accumulators), ranked by rupees.")
+def market_accumulators(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(1000.0, ge=0),
+                        min_turnover_cr: float = Query(10.0, ge=0), min_surge_pct: float = Query(30.0, ge=0),
+                        offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(footprint.accumulators, as_of, min_mcap_cr, min_turnover_cr, min_surge_pct), offset, limit)
 
 
 @router.get("/market/health", response_model=m.Envelope[m.MarketHealthRow])
@@ -480,6 +488,18 @@ def stock_events(sym: str, as_of: Optional[date] = AsOf, days_ahead: int = Query
 @router.get("/stock/{sym}/deals", response_model=m.Envelope[m.StockDealRow])
 def stock_deals(sym: str, as_of: Optional[date] = AsOf, offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
     return envelope(_call(stock.stock_deals, as_of, symbol_param(sym)), offset, limit)
+
+
+@router.get("/stock/{sym}/profile", response_model=m.Envelope[m.StockProfileRow],
+            description="Trend-template checklist, institutional footprint and the 5-session activity trail.")
+def stock_profile(sym: str, as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    return envelope(_call(footprint.stock_profile, as_of, symbol_param(sym)))
+
+
+@router.get("/stock/{sym}/peers", response_model=m.Envelope[m.PeerRow],
+            description="Industry members ranked by strength rank; meta.context carries the target's rank.")
+def stock_peers(sym: str, as_of: Optional[date] = AsOf, offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(footprint.stock_peers, as_of, symbol_param(sym)), offset, limit)
 
 
 @router.get("/stock/{sym}/analogs", response_model=m.Envelope[m.StockAnalogRow])

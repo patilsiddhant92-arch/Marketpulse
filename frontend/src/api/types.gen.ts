@@ -38,6 +38,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/market/accumulators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Market Accumulators
+         * @description Liquid stocks with a turnover surge on an up day (old Capital Flow accumulators), ranked by rupees.
+         */
+        get: operations["market_accumulators_api_v2_market_accumulators_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/market/health": {
         parameters: {
             query?: never;
@@ -709,6 +729,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/stock/{sym}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stock Profile
+         * @description Trend-template checklist, institutional footprint and the 5-session activity trail.
+         */
+        get: operations["stock_profile_api_v2_stock__sym__profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/stock/{sym}/peers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stock Peers
+         * @description Industry members ranked by strength rank; meta.context carries the target's rank.
+         */
+        get: operations["stock_peers_api_v2_stock__sym__peers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/stock/{sym}/analogs": {
         parameters: {
             query?: never;
@@ -885,6 +945,67 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccumulatorRow */
+        AccumulatorRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Change 1D Pct
+             * @description Close vs previous close, %
+             */
+            change_1d_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5 */
+            rs_delta_5?: number | null;
+            /** Excess Vs Midsml400 63D */
+            excess_vs_midsml400_63d?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Adv Cr 20D */
+            adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+            /**
+             * Turnover Surge Pct
+             * @description Turnover vs its 20-day average traded value, % above
+             */
+            turnover_surge_pct?: number | null;
+            /** Ticket Ratio */
+            ticket_ratio?: number | null;
+            /** Whale Ticket */
+            whale_ticket?: boolean | null;
+            /** Delivery Spike */
+            delivery_spike?: boolean | null;
+            /** Price Up Delivery Up */
+            price_up_delivery_up?: boolean | null;
+        };
         /** Adjustment */
         Adjustment: {
             /** Ex Date */
@@ -1552,6 +1673,19 @@ export interface components {
             /** Industry */
             industry?: string | null;
         };
+        /** Envelope[AccumulatorRow] */
+        Envelope_AccumulatorRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["AccumulatorRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[BarRow] */
         Envelope_BarRow_: {
             /** As Of */
@@ -1903,6 +2037,19 @@ export interface components {
             rows: components["schemas"]["Note"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[PeerRow] */
+        Envelope_PeerRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["PeerRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[PreMoveRow] */
         Envelope_PreMoveRow_: {
             /** As Of */
@@ -2070,6 +2217,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["StockHeaderRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[StockProfileRow] */
+        Envelope_StockProfileRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["StockProfileRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[TodayBreakoutRow] */
@@ -2874,6 +3034,70 @@ export interface components {
             /** Body */
             body: string;
         };
+        /** PeerRow */
+        PeerRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Change 1D Pct
+             * @description Close vs previous close, %
+             */
+            change_1d_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5 */
+            rs_delta_5?: number | null;
+            /** Excess Vs Midsml400 63D */
+            excess_vs_midsml400_63d?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Adv Cr 20D */
+            adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
+            /**
+             * Rank
+             * @description Rank by strength rank within the industry (1 = strongest); NULL = no rank
+             */
+            rank?: number | null;
+            /** Away 10Ema Pct */
+            away_10ema_pct?: number | null;
+            /**
+             * Is Target
+             * @default false
+             */
+            is_target: boolean;
+            /**
+             * Stronger Near 10Ema
+             * @description Higher strength rank than the target and within ±3% of its 10 EMA
+             * @default false
+             */
+            stronger_near_10ema: boolean;
+        };
         /** Pillar */
         Pillar: {
             /** Status */
@@ -3494,6 +3718,93 @@ export interface components {
                 [key: string]: components["schemas"]["QueueRow"] | null;
             };
         };
+        /**
+         * StockProfileRow
+         * @description Old Inspector sidecar blocks: Minervini checklist, institutional footprint, 5-session trail.
+         */
+        StockProfileRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Change 1D Pct
+             * @description Close vs previous close, %
+             */
+            change_1d_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /**
+             * Deliv Pct X
+             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
+             */
+            deliv_pct_x?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5 */
+            rs_delta_5?: number | null;
+            /** Excess Vs Midsml400 63D */
+            excess_vs_midsml400_63d?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Adv Cr 20D */
+            adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Trend Template Pass N */
+            trend_template_pass_n?: number | null;
+            /** Trend Template Pass */
+            trend_template_pass?: boolean | null;
+            /** Criteria */
+            criteria: components["schemas"]["TrendCriterion"][];
+            /**
+             * Turnover Cr
+             * @description Traded value that session, ₹ Cr
+             */
+            turnover_cr?: number | null;
+            /**
+             * Turnover Surge Pct
+             * @description Turnover vs its 20-day average traded value, % above (+) / below (-)
+             */
+            turnover_surge_pct?: number | null;
+            /** Avg Delivery Pct 20D */
+            avg_delivery_pct_20d?: number | null;
+            /**
+             * Ticket Ratio
+             * @description Average trade size ÷ its 20-day average
+             */
+            ticket_ratio?: number | null;
+            /**
+             * Whale Ticket
+             * @description ticket_ratio >= 1.25
+             */
+            whale_ticket?: boolean | null;
+            /** Delivery Spike */
+            delivery_spike?: boolean | null;
+            /** Price Up Delivery Up */
+            price_up_delivery_up?: boolean | null;
+            /** Nr7 */
+            nr7?: boolean | null;
+            /** Trail */
+            trail: components["schemas"]["TrailPoint"][];
+        };
         /** TaxonomyNode */
         TaxonomyNode: {
             /** Level */
@@ -3989,6 +4300,31 @@ export interface components {
             /** Headline */
             headline?: string | null;
         };
+        /** TrailPoint */
+        TrailPoint: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Change Pct */
+            change_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+        };
+        /** TrendCriterion */
+        TrendCriterion: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Passed
+             * @description NULL when an input is missing or the 252-session window spans a price gap
+             */
+            passed?: boolean | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -4103,6 +4439,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_RegimeRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    market_accumulators_api_v2_market_accumulators_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                min_mcap_cr?: number;
+                min_turnover_cr?: number;
+                min_surge_pct?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_AccumulatorRow_"];
                 };
             };
             /** @description Validation Error */
@@ -5436,6 +5809,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_StockDealRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stock_profile_api_v2_stock__sym__profile_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_StockProfileRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stock_peers_api_v2_stock__sym__peers_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_PeerRow_"];
                 };
             };
             /** @description Validation Error */
