@@ -205,3 +205,94 @@ Treat those numbers as upper bounds. An earlier unloaded measurement: group_dail
   and the row-level `mcap_basis` column says so.
 - deal_session_net covers 2026-04-29 onward. group_daily.deal_net_10s_cr is NULL until a full 10-session window is covered.
 - darvas_10ema averages 226 names per session. The desk only displays the top 40, but the queue itself is that large.
+
+
+## w6 calibration — hysteresis, VIX spike level, follow-through minimum (2026-09-27)
+
+Branch `feat/w6-regime-calibration`. Same inputs as above: live `Database/marketpulse.duckdb` opened `read_only=True`
+(indicators_daily, index_daily, breadth_daily copied into the session scratchpad), `build_regime_daily(index_daily,
+indicators, breadth=breadth)` run with the old code (b668419) and the new code on the same frames. Nothing under
+`Database/` was written. Rules: `Scripts/derived/SCHEMA.md` → regime_daily → Hysteresis; code: `regime.HYSTERESIS`.
+
+**Rule changes**
+
+1. **Pillar hysteresis.** A pillar status changes only if the input clears the zone line by a margin (Participation 2 pts,
+   Follow-through 2 pts, Trend 0.5 % vs EMA, Leadership 2, Stress 1 VIX pt) or stays across for 2 sessions.
+   `{p}_status_raw` keeps the unsmoothed status. Distribution days: the margin applies only to improving moves.
+2. **Verdict confirmation.** The published verdict follows the rules on the smoothed pillars (`candidate_verdict`) only after
+   the new state holds 2 sessions. Moves **into Danger** are immediate, whether the smoothed or the raw statuses say Danger.
+   Held sessions show `rule_id = RH`. `raw_verdict` (the old behaviour) is published for audit.
+3. **VIX spike** now needs a level: +20 % in a day **to ≥ 18**, or +30 % over 5 sessions **to ≥ 16**. It no longer
+   fires on 2026-09-24 (12.7), 2026-07-08 (14.7) or 2026-03-02 (17.1). It now fires on multi-day surges with no single
+   +20 % day (2024-05-06…09, 2026-03-05…09, 2026-03-25). Alert only on the first session of a spike: 7 alerts in 594 sessions (was 8).
+4. **Follow-through** is NULL ("Insufficient data") below **30** breakouts (was 10). Live median is about 450 per window,
+   so the same 8 early sessions are NULL as before. The follow-through alert now fires when the smoothed status turns Weak.
+
+**Verdict changes, last 250 sessions (2025-09-22 → 2026-09-25)**
+
+| | before | after |
+|---|---:|---:|
+| Verdict changes | **49** | **26** |
+| Verdict streaks | 50 | 27 |
+| Streaks lasting 1 session | 21 | 1 |
+| Median streak (sessions) | 2.5 | 6 |
+| `alert_state_change` | 50 | 26 |
+| Danger sessions | 39 | 46 |
+
+Pillar status changes over the same window (raw → smoothed): Trend 26 → 21, Participation 50 → 42, Leadership 26 → 27,
+Follow-through 61 → 42, Stress 45 → 41 (raw, after the VIX fix) → 29. The raw verdict under the new VIX and follow-through
+rules changes 47 times. Hysteresis removes most of the rest.
+
+Verdict distribution over the last 250 sessions, before → after: Mixed 123 → 124, Weak 57 → 48, Danger 39 → 46,
+Constructive 19 → 18, Favourable 12 → 14. Danger rises because entries stay immediate but exits need 2 sessions (the
+asymmetry is deliberate). Participation still changes 42 times: most of those changes come from the one-step direction
+override (the sign of the 5-session change in % > 50 EMA, margin 1 pt). The override is the next thing to calibrate if
+Participation should be steadier.
+
+**Last 30 sessions** (`before` = old verdict; `T P L F S` = smoothed statuses)
+
+| date | before | raw_verdict | candidate | **verdict** | rule_id | days | T P L F S | P level | FT % | VIX | dd |
+|---|---|---|---|---|---|---:|---|---:|---:|---:|---:|
+| 2026-08-14 | Mixed | Mixed | Mixed | **Favourable** | RH | 9 | HWHNH | 44.2 | 42.5 | 11.3 | 2 |
+| 2026-08-17 | Mixed | Mixed | Mixed | **Mixed** | R9 | 1 | NWHNH | 42.8 | 42.9 | 11.3 | 2 |
+| 2026-08-18 | Mixed | Mixed | Mixed | **Mixed** | R9 | 2 | NWNNH | 43.2 | 45.0 | 11.4 | 2 |
+| 2026-08-19 | Mixed | Mixed | Mixed | **Mixed** | R9 | 3 | NWNNH | 41.8 | 43.7 | 11.3 | 3 |
+| 2026-08-20 | Mixed | Mixed | Mixed | **Mixed** | R9 | 4 | NWNNH | 43.6 | 44.1 | 10.8 | 2 |
+| 2026-08-21 | Mixed | Mixed | Mixed | **Mixed** | R9 | 5 | NWNNH | 44.1 | 46.7 | 11.2 | 2 |
+| 2026-08-24 | Mixed | Mixed | Mixed | **Mixed** | R9 | 6 | NNNNH | 44.1 | 49.1 | 11.5 | 2 |
+| 2026-08-25 | Mixed | Mixed | Mixed | **Mixed** | R9 | 7 | NNNNH | 44.0 | 45.5 | 11.1 | 2 |
+| 2026-08-26 | Mixed | Mixed | Mixed | **Mixed** | R9 | 8 | NNNNH | 45.6 | 50.2 | 10.6 | 1 |
+| 2026-08-27 | Mixed | Mixed | Mixed | **Mixed** | R9 | 9 | NNNNH | 43.6 | 46.9 | 11.1 | 1 |
+| 2026-08-28 | Mixed | Mixed | Mixed | **Mixed** | R9 | 10 | NNNNH | 44.8 | 50.6 | 10.7 | 1 |
+| 2026-08-31 | Mixed | Mixed | Mixed | **Mixed** | R9 | 11 | NNNNH | 43.5 | 49.8 | 11.2 | 1 |
+| 2026-09-01 | Mixed | Mixed | Mixed | **Mixed** | R9 | 12 | NWNNH | 41.9 | 44.0 | 11.5 | 1 |
+| 2026-09-02 | Mixed | Mixed | Mixed | **Mixed** | R9 | 13 | NWNNH | 40.6 | 41.4 | 11.6 | 2 |
+| 2026-09-03 | Mixed | Mixed | Mixed | **Mixed** | R9 | 14 | NWNNH | 42.4 | 46.0 | 11.3 | 2 |
+| 2026-09-04 | Mixed | Mixed | Mixed | **Mixed** | R9 | 15 | NWNNH | 43.7 | 48.8 | 10.7 | 2 |
+| 2026-09-07 | Mixed | Mixed | Mixed | **Mixed** | R9 | 16 | NWNNH | 43.0 | 48.4 | 11.2 | 2 |
+| 2026-09-08 | Mixed | Mixed | Mixed | **Mixed** | R9 | 17 | NNNNH | 42.8 | 49.4 | 11.2 | 2 |
+| 2026-09-09 | Mixed | Mixed | Mixed | **Mixed** | R9 | 18 | NNHNH | 42.2 | 48.4 | 11.9 | 3 |
+| 2026-09-10 | Mixed | Mixed | Mixed | **Mixed** | R9 | 19 | NWHNH | 41.1 | 48.7 | 11.8 | 3 |
+| 2026-09-11 | Mixed | Mixed | Mixed | **Mixed** | R9 | 20 | NWNNN | 40.0 | 45.4 | 12.3 | 4 |
+| 2026-09-15 | Weak | Weak | Weak | **Mixed** | RH | 21 | NWNWN | 32.7 | 31.9 | 13.4 | 4 |
+| 2026-09-16 | Weak | Weak | Weak | **Weak** | R4 | 1 | NWNWN | 32.6 | 30.6 | 13.2 | 4 |
+| 2026-09-17 | Weak | Weak | Weak | **Weak** | R4 | 2 | NWNWN | 34.5 | 33.4 | 12.3 | 4 |
+| 2026-09-18 | Mixed | Mixed | Mixed | **Weak** | RH | 3 | NWNNN | 38.0 | 41.9 | 11.4 | 4 |
+| 2026-09-21 | Mixed | Mixed | Mixed | **Mixed** | R9 | 1 | NWNNN | 38.1 | 46.9 | 11.2 | 4 |
+| 2026-09-22 | Mixed | Mixed | Mixed | **Mixed** | R9 | 2 | NWWNN | 38.4 | 45.5 | 11.0 | 4 |
+| 2026-09-23 | Mixed | Mixed | Mixed | **Mixed** | R9 | 3 | NWWNN | 41.6 | 48.4 | 10.3 | 4 |
+| 2026-09-24 | Weak | Mixed | Mixed | **Mixed** | R9 | 4 | NWWNN | 37.8 | 45.0 | 12.7 | 4 |
+| 2026-09-25 | Mixed | Mixed | Mixed | **Mixed** | R9 | 5 | NWWNN | 38.5 | 47.6 | 12.2 | 4 |
+
+- The 09-24 Mixed → Weak → Mixed flip is gone. The VIX move to 12.7 no longer counts as a spike, so Stress stays Neutral
+  and R5 doesn't fire.
+- 09-15: the pillars turned Weak decisively (Participation 32.7, Follow-through 31.9), but the verdict held Mixed for one
+  session (RH) and moved to Weak on 09-16. 09-18: the candidate improved to Mixed. The verdict held Weak (RH) and became
+  Mixed on 09-21.
+- Moves into Danger are never delayed. Other moves lag by at most one session.
+
+**Tests:** `tests/test_derived_regime.py` has 25 tests, all passing. New tests: participation and follow-through flip-flop
+before vs held after, crossing by the margin is immediate, the verdict needs 2 sessions, Danger is immediate (including raw-only Danger),
+a low-level VIX jump is not flagged, the 5-day surge rule, the 30-breakout minimum, and an end-to-end check that trend
+hovering around the 200 EMA gives ≥ 20 raw changes but ≤ 2 published ones. Also passing: `test_derived_build`,
+`test_api_v2_contract`, `test_api_v2_helpers` and `test_regime_band` (106 tests).

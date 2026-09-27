@@ -24,12 +24,16 @@ One row per session. Index: `trade_date`.
 | Column | Type | Meaning | NULL when |
 | :--- | :--- | :--- | :--- |
 | trade_date | TIMESTAMP | Session | never |
-| verdict | VARCHAR | `Favourable` · `Constructive` · `Mixed` · `Weak` · `Danger` | rule R0 (insufficient data) |
+| verdict | VARCHAR | `Favourable` · `Constructive` · `Mixed` · `Weak` · `Danger` — the published, smoothed verdict (see Hysteresis) | rule R0 (insufficient data) |
 | verdict_guidance | VARCHAR | press · normal size · selective, half size · mostly cash · protect capital | verdict NULL |
-| rule_id | VARCHAR | Matched rule (`R0`…`R9`, table below) | never |
-| rule_text | VARCHAR | Plain text of the matched rule | never |
+| rule_id | VARCHAR | Rule behind the published verdict (`R0`…`R9`, table below), or `RH` when the verdict is being held while a different candidate confirms | never |
+| rule_text | VARCHAR | Plain text of that rule; for `RH`: "Held at X: today's pillars match Y (rule Rn) …" | never |
+| raw_verdict | VARCHAR | Rules applied to the raw (unsmoothed) pillar statuses — the pre-hysteresis verdict, for audit | raw rule R0 |
+| raw_rule_id | VARCHAR | Rule matched by raw_verdict | never |
+| candidate_verdict | VARCHAR | Rules applied to the smoothed pillar statuses today; becomes `verdict` once it holds 2 sessions (Danger at once) | rule R0 |
+| candidate_rule_id | VARCHAR | Rule matched by candidate_verdict | never |
 | pillars_known | BIGINT | Number of pillars with a non-NULL status (0–5) | never |
-| days_in_state | DOUBLE | Consecutive sessions with this verdict (1 = changed today) | verdict NULL |
+| days_in_state | DOUBLE | Consecutive sessions with this (published) verdict (1 = changed today) | verdict NULL |
 | state_since | TIMESTAMP | First session of the current verdict streak | verdict NULL |
 | previous_state | VARCHAR | Verdict of the streak before the current one | first streak, or previous streak was NULL |
 | state_change | VARCHAR | `improved` / `worsened` (current vs previous_state) | previous_state NULL |
@@ -50,6 +54,27 @@ A condition lists the statuses that satisfy it; a NULL pillar never satisfies a 
 | R7 | Constructive | Trend Healthy ∧ Participation ≥ Neutral ∧ Follow-through ≥ Neutral ∧ Stress ≠ Weak |
 | R8 | Constructive | Trend Neutral ∧ Participation Healthy ∧ Follow-through Healthy ∧ Stress ≠ Weak |
 | R9 | Mixed | default |
+| RH | (held) | Published verdict kept: today's candidate differs and has not held 2 sessions yet |
+
+### Hysteresis (w6 calibration, `Scripts.derived.regime.HYSTERESIS`)
+
+Deterministic and point-in-time: each session uses only its own inputs, the previous session's raw status and the previous
+smoothed state, so a truncated rebuild reproduces every earlier row.
+
+- **Pillar status.** `{p}_status_raw` is today's zone status. The published `{p}_status` moves off its previous value only
+  when (a) the move is *decisive* — the status recomputed with every input nudged by the margin **against** the move still
+  clears the line — or (b) the raw status has been on the new side for **2 sessions in a row** (it then moves to the less
+  extreme of the two). NULL inputs give NULL at once; the first known session after NULL starts fresh.
+- **Margins:** Trend 0.5 % of price vs each EMA, 0.05 pt on the 50 EMA slope · Participation 2 pts on the level, 1 pt on the
+  5-session change in % > 50 EMA · Leadership 2 on the 10-day net-new-highs average, 1 on its 5-session change ·
+  Follow-through 2 pts · Stress 1 VIX point on the 25 / 18 lines, 2 pts on the VIX 5-session change, 1 distribution day
+  **against improving moves only** (reaching 5 is Weak at once; leaving Weak needs ≤ 3 or 2 sessions at 4). The VIX spike
+  is an event and is never damped.
+- **Verdict.** `candidate_verdict` = rules on smoothed statuses. The published `verdict` changes to the candidate only after
+  the candidate has held **2 sessions**, except a move **into Danger** — when either the candidate or `raw_verdict` is
+  Danger the verdict is Danger that session (protecting capital beats stability; `rule_id` then names the raw rule when
+  only the raw statuses say Danger). Leaving Danger needs the usual 2 sessions. `days_in_state`, `state_since`,
+  `previous_state`, `state_change` and `alert_state_change` all follow the published verdict.
 
 ### Pillars
 
@@ -57,7 +82,8 @@ For each pillar `p` ∈ `trend, participation, leadership, follow_through, stres
 
 | Column | Type | Meaning | NULL when |
 | :--- | :--- | :--- | :--- |
-| {p}_status | VARCHAR | `Healthy` / `Neutral` / `Weak` (zones below) | inputs missing |
+| {p}_status | VARCHAR | `Healthy` / `Neutral` / `Weak` after hysteresis (zones below; see Hysteresis) | inputs missing |
+| {p}_status_raw | VARCHAR | Zone status of today's inputs, no hysteresis | inputs missing |
 | {p}_dir_1d, {p}_dir_1w, {p}_dir_1m | VARCHAR | `improving` / `deteriorating` / `flat` — change of the pillar's goodness score vs 1 / 5 / 21 sessions ago | score missing now or then |
 | {p}_text | VARCHAR | Plain sentence citing the inputs | inputs missing |
 
@@ -71,8 +97,16 @@ Initial zones (`ZONES`, calibrated later by the evidence engine):
 | Trend | MidSml400 close > its 50 EMA, 50 EMA higher than 5 sessions ago, and Nifty 50 > its 200 EMA | MidSml400 close < its 200 EMA | otherwise |
 | Participation | level > 60 | level < 40 | 40–60; then **one step up** if 10-session A/D sum > 0 and % > 50 EMA rose over 5 sessions, **one step down** if both negative |
 | Leadership | 10-day avg (new 52W highs − lows) > 0 and higher than 5 sessions ago | avg < 0 and lower than 5 sessions ago | otherwise |
-| Follow-through | ≥ 50 % | < 35 % | 35–50 %; NULL when < 10 breakouts |
-| Stress | ≤ 3 distribution days, VIX < 18 and VIX 5-session change ≤ +10 % | ≥ 5 distribution days, or VIX +20 % in a day, or VIX ≥ 25 | otherwise (a known Weak condition decides even if other inputs are missing) |
+| Follow-through | ≥ 50 % | < 35 % | 35–50 %; NULL ("Insufficient data") when < 30 breakouts |
+| Stress | ≤ 3 distribution days, VIX < 18 and VIX 5-session change ≤ +10 % | ≥ 5 distribution days, or a VIX spike, or VIX ≥ 25 | otherwise (a known Weak condition decides even if other inputs are missing) |
+
+VIX spike (`vix_spike`): India VIX **+20 % in a day closing ≥ 18**, or **+30 % over 5 sessions closing ≥ 16**. The spec's bare
++20 % fired on noise at low levels (live: +22.6 % to 12.7 on 2026-09-24; +26 % to 14.7 on 2026-07-08). 18 is the Stress
+Healthy ceiling (≈ 86th percentile of live VIX 2024-05 → 2026-09); 16 (≈ 77th percentile) catches fear that builds over
+several sessions without one +20 % day (e.g. 2026-03-05…09, 2024-05 election run-up).
+
+Follow-through minimum 30 (was 10): at n = 10 one stock moves the % by 10 points (binomial SE ≈ 16 pts); at 30 the SE is
+≈ 9 pts. Live median is ≈ 450 breakouts per window, so only thin early sessions go NULL.
 
 ### Pillar inputs
 
@@ -97,8 +131,9 @@ Initial zones (`ZONES`, calibrated later by the evidence engine):
 | stage2_count / stage2_pct | DOUBLE | Stocks with trend_template_pass (count, % of known) | column missing |
 | breakouts_n | DOUBLE | Breakout events in sessions t−10…t−3: close > prior session's 20-day high on RVOL ≥ 1.5 | never (0 allowed) |
 | breakouts_holding | DOUBLE | Of those, closing above their breakout close on t | never |
-| follow_through_pct | DOUBLE | breakouts_holding / breakouts_n × 100 | < 10 breakouts |
+| follow_through_pct | DOUBLE | breakouts_holding / breakouts_n × 100 | < 30 breakouts |
 | vix_close, vix_1d_pct, vix_5d_pct | DOUBLE | India VIX close and % changes | VIX row missing |
+| vix_spike | BOOLEAN | +20 % 1D to ≥ 18, or +30 % 5D to ≥ 16 (Stress Weak) | never (False when VIX missing) |
 | midsml_dist_day | BOOLEAN | MidSml400 down ≥ 0.2 % on higher index turnover than the prior session | index/turnover missing |
 | distribution_days_25 | DOUBLE | Distribution days in the last 25 MidSml400 sessions | < 25 index sessions |
 | nifty_distribution_days_25 | DOUBLE | Same on Nifty 50 (context only) | as above |
@@ -112,10 +147,10 @@ Initial zones (`ZONES`, calibrated later by the evidence engine):
 | timing_note | VARCHAR | Plain note citing % > 10 EMA; never sets the verdict | normal / missing |
 | connected_readings | VARCHAR (JSON) | `[{"id", "text"}]` of the §6.1.4 readings that fire today (text cites values); `[]` if none | never |
 | connected_readings_n | BIGINT | Number of readings fired | never |
-| alert_state_change | BOOLEAN | Verdict differs from the previous session's (both non-NULL) | never |
+| alert_state_change | BOOLEAN | Published verdict differs from the previous session's (both non-NULL) | never |
 | alert_distribution_5 | BOOLEAN | distribution_days_25 reached ≥ 5 today (was < 5) | never |
-| alert_follow_through_low | BOOLEAN | follow_through_pct fell below 35 today (was ≥ 35) | never |
-| alert_vix_spike | BOOLEAN | India VIX +20 % or more today | never |
+| alert_follow_through_low | BOOLEAN | Smoothed follow_through_status turned Weak today (was Neutral/Healthy) | never |
+| alert_vix_spike | BOOLEAN | First session of a VIX spike (vix_spike today, not yesterday) | never |
 | alert_any | BOOLEAN | Any alert today (send max once per day, after EOD) | never |
 | alerts | VARCHAR (JSON) | `[{"id", "text"}]` for the alerts above | never |
 
