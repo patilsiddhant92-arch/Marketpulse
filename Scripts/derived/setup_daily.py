@@ -55,7 +55,8 @@ EMA10_WINDOW = 60
 VCP_WINDOW = 150
 IDENTITY_RESET_SESSIONS = 5
 SQUEEZE_STOP_FACTOR = 0.985
-SQUEEZE_AGE_LOOKBACK = 60  # Action Desk _assemble_darvas_queue: stop = 10 EMA x 0.985
+SQUEEZE_AGE_LOOKBACK = 60
+BOX_WARMUP = 300  # Action Desk _assemble_darvas_queue: stop = 10 EMA x 0.985
 CHUNK = 20_000
 
 INDICATOR_COLUMNS = (
@@ -90,32 +91,51 @@ def _frame(indicators: pd.DataFrame, prices: pd.DataFrame | None) -> pd.DataFram
     return ind
 
 
-def _pool(ind: pd.DataFrame, master: pd.DataFrame | None, reference: pd.DataFrame | None) -> tuple[np.ndarray, pd.Series, pd.Series, pd.Series]:
-    mcap, basis = point_in_time_mcap(ind, master, reference)
-    sym = ind["symbol"]
-    adv = num(ind, "avg_traded_value_cr_20d")
-    adv = adv.where(adv.notna(), num(ind, "turnover_cr"))
-    ok = (adv >= POOL["min_adv_cr"]).to_numpy(dtype=bool).copy()
+def _contains_any(values: pd.Series, tokens: tuple[str, ...]) -> np.ndarray:
+    """Upper-cased substring test evaluated on unique values only (remarks repeat heavily)."""
+    codes, uniques = pd.factorize(values.fillna(""))
+    up = pd.Index(uniques).astype(str).str.upper()
+    hit = np.zeros(len(up), dtype=bool)
+    for t in tokens:
+        hit |= np.asarray(up.str.contains(t, regex=False), dtype=bool)
+    return hit[codes] if len(codes) else np.zeros(0, dtype=bool)
+
+
+def _pool(ind: pd.DataFrame, master: pd.DataFrame | None, reference: pd.DataFrame | None,
+          target: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Pool flag (evaluated on target rows only), market cap, ADV and mcap basis per row."""
+    n = len(ind)
+    rows = np.flatnonzero(target)
+    mcap_s, basis_s = point_in_time_mcap(ind, master, None)  # price-scaled current (vectorised)
+    mcap = mcap_s.to_numpy(dtype=float).copy()
+    basis = basis_s.to_numpy(dtype=object).copy()
+    sub = ind.iloc[rows]
+    ref_mcap = asof_reference(sub, reference, "market_cap_cr").to_numpy()
+    has = np.isfinite(ref_mcap)
+    mcap[rows[has]] = ref_mcap[has]
+    basis[rows[has]] = "reference_asof"
+    adv_s = num(ind, "avg_traded_value_cr_20d")
+    adv = adv_s.where(adv_s.notna(), num(ind, "turnover_cr")).to_numpy(dtype=float)
+    sym = sub["symbol"]
+    ok = adv[rows] >= POOL["min_adv_cr"]
+    remarks = sub["band_remarks"].astype("object")
     if master is not None and not master.empty:
-        ok &= (mcap >= POOL["min_mcap"]).to_numpy()
+        ok &= mcap[rows] >= POOL["min_mcap"]
         m = clean_symbols(master.copy()).drop_duplicates("symbol", keep="last").set_index("symbol")
-        band = asof_reference(ind, reference, "price_band")
+        band = asof_reference(sub, reference, "price_band")
         if "band" in m.columns:
             band = band.where(band.notna(), sym.map(pd.to_numeric(m["band"], errors="coerce")))
-        ok &= (band.fillna(20.0) > POOL["min_band"]).to_numpy()
-        remarks = ind["band_remarks"].astype("string")
+        ok &= (band.fillna(20.0) > POOL["min_band"]).to_numpy(dtype=bool)
         if "band_remarks" in m.columns:
-            remarks = remarks.where(remarks.notna(), sym.map(m["band_remarks"]).astype("string"))
-    else:
-        remarks = ind["band_remarks"].astype("string")
-    rem = remarks.fillna("").str.upper()
-    ok &= ~(rem.str.contains("GSM", regex=False) | rem.str.contains("STAGE 2", regex=False)).to_numpy(dtype=bool)
+            remarks = remarks.where(remarks.notna(), sym.map(m["band_remarks"]))
+    ok &= ~_contains_any(remarks, ("GSM", "STAGE 2"))
     ok &= ~(sym.str.endswith("-RE") | sym.str.endswith("_RE")).to_numpy(dtype=bool)
-    close = num(ind, "close_price")
-    e200 = num(ind, "ema_200")
-    ok &= ((close > e200) | e200.isna()).to_numpy(dtype=bool)
-    ok &= close.notna().to_numpy()
-    return ok, mcap, adv, basis
+    close = num(sub, "close_price")
+    e200 = num(sub, "ema_200")
+    ok &= ((close > e200) | e200.isna()).to_numpy(dtype=bool) & close.notna().to_numpy()
+    pool = np.zeros(n, dtype=bool)
+    pool[rows] = ok
+    return pool, mcap, adv, basis
 
 
 # ---------------------------------------------------------------------------------------------
@@ -135,16 +155,8 @@ def _darvas_squeeze(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray) -> 
     starts = np.flatnonzero(np.r_[True, sym[1:] != sym[:-1]])
     ends = np.r_[starts[1:], n]
     pos = np.empty(n, dtype=np.int64)  # position within the symbol's history
-    top = np.full(n, np.nan)
-    bottom = np.full(n, np.nan)
-    for s, e in zip(starts, ends):
-        pos[s:e] = np.arange(e - s)
-        top[s:e], bottom[s:e] = calculate_darvas_box(high[s:e], low[s:e], boxp=5)
-    e10_prev = np.r_[np.nan, e10[:-1]]
-    e10_prev[pos == 0] = np.nan
-    with np.errstate(divide="ignore", invalid="ignore"):
-        sq = (top - e10) / top * 100.0
-        rng = (high - low) / close * 100.0
+    for st, en in zip(starts, ends):
+        pos[st:en] = np.arange(en - st)
     persist_n = int(params["persist_sessions"])
     # Bars that can matter: pool target rows and up to SQUEEZE_AGE_LOOKBACK bars before them
     # (persistence looks back persist_n bars; squeeze_age counts back further).
@@ -155,6 +167,21 @@ def _darvas_squeeze(ind: pd.DataFrame, pool: np.ndarray, target: np.ndarray) -> 
         ok = j < n
         jj = np.where(ok, j, 0)
         need |= ok & tgt[jj] & (pos[jj] >= k)
+    # Darvas box per symbol, from BOX_WARMUP bars before its first needed bar (full history on a
+    # full build; the desk itself builds the box on the last 252 sessions).
+    top = np.full(n, np.nan)
+    bottom = np.full(n, np.nan)
+    for st, en in zip(starts, ends):
+        hits = np.flatnonzero(need[st:en])
+        if len(hits) == 0:
+            continue
+        s0 = st + max(0, int(hits[0]) - BOX_WARMUP)
+        top[s0:en], bottom[s0:en] = calculate_darvas_box(high[s0:en], low[s0:en], boxp=5)
+    e10_prev = np.r_[np.nan, e10[:-1]]
+    e10_prev[pos == 0] = np.nan
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sq = (top - e10) / top * 100.0
+        rng = (high - low) / close * 100.0
     cand = need & (top > 0) & (e10 > 0) & (close > 0) & (sq >= 0) & (sq <= float(params["max_squeeze_pct"]))
     bar_ok = np.zeros(n, dtype=bool)
     failed_low = np.zeros(n, dtype=bool)
@@ -373,7 +400,7 @@ def build_setup_daily(
     calendar = pd.DatetimeIndex(sorted(ind["trade_date"].unique()))
     since_ts = pd.Timestamp(since).normalize() if since is not None else calendar[0]
     target = (ind["trade_date"] >= since_ts).to_numpy()
-    pool, mcap, adv, basis = _pool(ind, master, reference)
+    pool, mcap, adv, basis = _pool(ind, master, reference, target)
     sym = ind["symbol"].to_numpy()
     starts = np.flatnonzero(np.r_[True, sym[1:] != sym[:-1]])
     sym_start = np.repeat(starts, np.diff(np.r_[starts, len(ind)]))
@@ -397,9 +424,9 @@ def build_setup_daily(
     new["close_price"] = ind["close_price"].to_numpy(dtype=float)[r]
     for c in ("rvol", "delivery_pct", "avg_delivery_pct_20d", "rs_percentile", "away_52w_high_pct", "atr_pct"):
         new[c] = num(ind, c).to_numpy()[r]
-    new["adv_cr"] = adv.to_numpy()[r]
-    new["mcap_cr"] = mcap.to_numpy()[r]
-    new["mcap_basis"] = basis.to_numpy()[r]
+    new["adv_cr"] = adv[r]
+    new["mcap_cr"] = mcap[r]
+    new["mcap_basis"] = basis[r]
     trig = pd.to_numeric(new["trigger_price"], errors="coerce")
     stop = pd.to_numeric(new["stop_price"], errors="coerce")
     new["trigger_price"] = trig
