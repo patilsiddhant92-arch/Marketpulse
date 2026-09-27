@@ -12,8 +12,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from App.api.v2 import models as m
-from App.services import (common, context, db, deals, desk, evidence, footprint, groups, history, market, metrics, research,
-                          screener, stock, today, user)
+from App.services import (common, context, db, deals, desk, evidence, footprint, groups, history, market, metrics, momentum,
+                          research, screener, stock, today, user)
 from App.services.common import Result
 
 API_VERSION = "2.0.0"
@@ -277,6 +277,58 @@ def screener_run(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     p = _params(min_mcap_cr, min_price, min_day_volume, min_avg_volume_20d, lookback_days, include_ipos, level, group)
     return envelope(_call(screener.run, as_of, preset, parsed, p, sort, desc), offset, limit)
+
+
+@router.get("/screener/momentum", response_model=m.Envelope[m.MomentumRow],
+            description="Momentum scanner (parity with the old /api/screener/momentum): trigger conditions on any of the "
+                        "last `lookback_days` sessions, current conditions on as_of, coil buckets, leaders, TradingView "
+                        "strings in meta.context.")
+def screener_momentum(
+    as_of: Optional[date] = AsOf,
+    lookback_days: int = Query(20, ge=1, le=90, description="Trigger lookback in sessions (UI: 1, 3, 5, 10, 20, 30)"),
+    min_mcap_cr: float = Query(1000.0, ge=0, description="Minimum market cap, ₹ Cr (0 = off)"),
+    min_volume: float = Query(1_000_000.0, ge=0, description="Day-volume gate on the trigger session (0 = off)"),
+    min_avg_volume_20d: float = Query(0.0, ge=0, description="20D-average volume gate (used when min_volume is 0)"),
+    max_52w_away_pct: float = Query(25.0, ge=0, description="Max % below the 52W high (>= 99 = off)"),
+    min_52w_low_pct: float = Query(50.0, ge=0, description="Min % above the 52W low (0 = off)"),
+    cmp_gt_10: bool = True,
+    cmp_gt_200: bool = True,
+    ohlc_gt_10: bool = False,
+    ohlc_gt_20: bool = False,
+    ema10_gt_20: bool = True,
+    ema20_gt_50: bool = True,
+    ema50_gt_100: bool = True,
+    ema100_gt_200: bool = True,
+    sma50_gt_150: bool = False,
+    sma150_gt_200: bool = False,
+    sma_cmp_gt_50: bool = False,
+    sma_cmp_gt_150_200: bool = False,
+    sma200_rising: bool = False,
+    delivery_thrust: bool = False,
+    coiling_nr7: bool = False,
+    weekly_rsi_60: bool = False,
+    debug_symbol: Optional[str] = Query(None, max_length=20, description="Restrict to one symbol and explain each condition"),
+    offset: int = Offset,
+    limit: int = Limit,
+) -> dict[str, Any]:
+    sym = symbol_param(debug_symbol) if debug_symbol and debug_symbol.strip() else None
+    p = momentum.Params(
+        lookback_days=lookback_days, min_mcap_cr=min_mcap_cr, min_volume=min_volume,
+        min_avg_volume_20d=min_avg_volume_20d, max_52w_away_pct=max_52w_away_pct, min_52w_low_pct=min_52w_low_pct,
+        cmp_gt_10=cmp_gt_10, cmp_gt_200=cmp_gt_200, ohlc_gt_10=ohlc_gt_10, ohlc_gt_20=ohlc_gt_20,
+        ema10_gt_20=ema10_gt_20, ema20_gt_50=ema20_gt_50, ema50_gt_100=ema50_gt_100, ema100_gt_200=ema100_gt_200,
+        sma50_gt_150=sma50_gt_150, sma150_gt_200=sma150_gt_200, sma_cmp_gt_50=sma_cmp_gt_50,
+        sma_cmp_gt_150_200=sma_cmp_gt_150_200, sma200_rising=sma200_rising, delivery_thrust=delivery_thrust,
+        coiling_nr7=coiling_nr7, weekly_rsi_60=weekly_rsi_60,
+    )
+    return envelope(_call(momentum.run, as_of, p, sym), offset, limit)
+
+
+@router.get("/screener/momentum/evidence", response_model=m.Envelope[m.MomentumEvidenceRow],
+            description="Forward 5/10/20-session returns and hit rate per coil bucket for past Momentum-scanner hits "
+                        "(default settings, 5 years, point-in-time; cached per database file).")
+def screener_momentum_evidence(as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    return envelope(_call(momentum.evidence, as_of))
 
 
 @router.get("/screener/debug", response_model=m.Envelope[m.DebugRow])

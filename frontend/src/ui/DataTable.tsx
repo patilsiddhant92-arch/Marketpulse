@@ -5,7 +5,8 @@
  * renders only visible rows. Features: aria-sort headers, sticky header,
  * keyboard row focus (Arrow/J/K/Home/End/PageUp/PageDown, Enter activates),
  * column visibility menu, NULL rendered as "—" and always sorted last,
- * honest "returned of total" count.
+ * honest "returned of total" count, optional row groups with header rows
+ * (`groupBy`, e.g. Momentum coil buckets; sorting applies within each group).
  */
 import {
   columnVisibilityFeature,
@@ -75,6 +76,14 @@ export interface DataTableColumn<T extends RowData> {
   heat?: (value: unknown, row: T) => number | null | undefined;
 }
 
+/** Group rows under full-width header rows. Groups follow `order` (unknown keys after, first-seen). */
+export interface DataTableGroupBy<T extends RowData> {
+  key: (row: T) => string;
+  order?: readonly string[];
+  /** Header content for a group; receives the group's rows in display order. */
+  header: (key: string, rows: T[]) => ReactNode;
+}
+
 export interface DataTableProps<T extends RowData> {
   columns: DataTableColumn<T>[];
   rows: readonly T[];
@@ -110,7 +119,27 @@ export interface DataTableProps<T extends RowData> {
   toolbar?: ReactNode;
   /** Hide the count/columns toolbar entirely. */
   hideToolbar?: boolean;
+  /** Group rows under header rows (stable within the current sort). */
+  groupBy?: DataTableGroupBy<T>;
   className?: string;
+}
+
+type Item<R> = { kind: 'header'; key: string; rows: R[] } | { kind: 'row'; row: R; index: number };
+
+/** Stable partition of sorted rows into groups (in `order`, then first-seen); pure. */
+export function groupRows<R>(rows: readonly R[], keyOf: (row: R) => string, order: readonly string[] = []): { key: string; rows: R[] }[] {
+  const by = new Map<string, R[]>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    const list = by.get(k);
+    if (list) list.push(r);
+    else by.set(k, [r]);
+  }
+  const rank = (k: string) => {
+    const i = order.indexOf(k);
+    return i < 0 ? order.length : i;
+  };
+  return [...by.entries()].map(([key, list]) => ({ key, rows: list })).sort((a, b) => rank(a.key) - rank(b.key));
 }
 
 const features = tableFeatures({
@@ -309,7 +338,28 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
     enableSortingRemoval: true,
   });
 
-  const modelRows = table.getRowModel().rows;
+  const sortedModelRows = table.getRowModel().rows;
+  const { groupBy } = props;
+  // With groupBy the display order is group by group (sorting applies within groups).
+  const { modelRows, items, itemIndexOfRow } = useMemo(() => {
+    if (!groupBy) {
+      const its = sortedModelRows.map((row, index) => ({ kind: 'row' as const, row, index }));
+      return { modelRows: sortedModelRows, items: its as Item<(typeof sortedModelRows)[number]>[], itemIndexOfRow: null };
+    }
+    const groups = groupRows(sortedModelRows, (r) => groupBy.key(r.original), groupBy.order);
+    const ordered: typeof sortedModelRows = [];
+    const its: Item<(typeof sortedModelRows)[number]>[] = [];
+    const map: number[] = [];
+    for (const g of groups) {
+      its.push({ kind: 'header', key: g.key, rows: g.rows });
+      for (const row of g.rows) {
+        map.push(its.length);
+        its.push({ kind: 'row', row, index: ordered.length });
+        ordered.push(row);
+      }
+    }
+    return { modelRows: ordered, items: its, itemIndexOfRow: map };
+  }, [sortedModelRows, groupBy]);
   const visibleCols = table
     .getVisibleLeafColumns()
     .map((c) => colById.get(c.id)!)
@@ -327,10 +377,13 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
   // ---- virtualisation
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
-    count: modelRows.length,
+    count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
-    getItemKey: (i) => modelRows[i]?.id ?? i,
+    getItemKey: (i) => {
+      const it = items[i];
+      return it ? (it.kind === 'row' ? it.row.id : `__group:${it.key}`) : i;
+    },
     overscan: 12,
   });
 
@@ -349,9 +402,9 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
       if (props.activeRowId === undefined) setInnerActive(r.id);
       registerNavList();
       props.onActiveRowChange?.(r.original);
-      virtualizer.scrollToIndex(index, { align: 'auto' });
+      virtualizer.scrollToIndex(itemIndexOfRow ? itemIndexOfRow[index] : index, { align: 'auto' });
     },
-    [modelRows, props, virtualizer, registerNavList],
+    [modelRows, props, virtualizer, registerNavList, itemIndexOfRow],
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -464,7 +517,7 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
           id={tableId}
           role="grid"
           aria-label={label}
-          aria-rowcount={modelRows.length + headRows}
+          aria-rowcount={items.length + headRows}
           aria-colcount={visibleCols.length}
           className="grid text-table"
           style={{ minWidth: totalWidth }}
@@ -538,8 +591,33 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
           {body === null && (
             <tbody className="relative grid" style={{ height: virtualizer.getTotalSize() }}>
               {virtualizer.getVirtualItems().map((vi) => {
-                const r = modelRows[vi.index];
-                const isActive = vi.index === activeIndex;
+                const item = items[vi.index];
+                if (!item) return null;
+                if (item.kind === 'header') {
+                  return (
+                    <tr
+                      key={`__group:${item.key}`}
+                      data-index={vi.index}
+                      data-group={item.key}
+                      aria-rowindex={vi.index + 1 + headRows}
+                      className="absolute left-0 top-0 flex w-full border-b border-line-strong bg-surface-2"
+                      style={{ transform: `translateY(${vi.start}px)`, height: rowHeight }}
+                    >
+                      <td
+                        colSpan={visibleCols.length}
+                        className="sticky left-0 flex w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap px-2 text-xs"
+                      >
+                        {groupBy?.header(
+                          item.key,
+                          item.rows.map((r) => r.original),
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+                const r = item.row;
+                const rowIndex = item.index;
+                const isActive = rowIndex === activeIndex;
                 return (
                   <tr
                     key={r.id}
@@ -548,14 +626,14 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                     aria-selected={isActive}
                     data-row-id={r.id}
                     onClick={() => {
-                      setActive(vi.index);
+                      setActive(rowIndex);
                       props.onRowClick?.(r.original);
                     }}
                     onDoubleClick={() => {
                       registerNavList();
                       props.onRowActivate?.(r.original);
                     }}
-                    data-odd={vi.index % 2 === 1 || undefined}
+                    data-odd={rowIndex % 2 === 1 || undefined}
                     data-active={isActive || undefined}
                     className="mp-tr absolute left-0 top-0 flex w-full cursor-default border-b border-line/40"
                     style={{ transform: `translateY(${vi.start}px)`, height: rowHeight }}

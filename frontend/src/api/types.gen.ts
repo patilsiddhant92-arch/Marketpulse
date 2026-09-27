@@ -237,6 +237,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/screener/momentum": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Screener Momentum
+         * @description Momentum scanner (parity with the old /api/screener/momentum): trigger conditions on any of the last `lookback_days` sessions, current conditions on as_of, coil buckets, leaders, TradingView strings in meta.context.
+         */
+        get: operations["screener_momentum_api_v2_screener_momentum_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/screener/momentum/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Screener Momentum Evidence
+         * @description Forward 5/10/20-session returns and hit rate per coil bucket for past Momentum-scanner hits (default settings, 5 years, point-in-time; cached per database file).
+         */
+        get: operations["screener_momentum_evidence_api_v2_screener_momentum_evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/screener/debug": {
         parameters: {
             query?: never;
@@ -2024,6 +2064,32 @@ export interface components {
             rows: components["schemas"]["MetricEntry"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[MomentumEvidenceRow] */
+        Envelope_MomentumEvidenceRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["MomentumEvidenceRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[MomentumRow] */
+        Envelope_MomentumRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["MomentumRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[Note] */
         Envelope_Note_: {
             /** As Of */
@@ -3012,6 +3078,136 @@ export interface components {
             why?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * MomentumEvidenceRow
+         * @description Forward returns of past Momentum-scanner hits (default settings) per coil bucket.
+         */
+        MomentumEvidenceRow: {
+            /** Bucket */
+            bucket: string;
+            /** Sessions */
+            sessions?: number | null;
+            /** Stocks */
+            stocks?: number | null;
+            /**
+             * N 5
+             * @default 0
+             */
+            n_5: number;
+            /** Hit Rate 5 */
+            hit_rate_5?: number | null;
+            /** Avg 5 */
+            avg_5?: number | null;
+            /** Median 5 */
+            median_5?: number | null;
+            /**
+             * N 10
+             * @default 0
+             */
+            n_10: number;
+            /** Hit Rate 10 */
+            hit_rate_10?: number | null;
+            /** Avg 10 */
+            avg_10?: number | null;
+            /** Median 10 */
+            median_10?: number | null;
+            /**
+             * N 20
+             * @default 0
+             */
+            n_20: number;
+            /** Hit Rate 20 */
+            hit_rate_20?: number | null;
+            /** Avg 20 */
+            avg_20?: number | null;
+            /** Median 20 */
+            median_20?: number | null;
+            /**
+             * Insufficient Sample
+             * @default true
+             */
+            insufficient_sample: boolean;
+        };
+        /**
+         * MomentumRow
+         * @description One Momentum-scanner candidate (parity port of the old /api/screener/momentum row; NULL stays NULL).
+         */
+        MomentumRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /**
+             * Trigger Date
+             * @description Latest session in the lookback on which every trigger condition held
+             */
+            trigger_date?: string | null;
+            /**
+             * Bucket
+             * @description Coil bucket by % above the 10 EMA
+             */
+            bucket?: ("0_2%" | "2_5%" | "5_10%" | "10%+" | "Below 10EMA") | null;
+            /** Bucket Rank */
+            bucket_rank?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Change 1D Pct */
+            change_1d_pct?: number | null;
+            /** Return 5D Pct */
+            return_5d_pct?: number | null;
+            /** Return 1M Pct */
+            return_1m_pct?: number | null;
+            /** Return 3M Pct */
+            return_3m_pct?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Away 10Ema Pct */
+            away_10ema_pct?: number | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Away 52W Low Pct */
+            away_52w_low_pct?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Avg Volume 20D */
+            avg_volume_20d?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /**
+             * Bullish Stack
+             * @description 10 > 20 > 50 > 200 EMA; NULL when any EMA is missing
+             */
+            bullish_stack?: boolean | null;
+            /**
+             * Delivery Spike
+             * @description Delivery spike today or on a trigger session
+             */
+            delivery_spike?: boolean | null;
+            /**
+             * Coiling
+             * @description NR7 or inside bar today
+             */
+            coiling?: boolean | null;
+            /**
+             * Is New
+             * @description Listed today but not on the previous session
+             */
+            is_new?: boolean | null;
+            /** Data Warning */
+            data_warning?: string | null;
         };
         /** NextEvent */
         NextEvent: {
@@ -4831,6 +5027,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_ScreenerRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    screener_momentum_api_v2_screener_momentum_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Trigger lookback in sessions (UI: 1, 3, 5, 10, 20, 30) */
+                lookback_days?: number;
+                /** @description Minimum market cap, ₹ Cr (0 = off) */
+                min_mcap_cr?: number;
+                /** @description Day-volume gate on the trigger session (0 = off) */
+                min_volume?: number;
+                /** @description 20D-average volume gate (used when min_volume is 0) */
+                min_avg_volume_20d?: number;
+                /** @description Max % below the 52W high (>= 99 = off) */
+                max_52w_away_pct?: number;
+                /** @description Min % above the 52W low (0 = off) */
+                min_52w_low_pct?: number;
+                cmp_gt_10?: boolean;
+                cmp_gt_200?: boolean;
+                ohlc_gt_10?: boolean;
+                ohlc_gt_20?: boolean;
+                ema10_gt_20?: boolean;
+                ema20_gt_50?: boolean;
+                ema50_gt_100?: boolean;
+                ema100_gt_200?: boolean;
+                sma50_gt_150?: boolean;
+                sma150_gt_200?: boolean;
+                sma_cmp_gt_50?: boolean;
+                sma_cmp_gt_150_200?: boolean;
+                sma200_rising?: boolean;
+                delivery_thrust?: boolean;
+                coiling_nr7?: boolean;
+                weekly_rsi_60?: boolean;
+                /** @description Restrict to one symbol and explain each condition */
+                debug_symbol?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_MomentumRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    screener_momentum_evidence_api_v2_screener_momentum_evidence_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_MomentumEvidenceRow_"];
                 };
             };
             /** @description Validation Error */

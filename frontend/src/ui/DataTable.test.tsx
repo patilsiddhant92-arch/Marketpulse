@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import { DASH } from '../lib/fmt';
-import { DataTable, compareValues, normalizeCellValue, type DataTableColumn } from './DataTable';
+import { DataTable, compareValues, groupRows, normalizeCellValue, type DataTableColumn } from './DataTable';
 
 type Row = { symbol: string; rs: number | null; chg: number | null };
 
@@ -179,5 +179,46 @@ describe('DataTable design helpers', () => {
     expect(heatStyle(1)?.backgroundColor).toBe('rgb(var(--c-up) / 0.250)');
     expect(heatStyle(-0.5)?.backgroundColor).toBe('rgb(var(--c-down) / 0.150)');
     expect(heatStyle(-3)?.backgroundColor).toBe('rgb(var(--c-down) / 0.250)');
+  });
+});
+
+describe('DataTable groupBy', () => {
+  it('puts rows under group header rows in group order and sorts within groups', () => {
+    wrap(
+      <DataTable<Row>
+        label="grouped"
+        columns={columns}
+        rows={rows}
+        getRowId={(r) => r.symbol}
+        groupBy={{
+          key: (r) => ((r.rs ?? 0) >= 50 ? 'strong' : 'weak'),
+          order: ['strong', 'weak'],
+          header: (k, list) => `${k} (${list.length})`,
+        }}
+      />,
+    );
+    const table = screen.getByRole('grid');
+    const texts = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => r.textContent ?? '');
+    expect(texts[0]).toBe('strong (2)');
+    expect(texts[1].startsWith('HAL')).toBe(true);
+    expect(texts[2].startsWith('ABB')).toBe(true);
+    expect(texts[3]).toBe('weak (2)');
+    fireEvent.click(screen.getByRole('button', { name: /Strength/ }));
+    const after = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => (r.textContent ?? '').slice(0, 4));
+    // Sorted by strength (desc first) inside each group; groups keep their order.
+    expect(after).toEqual(['stro', 'HAL9', 'ABB5', 'weak', 'ZEEL', 'BEL—']);
+  });
+
+  it('groupRows is a stable partition in the given order', () => {
+    expect(groupRows([1, 2, 3, 4, 5], (n) => (n % 2 ? 'odd' : 'even'), ['even', 'odd'])).toEqual([
+      { key: 'even', rows: [2, 4] },
+      { key: 'odd', rows: [1, 3, 5] },
+    ]);
   });
 });

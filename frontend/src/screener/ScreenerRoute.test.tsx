@@ -112,7 +112,7 @@ describe('ScreenerRoute', () => {
         return new Response('', { status: 404 });
       }),
     );
-    const router = createMemoryRouter(routes, { initialEntries: ['/screener?as_of=2026-09-25'] });
+    const router = createMemoryRouter(routes, { initialEntries: ['/screener?mode=presets&as_of=2026-09-25'] });
     render(<App router={router} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
 
     expect(await screen.findByRole('tab', { name: 'Minervini 8/8' })).toHaveAttribute('aria-selected', 'true');

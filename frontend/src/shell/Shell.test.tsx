@@ -192,8 +192,10 @@ describe('Shell', () => {
     renderApp('/screener?as_of=2026-03-12');
     expect(await screen.findByText('History mode')).toBeInTheDocument();
     await waitFor(() => expect(fetchFn).toHaveBeenCalledWith('/api/v2/market/regime?as_of=2026-03-12', expect.anything()));
-    // The rebuilt Screener asks for its presets (no as_of: presets are date-free).
-    await waitFor(() => expect(fetchFn).toHaveBeenCalledWith('/api/v2/screener/presets', expect.anything()));
+    // The Screener opens on Momentum, whose scan is bounded by as_of.
+    await waitFor(() =>
+      expect(fetchFn.mock.calls.some(([u]) => String(u).startsWith('/api/v2/screener/momentum?') && String(u).includes('as_of=2026-03-12'))).toBe(true),
+    );
     // Tab links keep as_of.
     expect(screen.getByRole('link', { name: /Deals/ })).toHaveAttribute('href', '/deals?as_of=2026-03-12');
   });

@@ -1217,6 +1217,387 @@
         }
       }
     },
+    "/api/v2/screener/momentum": {
+      "get": {
+        "summary": "Screener Momentum",
+        "description": "Momentum scanner (parity with the old /api/screener/momentum): trigger conditions on any of the last `lookback_days` sessions, current conditions on as_of, coil buckets, leaders, TradingView strings in meta.context.",
+        "operationId": "screener_momentum_api_v2_screener_momentum_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "lookback_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "Trigger lookback in sessions (UI: 1, 3, 5, 10, 20, 30)",
+              "default": 20,
+              "title": "Lookback Days"
+            },
+            "description": "Trigger lookback in sessions (UI: 1, 3, 5, 10, 20, 30)"
+          },
+          {
+            "name": "min_mcap_cr",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Minimum market cap, ₹ Cr (0 = off)",
+              "default": 1000.0,
+              "title": "Min Mcap Cr"
+            },
+            "description": "Minimum market cap, ₹ Cr (0 = off)"
+          },
+          {
+            "name": "min_volume",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Day-volume gate on the trigger session (0 = off)",
+              "default": 1000000.0,
+              "title": "Min Volume"
+            },
+            "description": "Day-volume gate on the trigger session (0 = off)"
+          },
+          {
+            "name": "min_avg_volume_20d",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "20D-average volume gate (used when min_volume is 0)",
+              "default": 0.0,
+              "title": "Min Avg Volume 20D"
+            },
+            "description": "20D-average volume gate (used when min_volume is 0)"
+          },
+          {
+            "name": "max_52w_away_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Max % below the 52W high (>= 99 = off)",
+              "default": 25.0,
+              "title": "Max 52W Away Pct"
+            },
+            "description": "Max % below the 52W high (>= 99 = off)"
+          },
+          {
+            "name": "min_52w_low_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Min % above the 52W low (0 = off)",
+              "default": 50.0,
+              "title": "Min 52W Low Pct"
+            },
+            "description": "Min % above the 52W low (0 = off)"
+          },
+          {
+            "name": "cmp_gt_10",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Cmp Gt 10"
+            }
+          },
+          {
+            "name": "cmp_gt_200",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Cmp Gt 200"
+            }
+          },
+          {
+            "name": "ohlc_gt_10",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Ohlc Gt 10"
+            }
+          },
+          {
+            "name": "ohlc_gt_20",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Ohlc Gt 20"
+            }
+          },
+          {
+            "name": "ema10_gt_20",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Ema10 Gt 20"
+            }
+          },
+          {
+            "name": "ema20_gt_50",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Ema20 Gt 50"
+            }
+          },
+          {
+            "name": "ema50_gt_100",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Ema50 Gt 100"
+            }
+          },
+          {
+            "name": "ema100_gt_200",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Ema100 Gt 200"
+            }
+          },
+          {
+            "name": "sma50_gt_150",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Sma50 Gt 150"
+            }
+          },
+          {
+            "name": "sma150_gt_200",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Sma150 Gt 200"
+            }
+          },
+          {
+            "name": "sma_cmp_gt_50",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Sma Cmp Gt 50"
+            }
+          },
+          {
+            "name": "sma_cmp_gt_150_200",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Sma Cmp Gt 150 200"
+            }
+          },
+          {
+            "name": "sma200_rising",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Sma200 Rising"
+            }
+          },
+          {
+            "name": "delivery_thrust",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Delivery Thrust"
+            }
+          },
+          {
+            "name": "coiling_nr7",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Coiling Nr7"
+            }
+          },
+          {
+            "name": "weekly_rsi_60",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Weekly Rsi 60"
+            }
+          },
+          {
+            "name": "debug_symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to one symbol and explain each condition",
+              "title": "Debug Symbol"
+            },
+            "description": "Restrict to one symbol and explain each condition"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_MomentumRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/screener/momentum/evidence": {
+      "get": {
+        "summary": "Screener Momentum Evidence",
+        "description": "Forward 5/10/20-session returns and hit rate per coil bucket for past Momentum-scanner hits (default settings, 5 years, point-in-time; cached per database file).",
+        "operationId": "screener_momentum_evidence_api_v2_screener_momentum_evidence_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_MomentumEvidenceRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/screener/debug": {
       "get": {
         "summary": "Screener Debug",
@@ -8929,6 +9310,98 @@
         ],
         "title": "Envelope[MetricEntry]"
       },
+      "Envelope_MomentumEvidenceRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/MomentumEvidenceRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[MomentumEvidenceRow]"
+      },
+      "Envelope_MomentumRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/MomentumRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[MomentumRow]"
+      },
       "Envelope_Note_": {
         "properties": {
           "as_of": {
@@ -12743,6 +13216,490 @@
           "label"
         ],
         "title": "MetricZone"
+      },
+      "MomentumEvidenceRow": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "sessions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions"
+          },
+          "stocks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stocks"
+          },
+          "n_5": {
+            "type": "integer",
+            "title": "N 5",
+            "default": 0
+          },
+          "hit_rate_5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate 5"
+          },
+          "avg_5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg 5"
+          },
+          "median_5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median 5"
+          },
+          "n_10": {
+            "type": "integer",
+            "title": "N 10",
+            "default": 0
+          },
+          "hit_rate_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate 10"
+          },
+          "avg_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg 10"
+          },
+          "median_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median 10"
+          },
+          "n_20": {
+            "type": "integer",
+            "title": "N 20",
+            "default": 0
+          },
+          "hit_rate_20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate 20"
+          },
+          "avg_20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg 20"
+          },
+          "median_20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median 20"
+          },
+          "insufficient_sample": {
+            "type": "boolean",
+            "title": "Insufficient Sample",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket"
+        ],
+        "title": "MomentumEvidenceRow",
+        "description": "Forward returns of past Momentum-scanner hits (default settings) per coil bucket."
+      },
+      "MomentumRow": {
+        "properties": {
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "security_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Name"
+          },
+          "broad_sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broad Sector"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "broad_industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broad Industry"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "trigger_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Date",
+            "description": "Latest session in the lookback on which every trigger condition held"
+          },
+          "bucket": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "0_2%",
+                  "2_5%",
+                  "5_10%",
+                  "10%+",
+                  "Below 10EMA"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bucket",
+            "description": "Coil bucket by % above the 10 EMA"
+          },
+          "bucket_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bucket Rank"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "change_1d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change 1D Pct"
+          },
+          "return_5d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 5D Pct"
+          },
+          "return_1m_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 1M Pct"
+          },
+          "return_3m_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 3M Pct"
+          },
+          "rs_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Percentile"
+          },
+          "away_10ema_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 10Ema Pct"
+          },
+          "away_52w_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W High Pct"
+          },
+          "away_52w_low_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W Low Pct"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          },
+          "avg_volume_20d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Volume 20D"
+          },
+          "rvol": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rvol"
+          },
+          "delivery_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Pct"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          },
+          "bullish_stack": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bullish Stack",
+            "description": "10 > 20 > 50 > 200 EMA; NULL when any EMA is missing"
+          },
+          "delivery_spike": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Spike",
+            "description": "Delivery spike today or on a trigger session"
+          },
+          "coiling": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coiling",
+            "description": "NR7 or inside bar today"
+          },
+          "is_new": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is New",
+            "description": "Listed today but not on the previous session"
+          },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning"
+          }
+        },
+        "type": "object",
+        "title": "MomentumRow",
+        "description": "One Momentum-scanner candidate (parity port of the old /api/screener/momentum row; NULL stays NULL)."
       },
       "NextEvent": {
         "properties": {

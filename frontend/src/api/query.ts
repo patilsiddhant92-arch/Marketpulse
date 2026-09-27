@@ -8,7 +8,7 @@
  * - Retry: never on 4xx; 503 honours Retry-After; network errors back off.
  * - Abort: TanStack passes an AbortSignal; unmount/re-key cancels in flight.
  */
-import { QueryClient, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, QueryClient, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiGet, isApiError, type PathParams } from './client';
 import type { EndpointMap, Envelope } from './types';
 import { useAsOf } from '../shell/urlState';
@@ -63,6 +63,8 @@ export type ApiQueryOptions = {
   staleTime?: number;
   /** Override the URL as_of: a date, null (= latest), or false (never send). */
   asOf?: string | null | false;
+  /** Keep showing the previous result while a re-keyed query loads (filter changes). */
+  keepPrevious?: boolean;
 };
 
 /** Stable query key: ['v2', endpoint, pathParams, {…query, as_of}]. */
@@ -83,5 +85,6 @@ export function useApiQuery<P extends keyof EndpointMap>(
     queryFn: ({ signal }) => apiGet(endpoint, { params: args.params, query }, { signal }),
     enabled: options.enabled ?? true,
     staleTime: options.staleTime,
+    ...(options.keepPrevious ? { placeholderData: keepPreviousData } : {}),
   });
 }

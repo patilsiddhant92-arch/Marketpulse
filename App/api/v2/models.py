@@ -284,6 +284,61 @@ class DebugRow(BaseModel):
     detail: Optional[str] = None
 
 
+class MomentumRow(BaseModel):
+    """One Momentum-scanner candidate (parity port of the old /api/screener/momentum row; NULL stays NULL)."""
+
+    symbol: Optional[str] = None
+    security_name: Optional[str] = None
+    broad_sector: Optional[str] = None
+    sector: Optional[str] = None
+    broad_industry: Optional[str] = None
+    industry: Optional[str] = None
+    trigger_date: Optional[date] = Field(None, description="Latest session in the lookback on which every trigger condition held")
+    bucket: Optional[Literal["0_2%", "2_5%", "5_10%", "10%+", "Below 10EMA"]] = Field(
+        None, description="Coil bucket by % above the 10 EMA")
+    bucket_rank: Optional[int] = None
+    close: Optional[float] = None
+    change_1d_pct: Optional[float] = None
+    return_5d_pct: Optional[float] = None
+    return_1m_pct: Optional[float] = None
+    return_3m_pct: Optional[float] = None
+    rs_percentile: Optional[float] = None
+    away_10ema_pct: Optional[float] = None
+    away_52w_high_pct: Optional[float] = None
+    away_52w_low_pct: Optional[float] = None
+    volume: Optional[int] = None
+    avg_volume_20d: Optional[int] = None
+    rvol: Optional[float] = None
+    delivery_pct: Optional[float] = None
+    market_cap_cr: Optional[float] = None
+    bullish_stack: Optional[bool] = Field(None, description="10 > 20 > 50 > 200 EMA; NULL when any EMA is missing")
+    delivery_spike: Optional[bool] = Field(None, description="Delivery spike today or on a trigger session")
+    coiling: Optional[bool] = Field(None, description="NR7 or inside bar today")
+    is_new: Optional[bool] = Field(None, description="Listed today but not on the previous session")
+    data_warning: Optional[str] = None
+
+
+class MomentumEvidenceRow(BaseModel):
+    """Forward returns of past Momentum-scanner hits (default settings) per coil bucket."""
+
+    bucket: str
+    sessions: Optional[int] = None
+    stocks: Optional[int] = None
+    n_5: int = 0
+    hit_rate_5: Optional[float] = None
+    avg_5: Optional[float] = None
+    median_5: Optional[float] = None
+    n_10: int = 0
+    hit_rate_10: Optional[float] = None
+    avg_10: Optional[float] = None
+    median_10: Optional[float] = None
+    n_20: int = 0
+    hit_rate_20: Optional[float] = None
+    avg_20: Optional[float] = None
+    median_20: Optional[float] = None
+    insufficient_sample: bool = True
+
+
 # --------------------------------------------------------------------------
 # Groups
 # --------------------------------------------------------------------------
