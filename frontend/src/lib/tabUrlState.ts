@@ -46,11 +46,13 @@ function sameParams(a: TabParams, b: TabParams): boolean {
 export function useTabUrlState<D extends TabParams>(
   tabPath: string,
   defaults: D,
+  /** Separate localStorage slot when one tab keeps several independent param sets (disjoint keys). */
+  storageSuffix?: string,
 ): [D, (patch: Partial<Record<keyof D, string | null>>) => void, boolean] {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const active = location.pathname === tabPath || location.pathname.startsWith(`${tabPath}/`);
-  const storageKey = `mp.tabstate${tabPath}`;
+  const storageKey = `mp.tabstate${tabPath}${storageSuffix ? `:${storageSuffix}` : ''}`;
   const defaultsRef = useRef(defaults);
   const [state, setState] = useState<D>(() => {
     const stored = readJSON<Partial<D>>(storageKey, {});
