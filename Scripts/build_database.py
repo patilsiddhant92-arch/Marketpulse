@@ -658,69 +658,28 @@ def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
     return _higher_timeframe_features(_daily_symbol_features(group))
 
 
-# Daily columns whose value depends on the symbol's WHOLE history (recursive EMA / Wilder
-# smoothing, a running max, swing points found arbitrarily far back). Every other daily column
-# only looks back a bounded number of rows (at most 252 + 20, see DAILY_LOOKBACK_ROWS).
-UNBOUNDED_DAILY_COLUMNS = (
-    *[f"ema_{w}" for w in EMA_WINDOWS],
-    "rsi_14",
-    "bullish_rsi_divergence",
-    "bearish_rsi_divergence",
-    "atr_14_wilder",
-    "database_high",
-)
-# Rows a bounded daily column needs before a row for its value to equal the full-history value
-# (high/low_252d and return_12m_pct: 252; sma_200_rising: 200 + 20) - with margin.
+# Rows of trailing history the incremental append loads per symbol for the RS rank inputs
+# (the 40/20/20/20 quarterly mix looks back 252 rows) - with margin.
 DAILY_LOOKBACK_ROWS = 300
 
 
-def _unbounded_daily_series(frame: pd.DataFrame) -> dict[str, pd.Series]:
-    """The UNBOUNDED_DAILY_COLUMNS of one symbol, computed over ``frame`` (sorted by date)."""
-    close = frame["close_price"]
-    high = frame["high_price"]
-    low = frame["low_price"]
-    out: dict[str, pd.Series] = {f"ema_{window}": ema(close, span=window) for window in EMA_WINDOWS}
-    out["rsi_14"] = rsi_wilder(close)
-    out["bullish_rsi_divergence"], out["bearish_rsi_divergence"] = rsi_divergence_flags(close, out["rsi_14"])
-    out["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
-    out["database_high"] = high.cummax()
-    return out
-
-
-def _daily_symbol_features(group: pd.DataFrame, history: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Daily-bar indicator columns of one symbol (first half of the per-symbol pass).
-
-    ``history`` (incremental append) is the symbol's full adjusted OHLC history whose last rows
-    are ``group`` (a trailing window of at least DAILY_LOOKBACK_ROWS rows before the rows that
-    will be kept): the UNBOUNDED_DAILY_COLUMNS are then computed over the full history - same
-    functions, same inputs, so the same values - and every bounded column over the window.
-    """
+def _daily_symbol_features(group: pd.DataFrame) -> pd.DataFrame:
+    """Daily-bar indicator columns of one symbol (first half of the per-symbol pass)."""
     g = group.copy().sort_values("trade_date")
     close = g["close_price"]
     high = g["high_price"]
     low = g["low_price"]
     prev_close = close.shift(1)
-    if history is None:
-        unbounded = _unbounded_daily_series(g)
-    else:
-        hist = history.sort_values("trade_date")
-        n = len(g)
-        if len(hist) < n or not np.array_equal(
-            pd.to_datetime(hist["trade_date"].iloc[-n:]).to_numpy("datetime64[us]"),
-            pd.to_datetime(g["trade_date"]).to_numpy("datetime64[us]"),
-        ):
-            raise ValueError("history does not end with the window rows")
-        unbounded = {k: pd.Series(v.iloc[-n:].to_numpy(), index=g.index, name=v.name) for k, v in _unbounded_daily_series(hist).items()}
     for window in EMA_WINDOWS:
-        g[f"ema_{window}"] = unbounded[f"ema_{window}"]
+        g[f"ema_{window}"] = ema(close, span=window)
     g["sma_50"] = sma(close, 50)
     g["sma_150"] = sma(close, 150)
     g["sma_200"] = sma(close, 200)
     g["sma_200_rising"] = g["sma_200"] > g["sma_200"].shift(20)
     for name, window in RETURN_WINDOWS.items():
         g[name] = (close / close.shift(window) - 1) * 100
-    g["rsi_14"] = unbounded["rsi_14"]
-    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = unbounded["bullish_rsi_divergence"], unbounded["bearish_rsi_divergence"]
+    g["rsi_14"] = rsi_wilder(close)
+    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = rsi_divergence_flags(close, g["rsi_14"])
     g["avg_volume_5d"] = g["volume"].rolling(5, min_periods=3).mean()
     g["avg_volume_10d"] = g["volume"].rolling(10, min_periods=3).mean()
     g["avg_volume_20d"] = g["volume"].rolling(20, min_periods=5).mean()
@@ -735,7 +694,7 @@ def _daily_symbol_features(group: pd.DataFrame, history: pd.DataFrame | None = N
     g["atr_14"] = atr_sma(high, low, close, period=14)
     g["atr_pct"] = g["atr_14"] / close * 100
     g["adr_20_pct"] = adr_pct(high, low, window=20)
-    g["atr_14_wilder"] = unbounded["atr_14_wilder"]
+    g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
     g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
     # Primary risk volatility uses the standard Wilder smoothing. Keep
     # legacy ``atr_pct`` intact for compatibility with older snapshots.
@@ -757,7 +716,7 @@ def _daily_symbol_features(group: pd.DataFrame, history: pd.DataFrame | None = N
         g[f"high_{window}d"] = high.rolling(window, min_periods=3).max()
         g[f"low_{window}d"] = low.rolling(window, min_periods=3).min()
         g[f"range_{window}d_pct"] = (g[f"high_{window}d"] - g[f"low_{window}d"]) / close * 100
-    g["database_high"] = unbounded["database_high"]
+    g["database_high"] = high.cummax()
     g["ema_200_rising"] = g["ema_200"] > g["ema_200"].shift(20)
     g["away_10ema_pct"] = (close / g["ema_10"] - 1) * 100
     g["away_20ema_pct"] = (close / g["ema_20"] - 1) * 100
@@ -791,15 +750,9 @@ def _daily_symbol_features(group: pd.DataFrame, history: pd.DataFrame | None = N
     return g.copy()
 
 
-def _higher_timeframe_features(g: pd.DataFrame, bars: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Weekly / monthly columns for the rows of ``g`` (second half of the per-symbol pass).
-
-    ``bars`` is the symbol's daily history the weekly/monthly bars are resampled from; it
-    defaults to ``g`` itself (full build). The incremental append passes the full slim OHLCV
-    history while ``g`` holds only the recomputed tail rows: every value written onto a row is
-    looked up by that row's own date, so it is the same as a full-history computation.
-    """
-    bars = g if bars is None else bars
+def _higher_timeframe_features(g: pd.DataFrame) -> pd.DataFrame:
+    """Weekly / monthly columns for the rows of ``g`` (second half of the per-symbol pass)."""
+    bars = g
     close = g["close_price"]
     weekly_features = resampled_timeframe_features(bars, "W-FRI")
     monthly_features = resampled_timeframe_features(bars, "ME")
@@ -1120,6 +1073,7 @@ def calc_indicators(
     rank_columns: pd.DataFrame | None = None,
     index_raw: pd.DataFrame | None = None,
     membership: pd.DataFrame | None = None,
+    benchmark_columns: pd.DataFrame | None = None,
     quiet: bool = False,
 ) -> pd.DataFrame:
     """Every indicators_daily column for `prices` (indicator input, i.e. adjusted OHLCV).
@@ -1127,6 +1081,8 @@ def calc_indicators(
     The streaming full build / incremental append call this per symbol batch with
     `per_symbol` (step 5a already done), `rank_columns` (the cross-sectional RS columns computed
     over all symbols, aligned to `per_symbol` rows) and preloaded `index_raw` / `membership`.
+    The incremental append also passes `benchmark_columns` (steps 5c+/5c++ computed over each
+    symbol's full history, aligned to the kept rows).
     """
     indicators = per_symbol_indicators(prices) if per_symbol is None else per_symbol
     if not quiet:
@@ -1143,7 +1099,11 @@ def calc_indicators(
 
     if not quiet:
         print("  5c+/8: Computing true RS vs index benches and mapped sector-index RS...", flush=True)
-    indicators = attach_benchmark_rs(indicators, index_raw, membership)
+    if benchmark_columns is None:
+        indicators = attach_benchmark_rs(indicators, index_raw, membership)
+    else:
+        for col in benchmark_columns.columns:
+            indicators[col] = benchmark_columns[col].to_numpy()
 
     if not quiet:
         print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)

@@ -26,7 +26,13 @@ LAST = None  # set per test
 def sandbox(tmp_path, monkeypatch):
     monkeypatch.setenv("MP_DISABLE_MULTIPROCESSING", "1")
     empty = pd.DataFrame()
-    no_index = pd.DataFrame(columns=["index_name", "trade_date", "close_price"])
+    # benches for true RS (21/63-session excess returns need the rows before the rewrite)
+    days = pd.bdate_range("2023-11-01", periods=480)
+    rng = np.random.default_rng(3)
+    no_index = pd.concat([
+        pd.DataFrame({"index_name": name, "trade_date": days, "close_price": 1000 * np.exp(np.cumsum(rng.normal(0, 0.01, len(days))))})
+        for name in ("Nifty 50", "NIFTY MIDSML 400")
+    ], ignore_index=True)
     master_sector = pd.DataFrame({
         "symbol": [f"S{i:02d}" for i in range(7)],
         "broad_sector": ["A", "A", "B", "B", "C", "C", "C"],
@@ -181,6 +187,22 @@ def test_old_schema_requires_full_recompute(sandbox):
 
 
 def test_month_window_start():
-    assert ia.month_window_start(pd.Timestamp("2026-09-25")) == pd.Timestamp("2026-09-01")
+    # previous calendar month-end (the monthly bar label rows of that day map to)
+    assert ia.month_window_start(pd.Timestamp("2026-09-25")) == pd.Timestamp("2026-08-31")
     # first session of a month: the previous week (a holiday Friday completes late) is included
     assert ia.month_window_start(pd.Timestamp("2026-10-01")) == pd.Timestamp("2026-09-21")
+
+
+def test_rewrite_starts_follow_each_symbols_previous_bars(tmp_path):
+    con = duckdb.connect()
+    days = pd.bdate_range("2026-06-01", "2026-09-24")
+    rows = [("LIQ", d) for d in days]
+    # ILLIQ last traded in July (Tue 14th and Fri 24th): its previous weekly bar is the week of
+    # 14 July, its previous monthly bar is June
+    rows += [("ILLIQ", pd.Timestamp(d)) for d in ("2026-06-10", "2026-07-14", "2026-07-24")]
+    con.register("r", pd.DataFrame(rows, columns=["symbol", "trade_date"]))
+    con.execute("CREATE TABLE prices_daily AS SELECT symbol, CAST(trade_date AS TIMESTAMP) AS trade_date FROM r")
+    starts = ia.rewrite_starts(con, ["LIQ", "ILLIQ", "NEWCO"], pd.Timestamp("2026-09-25"))
+    assert starts["LIQ"] == pd.Timestamp("2026-08-31")      # prev month-end (a Monday session)
+    assert starts["ILLIQ"] == pd.Timestamp("2026-06-30")    # prev trading month June
+    assert starts["NEWCO"] == pd.Timestamp("2026-09-25")

@@ -239,26 +239,26 @@ def compute_indicator_batch(task: dict) -> pd.DataFrame:
     task keys: ``input`` (indicator input rows of the batch, (symbol, trade_date) order),
     ``ranks`` (RANK_COLUMNS + symbol/trade_date for the rows kept), ``reference`` (as-of 52W
     source for these symbols, or None to use the context enrichment), and for the incremental
-    append ``bars`` ({symbol: full slim adjusted OHLCV history}) and ``keep_from`` ({symbol:
-    first trade_date to keep}).
+    append ``keep_from`` ({symbol: first trade_date to rewrite}).
     """
     import build_database as bd
 
     frame: pd.DataFrame = task["input"]
-    bars_by_symbol = task.get("bars")
-    keep_from = task.get("keep_from") or {}
-    parts = []
-    for symbol, group in frame.groupby("symbol", sort=False):
-        if bars_by_symbol is None:
-            parts.append(bd._calc_single_symbol_indicators(group))
-            continue
-        # Incremental append: `group` is a trailing window, `bars` the full slim history.
-        history = bars_by_symbol[symbol]
-        daily = bd._daily_symbol_features(group, history=history)
-        start = keep_from.get(symbol)
-        if start is not None:
-            daily = daily[daily["trade_date"] >= start]
-        parts.append(bd._higher_timeframe_features(daily, history))
+    keep_from = task.get("keep_from")
+    parts = [bd._calc_single_symbol_indicators(group) for _, group in frame.groupby("symbol", sort=False)]
+    benchmark = None
+    if keep_from is not None:
+        # Incremental append: `input` is each symbol's FULL history (the per-symbol pass costs
+        # about the same for 300 or 1,700 rows, and the full history makes every column
+        # bit-identical to the full build). Benchmark RS needs the prior rows too (21/63-session
+        # returns), so it runs on the full rows as well; then only the rows to rewrite are kept.
+        full = pd.concat(parts, ignore_index=True)
+        base_cols = ["symbol", "trade_date", "close_price"]
+        bench = bd.attach_benchmark_rs(full[base_cols].copy(), _CTX.get("index_raw"), _CTX.get("membership"))
+        start = full["symbol"].map(keep_from)
+        keep = (full["trade_date"] >= start).to_numpy()
+        benchmark = bench.loc[keep, [c for c in bench.columns if c not in base_cols]].reset_index(drop=True)
+        parts = [full.loc[keep].reset_index(drop=True)]
     per_symbol = pd.concat(parts, ignore_index=True)
     reference = task.get("reference")
     if reference is None:
@@ -279,6 +279,7 @@ def compute_indicator_batch(task: dict) -> pd.DataFrame:
         rank_columns=ranks.reset_index(drop=True),
         index_raw=_CTX.get("index_raw"),
         membership=_CTX.get("membership"),
+        benchmark_columns=benchmark,
         quiet=True,
     )
 

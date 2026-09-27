@@ -11,11 +11,10 @@ touches what the new session(s) can change:
   Every daily column is causal EXCEPT the swing-point RSI divergence flags (daily, weekly,
   monthly: a swing at t needs bar t+1) and the completed-week wema_20 (a week whose Friday is a
   holiday completes only when the next session arrives), so ``rewrite_start`` goes back to the
-  start of the calendar month / previous week of the first new session. The rows are computed
-  by the same code as the full build on a trailing window of DAILY_LOOKBACK_ROWS (300) rows,
-  with the whole-history columns (EMAs, Wilder RSI/ATR, swing points, running high, weekly and
-  monthly bars) computed over the symbol's full slim OHLC history. Factor-changed symbols are
-  recomputed over their full history.
+  start of the calendar month / previous week of the first new session. The per-symbol pass
+  runs over the symbol's full history with exactly the full-build code (its cost is almost
+  independent of the row count, and only the full history reproduces the rolling-mean
+  summation residue bit for bit - a trailing window flips e.g. sma_200_rising of flat ETFs).
 * cross-sectional RS ranks - computed for every date from ``recompute_from`` (normally the
   first new session) over all symbols trading that day; ranks of older rows are unchanged and
   reused (they only feed the rs_rank_t5/15/30 lags).
@@ -77,6 +76,10 @@ ROTATION_GROUP_ROWS = 25
 # sector_metrics: return_21d/63d are row shifts within each symbol.
 METRICS_LOOKBACK_ROWS = 70
 LEADER_MIN_CAP_CR = 1000.0
+# Rows (of full history) per per-symbol batch, and worker processes for the append. The append's
+# batches are small, so it can use more workers than the full build within the same memory.
+BATCH_ROWS = 20000
+APPEND_WORKERS = int(__import__("os").environ.get("MP_APPEND_WORKERS", "6") or 6)
 TAXONOMY_COLUMNS = ("broad_sector", "sector", "broad_industry", "industry")
 REFERENCE_COMPARE_COLUMNS = ("high_52w", "low_52w", "high_52w_date", "band_remarks", "market_cap_cr")
 RAW_PRICE_COLUMNS = (
@@ -89,6 +92,20 @@ RANK_PERCENTILE_COLUMNS = ("rs_percentile_primary", "rs_percentile_ipo", "rs_1y_
 
 # keep_from for a symbol recomputed over its whole history
 KEEP_ALL = pd.Timestamp("1900-01-01")
+
+
+class _Stopwatch:
+    """Prints the time since the previous mark (step timings of an append)."""
+
+    def __init__(self, quiet: bool):
+        self.quiet = quiet
+        self.t = time.perf_counter()
+
+    def __call__(self, label: str) -> None:
+        now = time.perf_counter()
+        if not self.quiet:
+            print(f"    - {label}: {now - self.t:.1f}s", flush=True)
+        self.t = now
 
 
 class FullRecomputeRequired(RuntimeError):
@@ -160,7 +177,7 @@ def _apply_symbol_changes_to_new(con, new_prices: pd.DataFrame) -> tuple[pd.Data
     stored = match_datetime_units(stored, new_prices["trade_date"].dtype)
     stored["_stored"] = True
     stored["_orig_symbol"] = stored["symbol"]
-    fresh = new_prices.copy()
+    fresh = new_prices[new_prices["symbol"].isin(involved)].copy()
     fresh["_stored"] = False
     fresh["_orig_symbol"] = fresh["symbol"]
     merged = pd.concat([stored, fresh], ignore_index=True)
@@ -177,6 +194,8 @@ def _apply_symbol_changes_to_new(con, new_prices: pd.DataFrame) -> tuple[pd.Data
     others = new_prices[~new_prices["symbol"].isin(involved)]
     new_rows = pd.concat([others, new_involved], ignore_index=True)
     new_rows = new_rows.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
+    if new_rows.duplicated(["symbol", "trade_date"]).any():
+        raise RuntimeError("new session rows are not unique per (symbol, trade_date) after symbol changes")
     return new_rows, moved
 
 
@@ -275,13 +294,60 @@ def _sessions_between(con, start: pd.Timestamp, end: pd.Timestamp) -> int:
 
 
 def month_window_start(first_new: pd.Timestamp) -> pd.Timestamp:
-    """First date whose stored indicator row a session on ``first_new`` can change: the swing
-    flags of the monthly bar before the current month (read by every row of the current month),
-    of the weekly bar before the current week, and a holiday-shortened previous week that only
-    completes now (wema_20)."""
+    """Earliest date a session on ``first_new`` can change for a symbol that traded every
+    session: the previous calendar month-end (its monthly bar label; the swing flags of that bar
+    need the current month's bar) and the Monday of the previous week (weekly swing flags, a
+    holiday-shortened week completing late for wema_20). ``rewrite_starts`` generalises this
+    per symbol for symbols with gaps."""
     month_start = first_new.replace(day=1)
     week_start = first_new - pd.Timedelta(days=first_new.weekday())
-    return min(month_start, week_start - pd.Timedelta(days=7))
+    return min(month_start - pd.Timedelta(days=1), week_start - pd.Timedelta(days=7))
+
+
+def rewrite_starts(con, symbols: list[str], recompute_from: pd.Timestamp) -> dict[str, pd.Timestamp]:
+    """Per symbol with new rows: the first stored row whose value the new sessions can change.
+
+    The only non-causal columns are the swing-point flags (daily/weekly/monthly RSI
+    divergence: a swing at bar t needs bar t+1) and wema_20 (a week completes when a session
+    on/after its calendar Friday exists). New rows extend or add the symbol's LAST weekly and
+    monthly bar, so the rows that can change are those mapped (as-of) to the bar BEFORE the last
+    one - i.e. every row on/after the label of the symbol's previous trading week (its Friday)
+    and previous trading month (its calendar month-end) - plus the last row (daily swing).
+    A symbol without such a previous bar is rewritten from its first row.
+    """
+    if not symbols:
+        return {}
+    con.register("_new_syms", pd.DataFrame({"symbol": symbols}))
+    try:
+        rows = con.execute(
+            """
+            WITH p AS (
+                SELECT p.symbol, CAST(p.trade_date AS DATE) AS d,
+                       CAST(p.trade_date AS DATE) + to_days(CAST((5 - isodow(p.trade_date) + 7) % 7 AS INTEGER)) AS fri,
+                       date_trunc('month', p.trade_date) AS mon
+                FROM prices_daily p JOIN _new_syms USING (symbol)
+            ), last AS (
+                SELECT symbol, max(d) AS d_last, max(fri) AS fri_last, max(mon) AS mon_last, min(d) AS d_first FROM p GROUP BY symbol
+            )
+            SELECT l.symbol, l.d_first, l.d_last,
+                   max(p.fri) FILTER (WHERE p.fri < l.fri_last) AS prev_fri,
+                   last_day(max(p.mon) FILTER (WHERE p.mon < l.mon_last)) AS prev_month_end
+            FROM last l JOIN p USING (symbol)
+            GROUP BY l.symbol, l.d_first, l.d_last
+            """
+        ).fetchall()
+    finally:
+        con.unregister("_new_syms")
+    out: dict[str, pd.Timestamp] = {}
+    for symbol, d_first, d_last, prev_fri, prev_month_end in rows:
+        if prev_fri is None or prev_month_end is None:
+            start = _ts(d_first)
+        else:
+            start = min(_ts(prev_fri), _ts(prev_month_end), _ts(d_last))
+        out[str(symbol)] = min(start, recompute_from)
+    for symbol in symbols:  # brand-new symbols (no stored rows)
+        out.setdefault(symbol, recompute_from)
+    return out
 
 
 # --------------------------------------------------------------------------------------------
@@ -345,6 +411,7 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
     from price_adjustment import actions_from_corporate_actions_table
     from reference_history import load_reference_history
 
+    sw = _Stopwatch(quiet)
     latest_date = _ts(con.execute("SELECT max(trade_date) FROM prices_daily").fetchone()[0])
     new_prices = new_prices.copy()
     new_prices["trade_date"] = pd.to_datetime(new_prices["trade_date"])
@@ -352,6 +419,7 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
     new_rows, moved = _apply_symbol_changes_to_new(con, new_prices)
     first_new = _ts(new_rows["trade_date"].min())
     reasons: list[str] = []
+    sw("symbol changes")
 
     # --- adjustments over every row (slim), exactly as adjust_prices sees the merged history.
     slim = con.execute("SELECT symbol, trade_date, close_price, prev_close, price_factor FROM prices_daily").fetchdf()
@@ -377,6 +445,7 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
         extra = None
     adjusted, adjustments = adjust_prices(slim[["symbol", "trade_date", "close_price", "prev_close"]], root, extra_actions=extra)
     print(summarize_adjustments(adjustments))
+    sw("price adjustments over all rows")
     new_factor = adjusted["price_factor"].to_numpy(dtype="float64")
     factor_changed, change_points = _first_change_points(slim, stored_mask, new_factor)
     del adjusted, slim
@@ -399,12 +468,14 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
 
     # --- late inputs that change older dates
     reference_history = load_reference_history(root)
+    sw("reference history")
     candidates = [first_new, *change_points.values()]
     late_ref = _late_reference_date(con, reference_history, first_new)
     if late_ref is not None:
         reasons.append(f"late reference snapshot from {late_ref.date()}")
         candidates.append(late_ref)
     index_raw, membership = bd.load_benchmark_inputs()
+    sw("index history")
     try:
         index_features = bd.build_index_features(index_raw) if not isinstance(index_raw, BaseException) else None
     except Exception:  # noqa: BLE001
@@ -418,6 +489,7 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
     if late_idx is not None:
         reasons.append(f"index history changed from {late_idx.date()}")
         candidates.append(late_idx)
+    sw("late-input checks")
     recompute_from = min(candidates)
     if recompute_from < first_new:
         n = _sessions_between(con, recompute_from, first_new)
@@ -456,6 +528,7 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
     enrichment = bd.build_enrichment(mcap, bands, pe, high52, pd.DataFrame(), pd.DataFrame())
     master = bd.build_master(equity, sector, latest_prices, mcap, bands, pe)
 
+    sw("master / enrichment")
     stored_master = con.execute("SELECT * FROM stocks_master").fetchdf()
     tax_cols = [c for c in TAXONOMY_COLUMNS if c in master.columns and c in stored_master.columns]
     a = master.set_index("symbol")[tax_cols].fillna("").astype(str)
@@ -514,10 +587,10 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
 
 def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
     """Adjusted rows to write and the recomputed indicator rows (not written yet)."""
+    sw = _Stopwatch(quiet)
     date_dtype = plan.date_dtype
     price_cols = table_columns(con, "prices_daily")
     raw_cols = [c for c in RAW_PRICE_COLUMNS if c in price_cols]
-    wstart = month_window_start(plan.first_new)
     new_syms = set(plan.new_rows["symbol"].astype(str))
     full = set(plan.full_symbols)
     moved = plan.moved_rows
@@ -531,7 +604,8 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
     }
     renamed_away = set(moved["orig_symbol"].astype(str)) if not moved.empty else set()
     tail_syms = sorted(((new_syms | stored_after) - full))
-    start = {s: (min(plan.recompute_from, wstart) if s in new_syms else plan.recompute_from) for s in tail_syms}
+    new_starts = rewrite_starts(con, sorted(new_syms - full), plan.recompute_from)
+    start = {s: new_starts.get(s, plan.recompute_from) for s in tail_syms}
 
     # ---- raw rows needed: trailing window (tail symbols) / full history (full symbols)
     window_raw, stored_adj = _load_windows(con, raw_cols, price_cols, start, date_dtype)
@@ -543,13 +617,16 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
     adjusted = apply_adjustments(raw, plan.adjustments)
     del raw, window_raw, full_raw
     _check_stored_adjustments(adjusted, stored_adj, full)
+    sw("windows + adjustments")
 
     new_keys = set(zip(plan.new_rows["symbol"], plan.new_rows["trade_date"]))
     is_new = np.fromiter(((s, d) in new_keys for s, d in zip(adjusted["symbol"], adjusted["trade_date"])), dtype=bool, count=len(adjusted))
     is_full = adjusted["symbol"].isin(full).to_numpy()
     prices_to_write = adjusted[is_new | is_full].reset_index(drop=True)
 
-    ind_input = indicator_input(adjusted)
+    ind_window = indicator_input(adjusted)
+    # indicator input of the rows that are not (or no longer correctly) in prices_daily
+    ind_fresh = ind_window[is_new | is_full].reset_index(drop=True)
     del adjusted
     gc.collect()
 
@@ -558,29 +635,48 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
     for s in full:
         keep_from[s] = KEEP_ALL
 
-    # ---- cross-sectional ranks
-    ranks = _rank_columns(con, ind_input, plan, keep_from, date_dtype)
+    # ---- cross-sectional ranks (window closes suffice: 252-row lookback)
+    ranks = _rank_columns(con, ind_window, plan, keep_from, date_dtype)
+    sw("RS ranks")
+    del ind_window
+    gc.collect()
 
-    # ---- full slim OHLC histories (for the unbounded daily columns + weekly/monthly bars)
-    syms_all = sorted(set(ind_input["symbol"].astype(str)))
-    counts = ind_input.groupby("symbol", sort=True).size().rename("n").reset_index()
-    batches = symbol_batches(counts, 20000)
+    # ---- per-symbol pass over each affected symbol's FULL history, in batches
+    affected = sorted(set(start) | full)
+    stored_counts = dict(con.execute("SELECT symbol, count(*) FROM prices_daily GROUP BY symbol").fetchall())
+    fresh_counts = ind_fresh.groupby("symbol").size().to_dict()
+    counts = pd.DataFrame({
+        "symbol": affected,
+        "n": [(0 if s in full else stored_counts.get(s, 0)) + fresh_counts.get(s, 0) for s in affected],
+    })
+    batches = symbol_batches(counts, BATCH_ROWS)
     ref_groups = reference_by_symbol(ctx["reference_history"])
     reference = ctx["reference_history"]
     enrichment = ctx["enrichment"]
-    bars_new = ind_input[["symbol", "trade_date", "open_price", "high_price", "low_price", "close_price", "volume"]]
-    by_symbol_input = {s: g for s, g in ind_input.groupby("symbol", sort=False)}
+    fresh_by_symbol = {s: g for s, g in ind_fresh.groupby("symbol", sort=False)}
     rank_by_symbol = {s: g for s, g in ranks.groupby("symbol", sort=False)}
+    select_input = indicator_input_select(price_cols)
 
     def tasks():
         for symbols in batches:
-            bars = _load_bars(con, symbols, full, bars_new, date_dtype)
-            frame = pd.concat([by_symbol_input[s] for s in symbols], ignore_index=True)
+            stored_syms = [s for s in symbols if s not in full]
+            parts = []
+            if stored_syms:
+                con.register("_batch_syms", pd.DataFrame({"symbol": stored_syms}))
+                try:
+                    stored = con.execute(
+                        f"SELECT {select_input} FROM prices_daily WHERE symbol IN (SELECT symbol FROM _batch_syms) ORDER BY symbol, trade_date"
+                    ).fetchdf()
+                finally:
+                    con.unregister("_batch_syms")
+                parts.append(match_datetime_units(stored, date_dtype))
+            parts.extend(fresh_by_symbol[s] for s in symbols if s in fresh_by_symbol)
+            frame = pd.concat(parts, ignore_index=True)
+            frame = frame.sort_values(["symbol", "trade_date"], kind="stable").reset_index(drop=True)
             rank_rows = pd.concat([rank_by_symbol[s] for s in symbols], ignore_index=True)
             yield {
                 "input": frame,
                 "ranks": rank_rows,
-                "bars": bars,
                 "keep_from": {s: keep_from[s] for s in symbols},
                 "reference": None if ref_groups is None else reference_subset(ref_groups, reference, symbols),
             }
@@ -593,11 +689,12 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
         reset=results.clear,
         total=len(batches),
         label="incremental indicator batches",
+        workers=APPEND_WORKERS,
     )
     indicators = pd.concat(results, ignore_index=True) if results else pd.DataFrame()
     del results
     if not quiet:
-        print(f"  [incremental] recomputed {len(indicators):,} indicator rows for {len(syms_all):,} symbols", flush=True)
+        print(f"  [incremental] recomputed {len(indicators):,} indicator rows for {len(affected):,} symbols", flush=True)
     return {
         "prices": prices_to_write,
         "indicators": indicators,
@@ -681,28 +778,6 @@ def _check_stored_adjustments(adjusted: pd.DataFrame, stored_adj: pd.DataFrame, 
             )
 
 
-def _load_bars(con, symbols: list[str], full: set, recomputed: pd.DataFrame, date_dtype) -> dict[str, pd.DataFrame]:
-    """Full adjusted OHLC(V) history per symbol: stored adj_* columns for older rows, the
-    recomputed rows (new sessions / window / full-recompute symbols) for the rest."""
-    lo, hi = symbols[0], symbols[-1]
-    stored = con.execute(
-        """
-        SELECT symbol, trade_date, CAST(adj_open_price AS DOUBLE) AS open_price, CAST(adj_high_price AS DOUBLE) AS high_price,
-               CAST(adj_low_price AS DOUBLE) AS low_price, CAST(adj_close_price AS DOUBLE) AS close_price,
-               CAST(adj_volume AS DOUBLE) AS volume
-        FROM prices_daily WHERE symbol BETWEEN ? AND ? ORDER BY symbol, trade_date
-        """,
-        [lo, hi],
-    ).fetchdf()
-    stored = match_datetime_units(stored, date_dtype)
-    wanted = set(symbols)
-    stored = stored[stored["symbol"].isin(wanted - full)]
-    fresh = recomputed[recomputed["symbol"].isin(wanted)]
-    both = pd.concat([stored, fresh], ignore_index=True)
-    both = both.sort_values(["symbol", "trade_date"], kind="stable").drop_duplicates(["symbol", "trade_date"], keep="last")
-    return {s: g.reset_index(drop=True) for s, g in both.groupby("symbol", sort=False)}
-
-
 def _rank_columns(con, ind_input: pd.DataFrame, plan: AppendPlan, keep_from: dict, date_dtype) -> pd.DataFrame:
     """RANK_COLUMNS for the rows each symbol keeps: percentiles recomputed for dates >=
     recompute_from (every symbol trading then is in ``ind_input``), stored percentiles reused
@@ -775,6 +850,7 @@ def _replace_table(con, table: str, frame: pd.DataFrame, indexes: Iterable[str] 
 
 
 def _write(con, plan: AppendPlan, ctx: dict, computed: dict, *, quiet: bool) -> dict:
+    sw = _Stopwatch(quiet)
     date_dtype = plan.date_dtype
     full = computed["full"]
     moved = plan.moved_rows
@@ -807,6 +883,7 @@ def _write(con, plan: AppendPlan, ctx: dict, computed: dict, *, quiet: bool) -> 
         finally:
             con.unregister("_starts")
     _insert(con, "indicators_daily", computed["indicators"])
+    sw("prices_daily + indicators_daily")
 
     # -- whole-table small outputs
     _replace_table(con, "price_adjustments", plan.adjustments)
@@ -816,6 +893,7 @@ def _write(con, plan: AppendPlan, ctx: dict, computed: dict, *, quiet: bool) -> 
     _update_reference(con, ctx["reference_history"])
     master = ctx["master"]
     _replace_table(con, "stocks_master", master)
+    sw("adjustments / index / reference / master")
 
     deals = bd.enrich_deals_from_db(con, bd.read_all_deals(), master, date_dtype)
     metrics_from = plan.recompute_from
@@ -826,11 +904,14 @@ def _write(con, plan: AppendPlan, ctx: dict, computed: dict, *, quiet: bool) -> 
     latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
     enrichment = bd.build_enrichment(ctx["mcap"], ctx["bands"], ctx["pe"], ctx["high52"], latest_deals, pd.DataFrame())
     _replace_table(con, "daily_enrichment", enrichment)
+    sw("deals + enrichment")
 
     # -- per-date derived tables
     breadth_full = bool(plan.factor_changed)
     _update_breadth(con, plan.recompute_from, date_dtype, full_recompute=breadth_full)
+    sw("breadth_daily")
     rotation = _update_sector_rotation(con, master, plan.recompute_from, date_dtype, full_recompute=ctx["taxonomy_changed"], flipped=ctx["leader_flipped"])
+    sw("sector_rotation")
     reference_for_metrics = ctx["reference_history"]
     if reference_for_metrics is None or reference_for_metrics.empty:
         try:
@@ -845,6 +926,7 @@ def _write(con, plan: AppendPlan, ctx: dict, computed: dict, *, quiet: bool) -> 
     _update_sector_metrics(
         con, master, reference_for_metrics, index_for_metrics, deals, metrics_from, date_dtype, full_recompute=ctx["taxonomy_changed"]
     )
+    sw("sector_metrics_daily")
     latest = read_slim(
         con, "indicators_daily", table_columns(con, "indicators_daily"),
         where="trade_date = (SELECT max(trade_date) FROM indicators_daily)", date_dtype=date_dtype,

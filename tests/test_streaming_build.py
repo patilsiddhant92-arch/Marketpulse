@@ -66,30 +66,6 @@ def test_streaming_indicators_equal_in_memory(tmp_path, monkeypatch, inputs):
     con.close()
 
 
-def test_windowed_daily_features_match_full_history(inputs):
-    """The incremental append computes the kept rows on a trailing window + full history."""
-    prices, _ = inputs
-    ii = indicator_input(prices)
-    g = ii[ii["symbol"] == "S01"].reset_index(drop=True)
-    full = bd._calc_single_symbol_indicators(g)
-    keep_from = g["trade_date"].iloc[-25]
-    first_kept = int(np.flatnonzero(g["trade_date"] >= keep_from)[0])
-    window = g.iloc[first_kept - bd.DAILY_LOOKBACK_ROWS:]
-    daily = bd._daily_symbol_features(window, history=g)
-    daily = daily[daily["trade_date"] >= keep_from]
-    part = bd._higher_timeframe_features(daily, g).reset_index(drop=True)
-    ref = full[full["trade_date"] >= keep_from].reset_index(drop=True)
-    assert list(part.columns) == list(ref.columns)
-    for col in ref.columns:
-        a, b = ref[col], part[col]
-        if pd.api.types.is_float_dtype(a):
-            np.testing.assert_allclose(b.to_numpy(float), a.to_numpy(float), rtol=1e-9, atol=1e-12, equal_nan=True, err_msg=col)
-        else:
-            # object-vs-bool dtype can differ (a bool column with NaN before the first weekly bar
-            # is object in the full frame); DuckDB stores both as BOOLEAN - compare values.
-            assert [None if pd.isna(x) else x for x in a.astype(object)] == [None if pd.isna(x) else x for x in b.astype(object)], col
-
-
 def test_build_temp_database_adopts_staged_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(bd, "load_all_index_history", lambda root: pd.DataFrame())
     monkeypatch.setattr(bd, "load_reference_history", lambda root: pd.DataFrame())
