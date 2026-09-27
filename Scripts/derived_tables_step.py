@@ -124,6 +124,13 @@ def run_isolated(db_path: Path, *, incremental: bool, quiet: bool = False) -> in
         return -1
     if done.returncode != 0:
         print(f"WARNING: DERIVED TABLES NOT REBUILT - derived step exited with code {done.returncode}; core tables are unaffected.", flush=True)
+    # Evidence reads the derived tables (setup_daily, regime_daily), so it runs right after them.
+    try:
+        import evidence_step
+
+        evidence_step.run_isolated(db_path, quiet=quiet)
+    except Exception as exc:  # noqa: BLE001 - fail-soft
+        print(f"WARNING: EVIDENCE TABLES NOT REBUILT - could not run the evidence step ({exc}).", flush=True)
     return done.returncode
 
 

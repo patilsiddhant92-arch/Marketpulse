@@ -32,3 +32,9 @@ def _fresh_index_history_cache():
     _clear_index_history_memo()
     yield
     _clear_index_history_memo()
+
+
+@pytest.fixture(autouse=True)
+def _skip_evidence_step(monkeypatch):
+    # The derived step launches the (slow) evidence step as a child process; tests opt in explicitly.
+    monkeypatch.setenv("MP_SKIP_EVIDENCE", "1")
