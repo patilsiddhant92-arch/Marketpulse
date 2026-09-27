@@ -9,6 +9,27 @@ from App.sector_read_model import query_sector_rotation_overview
 from Scripts.sector_metrics import compute_sector_metrics
 
 
+def test_benchmark_returns_matches_nifty50_exactly_not_nifty500() -> None:
+    """A frame with both 'Nifty 500' and 'Nifty 50' rows must pick 'Nifty 50' exactly;
+    a substring match on 'NIFTY 50' would also match 'NIFTY 500' (whichever sorts first)."""
+    from Scripts.sector_metrics import _benchmark_returns
+
+    dates = pd.to_datetime(["2026-08-01", "2026-08-02"])
+    index_daily = pd.DataFrame(
+        {
+            "trade_date": list(dates) * 2,
+            "index_name": ["Nifty 500"] * 2 + ["Nifty 50"] * 2,
+            "return_21d_pct": [999.0, 999.0, 3.0, 3.5],
+            "return_63d_pct": [888.0, 888.0, 7.0, 7.5],
+        }
+    )
+
+    out = _benchmark_returns(index_daily, dates).set_index("trade_date")
+    assert out.loc[pd.Timestamp("2026-08-01"), "bench_21d"] == 3.0
+    assert out.loc[pd.Timestamp("2026-08-01"), "bench_63d"] == 7.0
+    assert out.loc[pd.Timestamp("2026-08-02"), "bench_21d"] == 3.5
+
+
 def test_deal_metrics_are_precomputed_once_per_symbol_and_as_of_date() -> None:
     from Scripts.sector_metrics import _prepare_deal_metrics
 

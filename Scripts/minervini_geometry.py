@@ -22,6 +22,14 @@ except (ModuleNotFoundError, ImportError):
     except (ModuleNotFoundError, ImportError):
         from .indicators import sma  # type: ignore
 
+try:
+    from Scripts.price_views import ohlcv_columns
+except (ModuleNotFoundError, ImportError):
+    try:
+        from price_views import ohlcv_columns  # type: ignore
+    except (ModuleNotFoundError, ImportError):
+        from .price_views import ohlcv_columns  # type: ignore
+
 
 TEMPLATE_CHECKS = (
     ("price_gt_150_200", "Price > 150 SMA and 200 SMA"),
@@ -60,9 +68,15 @@ class TSequence:
 def load_ohlcv(db_path: Path, symbol: str, lookback: int = 400) -> pd.DataFrame:
     sym = str(symbol).strip().upper()
     with duckdb.connect(str(db_path), read_only=True) as db:
+        cols = ohlcv_columns(db)
         frame = db.execute(
-            """
-            SELECT trade_date, open_price, high_price, low_price, close_price, volume
+            f"""
+            SELECT trade_date,
+                   {cols['open_price']} AS open_price,
+                   {cols['high_price']} AS high_price,
+                   {cols['low_price']} AS low_price,
+                   {cols['close_price']} AS close_price,
+                   {cols['volume']} AS volume
             FROM prices_daily
             WHERE symbol = ?
             ORDER BY trade_date

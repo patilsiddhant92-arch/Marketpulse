@@ -16,6 +16,11 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+try:
+    from Scripts.price_views import ohlcv_columns
+except ModuleNotFoundError:
+    from price_views import ohlcv_columns  # type: ignore
+
 # Default DB Path
 DEFAULT_DB_PATH = Path("Database/marketpulse.duckdb")
 
@@ -29,8 +34,8 @@ def clean_fund_name(name: str) -> str:
     n = re.sub(r"\s*[-/]\s*(FPI|ODI|EQUITY|DEBT|A/C|SUB-ACCOUNT).*$", "", n, flags=re.IGNORECASE)
     # Remove corporate suffixes if mutual fund / bank is already clear
     n = re.sub(r"\s+(PRIVATE LIMITED|PVT LTD|PVT\. LTD\.|LLP|LTD\.|LIMITED|CO\.? LTD\.?)\s*$", "", n, flags=re.IGNORECASE)
-    # Tidy multiple spaces
-    n = re.sub(r"\s+", " ", n).strip()
+    # Tidy multiple spaces and trailing punctuation left by suffix strips
+    n = re.sub(r"\s+", " ", n).strip(" .")
     return n
 
 
@@ -57,72 +62,101 @@ def fetch_deal_attribution_df(db_path: Path | None = None, min_deal_cr: float = 
     if not target_db.exists():
         return pd.DataFrame()
 
-    query = """
-    WITH buy_deals AS (
-        SELECT 
-            d.trade_date as deal_date,
-            d.symbol,
-            d.client_name,
-            d.price as deal_price,
-            d.deal_value_cr,
-            d.clientele,
-            d.clientele_sub
-        FROM deals d
-        WHERE d.side = 'BUY' 
-          AND (d.is_prop = False OR d.is_prop IS NULL)
-          AND (d.is_hft = False OR d.is_hft IS NULL)
-          AND d.deal_value_cr >= ?
-          AND d.symbol NOT LIKE '%-RE'
-          AND d.symbol NOT LIKE '%_RE'
-    ),
-    daily_series AS (
-        SELECT 
-            b.deal_date,
-            b.symbol,
-            b.client_name,
-            b.deal_price,
-            b.deal_value_cr,
-            b.clientele,
-            b.clientele_sub,
-            p.trade_date,
-            p.open_price,
-            p.high_price,
-            p.low_price,
-            p.close_price,
-            row_number() OVER (PARTITION BY b.symbol, b.deal_date, b.client_name, b.deal_price ORDER BY p.trade_date) - 1 as sess_idx
-        FROM buy_deals b
-        JOIN prices_daily p ON p.symbol = b.symbol AND p.trade_date >= b.deal_date
-    ),
-    deal_summary AS (
-        SELECT 
-            deal_date,
-            symbol,
-            client_name,
-            deal_price,
-            deal_value_cr,
-            clientele,
-            clientele_sub,
-            max(sess_idx) as holding_days,
-            -- returns at key forward horizons
-            max(CASE WHEN sess_idx = 5 THEN (close_price / deal_price - 1) * 100 END) as ret_5d,
-            max(CASE WHEN sess_idx = 10 THEN (close_price / deal_price - 1) * 100 END) as ret_10d,
-            max(CASE WHEN sess_idx = 20 THEN (close_price / deal_price - 1) * 100 END) as ret_20d,
-            max(CASE WHEN sess_idx = 60 THEN (close_price / deal_price - 1) * 100 END) as ret_60d,
-            -- latest close / CMP
-            arg_max(close_price, sess_idx) as cmp,
-            round((arg_max(close_price, sess_idx) / deal_price - 1) * 100, 1) as ret_current,
-            -- max peak runup within 60 sessions
-            round((max(CASE WHEN sess_idx <= 60 THEN high_price END) / deal_price - 1) * 100, 1) as max_runup_pct,
-            round((min(CASE WHEN sess_idx <= 60 THEN low_price END) / deal_price - 1) * 100, 1) as max_drawdown_pct,
-            -- days taken to hit peak high
-            arg_max(sess_idx, CASE WHEN sess_idx <= 60 THEN high_price END) as days_to_peak
-        FROM daily_series
-        GROUP BY deal_date, symbol, client_name, deal_price, deal_value_cr, clientele, clientele_sub
-    )
-    SELECT * FROM deal_summary ORDER BY deal_date DESC
-    """
-
     with duckdb.connect(str(target_db), read_only=True) as con:
+        cols = ohlcv_columns(con, alias="p.")
+        # Forward returns are measured against the deal price, which was struck
+        # on the historical (raw) price scale. Rescale it onto the adjusted
+        # scale using the cumulative price_factor as of the deal date, so a
+        # split/bonus between the deal and today doesn't show up as a fake
+        # return.
+        query = f"""
+        WITH buy_deals AS (
+            SELECT
+                d.trade_date as deal_date,
+                d.symbol,
+                d.client_name,
+                d.price as deal_price,
+                d.deal_value_cr,
+                d.clientele,
+                d.clientele_sub
+            FROM deals d
+            WHERE d.side = 'BUY'
+              AND (d.is_prop = False OR d.is_prop IS NULL)
+              AND (d.is_hft = False OR d.is_hft IS NULL)
+              AND d.deal_value_cr >= ?
+              AND d.symbol NOT LIKE '%-RE'
+              AND d.symbol NOT LIKE '%_RE'
+        ),
+        daily_series AS (
+            SELECT
+                b.deal_date,
+                b.symbol,
+                b.client_name,
+                b.deal_price,
+                b.deal_value_cr,
+                b.clientele,
+                b.clientele_sub,
+                p.trade_date,
+                {cols['open_price']} AS open_price,
+                {cols['high_price']} AS high_price,
+                {cols['low_price']} AS low_price,
+                {cols['close_price']} AS close_price,
+                {cols['price_factor']} AS price_factor,
+                row_number() OVER (PARTITION BY b.symbol, b.deal_date, b.client_name, b.deal_price ORDER BY p.trade_date) - 1 as sess_idx
+            FROM buy_deals b
+            JOIN prices_daily p ON p.symbol = b.symbol AND p.trade_date >= b.deal_date
+        ),
+        deal_base AS (
+            SELECT
+                deal_date,
+                symbol,
+                client_name,
+                deal_price,
+                deal_value_cr,
+                clientele,
+                clientele_sub,
+                max(sess_idx) as holding_days,
+                max(CASE WHEN sess_idx = 0 THEN price_factor END) as factor_on_deal_date,
+                -- close at key forward horizons
+                max(CASE WHEN sess_idx = 5 THEN close_price END) as close_5d,
+                max(CASE WHEN sess_idx = 10 THEN close_price END) as close_10d,
+                max(CASE WHEN sess_idx = 20 THEN close_price END) as close_20d,
+                max(CASE WHEN sess_idx = 60 THEN close_price END) as close_60d,
+                -- latest close / CMP
+                arg_max(close_price, sess_idx) as cmp,
+                -- max peak runup within 60 sessions
+                max(CASE WHEN sess_idx <= 60 THEN high_price END) as peak_60d,
+                min(CASE WHEN sess_idx <= 60 THEN low_price END) as trough_60d,
+                -- days taken to hit peak high
+                arg_max(sess_idx, CASE WHEN sess_idx <= 60 THEN high_price END) as days_to_peak
+            FROM daily_series
+            GROUP BY deal_date, symbol, client_name, deal_price, deal_value_cr, clientele, clientele_sub
+        ),
+        deal_summary AS (
+            SELECT
+                deal_date,
+                symbol,
+                client_name,
+                deal_price,
+                deal_value_cr,
+                clientele,
+                clientele_sub,
+                holding_days,
+                -- returns at key forward horizons (deal_price rescaled onto the adjusted basis)
+                (close_5d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_5d,
+                (close_10d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_10d,
+                (close_20d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_20d,
+                (close_60d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100 as ret_60d,
+                cmp,
+                round((cmp / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100, 1) as ret_current,
+                round((peak_60d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100, 1) as max_runup_pct,
+                round((trough_60d / (deal_price * coalesce(factor_on_deal_date, 1.0)) - 1) * 100, 1) as max_drawdown_pct,
+                days_to_peak
+            FROM deal_base
+        )
+        SELECT * FROM deal_summary ORDER BY deal_date DESC
+        """
+
         df = con.execute(query, [float(min_deal_cr)]).fetchdf()
 
     if df.empty:
@@ -196,7 +230,101 @@ def build_fund_leaderboard(attribution_df: pd.DataFrame, min_bets: int = 3) -> p
 
     # Sort by Catalyst Score desc, then Total Value desc
     g = g.sort_values(["catalyst_score", "total_cr"], ascending=[False, False]).reset_index(drop=True)
+    g["bets_count"] = g["total_bets"].astype(int)
+    g["names_count"] = g["unique_stocks"].astype(int)
     return g
+
+
+def fetch_fund_holdings_book(
+    db_path: Path | None = None,
+    lookback_days: int = 20,
+    min_deal_cr: float = 5.0,
+    min_mcap_cr: float = 1000.0,
+) -> dict[str, list[dict[str, Any]]]:
+    """Net prints per fund house × symbol in the lookback window.
+
+    NSE bulk/block is not a 13F book. This is the print tape: names they bought
+    vs sold in the window, with net ₹ Cr. A positive net is treated as still-on.
+    """
+    target_db = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
+    if not target_db.exists():
+        return {}
+    with duckdb.connect(str(target_db), read_only=True) as con:
+        dates = [
+            row[0]
+            for row in con.execute(
+                "SELECT DISTINCT trade_date FROM deals ORDER BY trade_date DESC LIMIT ?",
+                [int(lookback_days)],
+            ).fetchall()
+        ]
+        if not dates:
+            return {}
+        placeholders = ",".join(["?"] * len(dates))
+        raw = con.execute(
+            f"""
+            SELECT
+                d.trade_date, d.symbol, d.client_name, d.side, d.price,
+                d.deal_value_cr, d.clientele, d.is_prop, d.is_hft,
+                coalesce(d.market_cap_cr, m.market_cap_cr, 0) AS market_cap_cr,
+                coalesce(d.sector, m.sector, '') AS sector,
+                i.close_price AS cmp
+            FROM deals d
+            LEFT JOIN stocks_master m ON m.symbol = d.symbol
+            LEFT JOIN indicators_daily i
+              ON i.symbol = d.symbol
+             AND i.trade_date = (SELECT max(trade_date) FROM indicators_daily)
+            WHERE d.trade_date IN ({placeholders})
+              AND coalesce(d.deal_value_cr, 0) >= ?
+              AND coalesce(d.market_cap_cr, m.market_cap_cr, 0) >= ?
+              AND (d.is_prop = False OR d.is_prop IS NULL)
+              AND (d.is_hft = False OR d.is_hft IS NULL)
+              AND d.symbol NOT LIKE '%-RE'
+              AND d.symbol NOT LIKE '%_RE'
+              AND upper(d.symbol) <> 'TOTAL'
+            """,
+            [*dates, float(min_deal_cr), float(min_mcap_cr)],
+        ).fetchdf()
+    if raw.empty:
+        return {}
+    raw["fund_house"] = raw["client_name"].map(clean_fund_name)
+    raw = raw[raw["fund_house"].astype(str).str.len() > 0]
+    if raw.empty:
+        return {}
+    raw["is_buy"] = raw["side"].astype(str).str.upper().str.contains("BUY")
+    book: dict[str, list[dict[str, Any]]] = {}
+    grouped = raw.groupby(["fund_house", "symbol"], sort=False)
+    rows = []
+    for (house, symbol), g in grouped:
+        buy_cr = float(g.loc[g["is_buy"], "deal_value_cr"].sum())
+        sell_cr = float(g.loc[~g["is_buy"], "deal_value_cr"].sum())
+        last = g.sort_values("trade_date").iloc[-1]
+        cmp = float(last["cmp"]) if pd.notna(last.get("cmp")) else None
+        deal_px = float(last["price"]) if pd.notna(last.get("price")) else None
+        ret = None
+        if cmp and deal_px and deal_px > 0:
+            ret = round((cmp / deal_px - 1.0) * 100.0, 1)
+        rows.append(
+            {
+                "fund_house": str(house),
+                "symbol": str(symbol),
+                "buy_cr": round(buy_cr, 1),
+                "sell_cr": round(sell_cr, 1),
+                "net_cr": round(buy_cr - sell_cr, 1),
+                "prints": int(len(g)),
+                "last_date": str(pd.Timestamp(last["trade_date"]).date()),
+                "last_side": "BUY" if bool(last["is_buy"]) else "SELL",
+                "last_price": round(deal_px, 2) if deal_px else None,
+                "cmp": round(cmp, 2) if cmp else None,
+                "ret_pct": ret,
+                "mcap_cr": round(float(last["market_cap_cr"]), 0) if pd.notna(last.get("market_cap_cr")) else None,
+                "sector": str(last.get("sector") or ""),
+            }
+        )
+    for rec in rows:
+        book.setdefault(rec["fund_house"], []).append(rec)
+    for house, items in book.items():
+        items.sort(key=lambda x: (abs(x["net_cr"]), x["prints"]), reverse=True)
+    return book
 
 
 def fetch_star_fund_radar(
@@ -211,11 +339,11 @@ def fetch_star_fund_radar(
     """
     attr_df = fetch_deal_attribution_df(db_path, min_deal_cr=min_deal_cr)
     if attr_df.empty:
-        return {"deals": [], "symbols": [], "tv_list": "", "as_of": None, "leaderboard": pd.DataFrame()}
+        return {"deals": [], "symbols": [], "tv_list": "", "as_of": None, "leaderboard": pd.DataFrame(), "holdings": {}}
 
     leaderboard = build_fund_leaderboard(attr_df, min_bets=2)
     if leaderboard.empty:
-        return {"deals": [], "symbols": [], "tv_list": "", "as_of": None, "leaderboard": pd.DataFrame()}
+        return {"deals": [], "symbols": [], "tv_list": "", "as_of": None, "leaderboard": pd.DataFrame(), "holdings": {}}
 
     star_funds = set(leaderboard[leaderboard["catalyst_score"] >= float(min_catalyst_score)]["fund_house"])
     # Map fund stats for quick lookup
@@ -230,8 +358,17 @@ def fetch_star_fund_radar(
         attr_df["deal_date"].isin(recent_dates) & attr_df["fund_house"].isin(star_funds)
     ].copy()
 
+    holdings = fetch_fund_holdings_book(db_path, lookback_days=lookback_days, min_deal_cr=min_deal_cr)
+
     if recent_star_deals.empty:
-        return {"deals": [], "symbols": [], "tv_list": "", "as_of": as_of, "leaderboard": leaderboard}
+        return {
+            "deals": [],
+            "symbols": [],
+            "tv_list": "",
+            "as_of": as_of,
+            "leaderboard": leaderboard,
+            "holdings": holdings,
+        }
 
     # Enrich with latest technical state if available in indicators_daily
     target_db = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
@@ -281,6 +418,7 @@ def fetch_star_fund_radar(
         "tv_list": tv_list,
         "as_of": as_of,
         "leaderboard": leaderboard,
+        "holdings": holdings,
     }
 
 

@@ -28,7 +28,7 @@ def test_clientele_waterfall_exposes_prop_conflicts_and_broker_exclusions() -> N
         assert (result["clientele"], result["clientele_sub"], result["is_prop"], result["needs_review"]) == expected
 
 
-def test_deals_desk_includes_prop_by_default_and_supports_explicit_legacy_exclusion(tmp_path) -> None:
+def test_deals_desk_excludes_prop_by_default_and_supports_explicit_include(tmp_path) -> None:
     db_path = tmp_path / "deals.duckdb"
     with duckdb.connect(str(db_path)) as db:
         db.execute("CREATE TABLE deals (trade_date DATE, symbol TEXT, side TEXT, deal_value_cr DOUBLE, client_name TEXT, quantity DOUBLE, price DOUBLE)")
@@ -46,12 +46,13 @@ def test_deals_desk_includes_prop_by_default_and_supports_explicit_legacy_exclus
         db.execute("INSERT INTO indicators_daily VALUES ('PROPTEST', '2026-08-13', 80, -2, 100, 90)")
         db.execute("INSERT INTO indicators_daily VALUES ('DIITEST', '2026-08-13', 80, -2, 100, 90)")
 
-    included = query_deals_desk_default(db_path)
-    excluded = query_deals_desk_default(db_path, exclude_hft=True)
+    institutional = query_deals_desk_default(db_path)
+    with_prop = query_deals_desk_default(db_path, exclude_hft=False)
 
-    assert "PROPTEST" in included.symbols_for_tv
-    assert "PROPTEST" not in excluded.symbols_for_tv
-    assert "DIITEST" in included.symbols_for_tv
+    assert "PROPTEST" not in institutional.symbols_for_tv
+    assert "DIITEST" in institutional.symbols_for_tv
+    assert "PROPTEST" in with_prop.symbols_for_tv
+    assert "DIITEST" in with_prop.symbols_for_tv
 
 
 def test_legacy_deal_rows_backfill_all_classifier_flags_when_new_columns_are_partial() -> None:

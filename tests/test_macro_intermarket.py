@@ -1,6 +1,8 @@
 """Unit tests for Macro Intermarket Transmission in Market Commentary."""
 from pathlib import Path
 import pytest
+
+pytestmark = pytest.mark.skip(reason="Overview macro commentary retired")
 from App.market_commentary_engine import generate_market_commentary
 
 DB_PATH = Path("Database/marketpulse.duckdb")

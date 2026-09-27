@@ -16,10 +16,11 @@ if str(SCRIPTS) not in sys.path:
 from candidate_engine import score_candidates
 
 from decision_policy import DecisionPolicy
-from index_history import build_index_features, load_all_market_activity_history, parse_market_activity_history
+from index_history import INDEX_COLUMNS, build_index_features, load_all_index_history
 
 from migrations import run_migrations
 from outcomes import calculate_outcome
+from price_views import ohlcv_columns
 from reference_history import load_reference_history
 from signal_service import apply_stable_identity, update_signal_ledger
 from watchlist_service import persist_candidate_snapshot
@@ -67,7 +68,25 @@ def _write_outcomes(db_path: Path, prices: pd.DataFrame | None, ledger: pd.DataF
         if not exists:
             return
         if prices is None or prices.empty:
-            prices = db.execute("SELECT * FROM prices_daily WHERE symbol IN (SELECT unnest(?))", [symbols]).fetchdf()
+            # calculate_outcome() compares close/high/low across dates (entry vs
+            # forward window), so feed it adjusted prices when available --
+            # aliased back onto the raw column names it expects. price_factor lets it
+            # put the ledger's trigger/invalidation prices (written on the scale of the
+            # signal's last_seen_date) onto the same adjusted scale.
+            cols = ohlcv_columns(db)
+            prices = db.execute(
+                f"""
+                SELECT symbol, trade_date,
+                       {cols['open_price']} AS open_price,
+                       {cols['high_price']} AS high_price,
+                       {cols['low_price']} AS low_price,
+                       {cols['close_price']} AS close_price,
+                       {cols['volume']} AS volume,
+                       {cols['price_factor']} AS price_factor
+                FROM prices_daily WHERE symbol IN (SELECT unnest(?))
+                """,
+                [symbols],
+            ).fetchdf()
         if prices.empty:
             return
 
@@ -106,11 +125,11 @@ def materialize_decision_tables(db_path: Path, as_of: date | None = None, policy
     index_daily = _load(db_path, "index_daily")
     if index_daily.empty:
         root = db_path.parent.parent
-        index_daily = load_all_market_activity_history(root)
+        index_daily = load_all_index_history(root)
         if not index_daily.empty:
             with duckdb.connect(str(db_path)) as db:
-                db.register("index_rows", index_daily)
-                db.execute("INSERT INTO index_daily SELECT * FROM index_rows ON CONFLICT DO NOTHING")
+                db.register("index_rows", index_daily[INDEX_COLUMNS])
+                db.execute("INSERT INTO index_daily BY NAME SELECT * FROM index_rows ON CONFLICT DO NOTHING")
     index_features = build_index_features(index_daily)
 
     events = _load(db_path, "security_events")

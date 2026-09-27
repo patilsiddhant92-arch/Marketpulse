@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 _MIGRATION_2 = (
@@ -94,6 +94,21 @@ _MIGRATION_7 = (
 _MIGRATION_8 = (
     "CREATE INDEX IF NOT EXISTS idx_indicators_date_symbol ON indicators_daily(trade_date, symbol)",
 )
+
+# Tables that use INSERT ... ON CONFLICT. write_database copies them with
+# CREATE TABLE AS SELECT, which drops PRIMARY KEY. Unique indexes are
+# re-applied on every run_migrations so the next append can upsert.
+_ON_CONFLICT_UNIQUE_INDEXES: dict[str, tuple[str, tuple[str, ...]]] = {
+    **_MIGRATION_5,
+    "ingested_reports": ("ux_ingested_reports_natural_key", ("trade_date", "report_type")),
+    "ingestion_batches": ("ux_ingestion_batches_batch_id", ("batch_id",)),
+    "signal_ledger": ("ux_signal_ledger_signal_id", ("signal_id",)),
+    "signal_outcomes": ("ux_signal_outcomes_natural_key", ("signal_id", "horizon_sessions", "as_of_date")),
+    "security_reference_daily": ("ux_security_reference_daily_natural_key", ("symbol", "effective_date")),
+    "index_daily": ("ux_index_daily_natural_key", ("trade_date", "index_name")),
+    "candidate_daily": ("ux_candidate_daily_natural_key", ("trade_date", "symbol", "score_version")),
+    "price_adjustment_factors": ("ux_price_adjustment_factors_natural_key", ("symbol", "trade_date")),
+}
 
 # Additive side columns for ADR / IPO RS / RS rank history. Always applied when
 # indicators_daily exists so version-7 and version-8 databases pick them up.
@@ -193,6 +208,72 @@ def _ensure_indicators_daily_side_columns(db: duckdb.DuckDBPyConnection) -> None
         db.execute(statement)
 
 
+def _table_columns(db: duckdb.DuckDBPyConnection, table_name: str) -> set[str]:
+    return {str(row[1]) for row in db.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+
+
+def _dedupe_on(db: duckdb.DuckDBPyConnection, table_name: str, joined: str) -> None:
+    dupes = db.execute(
+        f'SELECT count(*) FROM (SELECT 1 FROM "{table_name}" GROUP BY {joined} HAVING count(*) > 1)'
+    ).fetchone()
+    if not dupes or not dupes[0]:
+        return
+    tmp = f"{table_name}__ux_dedup"
+    db.execute(f'DROP TABLE IF EXISTS "{tmp}"')
+    db.execute(
+        f'''
+        CREATE TABLE "{tmp}" AS
+        SELECT * FROM "{table_name}"
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY {joined} ORDER BY rowid) = 1
+        '''
+    )
+    db.execute(f'DROP TABLE "{table_name}"')
+    db.execute(f'ALTER TABLE "{tmp}" RENAME TO "{table_name}"')
+
+
+def _ensure_unique_index(
+    db: duckdb.DuckDBPyConnection,
+    table_name: str,
+    index_name: str,
+    columns: tuple[str, ...],
+) -> None:
+    if not _table_exists(db, table_name) or _has_primary_key(db, table_name) or _has_index(db, index_name):
+        return
+    present = _table_columns(db, table_name)
+    if not all(column in present for column in columns):
+        return
+    joined = ", ".join(f'"{column}"' for column in columns)
+    _dedupe_on(db, table_name, joined)
+    db.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ({joined})')
+
+
+def ensure_on_conflict_indexes(db: duckdb.DuckDBPyConnection) -> None:
+    """Restore unique indexes required by ON CONFLICT upserts after CTAS copies."""
+    for table_name, (index_name, columns) in _ON_CONFLICT_UNIQUE_INDEXES.items():
+        _ensure_unique_index(db, table_name, index_name, columns)
+
+
+def _ensure_stocks_master_security_name(db: duckdb.DuckDBPyConnection) -> None:
+    if not _table_exists(db, "stocks_master"):
+        return
+    cols = _table_columns(db, "stocks_master")
+    if "security_name" in cols:
+        return
+    pieces = [name for name in ("security_name_x", "security_name_y") if name in cols]
+    if not pieces:
+        return
+    db.execute("ALTER TABLE stocks_master ADD COLUMN security_name VARCHAR")
+    coalesced = "COALESCE(" + ", ".join(pieces) + ")" if len(pieces) > 1 else pieces[0]
+    db.execute(f"UPDATE stocks_master SET security_name = {coalesced}")
+
+
+def _apply_always_on_repairs(db: duckdb.DuckDBPyConnection) -> None:
+    _ensure_sector_rotation_share_columns(db)
+    _ensure_indicators_daily_side_columns(db)
+    _ensure_stocks_master_security_name(db)
+    ensure_on_conflict_indexes(db)
+
+
 def schema_version(db_path: Path) -> int:
     if not Path(db_path).exists():
         return 0
@@ -210,10 +291,9 @@ def run_migrations(db_path: Path) -> None:
     schema_sql = SCHEMA_FILE.read_text(encoding="utf-8")
     with duckdb.connect(str(db_path)) as db:
         _ensure_migration_table(db)
-        _ensure_sector_rotation_share_columns(db)
         current = int(db.execute("SELECT coalesce(max(version), 0) FROM schema_migrations").fetchone()[0] or 0)
         if current >= CURRENT_SCHEMA_VERSION:
-            _ensure_indicators_daily_side_columns(db)
+            _apply_always_on_repairs(db)
             return
         db.begin()
         try:
@@ -274,7 +354,11 @@ def run_migrations(db_path: Path) -> None:
                         db.execute(statement)
                 db.execute("INSERT INTO schema_migrations(version) VALUES (8)")
                 current = 8
-            _ensure_indicators_daily_side_columns(db)
+            if current < 9:
+                ensure_on_conflict_indexes(db)
+                db.execute("INSERT INTO schema_migrations(version) VALUES (9)")
+                current = 9
+            _apply_always_on_repairs(db)
             db.commit()
         except Exception:
             db.rollback()

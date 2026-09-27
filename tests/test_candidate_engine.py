@@ -85,6 +85,58 @@ def test_candidate_total_is_reproducible_and_vcp_is_not_double_counted():
     assert row["trigger_price"] > row["invalidation_price"]
 
 
+def test_benchmark_match_is_exact_nifty50_not_nifty500():
+    """index_today may contain both 'Nifty 500' and 'Nifty 50'; a substring match on
+    'NIFTY 50' would wrongly pick up 'Nifty 500' too (whichever row comes first). The
+    benchmark lookup must match the canonical Nifty 50 name exactly, so adding a
+    'Nifty 500' row with a very different return must not change the result at all."""
+    from Scripts.candidate_engine import score_candidates
+
+    def make_indicators():
+        return pd.DataFrame(
+            [
+                {
+                    "symbol": "AAA",
+                    "trade_date": date(2026, 8, 3),
+                    "close_price": 100.0,
+                    "high_20d": 103.0,
+                    "low_10d": 94.0,
+                    "ema_20": 96.0,
+                    "high_50d": 112.0,
+                    "return_3m_pct": 12,
+                    "trend_score": 80,
+                    "contraction_score": 70,
+                    "volume_dryup_score": 60,
+                    "pivot_proximity_score": 75,
+                    "sector": "Technology",
+                    "industry": "Software",
+                }
+            ]
+        )
+
+    breadth = pd.DataFrame([{"trade_date": date(2026, 8, 3), "breadth_state": "Broad", "advance_pct": 65, "above_50ema_pct": 70, "above_200ema_pct": 60}])
+    rotations = pd.DataFrame([{"trade_date": date(2026, 8, 3), "group_name": "Technology", "level": "sector", "rotation_state": "Leading", "rotation_score": 80}])
+    master = pd.DataFrame([{"symbol": "AAA", "market_cap_cr": 5000, "sector": "Technology", "industry": "Software"}])
+
+    index_features_nifty50_only = pd.DataFrame(
+        [{"trade_date": date(2026, 8, 3), "index_name": "Nifty 50", "trend_state": "Constructive", "return_63d_pct": 5.0}]
+    )
+    # "Nifty 500" carries a wildly different return_63d_pct; a substring match on
+    # "NIFTY 50" would pick it up (it contains "NIFTY 50" as a prefix) and change the score.
+    index_features_with_nifty500 = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 8, 3), "index_name": "Nifty 500", "trend_state": "Constructive", "return_63d_pct": 999.0},
+            {"trade_date": date(2026, 8, 3), "index_name": "Nifty 50", "trend_state": "Constructive", "return_63d_pct": 5.0},
+        ]
+    )
+
+    result_only = score_candidates(make_indicators(), breadth, rotations, pd.DataFrame(), index_features_nifty50_only, pd.DataFrame(), master, date(2026, 8, 3))
+    result_with_500 = score_candidates(make_indicators(), breadth, rotations, pd.DataFrame(), index_features_with_nifty500, pd.DataFrame(), master, date(2026, 8, 3))
+
+    assert result_only.iloc[0]["leadership_score"] == result_with_500.iloc[0]["leadership_score"]
+    assert result_only.iloc[0]["total_score"] == result_with_500.iloc[0]["total_score"]
+
+
 def test_blue_sky_breakout_projects_resistance_and_is_valid():
     """Verify that all-time high / 52W high breakout setups without historical overhead resistance are valid using ATR projection."""
     from Scripts.candidate_engine import calculate_risk_geometry

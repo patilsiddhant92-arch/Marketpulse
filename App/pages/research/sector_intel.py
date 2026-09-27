@@ -25,7 +25,7 @@ try:
     from App.market_status import load_market_status, non_actionable_message
     from App.ui.columns import get_quasar_column_def
     from App.ui.stock_drawer import open_stock_360_modal
-    from App.ui.table import SYMBOL_CELL_SLOT
+    from App.ui.table import SYMBOL_CELL_SLOT, _table_event_symbol
 except ModuleNotFoundError:
     from sector_read_model import (  # type: ignore
         LEVEL_COLUMNS,
@@ -41,7 +41,7 @@ except ModuleNotFoundError:
     from market_status import load_market_status, non_actionable_message  # type: ignore
     from ui.columns import get_quasar_column_def  # type: ignore
     from ui.stock_drawer import open_stock_360_modal  # type: ignore
-    from ui.table import SYMBOL_CELL_SLOT  # type: ignore
+    from ui.table import SYMBOL_CELL_SLOT, _table_event_symbol  # type: ignore
 
 
 def _fmt_pct(v: Any, plus: bool = True) -> str:
@@ -84,7 +84,7 @@ def build_sector_intel_page(
     state = {
         "min_mcap": 1000.0,
         "status_filter": "All",
-        "level_filter": "Sector",
+        "level_filter": "Broad Industry",
         "status_mode": "strict",
         "search": "",
         "selected_level": "Sector",
@@ -1187,7 +1187,35 @@ def _render_sector_stocks_table(
         "stock360",
         lambda event: open_stock_360_modal(
             db_path,
-            event.args if isinstance(event.args, str) else str((event.args or {}).get("symbol") or ""),
+            _table_event_symbol(event),
             copy_text=copy_text,
         ),
     )
+    table.on(
+        "open_stock",
+        lambda event: open_stock_360_modal(
+            db_path,
+            _table_event_symbol(event),
+            copy_text=copy_text,
+        ),
+    )
+
+    def _quick_toggle_wl(event) -> None:
+        sym = _table_event_symbol(event)
+        if not sym:
+            return
+        try:
+            from App.ui.stock_drawer import toggle_watchlist_symbol
+        except ModuleNotFoundError:
+            from ui.stock_drawer import toggle_watchlist_symbol  # type: ignore
+        try:
+            # Watchlists live in the USER db — never the market DuckDB.
+            added = toggle_watchlist_symbol(db_path, 1, sym)
+            if added:
+                ui.notify(f"★ Added {sym} to Watchlist (WL1)", type="positive", color="amber-9")
+            else:
+                ui.notify(f"Removed {sym} from Watchlist (WL1)", type="info")
+        except Exception as exc:
+            ui.notify(f"Watchlist error: {exc}", type="negative")
+
+    table.on("quick_wl", _quick_toggle_wl)

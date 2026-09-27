@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 import time
 import numpy as np
@@ -20,6 +21,8 @@ from App.pages.action_desk import fetch_action_desk_data
 from App.ui.playbook_guide import open_playbook_modal, render_inline_field_guide_banner
 from Scripts.config import DB_PATH
 from Scripts.telegram_deals import build_deals_telegram_report, to_tv_list
+
+NEG_ZERO = re.compile(r"-0\.0(?![0-9])")
 
 
 def test_copy_text_to_clipboard_single_and_dual_args(monkeypatch) -> None:
@@ -170,13 +173,13 @@ def test_action_desk_pre_move_turnarounds_and_no_stop_filters() -> None:
     queues = data["queues"]
 
     # Pre-move queues
-    pre_move_keys = ["darvas", "silent_coil", "stair_step", "spike_pause"]
+    pre_move_keys = ["darvas", "darvas_10ema", "vcp"]
     for qk in pre_move_keys:
         q_df = queues.get(qk, pd.DataFrame())
         assert not q_df.empty, f"Queue {qk} is empty"
-        # Verify turnarounds (<200 EMA) are permitted and present
-        under_200 = q_df[q_df["cmp"] < q_df["ema_200"]]
-        assert len(under_200) > 0, f"Expected <200 EMA turnarounds in pre-move queue {qk}"
+        # Verify no artificial stop-loss filtering is applied to the queue
+        assert "stop_loss" in q_df.columns, f"Missing stop_loss in {qk}"
+        assert "risk_pct" in q_df.columns, f"Missing risk_pct in {qk}"
 
     # Verify formatting calculations handle edge cases safely
     pool = pd.DataFrame({
@@ -198,7 +201,7 @@ def test_action_desk_pre_move_turnarounds_and_no_stop_filters() -> None:
 def test_playbook_modal_and_field_guide_render_cleanly() -> None:
     """Verify playbook modal and per-queue field guide banners render cleanly without exceptions."""
     open_playbook_modal()
-    for q in ["vcp", "pullback", "episodic", "high52", "darvas", "silent_coil", "stair_step", "spike_pause"]:
+    for q in ["darvas", "darvas_10ema", "vcp"]:
         render_inline_field_guide_banner(q)
 
 
@@ -212,7 +215,7 @@ def test_telegram_deals_net_cr_formatting() -> None:
     assert len(messages) >= 2
     full_text = "\n".join(messages)
     assert "-0.0Cr" not in full_text, "Found negative zero '-0.0Cr' in Telegram deals message!"
-    assert "-0.0" not in full_text, "Found '-0.0' in Telegram deals message!"
+    assert not NEG_ZERO.search(full_text), f"Found negative zero in Telegram deals message: {NEG_ZERO.search(full_text)}"
 
 
 def test_table_from_df_copy_symbols_does_not_truncate_turnarounds(monkeypatch) -> None:

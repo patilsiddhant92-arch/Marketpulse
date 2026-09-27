@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 import duckdb
+import numpy as np
 import pandas as pd
 from nicegui import ui
 
@@ -22,6 +23,8 @@ from App.indicators.darvas import (
     darvas_v2_enabled,
     is_darvas_10ema_squeeze,
     is_darvas_10ema_squeeze_legacy,
+    weekly_ohlc,
+    monthly_ohlc,
 )
 
 try:
@@ -65,6 +68,10 @@ def save_stock_note(user_db: Path, symbol: str, text: str) -> None:
     try:
         with duckdb.connect(str(user_db)) as db:
             db.execute(
+                "CREATE TABLE IF NOT EXISTS portfolio_settings "
+                "(setting_key VARCHAR PRIMARY KEY, setting_value VARCHAR, updated_at TIMESTAMP)"
+            )
+            db.execute(
                 """
                 INSERT INTO portfolio_settings (setting_key, setting_value, updated_at)
                 VALUES (?, ?, now())
@@ -83,6 +90,10 @@ def toggle_watchlist_symbol(user_db: Path, wl_num: int, symbol: str) -> bool:
     key = f"watchlist_{wl_num}"
     try:
         with duckdb.connect(str(user_db)) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS portfolio_settings "
+                "(setting_key VARCHAR PRIMARY KEY, setting_value VARCHAR, updated_at TIMESTAMP)"
+            )
             r = db.execute("SELECT setting_value FROM portfolio_settings WHERE setting_key = ?", [key]).fetchone()
             current = set(json.loads(r[0])) if (r and r[0]) else set()
             if symbol in current:
@@ -118,21 +129,84 @@ def is_in_watchlist(user_db: Path, wl_num: int, symbol: str) -> bool:
         return False
 
 
-def query_stock_candlestick_data(
-    db_path: Path, symbol: str, limit: int = 90, *, predicate: dict | None = None
+def query_stock_rs_delivery_history(
+    db_path: Path, symbol: str, limit: int = 60
 ) -> dict[str, Any]:
-    """Query trailing OHLCV, EMAs, and Nicolas Darvas Box for technical candlestick charting."""
+    """Query trailing 60 sessions of RS percentile, volume, and delivery % for trend charting."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+    ckey = cache_key(db_path, "latest", "stock_rs_delivery_history", sym, limit)
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        df = db.execute(
+            """
+            SELECT trade_date, rs_percentile, delivery_pct, volume, delivery_qty, close_price
+            FROM indicators_daily
+            WHERE symbol = ?
+            ORDER BY trade_date DESC
+            LIMIT ?
+            """,
+            [sym, limit],
+        ).fetchdf()
+
+    if df.empty:
+        res = {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+        set_cached(ckey, res)
+        return res
+
+    df = df.iloc[::-1].reset_index(drop=True)
+    dates = [str(pd.to_datetime(d).strftime("%Y-%m-%d")) for d in df["trade_date"]]
+    rs = [round(float(x), 1) if pd.notna(x) else None for x in df["rs_percentile"]]
+    deliv_pct = [round(float(x), 1) if pd.notna(x) else None for x in df["delivery_pct"]]
+    volume = [int(x) if pd.notna(x) else 0 for x in df["volume"]]
+    deliv_qty = [int(x) if pd.notna(x) else 0 for x in df["delivery_qty"]]
+    close = [round(float(x), 2) if pd.notna(x) else None for x in df["close_price"]]
+
+    res = {
+        "dates": dates,
+        "rs": rs,
+        "delivery_pct": deliv_pct,
+        "volume": volume,
+        "delivery_qty": deliv_qty,
+        "close": close,
+    }
+    set_cached(ckey, res)
+    return res
+
+
+def query_stock_candlestick_data(
+    db_path: Path, symbol: str, limit: int = 90, *, predicate: dict | None = None, timeframe: str = "D"
+) -> dict[str, Any]:
+    """Query trailing OHLCV, EMAs, and Nicolas Darvas Box for technical candlestick charting (Daily, Weekly, Monthly)."""
     sym = str(symbol).strip().upper()
     use_v2 = predicate is not None or darvas_v2_enabled()
     if predicate:
         pred_tag = "pred_" + "_".join(f"{k}={predicate[k]}" for k in sorted(predicate))
     else:
         pred_tag = "v2" if use_v2 else "v1"
-    ckey = cache_key(db_path, "latest", "stock_candlestick_data", sym, limit, pred_tag)
+
+    tf_str = str(timeframe or "D").upper().strip()
+    if tf_str in ("W", "WEEKLY"):
+        tf_mode = "W"
+    elif tf_str in ("M", "MONTHLY"):
+        tf_mode = "M"
+    else:
+        tf_mode = "D"
+
+    ckey = cache_key(db_path, "latest", "stock_candlestick_data", sym, limit, pred_tag, tf_mode)
     cached = get_cached(ckey)
     if cached is not None:
         return cached
 
+    box_lookback = int(DARVAS["box_lookback_sessions"])
+    fetch_limit = box_lookback * 4 if tf_mode in ("W", "M") else box_lookback
     with duckdb.connect(str(db_path), read_only=True) as db:
         df = db.execute(
             """
@@ -141,17 +215,41 @@ def query_stock_candlestick_data(
             FROM indicators_daily
             WHERE symbol = ?
             ORDER BY trade_date DESC
-            LIMIT 400
+            LIMIT ?
             """,
-            [sym],
+            [sym, fetch_limit],
         ).fetchdf()
 
     if df.empty:
         return {}
 
     df = df.iloc[::-1].reset_index(drop=True)
+    df["symbol"] = sym
 
-    # Darvas box on the trailing 400 sessions, then tail to the display window
+    if tf_mode == "W":
+        df = weekly_ohlc(df)
+        if df.empty:
+            return {}
+    elif tf_mode == "M":
+        df = monthly_ohlc(df)
+        if df.empty:
+            return {}
+
+    if tf_mode in ("W", "M"):
+        closes = pd.Series(df["close_price"].astype(float).values)
+        df["ema_10"] = closes.ewm(span=10, adjust=False, min_periods=min(len(closes), 10)).mean().values
+        df["ema_20"] = closes.ewm(span=20, adjust=False, min_periods=min(len(closes), 20)).mean().values
+        df["ema_50"] = closes.ewm(span=50, adjust=False, min_periods=min(len(closes), 50)).mean().values
+        df["ema_200"] = closes.ewm(span=200, adjust=False, min_periods=min(len(closes), 200)).mean().values
+        delta = closes.diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(com=13, adjust=False, min_periods=min(len(closes), 14)).mean()
+        avg_loss = loss.ewm(com=13, adjust=False, min_periods=min(len(closes), 14)).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        df["rsi_14"] = (100 - (100 / (1 + rs))).fillna(50.0).values
+
+    # Darvas box calculation
     top_box, bottom_box = calculate_darvas_box(
         df["high_price"].values, df["low_price"].values, boxp=5
     )
@@ -178,7 +276,7 @@ def query_stock_candlestick_data(
     vol = [float(x or 0) for x in sub["volume"]]
     rsi = [round(float(x), 1) if pd.notna(x) else None for x in sub["rsi_14"]]
 
-    # Squeeze evaluation on the most recent bar (verifying OHLC is inside the box in near range)
+    # Squeeze evaluation on the most recent bar
     last_close = float(sub["close_price"].iloc[-1]) if not sub.empty and pd.notna(sub["close_price"].iloc[-1]) else 0.0
     last_high = float(sub["high_price"].iloc[-1]) if not sub.empty and pd.notna(sub["high_price"].iloc[-1]) else 0.0
     last_low = float(sub["low_price"].iloc[-1]) if not sub.empty and pd.notna(sub["low_price"].iloc[-1]) else 0.0
@@ -187,8 +285,9 @@ def query_stock_candlestick_data(
     last_bottom = float(bottom_box[-1]) if len(bottom_box) > 0 and pd.notna(bottom_box[-1]) else 0.0
     last_ema10 = float(sub["ema_10"].iloc[-1]) if not sub.empty and pd.notna(sub["ema_10"].iloc[-1]) else 0.0
     last_ema20 = float(sub["ema_20"].iloc[-1]) if not sub.empty and pd.notna(sub["ema_20"].iloc[-1]) else None
+    cfg = {**DARVAS, **(predicate or {})}
+    max_range = float(cfg.get("max_range_pct_weekly", 8.0)) if tf_mode == "W" else (float(cfg.get("max_range_pct_monthly", 12.0)) if tf_mode == "M" else float(cfg["max_range_pct"]))
     if use_v2:
-        cfg = {**DARVAS, **(predicate or {})}
         is_squeeze = is_darvas_10ema_squeeze(
             last_close,
             last_top,
@@ -198,12 +297,13 @@ def query_stock_candlestick_data(
             low=last_low,
             open_price=last_open,
             max_squeeze_pct=float(cfg["max_squeeze_pct"]),
-            max_candle_range_pct=float(cfg["max_range_pct"]),
+            max_candle_range_pct=max_range,
             require_ohlc_inside=True,
             ema20=last_ema20,
             cfg=cfg,
         )
     else:
+        # Legacy path kept for MP_DARVAS_V2=0, but knobs match desk/DARVAS (no 3.5/3.5 split).
         is_squeeze = is_darvas_10ema_squeeze_legacy(
             last_close,
             last_top,
@@ -212,15 +312,16 @@ def query_stock_candlestick_data(
             high=last_high,
             low=last_low,
             open_price=last_open,
-            max_squeeze_pct=3.5,
-            max_candle_range_pct=3.5,
+            max_squeeze_pct=float(DARVAS["max_squeeze_pct"]),
+            max_candle_range_pct=max_range,
             require_ohlc_inside=True,
         )
+    # Near-miss evidence: always report spreads when computable, even if badge is false.
     squeeze_pct = (
-        round(((last_top - last_ema10) / last_top) * 100.0, 2) if is_squeeze and last_top > 0 else None
+        round(((last_top - last_ema10) / last_top) * 100.0, 2) if last_top > 0 and last_ema10 > 0 else None
     )
     candle_range_pct = (
-        round(((last_high - last_low) / last_close) * 100.0, 2) if is_squeeze and last_close > 0 else None
+        round(((last_high - last_low) / last_close) * 100.0, 2) if last_close > 0 else None
     )
 
     res = {
@@ -239,6 +340,7 @@ def query_stock_candlestick_data(
         "candle_range_pct": candle_range_pct,
         "latest_darvas_top": last_top if last_top > 0 else None,
         "latest_darvas_bottom": last_bottom if last_bottom > 0 else None,
+        "timeframe": tf_mode,
     }
     set_cached(ckey, res)
     return res
@@ -449,6 +551,32 @@ def query_stock_peer_comparison(
     return res
 
 
+
+
+def _bench_rs_chip(profile: dict, bench: str = "midsml") -> None:
+    """Show excess vs MidSml400 (default) or Nifty50; plus mapped sector index."""
+    if bench == "nifty50":
+        _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+        _true_rs_chip("vs N50 21d", profile.get("rs_vs_nifty50_21d"))
+    else:
+        _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
+        _true_rs_chip("vs MS400 21d", profile.get("rs_vs_midsml400_21d"))
+    sec = profile.get("sector_index_name")
+    if sec:
+        short = str(sec).replace("Nifty ", "").replace("NIFTY ", "")[:18]
+        _true_rs_chip(f"vs {short} 63d", profile.get("rs_vs_sector_index_63d"))
+
+def _true_rs_chip(label: str, value) -> None:
+    """Optional excess-RS chip; skip when null."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return
+    tone = "mp-good" if v >= 0 else "mp-warn"
+    ui.label(f"{label} {v:+.1f}").classes(f"mp-badge {tone} text-[10px] font-semibold")
+
 def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
     """Fetch complete multi-dimensional data for a symbol in a single query transaction."""
     sym = str(symbol).strip().upper()
@@ -474,6 +602,17 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
                 """,
                 [sym],
             ).fetchdf()
+            if not ind.empty:
+                try:
+                    pe_df = db.execute(
+                        "SELECT pe, adjusted_pe FROM stocks_master WHERE symbol = ?",
+                        [sym],
+                    ).fetchdf()
+                    if not pe_df.empty:
+                        ind["pe"] = pe_df["pe"].iloc[0]
+                        ind["adjusted_pe"] = pe_df["adjusted_pe"].iloc[0]
+                except Exception:
+                    pass
         except duckdb.Error:
             ind = pd.DataFrame()
 
@@ -523,20 +662,45 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
             except duckdb.Error:
                 deals = pd.DataFrame()
 
-        # 4. Corporate Events from real security_events table
+        # 4. Corporate Events from real security_events table (both upcoming and recent)
         try:
             events = db.execute(
                 """
-                SELECT event_date, event_type, headline
-                FROM security_events
-                WHERE symbol = ?
+                WITH fut AS (
+                    SELECT event_date, event_type, headline
+                    FROM security_events
+                    WHERE symbol = ? AND event_date >= CURRENT_DATE - INTERVAL 7 DAY
+                    ORDER BY event_date ASC
+                    LIMIT 15
+                ),
+                past AS (
+                    SELECT event_date, event_type, headline
+                    FROM security_events
+                    WHERE symbol = ? AND event_date < CURRENT_DATE - INTERVAL 7 DAY
+                    ORDER BY event_date DESC
+                    LIMIT 20
+                )
+                SELECT * FROM fut
+                UNION ALL
+                SELECT * FROM past
                 ORDER BY event_date DESC
-                LIMIT 20
                 """,
-                [sym],
+                [sym, sym],
             ).fetchdf()
         except duckdb.Error:
-            events = pd.DataFrame()
+            try:
+                events = db.execute(
+                    """
+                    SELECT event_date, event_type, headline
+                    FROM security_events
+                    WHERE symbol = ?
+                    ORDER BY event_date DESC
+                    LIMIT 30
+                    """,
+                    [sym],
+                ).fetchdf()
+            except duckdb.Error:
+                events = pd.DataFrame()
 
         # 5. Master Reference (Circuits & Band Remarks)
         try:
@@ -611,6 +775,21 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
 
         peer_comparison = query_stock_peer_comparison(db_path, sym, db_con=db)
 
+        # Industry median P/E
+        industry_median_pe = None
+        if not ind.empty and pd.notna(ind.iloc[0].get("industry")):
+            target_ind = str(ind.iloc[0]["industry"]).strip()
+            if target_ind:
+                try:
+                    med_row = db.execute(
+                        "SELECT median(pe) FROM stocks_master WHERE industry = ? AND pe > 0",
+                        [target_ind],
+                    ).fetchone()
+                    if med_row and med_row[0] is not None:
+                        industry_median_pe = round(float(med_row[0]), 2)
+                except Exception:
+                    pass
+
     profile = ind.iloc[0].to_dict() if not ind.empty else {"symbol": sym}
     candidate_setup = cand.iloc[0].to_dict() if not cand.empty else {}
     ref_row = ref.iloc[0].to_dict() if not ref.empty else {}
@@ -630,18 +809,40 @@ def query_stock_360_data(db_path: Path, symbol: str) -> dict[str, Any]:
         except Exception:
             fund_attribution = []
 
+    # Detect upcoming corporate event within 14 days of latest trade date
+    upcoming_event = None
+    if not events.empty and "event_date" in events.columns:
+        latest_d = pd.to_datetime(profile.get("trade_date") or profile.get("latest_price_date") or "2026-09-16")
+        future_mask = (pd.to_datetime(events["event_date"]) >= latest_d) & (
+            pd.to_datetime(events["event_date"]) <= latest_d + pd.Timedelta(days=14)
+        )
+        upcoming = events[future_mask].sort_values("event_date", ascending=True)
+        if not upcoming.empty:
+            ev_row = upcoming.iloc[0]
+            ev_type = str(ev_row.get("event_type") or "Event").replace("_", " ").title()
+            ev_date = pd.to_datetime(ev_row["event_date"]).strftime("%d %b")
+            days_away = (pd.to_datetime(ev_row["event_date"]).date() - latest_d.date()).days
+            upcoming_event = {
+                "type": ev_type,
+                "date_str": ev_date,
+                "days_away": days_away,
+                "headline": str(ev_row.get("headline") or ""),
+            }
+
     res = {
         "symbol": sym,
         "profile": profile,
         "candidate_setup": candidate_setup,
         "deals": deals,
         "events": events,
+        "upcoming_event": upcoming_event,
         "reference": ref_row,
         "company_profile": company_profile,
         "thematic_tags": thematic_tags,
         "peer_groups": peer_groups,
         "peer_comparison": peer_comparison,
         "fund_attribution": fund_attribution,
+        "industry_median_pe": industry_median_pe,
     }
     set_cached(ckey, res)
     return res
@@ -657,6 +858,19 @@ def _clean_symbol_param(sym: Any) -> str:
     if (s.startswith("['") and s.endswith("']")) or (s.startswith('["') and s.endswith('"]')):
         s = s[2:-2].strip()
     return s.upper()
+
+
+
+def _uc_chip_for_symbol(db_path: Path, symbol: str) -> str | None:
+    """Lab UC heuristic badge for Stock 360 — not a graduated predictor."""
+    try:
+        from App.indicators.uc_thrust import uc_flag_label, uc_score_map
+    except ModuleNotFoundError:
+        from indicators.uc_thrust import uc_flag_label, uc_score_map  # type: ignore
+    score = uc_score_map(db_path, limit=200).get(str(symbol or "").strip().upper())
+    if score is None:
+        return None
+    return uc_flag_label(score)
 
 
 def open_stock_360_modal(
@@ -715,8 +929,19 @@ def open_stock_360_modal(
                         ui.label(full_name).classes("text-xs text-slate-300 font-medium self-center")
                     if mcap and pd.notna(mcap):
                         ui.label(f"MCap ₹{float(mcap):,.0f} Cr").classes("mp-badge mp-neutral")
+                    band_val = ref.get("band") or profile.get("band")
+                    if band_val is not None and not pd.isna(band_val) and float(band_val) <= 5.0:
+                        ui.label(f"🚨 {int(float(band_val))}% Circuit Collar").classes(
+                            "mp-badge bg-rose-950/80 text-rose-300 border border-rose-500/50 font-semibold"
+                        )
                     if band_remarks:
                         ui.label(f"⚠️ {band_remarks}").classes("mp-badge mp-warn")
+                    ue = data.get("upcoming_event")
+                    if ue:
+                        days_lbl = "Today" if ue["days_away"] == 0 else (f"in {ue['days_away']}d" if ue["days_away"] > 0 else "")
+                        ui.label(f"📅 {ue['type']} {days_lbl} ({ue['date_str']})").classes(
+                            "mp-badge bg-amber-950/80 text-amber-300 border border-amber-500/50 font-semibold"
+                        )
                     if vcp_state and vcp_state != "None":
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone}")
@@ -738,6 +963,16 @@ def open_stock_360_modal(
                     ui.label(f"Market Regime · {market_regime}").classes("mp-badge mp-neutral")
                     ui.label(f"Event Risk · {event_risk}").classes("mp-badge mp-neutral")
                     ui.label(f"Data As Of · {data_as_of}").classes("mp-badge mp-neutral")
+
+                    stock_pe = profile.get("pe")
+                    adj_pe = profile.get("adjusted_pe")
+                    ind_med_pe = data.get("industry_median_pe")
+                    if stock_pe is not None and pd.notna(stock_pe) and float(stock_pe) > 0:
+                        ui.label(f"P/E · {float(stock_pe):.1f}x").classes("mp-badge mp-info font-semibold")
+                    if adj_pe is not None and pd.notna(adj_pe) and float(adj_pe) > 0:
+                        ui.label(f"Adj P/E · {float(adj_pe):.1f}x").classes("mp-badge mp-info font-semibold")
+                    if ind_med_pe is not None and pd.notna(ind_med_pe) and float(ind_med_pe) > 0:
+                        ui.label(f"Ind Median P/E · {float(ind_med_pe):.1f}x").classes("mp-badge mp-neutral font-semibold")
 
             with ui.column().classes("items-end gap-1"):
                 with ui.row().classes("items-center gap-2"):
@@ -1044,6 +1279,12 @@ def open_stock_360_modal(
                                     on_click=lambda *_, t=tv_copy_str, g=grp_lbl: copy_text(f"{g} Peers", t)
                                 ).props("dense outline size=sm color=primary").classes("text-xs font-mono")
 
+                    uc_chip = _uc_chip_for_symbol(db_path, clean_sym)
+                    if uc_chip:
+                        ui.label(
+                            f"{uc_chip} · lab heuristic (not a graduated UC predictor)"
+                        ).classes("text-xs text-amber-400 font-mono mb-2")
+
                     # Better Options in this Industry
                     if peer_comp and peer_comp.get("better_options"):
                         better_opts = peer_comp["better_options"]
@@ -1225,6 +1466,22 @@ def open_stock_360_modal(
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("RS Percentile").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(f"{float(rs):.0f}" if pd.notna(rs) else "—").classes("text-xl font-bold")
+
+                with ui.row().classes("gap-1 flex-wrap mt-1 items-center"):
+                    # Phase 2: MidSml400 default; Nifty50 selectable via toggle
+                    bench_state = {"bench": "midsml"}
+                    chip_row = ui.row().classes("gap-1 flex-wrap")
+                    def _render_bench_chips():
+                        chip_row.clear()
+                        with chip_row:
+                            _bench_rs_chip(profile, bench_state["bench"])
+                    def _set_bench(b: str):
+                        bench_state["bench"] = b
+                        _render_bench_chips()
+                    ui.button("MS400", on_click=lambda: _set_bench("midsml")).props("dense flat size=xs").classes("text-[10px]")
+                    ui.button("N50", on_click=lambda: _set_bench("nifty50")).props("dense flat size=xs").classes("text-[10px]")
+                    _render_bench_chips()
+
                     with ui.card().classes("p-3 mp-card text-center"):
                         ui.label("SMA template").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(geo["template"]["label"]).classes("text-xl font-bold")
@@ -1236,6 +1493,15 @@ def open_stock_360_modal(
                         rvol = profile.get("rvol")
                         ui.label("RVOL (20D)").classes("text-xs text-[var(--mp-muted)]")
                         ui.label(f"{float(rvol):.2f}x" if pd.notna(rvol) else "—").classes("text-xl font-bold")
+                    with ui.card().classes("p-3 mp-card text-center"):
+                        ui.label("Stock P/E").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"{float(stock_pe):.1f}x" if stock_pe and pd.notna(stock_pe) and float(stock_pe) > 0 else "—").classes("text-xl font-bold")
+                    with ui.card().classes("p-3 mp-card text-center"):
+                        ui.label("Adj P/E").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"{float(adj_pe):.1f}x" if adj_pe and pd.notna(adj_pe) and float(adj_pe) > 0 else "—").classes("text-xl font-bold")
+                    with ui.card().classes("p-3 mp-card text-center"):
+                        ui.label("Ind Median P/E").classes("text-xs text-[var(--mp-muted)]")
+                        ui.label(f"{float(ind_med_pe):.1f}x" if ind_med_pe and pd.notna(ind_med_pe) and float(ind_med_pe) > 0 else "—").classes("text-xl font-bold")
 
                 ui.label("Moving Averages & Key Levels").classes("text-sm font-bold mb-2")
                 with ui.row().classes("w-full gap-2 flex-wrap mb-3"):
@@ -1254,6 +1520,166 @@ def open_stock_360_modal(
                 deliv_qty = profile.get("delivery_qty")
                 turnover_cr = profile.get("turnover_cr")
                 ui.label(f"Turnover: ₹{float(turnover_cr or 0):,.1f} Cr · Delivery: {float(deliv_pct or 0):.1f}% ({float(deliv_qty or 0):,.0f} shares)").classes("text-xs text-[var(--mp-muted)]")
+
+                # 60-Session RS Trajectory & Delivery Volume Profile
+                hist = query_stock_rs_delivery_history(db_path, sym, limit=60)
+                if hist and hist.get("dates"):
+                    with ui.row().classes("w-full gap-3 mt-4 flex-wrap"):
+                        # Chart 1: RS Percentile Trajectory (60 Sessions)
+                        with ui.card().classes("p-3 mp-card flex-1 min-w-[320px]"):
+                            with ui.row().classes("w-full items-center justify-between mb-1"):
+                                ui.label("📈 60-Session RS Percentile Trajectory").classes("text-xs font-bold text-[var(--mp-text)]")
+                                rs_vals = [x for x in hist["rs"] if x is not None]
+                                if rs_vals:
+                                    first_rs = rs_vals[0]
+                                    latest_rs = rs_vals[-1]
+                                    rs_diff = round(latest_rs - first_rs, 1)
+                                    diff_tone = "text-emerald-400" if rs_diff >= 0 else "text-rose-400"
+                                    ui.label(f"Latest: {latest_rs:.0f} (60D Δ: {rs_diff:+.1f})").classes(f"text-xs font-mono font-semibold {diff_tone}")
+
+                            rs_chart_opt = {
+                                "backgroundColor": "transparent",
+                                "animation": False,
+                                "tooltip": {
+                                    "trigger": "axis",
+                                    "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                                    "borderColor": "#334155",
+                                    "borderWidth": 1,
+                                    "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                                    "confine": True,
+                                },
+                                "grid": {"left": "10%", "right": "6%", "top": "14%", "bottom": "18%"},
+                                "xAxis": {
+                                    "type": "category",
+                                    "data": hist["dates"],
+                                    "boundaryGap": False,
+                                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                                },
+                                "yAxis": {
+                                    "type": "value",
+                                    "min": 0,
+                                    "max": 100,
+                                    "splitLine": {"lineStyle": {"color": "#1e293b"}},
+                                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                                },
+                                "series": [
+                                    {
+                                        "name": "RS Percentile",
+                                        "type": "line",
+                                        "smooth": True,
+                                        "data": hist["rs"],
+                                        "lineStyle": {"color": "#38bdf8", "width": 2},
+                                        "areaStyle": {
+                                            "color": {
+                                                "type": "linear",
+                                                "x": 0, "y": 0, "x2": 0, "y2": 1,
+                                                "colorStops": [
+                                                    {"offset": 0, "color": "rgba(56, 189, 248, 0.35)"},
+                                                    {"offset": 1, "color": "rgba(56, 189, 248, 0.0)"},
+                                                ],
+                                            }
+                                        },
+                                        "showSymbol": False,
+                                        "markLine": {
+                                            "silent": True,
+                                            "data": [
+                                                {
+                                                    "yAxis": 80,
+                                                    "lineStyle": {"color": "#10b981", "type": "dashed", "width": 1},
+                                                    "label": {"formatter": "80 Leader", "position": "insideEndTop", "color": "#10b981", "fontSize": 9},
+                                                },
+                                                {
+                                                    "yAxis": 70,
+                                                    "lineStyle": {"color": "#f59e0b", "type": "dashed", "width": 1},
+                                                    "label": {"formatter": "70 Outperform", "position": "insideEndTop", "color": "#f59e0b", "fontSize": 9},
+                                                },
+                                            ],
+                                        },
+                                    }
+                                ],
+                            }
+                            ui.echart(rs_chart_opt).classes("w-full h-[220px]")
+
+                        # Chart 2: 60-Session Volume & Delivery Trend
+                        with ui.card().classes("p-3 mp-card flex-1 min-w-[320px]"):
+                            with ui.row().classes("w-full items-center justify-between mb-1"):
+                                ui.label("📦 60-Session Volume & Delivery Trend").classes("text-xs font-bold text-[var(--mp-text)]")
+                                deliv_vals = [x for x in hist["delivery_pct"] if x is not None]
+                                avg_deliv = sum(deliv_vals) / len(deliv_vals) if deliv_vals else 0
+                                ui.label(f"Avg Deliv: {avg_deliv:.1f}% · Latest: {float(deliv_pct or 0):.1f}%").classes("text-xs font-mono font-semibold text-amber-400")
+
+                            deliv_chart_opt = {
+                                "backgroundColor": "transparent",
+                                "animation": False,
+                                "tooltip": {
+                                    "trigger": "axis",
+                                    "axisPointer": {"type": "shadow"},
+                                    "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                                    "borderColor": "#334155",
+                                    "borderWidth": 1,
+                                    "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                                    "confine": True,
+                                },
+                                "legend": {
+                                    "data": ["Volume", "Delivery Qty", "Delivery %"],
+                                    "textStyle": {"color": "#94a3b8", "fontSize": 9},
+                                    "top": 0,
+                                    "itemWidth": 10,
+                                    "itemHeight": 6,
+                                },
+                                "grid": {"left": "10%", "right": "10%", "top": "16%", "bottom": "18%"},
+                                "xAxis": {
+                                    "type": "category",
+                                    "data": hist["dates"],
+                                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                                },
+                                "yAxis": [
+                                    {
+                                        "type": "value",
+                                        "name": "Volume",
+                                        "splitLine": {"lineStyle": {"color": "#1e293b"}},
+                                        "axisLabel": {"color": "#94a3b8", "fontSize": 8},
+                                    },
+                                    {
+                                        "type": "value",
+                                        "name": "Deliv %",
+                                        "min": 0,
+                                        "max": 100,
+                                        "splitLine": {"show": False},
+                                        "axisLabel": {"color": "#fbbf24", "fontSize": 8, "formatter": "{value}%"},
+                                    },
+                                ],
+                                "series": [
+                                    {
+                                        "name": "Volume",
+                                        "type": "bar",
+                                        "yAxisIndex": 0,
+                                        "data": hist["volume"],
+                                        "itemStyle": {"color": "#475569"},
+                                    },
+                                    {
+                                        "name": "Delivery Qty",
+                                        "type": "bar",
+                                        "yAxisIndex": 0,
+                                        "barGap": "-100%",
+                                        "data": hist["delivery_qty"],
+                                        "itemStyle": {"color": "#3b82f6"},
+                                    },
+                                    {
+                                        "name": "Delivery %",
+                                        "type": "line",
+                                        "yAxisIndex": 1,
+                                        "smooth": True,
+                                        "data": hist["delivery_pct"],
+                                        "lineStyle": {"color": "#fbbf24", "width": 1.5},
+                                        "itemStyle": {"color": "#fbbf24"},
+                                        "showSymbol": False,
+                                    },
+                                ],
+                            }
+                            ui.echart(deliv_chart_opt).classes("w-full h-[220px]")
 
             # Tab 2: User Notes & Study
             with ui.tab_panel(t_notes).classes("mp-confirmation-section p-4"):
@@ -1452,6 +1878,19 @@ def render_stock_inspector_panel(
                     ui.label(sym).classes("text-xl font-bold tracking-tight text-[var(--mp-text)] font-mono")
                     if rs and pd.notna(rs):
                         ui.label(f"RS {float(rs):.0f}").classes("mp-badge mp-good text-[11px]")
+                    _true_rs_chip("vs N50 63d", profile.get("rs_vs_nifty50_63d"))
+                    _true_rs_chip("vs MS400 63d", profile.get("rs_vs_midsml400_63d"))
+                    band_val = profile.get("band") or data.get("reference", {}).get("band")
+                    if band_val is not None and not pd.isna(band_val) and float(band_val) <= 5.0:
+                        ui.label(f"🚨 {int(float(band_val))}% Collar").classes(
+                            "mp-badge bg-rose-950/80 text-rose-300 border border-rose-500/50 font-semibold text-[10px]"
+                        )
+                    ue = data.get("upcoming_event")
+                    if ue:
+                        days_lbl = "Today" if ue["days_away"] == 0 else (f"in {ue['days_away']}d" if ue["days_away"] > 0 else "")
+                        ui.label(f"📅 {ue['type']} {days_lbl}").classes(
+                            "mp-badge bg-amber-950/80 text-amber-300 border border-amber-500/50 font-semibold text-[10px]"
+                        )
                     if vcp_state and vcp_state != "None":
                         tone = "mp-good" if vcp_state in ("Breakout", "Near Pivot") else "mp-info"
                         ui.label(vcp_state).classes(f"mp-badge {tone} text-[10px]")

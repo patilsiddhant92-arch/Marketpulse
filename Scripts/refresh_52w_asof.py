@@ -1,6 +1,8 @@
 """
 Refresh high_52w / low_52w / away_52w_* on existing indicators_daily using
 point-in-time NSE snapshots (as-of) + 252d fallback. No full rebuild.
+When indicators_daily carries price_factor (split/bonus-adjusted build), the NSE
+values are rescaled by it, exactly as calc_indicators does.
 
 Does not change Momentum UI. Safe to re-run.
 """
@@ -33,10 +35,14 @@ def main() -> int:
 
     print("Loading indicator keys from database...")
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(indicators_daily)").fetchall()}
+        # A split/bonus-adjusted build stores close_price (and high/low_252d) on today's scale
+        # plus each row's cumulative price_factor; without the column everything is raw (1.0).
+        factor_expr = "COALESCE(price_factor, 1.0)" if "price_factor" in cols else "1.0"
         keys = con.execute(
-            """
+            f"""
             SELECT symbol, trade_date, close_price,
-                   high_252d, low_252d
+                   high_252d, low_252d, {factor_expr} AS price_factor
             FROM indicators_daily
             ORDER BY symbol, trade_date
             """
@@ -47,9 +53,12 @@ def main() -> int:
 
     print("As-of joining official 52W (never future)...")
     joined = asof_reference(ref, keys[["symbol", "trade_date"]])
-    high = pd.to_numeric(joined.get("high_52w"), errors="coerce")
-    low = pd.to_numeric(joined.get("low_52w"), errors="coerce")
-    # 252d fallback where NSE snapshot missing
+    # NSE's 52W values sit on the price scale of their file date (the row's raw scale); the
+    # row's price_factor moves them onto today's adjusted scale, same as calc_indicators.
+    factor = pd.to_numeric(keys["price_factor"], errors="coerce").fillna(1.0).to_numpy()
+    high = pd.to_numeric(joined.get("high_52w"), errors="coerce") * factor
+    low = pd.to_numeric(joined.get("low_52w"), errors="coerce") * factor
+    # 252d fallback where NSE snapshot missing (already on the adjusted scale)
     high = high.fillna(pd.to_numeric(keys["high_252d"], errors="coerce"))
     low = low.fillna(pd.to_numeric(keys["low_252d"], errors="coerce"))
     close = pd.to_numeric(keys["close_price"], errors="coerce")

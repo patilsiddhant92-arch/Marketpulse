@@ -361,6 +361,12 @@ def _build_why_focus(row: pd.Series | dict[str, Any]) -> str:
     turnover_exp = float(row.get("turnover_expansion") or 1.0)
     highs = int(row.get("near_52w_highs") or 0)
     vcps = int(row.get("vcp_candidates") or 0)
+    deal_net = float(row.get("deal_net_10s_cr") or 0.0)
+
+    if deal_net >= 50.0:
+        reasons.append(f"Inst Inflow +₹{deal_net:,.0f}Cr")
+    elif deal_net > 0.0:
+        reasons.append(f"Inst Inflow +₹{deal_net:.1f}Cr")
 
     if rank_chg >= 3:
         reasons.append(f"Surging Rank (+{int(rank_chg)} in 5D)")
@@ -726,6 +732,25 @@ def query_sector_rotation_overview(
         rot_df["top_leaders"] = ""
         rot_df["leader_symbols"] = ""
 
+    # Merge institutional deal flow from sector_metrics_daily if available
+    try:
+        deal_flow_df = db.execute(
+            """
+            SELECT group_name, deal_net_10s_cr, deal_prop_10s_cr
+            FROM sector_metrics_daily
+            WHERE level = ? AND trade_date = ?
+            """,
+            [level, latest_d],
+        ).fetchdf()
+        if not deal_flow_df.empty:
+            rot_df = rot_df.merge(deal_flow_df, on="group_name", how="left")
+    except Exception:
+        pass
+    if "deal_net_10s_cr" not in rot_df.columns:
+        rot_df["deal_net_10s_cr"] = 0.0
+    if "deal_prop_10s_cr" not in rot_df.columns:
+        rot_df["deal_prop_10s_cr"] = 0.0
+
     # Calculate turnover share %
     total_turnover = rot_df["turnover_1d_cr"].sum()
     if total_turnover > 0:
@@ -824,6 +849,8 @@ def query_sector_rotation_overview(
             "top_leaders": str(row.get("top_leaders") or ""),
             "leader_symbols": str(row.get("leader_symbols") or ""),
             "stocks_count": int(row.get("stocks") or 0),
+            "deal_net_10s_cr": float(row.get("deal_net_10s_cr") or 0.0),
+            "deal_prop_10s_cr": float(row.get("deal_prop_10s_cr") or 0.0),
             "why_focus": str(row.get("why_focus") or ""),
         }
 
@@ -993,8 +1020,7 @@ def query_sector_turnover_overview(
             SELECT m.{col} AS group_name,
                    i.symbol,
                    i.turnover_cr,
-                   coalesce(i.avg_traded_value_cr_20d, i.turnover_cr) AS adv_20d,
-                   ROW_NUMBER() OVER (PARTITION BY m.{col} ORDER BY i.turnover_cr DESC) AS rn
+                   coalesce(i.avg_traded_value_cr_20d, i.turnover_cr) AS adv_20d
             FROM indicators_daily i
             JOIN stocks_master m ON m.symbol = i.symbol
             WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
@@ -1011,7 +1037,16 @@ def query_sector_turnover_overview(
         top_drivers AS (
             SELECT group_name,
                    string_agg(symbol || ' (' || round(turnover_cr, 0)::text || 'Cr)', ', ') AS top_turnover_stocks
-            FROM stock_stats
+            FROM (
+                SELECT m.{col} AS group_name,
+                       i.symbol,
+                       i.turnover_cr,
+                       ROW_NUMBER() OVER (PARTITION BY m.{col} ORDER BY i.turnover_cr DESC) AS rn
+                FROM indicators_daily i
+                JOIN stocks_master m ON m.symbol = i.symbol
+                WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+                  AND coalesce(m.market_cap_cr, 0) >= 1000.0
+            ) ranked
             WHERE rn <= 3
             GROUP BY group_name
         )
@@ -1026,7 +1061,7 @@ def query_sector_turnover_overview(
         ORDER BY g.turnover_1d_cr DESC
         """
         try:
-            df = db.execute(sql, [target_date]).fetchdf()
+            df = db.execute(sql, [target_date, target_date]).fetchdf()
         except duckdb.Error:
             return pd.DataFrame()
 
@@ -1072,13 +1107,7 @@ def query_sector_52w_highs_overview(
                    i.rs_percentile,
                    i.return_1m_pct,
                    CASE WHEN i.away_52w_high_pct >= -5.0 THEN 1 ELSE 0 END AS near_52w,
-                   CASE WHEN i.away_52w_high_pct >= -2.0 THEN 1 ELSE 0 END AS at_52w,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY m.{col} 
-                       ORDER BY CASE WHEN i.away_52w_high_pct >= -5.0 THEN 0 ELSE 1 END, 
-                                i.away_52w_high_pct DESC, 
-                                i.rs_percentile DESC
-                   ) AS rn
+                   CASE WHEN i.away_52w_high_pct >= -2.0 THEN 1 ELSE 0 END AS at_52w
             FROM indicators_daily i
             JOIN stocks_master m ON m.symbol = i.symbol
             WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
@@ -1095,8 +1124,23 @@ def query_sector_52w_highs_overview(
         top_high_stocks AS (
             SELECT group_name,
                    string_agg(symbol || ' (' || round(away_52w_high_pct, 1)::text || '%)', ', ') AS stocks_near_high
-            FROM stock_highs
-            WHERE rn <= 5 AND near_52w = 1
+            FROM (
+                SELECT m.{col} AS group_name,
+                       i.symbol,
+                       i.away_52w_high_pct,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY m.{col} 
+                           ORDER BY CASE WHEN i.away_52w_high_pct >= -5.0 THEN 0 ELSE 1 END, 
+                                    i.away_52w_high_pct DESC, 
+                                    i.rs_percentile DESC
+                       ) AS rn
+                FROM indicators_daily i
+                JOIN stocks_master m ON m.symbol = i.symbol
+                WHERE i.trade_date = ? AND m.{col} IS NOT NULL AND m.{col} <> ''
+                  AND coalesce(m.market_cap_cr, 0) >= 1000.0
+                  AND i.away_52w_high_pct >= -5.0
+            ) ranked
+            WHERE rn <= 5
             GROUP BY group_name
         )
         SELECT g.group_name,
@@ -1110,7 +1154,7 @@ def query_sector_52w_highs_overview(
         ORDER BY g.near_52w_count DESC, g.high_density_pct DESC
         """
         try:
-            return db.execute(sql, [target_date]).fetchdf()
+            return db.execute(sql, [target_date, target_date]).fetchdf()
         except duckdb.Error:
             return pd.DataFrame()
 
@@ -1191,6 +1235,35 @@ def _coalesce_live_column(frame: pd.DataFrame, dest: str, live: str) -> None:
         frame[dest] = pd.to_numeric(frame[dest], errors="coerce").fillna(live_series)
     else:
         frame[dest] = live_series
+
+
+
+LEADING_ROTATION_STATES = frozenset({"Leading", "Emerging"})
+
+
+def leading_themes_from_board(board: pd.DataFrame, *, limit: int = 4) -> pd.DataFrame:
+    """Action Desk STEP2 / shared 'leading themes' contract.
+
+    A group may appear as Leading only when rotation_state is Leading or Emerging
+    AND 5D turnover-share delta is strictly positive. Lagging/Weakening with a
+    one-day money spike must never wear the Leading badge on STEP2.
+    Sorted by turnover_share_delta_5d DESC (same money-flow grain as Sector Intel).
+    """
+    if board is None or getattr(board, "empty", True):
+        return pd.DataFrame()
+    frame = board.copy()
+    if "rotation_state" not in frame.columns:
+        return frame.head(limit).copy()
+    states = frame["rotation_state"].astype(str).str.strip()
+    ok_state = states.isin(LEADING_ROTATION_STATES)
+    if "turnover_share_delta_5d" in frame.columns:
+        delta = pd.to_numeric(frame["turnover_share_delta_5d"], errors="coerce").fillna(0.0)
+        ok_flow = delta > 0
+        frame = frame.loc[ok_state & ok_flow].copy()
+        frame = frame.sort_values("turnover_share_delta_5d", ascending=False)
+    else:
+        frame = frame.loc[ok_state].copy()
+    return frame.head(int(limit)).reset_index(drop=True)
 
 
 def query_rotation_board(
@@ -1353,14 +1426,50 @@ def query_rotation_board(
         ).reset_index(drop=True)
 
 
+
+def rotation_board_filter_stats(
+    db_path: Path,
+    *,
+    level: str,
+    as_of: date | None = None,
+    min_names: int = BOARD_MIN_NAMES,
+    min_turnover_cr: float = BOARD_MIN_TURNOVER_CR,
+) -> dict[str, int]:
+    """How many groups exist at grain vs how many pass the money-board filters."""
+    unfiltered = query_rotation_board(
+        db_path, level=level, as_of=as_of, min_names=0, min_turnover_cr=0.0
+    )
+    filtered = query_rotation_board(
+        db_path,
+        level=level,
+        as_of=as_of,
+        min_names=min_names,
+        min_turnover_cr=min_turnover_cr,
+    )
+    total = int(len(unfiltered))
+    shown = int(len(filtered))
+    return {
+        "total": total,
+        "shown": shown,
+        "hidden": max(0, total - shown),
+        "min_names": int(min_names),
+        "min_turnover_cr": int(min_turnover_cr),
+    }
+
+
+
 def query_group_members(
     db_path: Path,
     *,
     level: str,
     group_name: str,
     as_of: date | None = None,
+    min_mcap_cr: float | None = 1000.0,
 ) -> pd.DataFrame:
-    """Stocks in a taxonomy group on as_of. Accepts Broad Industry / Broad Sector."""
+    """Stocks in a taxonomy group on as_of. Accepts Broad Industry / Broad Sector.
+    Filters out stocks with market cap below min_mcap_cr (default ₹1000 Cr) to prevent
+    displaying manipulated micro-cap stocks in the app while retaining all data for calculations.
+    """
     db_path = Path(db_path)
     col = LEVEL_COLUMNS.get(level)
     clean_group = str(group_name or "").strip()
@@ -1374,6 +1483,10 @@ def query_group_members(
         else:
             date_sql = "(SELECT max(trade_date) FROM indicators_daily)"
             params = [clean_group]
+        mcap_clause = ""
+        if min_mcap_cr is not None and float(min_mcap_cr) > 0:
+            mcap_clause = "AND coalesce(m.market_cap_cr, 0) >= ?"
+            params.append(float(min_mcap_cr))
         sql = f"""
         SELECT
             i.symbol,
@@ -1389,6 +1502,7 @@ def query_group_members(
         JOIN stocks_master m ON m.symbol = i.symbol
         WHERE i.trade_date = {date_sql}
           AND trim(m.{col}) = ?
+          {mcap_clause}
         ORDER BY i.turnover_cr DESC NULLS LAST, i.symbol ASC
         """
         try:

@@ -28,7 +28,11 @@ from config import (
     SECTOR_FILE,
     WATCHLIST_BUCKETS,
 )
-from index_history import build_index_features, load_all_market_activity_history
+from index_history import build_index_features, load_all_index_history
+from price_adjustment import adjust_prices, empty_adjustments_frame, indicator_input, summarize_adjustments
+from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
+from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
+from index_constituents import load_membership_csv, ensure_index_constituents
 from reference_history import asof_reference, load_reference_history
 try:
     from Scripts.indicators import (
@@ -112,10 +116,25 @@ def latest_file(folder: Path, pattern: str) -> Path | None:
 
 
 def read_equity_symbols() -> pd.DataFrame:
-    df = pd.read_csv(EQUITY_LIST_FILE, usecols=[0], dtype=str)
-    df.columns = ["symbol"]
+    df = pd.read_csv(EQUITY_LIST_FILE, dtype=str)
+    df.columns = [str(c).strip() for c in df.columns]
+    renames = {"SYMBOL": "symbol"}
+    for c in df.columns:
+        if c.upper() == "DATE OF LISTING":
+            renames[c] = "date_of_listing"
+        elif c.upper() == "ISIN NUMBER":
+            renames[c] = "isin"
+        elif c.upper() == "NAME OF COMPANY":
+            renames[c] = "security_name"
+    df = df.rename(columns=renames)
     df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-    df = df[(df["symbol"] != "") & (df["symbol"].str.lower() != "nan")]
+    df = df[(df["symbol"] != "") & (df["symbol"].str.lower() != "nan")].copy()
+    if "date_of_listing" in df.columns:
+        df["listing_date"] = pd.to_datetime(df["date_of_listing"], format="%d-%b-%Y", errors="coerce").dt.date
+    else:
+        df["listing_date"] = None
+    if "isin" in df.columns:
+        df["isin"] = df["isin"].astype(str).str.strip()
     return df.drop_duplicates("symbol")
 
 
@@ -133,7 +152,7 @@ def read_sector() -> pd.DataFrame:
     return df.drop_duplicates("symbol", keep="last")
 
 
-def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
+def read_bhavcopy(path: Path, universe: set[str] | None = None) -> pd.DataFrame:
     df = pd.read_csv(path, dtype=str, skipinitialspace=True)
     df = clean_columns(df)
     rename = {
@@ -169,7 +188,11 @@ def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
     df = df[[col for col in needed if col in df.columns]].copy()
     df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
     df["series"] = df["series"].astype(str).str.strip().str.upper()
-    df = df[df["symbol"].isin(universe)]
+    if universe is None:
+        from universe import SERIES_WHITELIST
+        df = df[df["series"].isin(SERIES_WHITELIST)]
+    else:
+        df = df[df["symbol"].isin(universe)]
     df["trade_date"] = pd.to_datetime(df["trade_date"].astype(str).str.strip(), format="%d-%b-%Y", errors="coerce")
     for col in ["prev_close", "open_price", "high_price", "low_price", "last_price", "close_price", "avg_price", "volume", "turnover_lacs", "trades", "delivery_qty", "delivery_pct"]:
         if col in df.columns:
@@ -180,10 +203,11 @@ def read_bhavcopy(path: Path, universe: set[str]) -> pd.DataFrame:
     return df.drop(columns=["series_priority"], errors="ignore")
 
 
-def build_prices(universe: set[str]) -> pd.DataFrame:
+def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
     # Include downloads/ so a session that never made it to archive/daily is still rebuilt.
     downloads = INPUT_DIR / "downloads"
     files = set(ARCHIVE_DIR.glob("sec_bhavdata_full_*.csv")) | set(DAILY_DIR.glob("sec_bhavdata_full_*.csv"))
+    files |= set((ARCHIVE_DIR / "backfill" / "bhav").glob("sec_bhavdata_full_*.csv"))
     if downloads.exists():
         files |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
     files = sorted(files)
@@ -200,23 +224,40 @@ def build_prices(universe: set[str]) -> pd.DataFrame:
     prices = pd.concat(frames, ignore_index=True)
     prices = prices.dropna(subset=["symbol", "trade_date", "close_price"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+    if universe is None:
+        changes_path = INPUT_DIR / "reference" / "symbolchange.csv"
+        if changes_path.exists():
+            from symbol_changes import parse_symbol_changes
+            from universe import apply_symbol_changes
+            prices = apply_symbol_changes(prices, parse_symbol_changes(changes_path))
     return prices
+
+
+MCAP_COLUMNS = ["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"]
+
+
+def parse_market_cap_frame(df: pd.DataFrame) -> pd.DataFrame:
+    market_cap_col = next((c for c in df.columns if c.startswith("market_cap")), None)
+    if not market_cap_col or "symbol" not in df.columns:
+        return pd.DataFrame(columns=MCAP_COLUMNS)
+    if "series" in df.columns:
+        # NSE appends Listed / Permitted / Total summary rows with a blank series.
+        df = df[df["series"].fillna("").astype(str).str.strip() != ""]
+    out = pd.DataFrame()
+    out["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+    out["security_name"] = df.get("security_name", pd.Series("", index=df.index)).astype(str).str.strip()
+    out["market_cap_cr"] = to_number(df[market_cap_col]) / 10_000_000
+    out["market_cap_date"] = pd.to_datetime(df.get("trade_date", ""), format="%d %b %Y", errors="coerce")
+    issue_size_col = next((c for c in df.columns if c.startswith("issue_size")), None)
+    out["issue_size"] = to_number(df[issue_size_col]) if issue_size_col else np.nan
+    return out.drop_duplicates("symbol", keep="last").reset_index(drop=True)
 
 
 def read_market_cap() -> pd.DataFrame:
     path = latest_file(DAILY_DIR, "mcap*.csv")
     if not path:
-        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date"])
-    df = clean_columns(pd.read_csv(path, dtype=str, skipinitialspace=True))
-    market_cap_col = next((c for c in df.columns if c.startswith("market_cap")), None)
-    if not market_cap_col:
-        return pd.DataFrame(columns=["symbol", "security_name", "market_cap_cr", "market_cap_date"])
-    out = pd.DataFrame()
-    out["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-    out["security_name"] = df.get("security_name", "").astype(str).str.strip()
-    out["market_cap_cr"] = to_number(df[market_cap_col]) / 10_000_000
-    out["market_cap_date"] = pd.to_datetime(df.get("trade_date", ""), format="%d %b %Y", errors="coerce")
-    return out.drop_duplicates("symbol", keep="last")
+        return pd.DataFrame(columns=MCAP_COLUMNS)
+    return parse_market_cap_frame(clean_columns(pd.read_csv(path, dtype=str, skipinitialspace=True)))
 
 
 def read_price_band() -> pd.DataFrame:
@@ -369,6 +410,18 @@ def _iter_deal_paths(folder: Path, kind: str) -> list[Path]:
     return sorted(found.values(), key=_deal_file_sort_key)
 
 
+PRINT_KEY = ["trade_date", "symbol", "client_name", "side", "quantity", "price"]
+
+
+def collapse_cross_listed_prints(deals: pd.DataFrame) -> pd.DataFrame:
+    """A block deal above 0.5% of equity also appears in the bulk file; keep one row per print."""
+    if deals.empty:
+        return deals
+    types = deals.groupby(PRINT_KEY, dropna=False)["deal_type"].transform(lambda s: "+".join(sorted(set(s.astype(str)))))
+    out = deals.assign(deal_type=types)
+    return out.drop_duplicates(PRINT_KEY, keep="last").reset_index(drop=True)
+
+
 def read_all_deals() -> pd.DataFrame:
     """Load bulk/block from archive, daily, and downloads/DDMMYYYY/ (dated sessions)."""
     from config import INPUT_DIR
@@ -399,6 +452,7 @@ def read_all_deals() -> pd.DataFrame:
         ["deal_type", "trade_date", "symbol", "client_name", "side", "quantity", "price"],
         keep="last",
     )
+    deals = collapse_cross_listed_prints(deals)
     deals["deal_value_cr"] = deals["quantity"] * deals["price"] / 10_000_000
     return deals.sort_values(["trade_date", "deal_type", "symbol", "side", "client_name"]).reset_index(drop=True)
 
@@ -704,6 +758,19 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
         indicators = indicators.drop(columns=["high_52w"], errors="ignore").merge(high52, on="symbol", how="left")
         low52 = enrichment[["symbol", "low_52w"]].dropna().drop_duplicates("symbol", keep="last")
         indicators = indicators.drop(columns=["low_52w"], errors="ignore").merge(low52, on="symbol", how="left")
+    # NSE's reported 52-week high/low (joined as-of each row's date) are adjusted by NSE only
+    # up to that file's date: they sit on the price scale of the file date, i.e. the raw scale
+    # of that row. `close_price` etc. here are back-adjusted to today's scale (calc_indicators
+    # receives `indicator_input(prices)`, i.e. split/bonus-adjusted OHLCV). Multiplying by each
+    # row's cumulative price_factor (product of the events after that row) moves the NSE values
+    # onto today's scale too, so away_52w_high_pct/away_52w_low_pct (and everything derived
+    # from them: near_52w_high, trend_template's tt_off_low/tt_near_high, pivot_proximity_score,
+    # vcp_score/vcp_state) compare like-for-like scales. high_252d/low_252d below are already
+    # computed from the adjusted OHLCV, so they need no rescaling.
+    if "price_factor" in indicators.columns:
+        _price_factor_52w = pd.to_numeric(indicators["price_factor"], errors="coerce").fillna(1.0)
+        indicators["high_52w"] = indicators["high_52w"] * _price_factor_52w
+        indicators["low_52w"] = indicators["low_52w"] * _price_factor_52w
     # Fallback: use computed 252d range when official 52W missing (older history)
     if "high_252d" in indicators.columns:
         indicators["high_52w"] = indicators["high_52w"].fillna(indicators["high_252d"])
@@ -744,6 +811,32 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     # Simple recent strength (63d) percentile for quick views.
     rs_3m = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
     indicators["rs_3m_percentile"] = rs_3m.groupby(indicators["trade_date"]).rank(pct=True) * 100
+
+    # True RS vs Nifty 50 / MidSml 400 (excess return, fail-closed). Peer rs_percentile stays primary.
+    print("  5c+/8: Computing true RS vs index benches...", flush=True)
+    try:
+        index_raw = load_all_index_history(ROOT_DIR)
+        if index_raw is not None and not index_raw.empty:
+            indicators = attach_true_rs_columns(indicators, index_raw)
+        else:
+            for _col in TRUE_RS_COLUMNS:
+                if _col not in indicators.columns:
+                    indicators[_col] = np.nan
+    except Exception as exc:
+        print(f"  Warning: true RS skipped ({exc})", flush=True)
+        for _col in TRUE_RS_COLUMNS:
+            if _col not in indicators.columns:
+                indicators[_col] = np.nan
+
+
+    print("  5c++/8: Computing stock vs mapped sector-index RS...", flush=True)
+    try:
+        _idx = load_all_index_history(ROOT_DIR)
+        _mem = load_membership_csv()
+        _master = master if "master" in dir() else None
+        indicators = attach_sector_index_rs(indicators, _idx, _mem, _master)
+    except Exception as exc:
+        print(f"  Warning: sector-index RS skipped ({exc})", flush=True)
 
     # NOTE on RS: All are cross-sectional daily ranks (0-100). Higher = stronger relative performance vs other stocks that day.
     print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)
@@ -824,9 +917,27 @@ def build_master(equity: pd.DataFrame, sector: pd.DataFrame, prices: pd.DataFram
     master = equity.merge(sector, on="symbol", how="left")
     master = master.merge(latest_price[["symbol", "series", "trade_date", "close_price"]], on="symbol", how="left")
     master = master.rename(columns={"series": "latest_series", "trade_date": "latest_price_date", "close_price": "latest_close"})
-    master = master.merge(mcap, on="symbol", how="left")
+    mcap_join = mcap.drop(columns=["security_name"], errors="ignore")
+    master = master.merge(mcap_join, on="symbol", how="left")
     master = master.merge(bands, on="symbol", how="left")
     master = master.merge(pe, on="symbol", how="left")
+    if "security_name_x" in master.columns or "security_name_y" in master.columns:
+        left = master["security_name_x"] if "security_name_x" in master.columns else master.get("security_name")
+        right = master["security_name_y"] if "security_name_y" in master.columns else None
+        if left is not None and right is not None:
+            left_s = left.astype("string").str.strip().replace("", pd.NA)
+            master["security_name"] = left_s.fillna(right)
+        elif left is not None:
+            master["security_name"] = left
+        elif right is not None:
+            master["security_name"] = right
+        master = master.drop(columns=[c for c in ("security_name_x", "security_name_y") if c in master.columns])
+    if "listing_date" in master.columns and "latest_price_date" in master.columns:
+        l_dt = pd.to_datetime(master["listing_date"], errors="coerce")
+        p_dt = pd.to_datetime(master["latest_price_date"], errors="coerce")
+        master["ipo_age_days"] = (p_dt - l_dt).dt.days
+    else:
+        master["ipo_age_days"] = np.nan
     return master
 
 
@@ -846,6 +957,25 @@ def build_enrichment(mcap: pd.DataFrame, bands: pd.DataFrame, pe: pd.DataFrame, 
     return enrichment
 
 
+def compute_repeated_client_count(deals: pd.DataFrame) -> pd.Series:
+    """Count of distinct trade dates a client has hit the same symbol/side.
+
+    Keyed by symbol|client_name|side only -- deliberately excluding deal_type.
+    Prints reported in both the bulk and block files get collapsed into a
+    single "Block+Bulk" deal_type (see collapse_cross_listed_prints); if
+    deal_type were part of the repeat key, the same buyer trading "Bulk" on
+    one day and "Block+Bulk" (post-collapse) on another day would be treated
+    as two different clients, silently undercounting repeat_client_count.
+    """
+    key = client_repeat_key(deals)
+    return deals.groupby(key)["trade_date"].transform("nunique")
+
+
+def client_repeat_key(deals: pd.DataFrame) -> pd.Series:
+    """Pure key builder shared by compute_repeated_client_count (and tests)."""
+    return deals["symbol"].astype(str) + "|" + deals["client_name"].astype(str) + "|" + deals["side"].astype(str)
+
+
 def enrich_deals(deals: pd.DataFrame, prices: pd.DataFrame, indicators: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
     if deals.empty:
         return deals
@@ -857,9 +987,7 @@ def enrich_deals(deals: pd.DataFrame, prices: pd.DataFrame, indicators: pd.DataF
     out = out.merge(master[master_cols], on="symbol", how="left")
     out["deal_pct_volume"] = out["quantity"] / out["volume"] * 100
     out["deal_price_vs_close_pct"] = (out["price"] / out["close_price"] - 1) * 100
-    out["client_symbol_key"] = out["deal_type"].astype(str) + "|" + out["symbol"].astype(str) + "|" + out["client_name"].astype(str) + "|" + out["side"].astype(str)
-    out["repeated_client_count"] = out.groupby("client_symbol_key")["trade_date"].transform("nunique")
-    out = out.drop(columns=["client_symbol_key"])
+    out["repeated_client_count"] = compute_repeated_client_count(out)
     return enrich_deals_with_tiers(out)
 
 
@@ -908,6 +1036,55 @@ def build_breadth_daily(indicators: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
+def _aggregate_rotation_groups(d: pd.DataFrame, col: str, has_prev_close: bool) -> pd.DataFrame:
+    """Per (trade_date, group) breadth/return aggregates, vectorised.
+
+    Matches the former per-group apply exactly: NaN-skipping means, EMA comparisons that
+    count NaN as "not above", and every output column as float64.
+    """
+    close = pd.to_numeric(d["close_price"], errors="coerce")
+    work = pd.DataFrame(
+        {
+            "trade_date": d["trade_date"],
+            col: d[col],
+            "symbol": d["symbol"],
+            "return_5d_pct": d["return_5d_pct"],
+            "return_1m_pct": d["return_1m_pct"],
+            "return_3m_pct": d["return_3m_pct"],
+            "rs_percentile": d["rs_percentile"],
+            "above_10": (close > d["ema_10"]).astype(float),
+            "above_50": (close > d["ema_50"]).astype(float),
+            "above_200": (close > d["ema_200"]).astype(float),
+            "near_52w_highs": d["near_52w_high"].astype(float),
+            "vcp_candidates": d["is_vcp"].astype(float),
+            "turnover_cr": d["turnover_cr"],
+            "adv": (close > d["prev_close"]).astype(float) if has_prev_close else 0.0,
+        },
+        index=d.index,
+    )
+    g = work.groupby(["trade_date", col])
+    out = g.agg(
+        stocks=("symbol", "nunique"),
+        return_5d_pct=("return_5d_pct", "mean"),
+        return_1m_pct=("return_1m_pct", "mean"),
+        return_3m_pct=("return_3m_pct", "mean"),
+        rs_percentile=("rs_percentile", "mean"),
+        above_10ema_pct=("above_10", "mean"),
+        above_50ema_pct=("above_50", "mean"),
+        above_200ema_pct=("above_200", "mean"),
+        near_52w_highs=("near_52w_highs", "sum"),
+        vcp_candidates=("vcp_candidates", "sum"),
+        turnover_cr=("turnover_cr", "sum"),
+        adv=("adv", "sum"),
+    )
+    for pct in ("above_10ema_pct", "above_50ema_pct", "above_200ema_pct"):
+        out[pct] = out[pct] * 100
+    stocks = out["stocks"].astype(float)
+    out["adv_pct"] = np.where(stocks > 0, out["adv"] / stocks.where(stocks > 0) * 100, 0.0) if has_prev_close else 0.0
+    out = out.drop(columns="adv").astype(float)
+    return out.reset_index()
+
+
 def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
     master_cols = ["symbol", "broad_sector", "sector", "broad_industry", "industry"]
     if "market_cap_cr" in master.columns:
@@ -926,29 +1103,7 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
         d = d[d[col].astype(str).str.strip() != ""]
         if d.empty:
             continue
-        grouped = d.groupby(["trade_date", col]).apply(
-            lambda g: pd.Series(
-                {
-                    "stocks": g["symbol"].nunique(),
-                    "return_5d_pct": g["return_5d_pct"].mean(),
-                    "return_1m_pct": g["return_1m_pct"].mean(),
-                    "return_3m_pct": g["return_3m_pct"].mean(),
-                    "rs_percentile": g["rs_percentile"].mean(),
-                    "above_10ema_pct": (g["close_price"] > g["ema_10"]).mean() * 100,
-                    "above_50ema_pct": (g["close_price"] > g["ema_50"]).mean() * 100,
-                    "above_200ema_pct": (g["close_price"] > g["ema_200"]).mean() * 100,
-                    "near_52w_highs": g["near_52w_high"].sum(),
-                    "vcp_candidates": g["is_vcp"].sum(),
-                    "turnover_cr": g["turnover_cr"].sum(),
-                    "adv_pct": (
-                        (g["close_price"] > g["prev_close"]).sum() / g["symbol"].nunique() * 100
-                        if has_prev_close and g["symbol"].nunique()
-                        else 0.0
-                    ),
-                }
-            ),
-            include_groups=False,
-        ).reset_index().rename(columns={col: "group_name"})
+        grouped = _aggregate_rotation_groups(d, col, has_prev_close).rename(columns={col: "group_name"})
         grouped["level"] = level_name
         grouped["rotation_score"] = (
             grouped["rs_percentile"].fillna(0) * 0.40
@@ -1100,7 +1255,11 @@ def write_database(
     sector_rotation: pd.DataFrame,
     screener_results: pd.DataFrame,
     sector_metrics_daily: pd.DataFrame | None = None,
+    reference_history: pd.DataFrame | None = None,
+    price_adjustments: pd.DataFrame | None = None,
 ) -> None:
+    if price_adjustments is None:
+        price_adjustments = empty_adjustments_frame()
     if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
         sector_metrics_daily = pd.DataFrame(
             columns=[
@@ -1123,6 +1282,7 @@ def write_database(
         "sector_rotation": sector_rotation,
         "screener_results": screener_results,
         "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
+        "price_adjustments": price_adjustments,
     }.items():
         con.register(f"{name}_df", frame)
         con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
@@ -1137,13 +1297,13 @@ def write_database(
 
     # 1. Ingest index_daily from all MA files
     try:
-        index_raw = load_all_market_activity_history(ROOT_DIR)
+        index_raw = load_all_index_history(ROOT_DIR)
         if not index_raw.empty:
             index_features = build_index_features(index_raw)
             con.register("index_daily_df", index_features)
             con.execute("CREATE TABLE index_daily AS SELECT * FROM index_daily_df")
             con.execute("CREATE INDEX idx_index_daily_date_name ON index_daily(trade_date, index_name)")
-            print(f"Ingested index_daily: {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
+            print(f"Ingested index_daily (ind_close_all + MA fallback): {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
     except Exception as exc:
         print(f"Warning: index_daily ingestion skipped ({exc})")
 
@@ -1151,13 +1311,17 @@ def write_database(
     PRESERVED_TABLES = (
         "trade_journal",
         "watchlist_candidates",
-        "portfolio_positions",
-        "portfolio_events",
         "security_events",
         "corporate_actions",
         "security_risk_daily",
         "top_value_daily",
         "security_reference_daily",
+        "ingested_reports",
+        "ingestion_batches",
+        "candidate_daily",
+        "signal_ledger",
+        "signal_outcomes",
+        "schema_migrations",
     )
     if DB_PATH.exists():
         try:
@@ -1170,12 +1334,39 @@ def write_database(
                 if not exists:
                     continue
                 user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
+                if user_table == "security_reference_daily" and reference_history is not None and not reference_history.empty:
+                    if not user_rows.empty:
+                        user_rows = pd.concat([user_rows, reference_history], ignore_index=True)
+                        if "symbol" in user_rows.columns and "effective_date" in user_rows.columns:
+                            user_rows = user_rows.drop_duplicates(subset=["symbol", "effective_date"], keep="last")
+                    else:
+                        user_rows = reference_history
                 con.register(f"{user_table}_df", user_rows)
                 con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
+                if user_table == "security_reference_daily":
+                    con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
                 print(f"Preserved table {user_table}: {len(user_rows):,} rows")
             old_con.close()
         except Exception as exc:
             print(f"Warning: could not preserve tables ({PRESERVED_TABLES}): {exc}")
+
+    # If security_reference_daily wasn't preserved, create directly from reference_history
+    has_ref = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'security_reference_daily'").fetchone()[0]
+    if not has_ref:
+        if reference_history is None or reference_history.empty:
+            try:
+                reference_history = load_reference_history(ROOT_DIR)
+            except Exception:
+                reference_history = pd.DataFrame()
+        if reference_history is not None and not reference_history.empty:
+            con.register("security_reference_daily_df", reference_history)
+            con.execute("CREATE TABLE security_reference_daily AS SELECT * FROM security_reference_daily_df")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
+            print(f"Created table security_reference_daily: {len(reference_history):,} rows")
+
+    from migrations import _apply_always_on_repairs
+
+    _apply_always_on_repairs(con)
 
     con.close()
     if DB_PATH.exists():
@@ -1208,6 +1399,8 @@ def main() -> None:
     if not args.quiet:
         print("2/8: Reading historical price files (archive + daily)...")
     prices = build_prices(universe)
+    prices, price_adjustments = adjust_prices(prices, ROOT_DIR)
+    print(summarize_adjustments(price_adjustments))
     if not args.quiet:
         print("3/8: Reading market cap, price band, PE, and 52-week reference files...")
     mcap = read_market_cap()
@@ -1221,7 +1414,7 @@ def main() -> None:
     if not args.quiet:
         print("5/8: Calculating indicators...")
     reference_history = load_reference_history(ROOT_DIR)
-    indicators = calc_indicators(prices, reference_history if not reference_history.empty else enrichment)
+    indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
     if not args.quiet:
         print("6/8: Reading and enriching deal flow...")
     deals_raw = read_all_deals()
@@ -1239,7 +1432,7 @@ def main() -> None:
     try:
         if not args.quiet:
             print("  7c/8: Loading market-index history...")
-        index_raw = load_all_market_activity_history(ROOT_DIR)
+        index_raw = load_all_index_history(ROOT_DIR)
         index_features = build_index_features(index_raw)
     except Exception:
         index_features = pd.DataFrame()
@@ -1257,7 +1450,7 @@ def main() -> None:
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
     if not args.quiet:
         print("8/8: Writing database file...")
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
     if not args.quiet:
         print("MarketPulse database built successfully (FULL history rebuild).")
         print(f"Database: {DB_PATH}")

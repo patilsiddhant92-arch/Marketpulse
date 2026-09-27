@@ -226,6 +226,14 @@ def report_specs(day: datetime, discovered: dict[str, str]) -> list[ReportSpec]:
             )),
             (),
         ),
+        ReportSpec(
+            "all indices",
+            f"ind_close_all_{long_date}.csv",
+            with_discovered(discovered, "all indices", (
+                f"{NSE_ARCHIVES}/content/indices/ind_close_all_{long_date}.csv",
+            )),
+            ("Index Name", "Closing Index Value"),
+        ),
     ]
 
 
@@ -636,6 +644,12 @@ def _write_auxiliary_fallback(path: Path, spec: ReportSpec) -> None:
         content = "SYMBOL,SYMBOL P/E,ADJUSTED P/E\n"
     elif spec.label == "market activity":
         content = "Market Activity Report\n"
+    elif spec.label == "all indices":
+        content = (
+            "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+            "Closing Index Value,Points Change,Change(%),Volume,Turnover (Rs. Cr.),"
+            "P/E,P/B,Div Yield\n"
+        )
     else:
         content = ",".join(spec.required_columns) + "\n"
     path.write_text(content, encoding="utf-8-sig")

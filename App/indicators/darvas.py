@@ -18,9 +18,11 @@ try:
         last_completed_week,
         sort_qualifying_squeezes,
         squeeze_frame,
+        classify_darvas_10ema_frame,
         week_complete,
         week_end_session,
         weekly_ohlc,
+        monthly_ohlc,
     )
 except ImportError:
     import sys
@@ -45,9 +47,11 @@ except ImportError:
         last_completed_week,
         sort_qualifying_squeezes,
         squeeze_frame,
+        classify_darvas_10ema_frame,
         week_complete,
         week_end_session,
         weekly_ohlc,
+        monthly_ohlc,
     )
 
 __all__ = [
@@ -66,7 +70,9 @@ __all__ = [
     "last_completed_week",
     "sort_qualifying_squeezes",
     "squeeze_frame",
+    "classify_darvas_10ema_frame",
     "week_complete",
     "week_end_session",
     "weekly_ohlc",
+    "monthly_ohlc",
 ]

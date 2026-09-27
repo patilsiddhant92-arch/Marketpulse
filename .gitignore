@@ -37,9 +37,15 @@ Logs/
 .tmp/
 *.tmp
 .superdesign/
+.superpowers/
 .zcode/
 .review_tmp*/
 .review_latest/
+
+# Audit & UI captures
+ui_audit/
+_ui_audit/
+*.png
 
 # Secrets (Telegram bot token, chat ids)
 
@@ -51,3 +57,13 @@ Secrets/
 # Scratch files
 scratch/
 scratch_*.json
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.zip
+
+
+# Claude Code worktrees
+.claude/worktrees/

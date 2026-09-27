@@ -31,6 +31,21 @@ try:
 except ModuleNotFoundError:
     from ui.vcp_chart import render_vcp_ohlc  # type: ignore
 
+try:
+    from App.cache_manager import get_cached, set_cached, cache_key
+except ModuleNotFoundError:
+    try:
+        from cache_manager import get_cached, set_cached, cache_key  # type: ignore
+    except ModuleNotFoundError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache_manager import get_cached, set_cached, cache_key  # type: ignore
+
+try:
+    from Scripts.price_views import ohlcv_columns
+except ModuleNotFoundError:
+    from price_views import ohlcv_columns  # type: ignore
+
 
 CHECKS = (
     ("price_gt_150_200", "Price > 150 SMA and 200 SMA"),
@@ -41,6 +56,62 @@ CHECKS = (
     ("price_gt_50", "Price > 50 SMA"),
     ("rs_70", "RS ≥ 70"),
 )
+
+
+def query_stage2_universe_trend(db_path: Path) -> dict[str, Any]:
+    """Query macro historical expansion/contraction of Stage 2 passing stocks across all sessions."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return {"dates": [], "pass_count": [], "total_stocks": [], "pass_pct": []}
+    ckey = cache_key(db_path, "latest", "stage2_universe_trend")
+    cached = get_cached(ckey)
+    if cached is not None:
+        return cached
+
+    with duckdb.connect(str(db_path), read_only=True) as db:
+        cols = {row[1] for row in db.execute("PRAGMA table_info(indicators_daily)").fetchall()}
+        if not cols:
+            res = {"dates": [], "pass_count": [], "total_stocks": [], "pass_pct": []}
+            set_cached(ckey, res)
+            return res
+
+        if "trend_template_pass" in cols:
+            pass_expr = "count(CASE WHEN trend_template_pass THEN 1 END)"
+        elif "close_price" in cols and "sma_200" in cols:
+            pass_expr = "count(CASE WHEN close_price > sma_200 THEN 1 END)"
+        else:
+            pass_expr = "0"
+
+        df = db.execute(
+            f"""
+            SELECT trade_date,
+                   {pass_expr} AS pass_count,
+                   count(*) AS total_stocks,
+                   round({pass_expr} * 100.0 / NULLIF(count(*), 0), 1) AS pass_pct
+            FROM indicators_daily
+            GROUP BY trade_date
+            ORDER BY trade_date ASC
+            """
+        ).fetchdf()
+
+    if df.empty:
+        res = {"dates": [], "pass_count": [], "total_stocks": [], "pass_pct": []}
+        set_cached(ckey, res)
+        return res
+
+    dates = [str(pd.to_datetime(d).strftime("%Y-%m-%d")) for d in df["trade_date"]]
+    pass_cnt = [int(x) if pd.notna(x) else 0 for x in df["pass_count"]]
+    tot_cnt = [int(x) if pd.notna(x) else 0 for x in df["total_stocks"]]
+    pct = [round(float(x), 1) if pd.notna(x) else 0.0 for x in df["pass_pct"]]
+
+    res = {
+        "dates": dates,
+        "pass_count": pass_cnt,
+        "total_stocks": tot_cnt,
+        "pass_pct": pct,
+    }
+    set_cached(ckey, res)
+    return res
 
 
 def scan_template(db_path: Path, min_mcap: float, min_avg_vol: float = 0.0) -> pd.DataFrame:
@@ -70,16 +141,18 @@ def scan_template(db_path: Path, min_mcap: float, min_avg_vol: float = 0.0) -> p
             ).fetchdf()
 
         # Fallback for databases or test fixtures without pre-computed SMAs
+        price_cols = ohlcv_columns(db)
+        adj_close = price_cols["close_price"]
         return db.execute(
             f"""
             WITH latest AS (
                 SELECT max(trade_date) d FROM indicators_daily
             ),
             p_win1 AS (
-                SELECT symbol, trade_date, close_price,
-                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
-                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW) AS sma_150,
-                       avg(close_price) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200
+                SELECT symbol, trade_date,
+                       avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
+                       avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 149 PRECEDING AND CURRENT ROW) AS sma_150,
+                       avg({adj_close}) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200
                 FROM prices_daily
             ),
             p_win2 AS (
@@ -156,6 +229,146 @@ def build_sma_template_page(
         "SMA 50 / 150 / 200 computed from EOD prices. Tick gates, Run, copy to TradingView.",
         eyebrow="Scanner · Minervini SMA",
     )
+
+    # Market-Wide Stage 2 Universe Trend (Macro Breadth Expansion / Contraction)
+    s2_trend = query_stage2_universe_trend(db_path)
+    if s2_trend and s2_trend.get("dates"):
+        dates = s2_trend["dates"]
+        pass_counts = s2_trend["pass_count"]
+        pass_pcts = s2_trend["pass_pct"]
+        total_stocks = s2_trend["total_stocks"]
+        n_sessions = len(dates)
+
+        latest_pass = pass_counts[-1] if pass_counts else 0
+        latest_pct = pass_pcts[-1] if pass_pcts else 0.0
+        latest_tot = total_stocks[-1] if total_stocks else 0
+
+        prev_5d_pass = pass_counts[-6] if n_sessions >= 6 else (pass_counts[0] if pass_counts else 0)
+        prev_5d_pct = pass_pcts[-6] if n_sessions >= 6 else (pass_pcts[0] if pass_pcts else 0.0)
+        chg_5d_stocks = latest_pass - prev_5d_pass
+        chg_5d_pct = round(latest_pct - prev_5d_pct, 1)
+
+        prev_20d_pass = pass_counts[-21] if n_sessions >= 21 else (pass_counts[0] if pass_counts else 0)
+        prev_20d_pct = pass_pcts[-21] if n_sessions >= 21 else (pass_pcts[0] if pass_pcts else 0.0)
+        chg_20d_stocks = latest_pass - prev_20d_pass
+        chg_20d_pct = round(latest_pct - prev_20d_pct, 1)
+
+        chg_5d_tone = "text-emerald-400" if chg_5d_stocks >= 0 else "text-rose-400"
+        chg_20d_tone = "text-emerald-400" if chg_20d_stocks >= 0 else "text-rose-400"
+
+        with ui.card().classes("w-full mp-card p-3 mb-4 border border-[var(--mp-border)] bg-[var(--mp-surface)]"):
+            with ui.row().classes("w-full items-center justify-between pb-2 border-b border-[var(--mp-border)] flex-wrap gap-2"):
+                with ui.row().classes("items-center gap-2 flex-wrap"):
+                    ui.label("🌐 Market-Wide Stage 2 Universe Trend").classes("text-xs font-bold tracking-wider text-[var(--mp-primary)] uppercase")
+                    ui.label(f"{latest_pass} of {latest_tot} stocks ({latest_pct}%) in Stage 2").classes("mp-badge mp-good text-xs font-semibold")
+                with ui.row().classes("items-center gap-3 text-xs font-mono"):
+                    ui.label(f"5D: {chg_5d_stocks:+d} ({chg_5d_pct:+.1f}%)").classes(f"font-semibold {chg_5d_tone}")
+                    ui.label(f"20D: {chg_20d_stocks:+d} ({chg_20d_pct:+.1f}%)").classes(f"font-semibold {chg_20d_tone}")
+                    ui.label(f"{n_sessions} Sessions").classes("text-[var(--mp-muted)]")
+
+            z_start = max(0, int(((n_sessions - 126) / max(1, n_sessions)) * 100))
+            chart_opt = {
+                "backgroundColor": "transparent",
+                "animation": False,
+                "tooltip": {
+                    "trigger": "axis",
+                    "axisPointer": {"type": "cross"},
+                    "backgroundColor": "rgba(15, 23, 42, 0.95)",
+                    "borderColor": "#334155",
+                    "borderWidth": 1,
+                    "textStyle": {"color": "#f8fafc", "fontSize": 11, "fontFamily": "IBM Plex Mono"},
+                    "confine": True,
+                },
+                "legend": {
+                    "data": ["Stage 2 Stocks", "Stage 2 %"],
+                    "textStyle": {"color": "#94a3b8", "fontSize": 10},
+                    "top": 0,
+                    "right": 10,
+                },
+                "grid": {"left": "5%", "right": "5%", "top": "14%", "bottom": "22%"},
+                "xAxis": {
+                    "type": "category",
+                    "data": dates,
+                    "boundaryGap": False,
+                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                    "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                },
+                "yAxis": [
+                    {
+                        "type": "value",
+                        "name": "Stage 2 Count",
+                        "splitLine": {"lineStyle": {"color": "#1e293b"}},
+                        "axisLabel": {"color": "#94a3b8", "fontSize": 9},
+                    },
+                    {
+                        "type": "value",
+                        "name": "Stage 2 %",
+                        "min": 0,
+                        "max": 100,
+                        "splitLine": {"show": False},
+                        "axisLabel": {"color": "#fbbf24", "fontSize": 9, "formatter": "{value}%"},
+                    },
+                ],
+                "dataZoom": [
+                    {"type": "inside", "xAxisIndex": 0, "start": z_start, "end": 100},
+                    {
+                        "type": "slider",
+                        "xAxisIndex": 0,
+                        "start": z_start,
+                        "end": 100,
+                        "height": 18,
+                        "bottom": 2,
+                        "borderColor": "#334155",
+                        "fillerColor": "rgba(16, 185, 129, 0.18)",
+                        "handleStyle": {"color": "#10b981", "borderColor": "#059669"},
+                        "moveHandleStyle": {"color": "#10b981"},
+                        "dataBackground": {
+                            "lineStyle": {"color": "#64748b"},
+                            "areaStyle": {"color": "rgba(100, 116, 139, 0.2)"},
+                        },
+                    },
+                ],
+                "series": [
+                    {
+                        "name": "Stage 2 Stocks",
+                        "type": "line",
+                        "yAxisIndex": 0,
+                        "smooth": True,
+                        "data": pass_counts,
+                        "lineStyle": {"color": "#10b981", "width": 2},
+                        "areaStyle": {
+                            "color": {
+                                "type": "linear",
+                                "x": 0, "y": 0, "x2": 0, "y2": 1,
+                                "colorStops": [
+                                    {"offset": 0, "color": "rgba(16, 185, 129, 0.35)"},
+                                    {"offset": 1, "color": "rgba(16, 185, 129, 0.0)"},
+                                ],
+                            }
+                        },
+                        "showSymbol": False,
+                    },
+                    {
+                        "name": "Stage 2 %",
+                        "type": "line",
+                        "yAxisIndex": 1,
+                        "smooth": True,
+                        "data": pass_pcts,
+                        "lineStyle": {"color": "#fbbf24", "width": 1.5, "type": "dashed"},
+                        "showSymbol": False,
+                    },
+                ],
+            }
+            macro_chart = ui.echart(chart_opt).classes("w-full h-[220px]")
+            with ui.row().classes("w-full items-center justify-end gap-1.5 text-[10px] font-mono"):
+                ui.label("Zoom:").classes("text-[var(--mp-muted)]")
+                z3m = max(0, int(((n_sessions - 63) / max(1, n_sessions)) * 100))
+                z6m = max(0, int(((n_sessions - 126) / max(1, n_sessions)) * 100))
+                z1y = max(0, int(((n_sessions - 252) / max(1, n_sessions)) * 100))
+                ui.button("3M", on_click=lambda: macro_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'start': z3m, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+                ui.button("6M", on_click=lambda: macro_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'start': z6m, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+                ui.button("1Y", on_click=lambda: macro_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'start': z1y, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
+                ui.button("All", on_click=lambda: macro_chart.run_chart_method('dispatchAction', {'type': 'dataZoom', 'start': 0, 'end': 100})).props("dense outline size=xs").classes("mp-button px-1.5 py-0")
     boxes: dict[str, Any] = {}
     with ui.row().classes("gap-3 items-center flex-wrap"):
         for key, label in CHECKS:

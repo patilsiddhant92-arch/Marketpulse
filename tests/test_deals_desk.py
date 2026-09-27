@@ -467,9 +467,10 @@ def test_streamlined_3tier_deals_architecture(tmp_path):
     assert "NSE:FRESH_RADAR" not in tv["conviction_tv"]
 
     assert "NSE:FRESH_RADAR" in tv["fresh_radar_tv"]
+    assert tv["prop_tv"].startswith("###")
     assert "NSE:PURE_PROP" in tv["prop_tv"]
     assert "NSE:LOCKED_5PCT" in tv["quarantined_tv"]
 
-    # 4. Message count check
-    assert len(msgs) == 2
+    # 4. Message count check (intel briefings + standalone 1-tap copy watchlists)
+    assert len(msgs) >= 2
 

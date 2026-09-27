@@ -1,8 +1,11 @@
-﻿"""
-UC Thrust Radar: Empirical Pre-Circuit Detection Engine.
+"""
+UC Thrust Radar — lab heuristic scorer (not a graduated predictor).
 
-Decodes the statistical precursors of 10% and 20% Upper Circuit locks based on
-an empirical study of 1,197 historical circuit events in DuckDB.
+Ranks names on delivery spike, near-52W, sector rotation state, institutional
+deals, EMA stack, and RS. Circuit Desk's 2026-09 live lift study did **not**
+graduate a production pre-limit screener (stable lifts exist for expanded
+range/RVOL, but next-5-session FP rate was ~2.5% on a tiny probe). Keep this
+module for research / chart prep only; do not market it as backtested UC edge.
 """
 from __future__ import annotations
 
@@ -19,8 +22,8 @@ def calculate_uc_thrust_candidates(
     limit: int = 40,
 ) -> pd.DataFrame:
     """
-    Query and score all stocks meeting the empirical UC Thrust Radar criteria.
-    Returns a sorted DataFrame of highest-probability circuit precursors.
+    Query and score names meeting the UC Thrust *heuristic* filters.
+    Returns a sorted DataFrame for lab / chart prep — not a validated UC forecast.
     """
     db_file = Path(db_path)
     if not db_file.exists():
@@ -176,3 +179,26 @@ def calculate_uc_thrust_candidates(
 
     df = df.sort_values(["uc_score", "rs_percentile", "rvol"], ascending=[False, False, False])
     return df.head(limit).reset_index(drop=True)
+
+
+def uc_score_map(db_path: Path | str, *, limit: int = 200) -> dict[str, float]:
+    """symbol -> uc_score for desk flags. Lab heuristic only — not a graduated predictor."""
+    frame = calculate_uc_thrust_candidates(db_path, limit=limit)
+    if frame is None or frame.empty or "symbol" not in frame.columns:
+        return {}
+    scores = pd.to_numeric(frame.get("uc_score"), errors="coerce")
+    out: dict[str, float] = {}
+    for sym, score in zip(frame["symbol"].astype(str), scores):
+        if pd.isna(score):
+            continue
+        out[str(sym).strip().upper()] = float(score)
+    return out
+
+
+def uc_flag_label(score: float | None) -> str:
+    if score is None:
+        return "—"
+    try:
+        return f"UC~{float(score):.1f}"
+    except (TypeError, ValueError):
+        return "—"

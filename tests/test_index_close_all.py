@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+from build_index_name_map import derive_name_map
+from index_history import load_all_index_history, parse_ind_close_all
+
+CSV = """Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value,Points Change,Change(%),Volume,Turnover (Rs. Cr.),P/E,P/B,Div Yield
+Nifty 50,25-09-2026,25000.00,25100.00,24900.00,25050.00,50.00,0.20,300000000,25000.5,22.1,3.5,1.2
+NIFTY Midsmallcap 400,25-09-2026,19000.00,19100.00,18900.00,19080.00,-20.00,-0.10,-,-,-,-,-
+"""
+
+
+def test_parse_ind_close_all(tmp_path):
+    p = tmp_path / "ind_close_all_25092026.csv"
+    p.write_text(CSV)
+    df = parse_ind_close_all(p)
+    row = df.set_index("index_name").loc["Nifty 50"]
+    assert row["close_price"] == 25050.0 and row["previous_close"] == 25000.0
+    assert row["return_1d_pct"] == 0.2 and row["volume"] == 300000000 and row["pe"] == 22.1
+    assert str(df["trade_date"].iloc[0].date()) == "2026-09-25"
+    assert pd.isna(df.set_index("index_name").loc["NIFTY Midsmallcap 400", "pe"])
+
+
+def test_derive_name_map_by_matching_closes():
+    dates = pd.to_datetime(["2026-09-2%d" % i for i in range(1, 7)])
+    close_all = pd.DataFrame({"trade_date": list(dates) * 2,
+                              "index_name": ["NIFTY Midsmallcap 400"] * 6 + ["Nifty 50"] * 6,
+                              "close_price": [19000 + i for i in range(6)] + [25000 + i for i in range(6)]})
+    ma = pd.DataFrame({"trade_date": list(dates) * 2,
+                       "index_name": ["NIFTY MIDSML 400"] * 6 + ["Nifty 50"] * 6,
+                       "close_price": [19000 + i for i in range(6)] + [25000 + i for i in range(6)]})
+    m = derive_name_map(close_all, ma).set_index("source_name")
+    assert m.loc["NIFTY Midsmallcap 400", "canonical_name"] == "NIFTY MIDSML 400"
+    assert m.loc["Nifty 50", "canonical_name"] == "Nifty 50"
+
+
+def test_derive_name_map_is_one_to_one():
+    dates = pd.to_datetime(["2026-09-2%d" % i for i in range(1, 7)])
+    close_all = pd.DataFrame({
+        "trade_date": list(dates) * 2,
+        "index_name": ["Nifty 50"] * 6 + ["Nifty 50 Futures Index"] * 6,
+        "close_price": [25000 + i for i in range(6)] * 2,
+    })
+    ma = pd.DataFrame({
+        "trade_date": dates,
+        "index_name": ["Nifty 50"] * 6,
+        "close_price": [25000 + i for i in range(6)],
+    })
+    m = derive_name_map(close_all, ma)
+    canon_rows = m[m["canonical_name"] == "Nifty 50"]
+    assert len(canon_rows) == 1
+    assert canon_rows.iloc[0]["source_name"] == "Nifty 50"
+
+
+def test_full_build_and_decision_tables_use_merged_index_history():
+    """RS/sector-metrics feeds must use the ind_close_all + MA merged loader, not MA-only,
+    so a full rebuild sees the backfilled 2020+ history rather than MA-only (2025-01+)."""
+    scripts = Path(__file__).resolve().parent.parent / "Scripts"
+    for name in ("build_database.py", "materialize_decision_tables.py"):
+        text = (scripts / name).read_text(encoding="utf-8")
+        assert "load_all_market_activity_history(" not in text, f"{name} still calls the MA-only loader"
+
+
+def test_features_keep_extra_columns(tmp_path):
+    from index_history import build_index_features
+
+    p = tmp_path / "ind_close_all_25092026.csv"
+    p.write_text(CSV)
+    feats = build_index_features(parse_ind_close_all(p))
+    assert {"volume", "pe", "ema_200", "return_20d_pct"} <= set(feats.columns)
+
+
+def test_parse_ind_close_all_without_optional_columns_still_parses_closes(tmp_path):
+    """The 5 EXTRA_INDEX_COLUMNS-sourced fields (Volume, Turnover, P/E, P/B, Div Yield)
+    are optional: a CSV missing them must still parse the core OHLC/close columns,
+    with the missing fields coming back as NaN instead of raising a KeyError."""
+    csv = (
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,25-09-2026,25000.00,25100.00,24900.00,25050.00,50.00,0.20\n"
+    )
+    p = tmp_path / "ind_close_all_25092026.csv"
+    p.write_text(csv)
+    df = parse_ind_close_all(p)
+    row = df.set_index("index_name").loc["Nifty 50"]
+    assert row["close_price"] == 25050.0
+    assert row["previous_close"] == 25000.0
+    assert pd.isna(row["volume"]) and pd.isna(row["pe"]) and pd.isna(row["pb"]) and pd.isna(row["div_yield"])
+
+
+def test_load_all_with_no_ind_close_all_files_falls_back_to_ma_and_stays_numeric(tmp_path, monkeypatch):
+    """When there are no ind_close_all_*.csv files at all, load_all_index_history must
+    start from the MA fallback frame directly (not concat it onto an empty, object-dtype
+    placeholder) and coerce trade_date/numeric columns, so build_index_features doesn't
+    blow up on a zero-close row (e.g. a Nifty50 Div Point row) treated as object dtype."""
+    import index_history
+
+    ma = pd.DataFrame({
+        "trade_date": ["2026-09-24", "2026-09-25"],
+        "index_name": ["Nifty50 Div Point", "Nifty50 Div Point"],
+        "previous_close": ["0.0", "0.0"],
+        "open_price": ["0.0", "0.0"],
+        "high_price": ["0.0", "0.0"],
+        "low_price": ["0.0", "0.0"],
+        "close_price": ["0.0", "0.0"],
+        "change_value": ["0.0", "0.0"],
+        "return_1d_pct": [None, None],
+    })
+    monkeypatch.setattr(index_history, "load_all_market_activity_history", lambda root: ma)
+
+    out = index_history.load_all_index_history(tmp_path)
+    assert pd.api.types.is_float_dtype(out["close_price"])
+    assert pd.api.types.is_datetime64_any_dtype(out["trade_date"])
+
+    from index_history import build_index_features
+
+    feats = build_index_features(out)
+    assert len(feats) == 2
+    assert pd.api.types.is_float_dtype(feats["close_price"])
+
+
+def test_parse_ind_close_all_uses_filename_date_when_index_date_column_disagrees(tmp_path):
+    """NSE's ind_close_all_10042023.csv has "Index Date = 04-10-2023" (MM-DD-YYYY, not the
+    file's usual DD-MM-YYYY), which parses under %d-%m-%Y as 2023-10-04 -- the wrong date,
+    and one that collides with the real 2023-10-04 file. The filename date (2023-04-10)
+    must win."""
+    p = tmp_path / "ind_close_all_10042023.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,17400.00,17450.00,17350.00,17430.00,10.00,0.06\n"
+    )
+    df = parse_ind_close_all(p)
+    assert str(df["trade_date"].iloc[0].date()) == "2023-04-10"
+
+
+def test_parse_ind_close_all_prints_warning_on_filename_mismatch(tmp_path, capsys):
+    p = tmp_path / "ind_close_all_10042023.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,17400.00,17450.00,17350.00,17430.00,10.00,0.06\n"
+    )
+    parse_ind_close_all(p)
+    out = capsys.readouterr().out
+    assert "ind_close_all_10042023.csv" in out
+    assert "2023-04-10" in out and "2023-10-04" in out
+
+
+def test_parse_ind_close_all_keeps_todays_behaviour_when_filename_and_index_date_agree(tmp_path):
+    p = tmp_path / "ind_close_all_04102023.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,19100.00,19150.00,19050.00,19125.00,20.00,0.10\n"
+    )
+    df = parse_ind_close_all(p)
+    assert str(df["trade_date"].iloc[0].date()) == "2023-10-04"
+
+
+def test_parse_ind_close_all_keeps_todays_behaviour_without_filename_date(tmp_path):
+    p = tmp_path / "some_other_name.csv"
+    p.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,25-09-2026,25000.00,25100.00,24900.00,25050.00,50.00,0.20\n"
+    )
+    df = parse_ind_close_all(p)
+    assert str(df["trade_date"].iloc[0].date()) == "2026-09-25"
+
+
+def test_load_all_index_history_keeps_both_april_and_october_2023_dates(tmp_path):
+    """Regression for Finding B: loading the mis-dated April file alongside the real
+    October file must not let one overwrite the other via drop_duplicates(keep='last')."""
+    daily = tmp_path / "Input" / "daily"
+    daily.mkdir(parents=True)
+    (daily / "ind_close_all_10042023.csv").write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,17400.00,17450.00,17350.00,17430.00,10.00,0.06\n"
+    )
+    (daily / "ind_close_all_04102023.csv").write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+        "Closing Index Value,Points Change,Change(%)\n"
+        "Nifty 50,04-10-2023,19100.00,19150.00,19050.00,19125.00,20.00,0.10\n"
+    )
+    out = load_all_index_history(tmp_path).set_index(["trade_date", "index_name"])
+    assert out.loc[(pd.Timestamp("2023-04-10"), "Nifty 50"), "close_price"] == 17430.0
+    assert out.loc[(pd.Timestamp("2023-10-04"), "Nifty 50"), "close_price"] == 19125.0
+
+
+def test_load_all_prefers_close_all_and_fills_from_ma(tmp_path, monkeypatch):
+    daily = tmp_path / "Input" / "daily"
+    daily.mkdir(parents=True)
+    (daily / "ind_close_all_25092026.csv").write_text(CSV)
+    ref = tmp_path / "map.csv"
+    ref.write_text("source_name,canonical_name\nNIFTY Midsmallcap 400,NIFTY MIDSML 400\n")
+    ma = pd.DataFrame({"trade_date": pd.to_datetime(["2026-09-24", "2026-09-25"]),
+                       "index_name": ["NIFTY MIDSML 400", "NIFTY MIDSML 400"],
+                       "previous_close": [1.0, 1.0], "open_price": [1.0, 1.0], "high_price": [1.0, 1.0],
+                       "low_price": [1.0, 1.0], "close_price": [18000.0, 99999.0], "change_value": [0.0, 0.0],
+                       "return_1d_pct": [0.0, 0.0]})
+    import index_history
+    monkeypatch.setattr(index_history, "load_all_market_activity_history", lambda root: ma)
+    out = load_all_index_history(tmp_path, ref).set_index(["trade_date", "index_name"])
+    assert out.loc[(pd.Timestamp("2026-09-25"), "NIFTY MIDSML 400"), "close_price"] == 19080.0  # close_all wins
+    assert out.loc[(pd.Timestamp("2026-09-24"), "NIFTY MIDSML 400"), "close_price"] == 18000.0  # MA fills gap

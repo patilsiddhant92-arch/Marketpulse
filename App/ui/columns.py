@@ -42,7 +42,7 @@ GLOBAL_COLUMNS: dict[str, ColumnContract] = {
     "clean_name": ColumnContract("clean_name", "INDEX", 210, 170, align="left", sticky=True, group="Identity"),
     "ema_stack": ColumnContract("ema_stack", "EMA STACK", 130, 110, align="center", group="Setup"),
     "rs_trail": ColumnContract("rs_trail", "RS TRAIL (4W)", 170, 140, align="center", group="Setup"),
-    "rsi_14": ColumnContract("rsi_14", "RS", 66, 56, align="right", format_type="numeric", group="Setup"),
+    "rsi_14": ColumnContract("rsi_14", "RSI", 66, 56, align="right", format_type="numeric", group="Momentum"),
 
     # Rank & Status
     "rank": ColumnContract("rank", "RANK", 56, 48, align="center", format_type="numeric", group="Setup"),
@@ -53,6 +53,7 @@ GLOBAL_COLUMNS: dict[str, ColumnContract] = {
     "state": ColumnContract("state", "STATE", 96, 88, align="center", format_type="badge", group="Setup"),
     "candidate_state": ColumnContract("candidate_state", "STATE", 96, 88, align="center", format_type="badge", group="Setup"),
     "setup_class": ColumnContract("setup_class", "STATE", 96, 88, align="center", format_type="badge", group="Setup"),
+    "setup_age": ColumnContract("setup_age", "SETUP AGE", 100, 85, align="center", format_type="badge", group="Setup"),
     "status": ColumnContract("status", "STATUS", 96, 80, align="center", group="Context"),
     "vcp_state": ColumnContract("vcp_state", "VCP", 104, 90, align="center", format_type="badge", group="Setup"),
     "sector_state": ColumnContract("sector_state", "SECTOR STATE", 110, 96, align="center", format_type="badge", group="Setup"),
@@ -100,6 +101,18 @@ GLOBAL_COLUMNS: dict[str, ColumnContract] = {
     "total_score": ColumnContract("total_score", "SCORE", 68, 60, align="right", format_type="numeric", group="Setup"),
     "quality_score": ColumnContract("quality_score", "FUNDA", 68, 60, align="right", format_type="numeric", group="Quality"),
     "focus_score": ColumnContract("focus_score", "FOCUS", 68, 60, align="right", format_type="numeric", group="Setup"),
+    "peer": ColumnContract("peer", "IND RS RANK", 100, 85, align="center", format_type="text", group="Setup"),
+    "theme": ColumnContract("theme", "THEME", 110, 90, align="left", format_type="text", group="Context"),
+    "flavor": ColumnContract("flavor", "FLAVOR", 95, 80, align="center", format_type="text", group="Setup"),
+    "vcp_stage": ColumnContract("vcp_stage", "VCP STAGE", 95, 80, align="center", format_type="text", group="Setup"),
+    "contractions_depth": ColumnContract("contractions_depth", "CONTRACTIONS", 125, 105, align="center", format_type="text", group="Setup"),
+    "squeeze_pct": ColumnContract("squeeze_pct", "SQUEEZE %", 88, 76, align="right", format_type="pct", group="Setup"),
+    "candle_range_pct": ColumnContract("candle_range_pct", "RANGE %", 88, 76, align="right", format_type="pct", group="Setup"),
+    "darvas_top": ColumnContract("darvas_top", "BOX TOP", 92, 80, align="right", format_type="currency", group="Setup"),
+    "darvas_bottom": ColumnContract("darvas_bottom", "BOX BTM", 92, 80, align="right", format_type="currency", group="Setup"),
+    "darvas_squeeze_pct": ColumnContract("darvas_squeeze_pct", "SQUEEZE %", 88, 76, align="right", format_type="pct", group="Setup"),
+    "tightening": ColumnContract("tightening", "TIGHT", 64, 54, align="center", format_type="badge", group="Setup"),
+    "squeeze_age": ColumnContract("squeeze_age", "SQ AGE", 68, 58, align="center", format_type="numeric", group="Setup"),
 
     # Moving Average Distances & Breadth
     "away_10ema_pct": ColumnContract("away_10ema_pct", "VS 10EMA", 82, 74, align="right", format_type="pct", group="Setup"),
@@ -169,6 +182,7 @@ GLOBAL_COLUMNS: dict[str, ColumnContract] = {
 
     # Financial Ratios & Fundamentals
     "pe": ColumnContract("pe", "P/E", 64, 56, align="right", format_type="multiple", group="Quality"),
+    "adjusted_pe": ColumnContract("adjusted_pe", "ADJ P/E", 72, 64, align="right", format_type="multiple", group="Quality"),
     "roe": ColumnContract("roe", "ROE", 68, 60, align="right", format_type="pct", group="Quality"),
     "revenue_cagr_3y": ColumnContract("revenue_cagr_3y", "REV 3Y", 78, 68, align="right", format_type="pct", group="Quality"),
     "debt_to_equity": ColumnContract("debt_to_equity", "D/E", 64, 56, align="right", format_type="multiple", group="Quality"),
@@ -217,6 +231,28 @@ def get_column_label(key: str) -> str:
     return get_column_contract(key).label
 
 
+def get_functional_header_group(key: str, group: str = "") -> str:
+    """Resolve the canonical functional header group for styling (F5)."""
+    clean_key = str(key).lower()
+    clean_group = str(group).lower()
+
+    if clean_key.startswith("rs_") or clean_key in {"rs", "rs_percentile", "rs_rank", "rs_trail", "rs_5d_trail"}:
+        return "rs"
+    if clean_key in {"rsi_14", "rsi"} or "momentum" in clean_key or "vcp" in clean_key:
+        return "momentum"
+    if clean_group in {"quality"} or clean_key in {"pe", "adjusted_pe", "roe", "debt_to_equity", "revenue_cagr_3y", "market_cap_cr"}:
+        return "valuation"
+    if clean_group in {"flow"} or "volume" in clean_key or "turnover" in clean_key or "rvol" in clean_key or "deal" in clean_key:
+        return "volume"
+    if clean_group in {"market", "performance"} or "return" in clean_key or "price" in clean_key or clean_key in {"cmp", "low", "high", "day_pct", "week_pct", "month_pct"}:
+        return "price-return"
+    if clean_group in {"setup"}:
+        return "momentum"
+    if clean_group in {"risk"} or "stop" in clean_key or "risk" in clean_key:
+        return "risk"
+    return "identity"
+
+
 def get_quasar_column_def(
     key: str,
     *,
@@ -263,7 +299,9 @@ def get_quasar_column_def(
         header_style = f"{width_decl}white-space:normal;line-height:1.2;"
 
     cls_str = " ".join(classes)
-    return {
+    func_group = get_functional_header_group(contract.key, contract.group)
+    header_group_cls = f"mp-th-{func_group}"
+    col_dict: dict[str, Any] = {
         "name": field_name,
         "label": label,
         "field": field_name,
@@ -272,8 +310,16 @@ def get_quasar_column_def(
         "style": style,
         "headerStyle": header_style,
         "classes": cls_str,
-        "headerClasses": f"{cls_str} mp-th",
+        "headerClasses": f"{cls_str} mp-th {header_group_cls}",
     }
+    is_numeric = (
+        contract.format_type in {"numeric", "currency", "pct", "multiple"}
+        or contract.align == "right"
+    )
+    if sortable and is_numeric:
+        col_dict[":sort"] = "(a, b) => (Number(a) || 0) - (Number(b) || 0)"
+        col_dict["sort"] = "(a, b) => (Number(a) || 0) - (Number(b) || 0)"
+    return col_dict
 
 
 def table_min_width_px(keys: list[str] | tuple[str, ...]) -> int:
@@ -286,6 +332,7 @@ __all__ = [
     "GLOBAL_COLUMNS",
     "get_column_contract",
     "get_column_label",
+    "get_functional_header_group",
     "get_quasar_column_def",
     "table_min_width_px",
 ]

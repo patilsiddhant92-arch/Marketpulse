@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import duckdb
 import numpy as np
 import pandas as pd
 
 from Scripts.indicators import sma
-from Scripts.minervini_geometry import Contraction, TSequence, detect_contractions, evaluate_trend_template, t_graph_svg
+from Scripts.minervini_geometry import Contraction, TSequence, detect_contractions, evaluate_trend_template, load_ohlcv, t_graph_svg
 
 
 def test_sma_is_rolling_mean() -> None:
@@ -123,6 +124,78 @@ def test_trend_template_counts_eight_sma_checks() -> None:
     assert result["pass_n"] == 8
     assert result["pass_all"] is True
     assert result["label"] == "8/8"
+
+
+def _make_prices_db(path, with_adjustment: bool) -> None:
+    """Two-row prices_daily fixture for TESTCO, with a 2:1 split between the
+    rows (price_factor 0.5 on day1, 1.0 on day2) when with_adjustment=True.
+    """
+    con = duckdb.connect(str(path))
+    try:
+        rows = [
+            # trade_date, open, high, low, close, volume, price_factor
+            ("2025-01-01", 100.0, 105.0, 95.0, 100.0, 2000.0, 0.5),
+            ("2025-01-02", 102.0, 106.0, 97.0, 101.0, 1100.0, 1.0),
+        ]
+        if with_adjustment:
+            con.execute(
+                """
+                CREATE TABLE prices_daily (
+                    symbol VARCHAR, trade_date DATE,
+                    open_price DOUBLE, high_price DOUBLE, low_price DOUBLE, close_price DOUBLE, volume DOUBLE,
+                    price_factor DOUBLE,
+                    adj_open_price DOUBLE, adj_high_price DOUBLE, adj_low_price DOUBLE, adj_close_price DOUBLE,
+                    adj_volume DOUBLE
+                )
+                """
+            )
+            for trade_date, o, h, l, c, v, factor in rows:
+                con.execute(
+                    "INSERT INTO prices_daily VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ["TESTCO", trade_date, o, h, l, c, v, factor, o * factor, h * factor, l * factor, c * factor, v / factor],
+                )
+        else:
+            con.execute(
+                """
+                CREATE TABLE prices_daily (
+                    symbol VARCHAR, trade_date DATE,
+                    open_price DOUBLE, high_price DOUBLE, low_price DOUBLE, close_price DOUBLE, volume DOUBLE
+                )
+                """
+            )
+            for trade_date, o, h, l, c, v, _factor in rows:
+                con.execute(
+                    "INSERT INTO prices_daily VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    ["TESTCO", trade_date, o, h, l, c, v],
+                )
+    finally:
+        con.close()
+
+
+def test_load_ohlcv_returns_adjusted_values_when_present(tmp_path) -> None:
+    db_path = tmp_path / "adjusted.duckdb"
+    _make_prices_db(db_path, with_adjustment=True)
+
+    frame = load_ohlcv(db_path, "TESTCO")
+
+    assert list(frame["open_price"]) == [50.0, 102.0]
+    assert list(frame["high_price"]) == [52.5, 106.0]
+    assert list(frame["low_price"]) == [47.5, 97.0]
+    assert list(frame["close_price"]) == [50.0, 101.0]
+    assert list(frame["volume"]) == [4000.0, 1100.0]
+
+
+def test_load_ohlcv_returns_raw_values_without_adjusted_columns(tmp_path) -> None:
+    db_path = tmp_path / "raw.duckdb"
+    _make_prices_db(db_path, with_adjustment=False)
+
+    frame = load_ohlcv(db_path, "TESTCO")
+
+    assert list(frame["open_price"]) == [100.0, 102.0]
+    assert list(frame["high_price"]) == [105.0, 106.0]
+    assert list(frame["low_price"]) == [95.0, 97.0]
+    assert list(frame["close_price"]) == [100.0, 101.0]
+    assert list(frame["volume"]) == [2000.0, 1100.0]
 
 
 def test_desk_is_home_and_momentum_untouched() -> None:

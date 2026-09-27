@@ -6,6 +6,7 @@ import pandas as pd
 
 from App.ui.stock_drawer import (
     query_stock_candlestick_data,
+    query_stock_rs_delivery_history,
     load_stock_note,
     save_stock_note,
     toggle_watchlist_symbol,
@@ -13,14 +14,13 @@ from App.ui.stock_drawer import (
 )
 
 DB_PATH = Path("Database/marketpulse.duckdb")
-USER_DB = Path("Database/marketpulse_user.duckdb")
 
 
 def test_stock_candlestick_query_limits_400_then_reverses(tmp_path):
     src = Path("App/ui/stock_drawer.py").read_text(encoding="utf-8")
     fn = src.split("def query_stock_candlestick_data", 1)[1].split("def query_stock_360_data", 1)[0]
     assert "ORDER BY trade_date DESC" in fn
-    assert re.search(r"LIMIT\s+400\b", fn)
+    assert re.search(r"LIMIT\s+(?:400\b|\?)", fn)
     assert "iloc[::-1]" in fn
     assert "ORDER BY trade_date ASC" not in fn
 
@@ -44,10 +44,11 @@ def test_stock_candlestick_query_limits_400_then_reverses(tmp_path):
         db.register("frame", frame)
         db.execute("CREATE TABLE indicators_daily AS SELECT * FROM frame")
 
-    # limit > 400 on a 450-bar series: fetch cap is 400, not the full history.
+    from Scripts.desk_contract import DARVAS
+    expected_cap = int(DARVAS["box_lookback_sessions"])
     capped = query_stock_candlestick_data(db_path, "AAA", limit=500)
-    assert len(capped["dates"]) == 400
-    assert capped["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-400:]]
+    assert len(capped["dates"]) == expected_cap
+    assert capped["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-expected_cap:]]
 
     data = query_stock_candlestick_data(db_path, "AAA", limit=5)
     assert data["dates"] == [d.strftime("%Y-%m-%d") for d in dates[-5:]]
@@ -67,24 +68,44 @@ def test_stock_candlestick_query_returns_expected_structure():
     assert h >= l
 
 
-def test_user_notes_roundtrip():
+def test_user_notes_roundtrip(tmp_path):
+    user_db = tmp_path / "user.duckdb"
     test_symbol = "TEST_STOCK"
     test_note = "Testing local setup breakout thesis at 1450"
-    save_stock_note(USER_DB, test_symbol, test_note)
-    loaded = load_stock_note(USER_DB, test_symbol)
-    assert loaded == test_note
+    save_stock_note(user_db, test_symbol, test_note)
+    assert load_stock_note(user_db, test_symbol) == test_note
 
 
-def test_user_watchlist_toggle():
+def test_user_watchlist_toggle(tmp_path):
+    user_db = tmp_path / "user.duckdb"
     test_symbol = "TEST_WL_STOCK"
-    # Ensure initially false or toggle to known state
-    if is_in_watchlist(USER_DB, 1, test_symbol):
-        toggle_watchlist_symbol(USER_DB, 1, test_symbol)
+    assert is_in_watchlist(user_db, 1, test_symbol) is False
+    assert toggle_watchlist_symbol(user_db, 1, test_symbol) is True
+    assert is_in_watchlist(user_db, 1, test_symbol) is True
+    assert toggle_watchlist_symbol(user_db, 1, test_symbol) is False
+    assert is_in_watchlist(user_db, 1, test_symbol) is False
 
-    assert is_in_watchlist(USER_DB, 1, test_symbol) is False
-    added = toggle_watchlist_symbol(USER_DB, 1, test_symbol)
-    assert added is True
-    assert is_in_watchlist(USER_DB, 1, test_symbol) is True
-    removed = toggle_watchlist_symbol(USER_DB, 1, test_symbol)
-    assert removed is False
-    assert is_in_watchlist(USER_DB, 1, test_symbol) is False
+
+def test_stock_rs_delivery_history_query():
+    hist = query_stock_rs_delivery_history(DB_PATH, "RELIANCE", limit=60)
+    assert bool(hist) is True
+    assert len(hist["dates"]) == 60
+    assert len(hist["rs"]) == 60
+    assert len(hist["delivery_pct"]) == 60
+    assert len(hist["volume"]) == 60
+    assert len(hist["delivery_qty"]) == 60
+    # Chronological ascending
+    assert hist["dates"][-1] > hist["dates"][0]
+    # Check types
+    assert isinstance(hist["rs"][-1], float)
+    assert isinstance(hist["delivery_pct"][-1], float)
+    assert isinstance(hist["volume"][-1], (int, float))
+
+    # Graceful handling for non-existent stock
+    empty_hist = query_stock_rs_delivery_history(DB_PATH, "NON_EXISTENT_SYMBOL_XYZ", limit=60)
+    assert empty_hist == {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+
+    # Empty and None symbol guards
+    assert query_stock_rs_delivery_history(DB_PATH, "", limit=60) == {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+    assert query_stock_rs_delivery_history(DB_PATH, None, limit=60) == {"dates": [], "rs": [], "delivery_pct": [], "volume": [], "delivery_qty": [], "close": []}
+

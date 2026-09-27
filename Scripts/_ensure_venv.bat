@@ -14,7 +14,7 @@ if exist "%BUNDLED%" (
 if errorlevel 1 exit /b 1
 
 :check
-"%PY%" -c "import duckdb, nicegui, pandas, numpy, curl_cffi" >nul 2>nul
+"%PY%" -c "import duckdb, nicegui, pandas, numpy, curl_cffi, fastapi, uvicorn, httpx" >nul 2>nul
 if not errorlevel 1 exit /b 0
 
 :install

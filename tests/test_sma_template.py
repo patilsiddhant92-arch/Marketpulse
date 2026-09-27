@@ -3,7 +3,9 @@ from datetime import date, timedelta
 import duckdb
 import pandas as pd
 
-from App.pages.sma_template import CHECKS, pass_mask, scan_template
+from pathlib import Path
+
+from App.pages.sma_template import CHECKS, pass_mask, scan_template, query_stage2_universe_trend
 
 
 def test_pass_mask_requires_enabled_gates_only():
@@ -75,3 +77,56 @@ def test_scan_template_computes_sma_from_prices(tmp_path):
     assert "sma_50_gt_150" in dict(CHECKS)
     assert "sma_50_gt_200" in dict(CHECKS)
     assert "sma_50_stack" not in dict(CHECKS)
+
+
+def test_query_stage2_universe_trend_with_real_db():
+    real_db = Path("Database/marketpulse.duckdb")
+    if not real_db.exists():
+        return
+    trend = query_stage2_universe_trend(real_db)
+    assert bool(trend) is True
+    assert len(trend["dates"]) >= 500
+    assert len(trend["pass_count"]) == len(trend["dates"])
+    assert len(trend["total_stocks"]) == len(trend["dates"])
+    assert len(trend["pass_pct"]) == len(trend["dates"])
+    # Verify chronological ordering
+    assert trend["dates"][-1] > trend["dates"][0]
+    # Latest pass count and pct are valid numbers
+    assert trend["pass_count"][-1] > 0
+    assert 0.0 <= trend["pass_pct"][-1] <= 100.0
+
+
+def test_query_stage2_universe_trend_synthetic(tmp_path):
+    db = tmp_path / "test_s2.duckdb"
+    with duckdb.connect(str(db)) as con:
+        con.execute(
+            """
+            CREATE TABLE indicators_daily (
+                symbol TEXT,
+                trade_date DATE,
+                trend_template_pass BOOLEAN
+            )
+            """
+        )
+        con.execute(
+            """
+            INSERT INTO indicators_daily VALUES
+            ('AAA', '2026-01-01', TRUE),
+            ('BBB', '2026-01-01', FALSE),
+            ('CCC', '2026-01-01', TRUE),
+            ('AAA', '2026-01-02', TRUE),
+            ('BBB', '2026-01-02', TRUE),
+            ('CCC', '2026-01-02', TRUE)
+            """
+        )
+    trend = query_stage2_universe_trend(db)
+    assert len(trend["dates"]) == 2
+    assert trend["dates"] == ["2026-01-01", "2026-01-02"]
+    assert trend["pass_count"] == [2, 3]
+    assert trend["total_stocks"] == [3, 3]
+    assert trend["pass_pct"] == [66.7, 100.0]
+
+    # Non-existent DB handling
+    empty_res = query_stage2_universe_trend(tmp_path / "non_existent.duckdb")
+    assert empty_res == {"dates": [], "pass_count": [], "total_stocks": [], "pass_pct": []}
+

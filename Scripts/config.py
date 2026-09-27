@@ -1,9 +1,15 @@
 import os
+import sys
 from pathlib import Path
 
 # Resolve paths relative to the project root (parent of Scripts/)
 # This makes the project portable regardless of its location on disk.
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+# Ensure the project root is on sys.path so that `from App.X import ...`
+# works when scripts are invoked from Scripts/ (e.g. daily_pipeline via Task Scheduler).
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 INPUT_DIR = ROOT_DIR / "Input"
 ARCHIVE_DIR = INPUT_DIR / "archive"
 DAILY_DIR = INPUT_DIR / "daily"
@@ -190,6 +196,13 @@ FRIENDLY_COLUMNS = {
     "deal_volume_pct": "Deal Vol %",
     "atr_pct": "ATR %",
     "rs_percentile": "RS %",
+    "rs_vs_nifty50_21d": "vs N50 21d",
+    "rs_vs_nifty50_63d": "vs N50 63d",
+    "rs_vs_midsml400_21d": "vs MS400 21d",
+    "rs_vs_midsml400_63d": "vs MS400 63d",
+    "sector_index_name": "Sector Idx",
+    "rs_vs_sector_index_21d": "vs SecIdx 21d",
+    "rs_vs_sector_index_63d": "vs SecIdx 63d",
     "rs_1y_percentile": "RS 1Y %",
     "rs_3m_percentile": "RS 3M %",
     "rsi_14": "RSI D",

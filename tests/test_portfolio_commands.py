@@ -51,3 +51,20 @@ def test_portfolio_commands_write_event_history_and_require_delete_confirmation(
         assert db.execute("SELECT count(*) FROM portfolio_positions").fetchone()[0] == 0
         events = db.execute("SELECT event_type FROM portfolio_events ORDER BY id").fetchall()
     assert [row[0] for row in events] == ["CREATE", "SELL", "DELETE"]
+
+
+def test_stop_and_target_optional_no_interlock():
+    from App.user_data_service import MarketSnapshot, validate_position
+
+    snapshot = MarketSnapshot(symbol="ACME", close_price=101)
+    # Blank stop/target allowed — trader can book first, levels later
+    bare = validate_position(_command(stop_price=0, target_price=0), snapshot, today=date(2026, 8, 10))
+    assert bare.valid is True
+    assert bare.errors == ()
+    # Geometry still enforced when a level is actually set
+    bad_stop = validate_position(_command(stop_price=100, target_price=0), snapshot, today=date(2026, 8, 10))
+    assert bad_stop.valid is False
+    assert "stop price must be below entry price" in bad_stop.errors
+    bad_tgt = validate_position(_command(stop_price=0, target_price=90), snapshot, today=date(2026, 8, 10))
+    assert bad_tgt.valid is False
+    assert "target price must be above entry price" in bad_tgt.errors

@@ -129,6 +129,7 @@ def _prepare_tier_table_df(df_in: pd.DataFrame) -> pd.DataFrame:
         "ema_200",
         "away_52w_high_pct",
         "rs_percentile",
+        "pe",
         "market_cap_cr",
         "sector",
     ]
@@ -154,9 +155,9 @@ def build_deals_page(
     if not deals_status.actionable:
         ui.label(non_actionable_message(deals_status)).classes("mp-badge mp-bad w-full mt-2")
 
-    hft_state = {"exclude_hft": False}
+    hft_state = {"exclude_hft": True}
     confluence_state = {"active": False}
-    hub_state = {"lookback_days": 20, "setup_filter": "ALL"}
+    hub_state = {"lookback_days": 20, "setup_filter": "ALL", "sector_filter": "ALL"}
 
     hub_container = ui.column().classes("w-full mb-3")
 
@@ -181,6 +182,26 @@ def build_deals_page(
             fresh_radar_tv = tv_map.get("fresh_radar_tv", "")
             prop_tv = tv_map.get("prop_tv", "")
             quarantined_tv = tv_map.get("quarantined_tv", "")
+
+            # Sector filter options extracted from raw datasets
+            all_sectors = sorted({
+                str(s).strip() for s in (
+                    (conviction_df["sector"].dropna().tolist() if "sector" in conviction_df.columns else []) +
+                    (fresh_radar_df["sector"].dropna().tolist() if "sector" in fresh_radar_df.columns else [])
+                ) if str(s).strip() and str(s).strip() not in ("None", "—", "")
+            })
+            sec_options = ["ALL"] + all_sectors
+            curr_sec = hub_state.get("sector_filter", "ALL")
+            if curr_sec not in sec_options:
+                curr_sec = "ALL"
+                hub_state["sector_filter"] = "ALL"
+
+            # Apply Sector filter if active
+            if curr_sec != "ALL":
+                if not conviction_df.empty and "sector" in conviction_df.columns:
+                    conviction_df = conviction_df[conviction_df["sector"] == curr_sec].copy()
+                if not fresh_radar_df.empty and "sector" in fresh_radar_df.columns:
+                    fresh_radar_df = fresh_radar_df[fresh_radar_df["sector"] == curr_sec].copy()
 
             # Apply dynamic setup filter if active
             active_filter = hub_state.get("setup_filter", "ALL")
@@ -208,7 +229,7 @@ def build_deals_page(
                             ui.label(f"As of {as_of}").classes("mp-badge mp-pill text-xs")
                         ui.label(f"Complete institutional deal flow across last {days} sessions. Zero duplicate tickers.").classes("text-xs text-[var(--mp-muted)]")
 
-                    # Selectors: Lookback + Setup Filter
+                    # Selectors: Lookback + Setup Filter + Sector Filter
                     with ui.row().classes("items-center gap-2 flex-wrap"):
                         # Lookback selector pills
                         with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
@@ -236,6 +257,41 @@ def build_deals_page(
                                         render_telegram_hub()
                                     return _setter
                                 ui.button(f_label, on_click=_make_filter_setter(f_val)).classes(btn_classes).props("dense unelevated" if is_active else "dense flat")
+
+                        # Sector filter dropdown
+                        if len(sec_options) > 1:
+                            with ui.row().classes("items-center gap-1 bg-[var(--mp-surface)] p-1 rounded-lg border border-[var(--mp-border)]"):
+                                ui.label("Sector:").classes("text-xs text-[var(--mp-muted)] px-2 font-medium")
+                                def _make_sec_setter():
+                                    def _on_sec(e):
+                                        hub_state["sector_filter"] = str(e.value or "ALL")
+                                        render_telegram_hub()
+                                    return _on_sec
+                                ui.select(sec_options, value=curr_sec, on_change=_make_sec_setter()).classes("w-40 text-xs").props("dense borderless")
+
+                # Top 5 Inflow Sectors Banner (Connecting Deals to Sectors)
+                try:
+                    import duckdb
+                    with duckdb.connect(str(db_path), read_only=True) as db:
+                        top_sec_df = db.execute("""
+                            SELECT group_name, deal_net_10s_cr, stocks_count
+                            FROM sector_metrics_daily
+                            WHERE level = 'Broad Industry' AND trade_date = (SELECT max(trade_date) FROM sector_metrics_daily)
+                              AND deal_net_10s_cr > 0
+                            ORDER BY deal_net_10s_cr DESC
+                            LIMIT 5
+                        """).fetchdf()
+                except Exception:
+                    top_sec_df = pd.DataFrame()
+
+                if not top_sec_df.empty:
+                    with ui.row().classes("w-full items-center gap-2 flex-wrap px-3 py-1.5 bg-[var(--mp-surface)] rounded-lg border border-[var(--mp-border)] mb-3 text-xs"):
+                        ui.label("🏛️ Top Inflow Sectors (10D):").classes("font-bold text-[var(--mp-text)] text-xs")
+                        for _, s_row in top_sec_df.iterrows():
+                            s_name = str(s_row["group_name"])
+                            s_net = float(s_row["deal_net_10s_cr"] or 0)
+                            s_stocks = int(s_row.get("stocks_count") or 0)
+                            ui.label(f"{s_name} (+₹{s_net:,.0f}Cr)").classes("mp-badge mp-good text-[11px] font-semibold")
 
                 # Master Quick Actions
                 with ui.row().classes("w-full items-center gap-2 flex-wrap p-2.5 bg-[var(--mp-surface)] rounded-lg border border-[var(--mp-border)] mb-3"):
@@ -314,7 +370,7 @@ def build_deals_page(
                                 "fund_house": r_df["fund_house"],
                                 "tier": r_df["fund_tier"],
                                 "win_rate": r_df["fund_win_rate"].map(lambda w: f"{w:.1f}%" if pd.notna(w) else "—"),
-                                "deal_date": r_df["deal_date"],
+                                "deal_date": pd.to_datetime(r_df["deal_date"], errors="coerce").dt.strftime("%d %b").fillna("—"),
                                 "deal_price": r_df["deal_price"].map(lambda p: f"₹{p:,.2f}"),
                                 "cmp": r_df["cmp"].map(lambda p: f"₹{p:,.2f}"),
                                 "gain_pct": r_df["ret_current"].map(lambda g: f"{g:+.1f}%"),
@@ -414,7 +470,7 @@ def build_deals_page(
 
                     with ui.row().classes("items-center gap-3"):
                         hft_chk = ui.checkbox(
-                            "Exclude PROP",
+                            "Institutional only (hide PROP/HFT)",
                             value=hft_state["exclude_hft"],
                             on_change=lambda e: _toggle_hft(e.value),
                         ).props("dense")
@@ -509,10 +565,22 @@ def build_deals_page(
                     ["ALL", "PROP", "FII", "DII", "HNI", "CORPORATE", "OTHER"],
                     value="ALL",
                     label="Clientele",
+                ).classes("w-48")
+                try:
+                    import duckdb
+                    with duckdb.connect(str(db_path), read_only=True) as db:
+                        _sec_rows = db.execute("SELECT DISTINCT sector FROM stocks_master WHERE sector IS NOT NULL AND trim(sector) != '' ORDER BY sector").fetchdf()
+                        sector_options = ["ALL"] + [str(s) for s in _sec_rows["sector"].dropna().tolist()]
+                except Exception:
+                    sector_options = ["ALL"]
+                sector_sel = ui.select(
+                    sector_options,
+                    value="ALL",
+                    label="Broad Industry / Sector",
                 ).classes("w-64")
                 side = ui.select(["BUY", "SELL", "BOTH"], value="BOTH", label="Side").classes("w-28")
                 min_value = ui.number("Min Activity Cr", value=5).classes("w-32")
-                days_back = ui.number("Lookback Days", value=10, min=1, max=60).classes("w-32")
+                days_back = ui.number("Lookback Days", value=20, min=1, max=60).classes("w-32")
                 client = ui.input("Institution contains", value="").classes("w-56")
                 run_btn = ui.button("Run research").classes("mp-primary").props("dense")
             adv_host = ui.column().classes("w-full mt-2")
@@ -535,6 +603,50 @@ def build_deals_page(
                     clients_df = data["clients"]
                     stocks_df = data["stocks"]
                     cluster_df = data["cluster"]
+
+                    # Top 5 Sectors by Institutional Inflow summary card
+                    if not data["stocks"].empty and "sector" in data["stocks"].columns:
+                        s_agg = (
+                            data["stocks"]
+                            .dropna(subset=["sector"])
+                            .groupby("sector", as_index=False)["net_value_cr"]
+                            .sum()
+                            .sort_values("net_value_cr", ascending=False)
+                        )
+                        s_agg = s_agg[s_agg["sector"].astype(str).str.strip() != ""]
+                        top5_sectors = s_agg.head(5)
+                        if not top5_sectors.empty:
+                            with ui.card().classes("w-full mp-card p-3 border border-[var(--mp-border)] mb-3"):
+                                with ui.row().classes("w-full items-center justify-between mb-2"):
+                                    ui.label("🏛️ Top 5 Sectors by Institutional Inflow").classes("text-xs font-bold uppercase tracking-wider text-[var(--mp-text)]")
+                                    ui.label(f"Aggregated Net Flow ({int(days_back.value or 20)}d window)").classes("text-[11px] text-[var(--mp-muted)]")
+                                with ui.row().classes("w-full gap-2.5 flex-wrap items-center"):
+                                    for rank, (_, r) in enumerate(top5_sectors.iterrows(), 1):
+                                        sec_name = str(r["sector"])
+                                        net_v = float(r["net_value_cr"])
+                                        # Float deadband safeguard (GEMINI.md Rule 4)
+                                        if abs(net_v) < 0.05:
+                                            net_display = "+₹0.0 Cr"
+                                            badge_color = "text-[var(--mp-muted)] border-[var(--mp-border)] bg-[var(--mp-surface)]"
+                                        elif net_v > 0:
+                                            net_display = f"+₹{net_v:,.1f} Cr"
+                                            badge_color = "text-emerald-400 border-emerald-500/30 bg-emerald-950/20"
+                                        else:
+                                            net_display = f"-₹{abs(net_v):,.1f} Cr"
+                                            badge_color = "text-rose-400 border-rose-500/30 bg-rose-950/20"
+
+                                        with ui.row().classes(f"items-center gap-2 px-3 py-1.5 rounded-lg border {badge_color}"):
+                                            ui.label(f"#{rank}").classes("text-[10px] font-mono opacity-60")
+                                            ui.label(sec_name).classes("text-xs font-semibold")
+                                            ui.label(net_display).classes("text-xs font-mono font-bold")
+
+                    # Apply Broad Industry / Sector filter if active
+                    if sector_sel.value and sector_sel.value != "ALL":
+                        chosen_sec = str(sector_sel.value)
+                        if not stocks_df.empty and "sector" in stocks_df.columns:
+                            stocks_df = stocks_df[stocks_df["sector"] == chosen_sec].copy()
+                        if not cluster_df.empty and "sector" in cluster_df.columns:
+                            cluster_df = cluster_df[cluster_df["sector"] == chosen_sec].copy()
 
                     if metric_card:
                         with ui.row().classes("gap-3 flex-wrap"):
@@ -598,11 +710,17 @@ def build_deals_page(
                                 "rs_percentile",
                                 "away_52w_high_pct",
                                 "deal_when",
+                                "sector",
                                 "industry",
                             )
                             if c in stocks_df.columns
                         ]
                         table_from_df(stocks_df[scols], "Stock deals (window)", pagination=25)
+                        _hft = " · institutional (PROP/HFT hidden)" if hft_state.get("exclude_hft") else ""
+                        ui.label(
+                            f"{len(stocks_df)} stocks in window · {int(days_back.value or 20)}d · ≥₹900 Cr{_hft}. "
+                            f"Copy Symbols uses this filtered set — widen lookback or uncheck Institutional only for more."
+                        ).classes("text-xs text-[var(--mp-muted)] mt-1")
 
             run_btn.on_click(run_advanced)
             run_advanced()

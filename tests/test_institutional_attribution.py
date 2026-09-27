@@ -77,8 +77,10 @@ def test_fund_leaderboard_computation_and_ranking():
     assert len(leaderboard) >= 10
 
     # Ensure required metrics exist
-    for col in ["fund_house", "fund_tier", "catalyst_score", "win_rate_20d", "avg_runup", "total_cr", "total_bets"]:
+    for col in ["fund_house", "fund_tier", "catalyst_score", "win_rate_20d", "avg_runup", "total_cr", "total_bets", "bets_count", "names_count"]:
         assert col in leaderboard.columns
+    assert (leaderboard["bets_count"] == leaderboard["total_bets"]).all()
+    assert (leaderboard["bets_count"] > 0).all()
 
     # Verify score bounds
     assert (leaderboard["catalyst_score"] >= 0).all()
@@ -116,6 +118,22 @@ def test_star_fund_radar_structure_and_alerts():
         assert "max_runup_pct" in d0
         assert "fund_catalyst_score" in d0
         assert radar["tv_list"].startswith("NSE:")
+        assert "holdings" in radar
+
+
+def test_fund_holdings_book_has_names():
+    from Scripts.institutional_attribution import fetch_fund_holdings_book
+
+    if not DB_PATH.exists():
+        pytest.skip("MarketPulse DuckDB not found.")
+    book = fetch_fund_holdings_book(DB_PATH, lookback_days=20, min_deal_cr=5.0)
+    assert isinstance(book, dict)
+    if book:
+        house, names = next(iter(book.items()))
+        assert house
+        assert names
+        rec = names[0]
+        assert "symbol" in rec and "net_cr" in rec and "prints" in rec
 
 
 def test_stock_fund_attribution_lookup():

@@ -10,6 +10,7 @@ try:
         ColumnContract,
         get_column_contract,
         get_column_label,
+        get_functional_header_group,
         get_quasar_column_def,
         table_min_width_px,
     )
@@ -19,6 +20,7 @@ except ModuleNotFoundError:
         ColumnContract,
         get_column_contract,
         get_column_label,
+        get_functional_header_group,
         get_quasar_column_def,
         table_min_width_px,
     )
@@ -82,6 +84,14 @@ _COLUMN_CONTRACTS: dict[str, ColumnSpec] = {
     "state": ColumnSpec("state", "STATE", 96, group="Setup"),
     "candidate_state": ColumnSpec("candidate_state", "STATE", 96, group="Setup"),
     "setup_class": ColumnSpec("setup_class", "STATE", 96, group="Setup"),
+    "setup_age": ColumnSpec("setup_age", "SETUP AGE", 96, "center", "Setup"),
+    "squeeze_age": ColumnSpec("squeeze_age", "SQ AGE", 68, "center", "Setup"),
+    "tightening": ColumnSpec("tightening", "TIGHT", 64, "center", "Setup"),
+    "squeeze_pct": ColumnSpec("squeeze_pct", "SQUEEZE %", 88, "right", "Setup"),
+    "candle_range_pct": ColumnSpec("candle_range_pct", "RANGE %", 88, "right", "Setup"),
+    "darvas_top": ColumnSpec("darvas_top", "BOX TOP", 92, "right", "Setup"),
+    "darvas_bottom": ColumnSpec("darvas_bottom", "BOX BTM", 92, "right", "Setup"),
+    "darvas_squeeze_pct": ColumnSpec("darvas_squeeze_pct", "SQUEEZE %", 88, "right", "Setup"),
     "rotation_state": ColumnSpec("rotation_state", "ROTATION", 112, group="Setup"),
     "vcp_state": ColumnSpec("vcp_state", "VCP", 104, group="Setup"),
     "sector_state": ColumnSpec("sector_state", "SECTOR STATE", 120, group="Setup"),
@@ -273,9 +283,10 @@ SYMBOL_CELL_SLOT = """
        @click.stop
        :title="'Open ' + (props.row.symbol || props.value) + ' on TradingView'">{{ props.value }}</a>
     <q-btn dense flat no-caps class="mp-symbol-open"
-           @click.stop="$parent.$emit('stock360', props.row.symbol || props.value)"
-           title="Open stock box">↗</q-btn>
-    <span v-if="props.row.sector_badge" class="mp-mini-badge mp-sector-tag">{{ props.row.sector_badge }}</span>
+           @click.stop="$parent.$emit('stock360', String(props.row.symbol || props.value || '')); $parent.$emit('open_stock', String(props.row.symbol || props.value || ''))"
+           title="Open Stock 360">↗</q-btn>
+    <span v-if="props.row.peer" class="mp-mini-badge mp-sector-tag" title="Industry RS peer rank">{{ props.row.peer }}</span>
+    <span v-else-if="props.row.sector_badge" class="mp-mini-badge mp-sector-tag" title="Sector rotation rank">{{ props.row.sector_badge }}</span>
     <span v-if="props.row.is_top_sector" class="mp-mini-badge mp-sector-badge">Lead</span>
     <span v-if="props.row.is_improving_sector" class="mp-mini-badge mp-improving-badge">Impr</span>
     <span v-if="props.row.is_top_industry" class="mp-mini-badge mp-industry-badge">Lead Ind</span>
@@ -284,6 +295,30 @@ SYMBOL_CELL_SLOT = """
   </div>
 </q-td>
 """
+
+
+def _table_event_symbol(event: Any) -> str:
+    """Normalize NiceGUI/Quasar custom-slot emit args to a clean uppercase symbol string.
+
+    Handles:
+    - NiceGUI GenericEventArguments where event.args is str, list, tuple, or dict
+    - Direct symbol string e.g. 'TCS'
+    - List/tuple e.g. ['TCS'] or [{'symbol': 'TCS'}]
+    - Dict e.g. {'symbol': 'TCS'} or {'value': 'TCS'}
+    - Stringified python representations e.g. "['TCS']" or '["TCS"]'
+    - None or empty values -> ''
+    """
+    args = getattr(event, "args", event)
+    if args is None:
+        return ""
+    if isinstance(args, (list, tuple)):
+        args = args[0] if args else ""
+    if isinstance(args, dict):
+        args = args.get("symbol") or args.get("value") or ""
+    s = str(args or "").strip()
+    if (s.startswith("['") and s.endswith("']")) or (s.startswith('["') and s.endswith('"]')):
+        s = s[2:-2].strip()
+    return s.strip().upper()
 
 
 __all__ = [
@@ -296,10 +331,13 @@ __all__ = [
     "table_column_definition",
     "table_width_px",
     "SYMBOL_CELL_SLOT",
+    "_table_event_symbol",
     "ColumnContract",
     "GLOBAL_COLUMNS",
     "get_column_contract",
     "get_column_label",
+    "get_functional_header_group",
     "get_quasar_column_def",
     "table_min_width_px",
 ]
+

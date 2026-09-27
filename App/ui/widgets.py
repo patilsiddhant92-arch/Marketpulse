@@ -153,6 +153,13 @@ def deal_flow_card(
     loved = (clients or 0) >= 3 or sessions >= 3
     sell_v = float(sell_cr or 0) if sell_cr is not None and pd.notna(sell_cr) else 0.0
     net_v = float(net_cr) if net_cr is not None and pd.notna(net_cr) else buy_cr - sell_v
+    # GEMINI.md Invariant 4: Near-zero deadband < 0.05 => 0.0, sign = '+'
+    if abs(net_v) < 0.05:
+        net_v = 0.0
+    if abs(sell_v) < 0.05:
+        sell_v = 0.0
+    if abs(buy_cr) < 0.05:
+        buy_cr = 0.0
     card_el = ui.element("div").classes("mp-deal-card cursor-pointer hover:shadow-md transition-all")
     with card_el:
         with ui.row().classes("w-full items-center justify-between gap-2"):

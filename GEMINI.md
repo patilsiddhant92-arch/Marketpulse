@@ -17,3 +17,9 @@
 
 5. **DuckDB Cache Invalidation on Session Ingestion**:
    - In-memory dataset caches keyed by 'latest' or omitted session dates must incorporate the underlying `.duckdb` file's modification timestamp (`st_mtime_ns`) so that any session ingestion automatically evicts stale caches.
+
+6. **Manas Arora Volatility Contraction Pattern (VCP) Engine**:
+   - The VCP Screener and Action Desk primary queue must detect progressive contraction waves (e.g. `T1 > T2 > T3` depth) and Volume Dry-Up (`VDU ratio ≤ 0.80`) in the right-hand base rather than relying on raw single-day shakeout flags or arbitrary 1M volume cutoffs.
+   - All VCP candidates must operate within a Stage 2 technical template: trading above the 200 EMA (`close > ema_200`), within 25% of 52-week highs (`away_52w_high_pct >= -25%`), and showing supply exhaustion before pivot breakout.
+   - **Pivot & Risk Rules**: Trigger entry must align with the pivot resistance breakout level (or tight coil cheat entry near 10/20 EMA); Stop Loss is placed at the swing low of the final contraction wave (or 10/20 EMA floor) to ensure controlled 3%–5% risk per trade.
+   - The `why_now` rationale must display the contraction sequence (e.g. `3T VCP (18.2% → 9.4% → 3.8%)`), VDU confirmation (`VDU ✓`), distance to the pivot breakout level, and trade risk %.

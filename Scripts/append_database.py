@@ -11,6 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import duckdb
 import pandas as pd
@@ -23,6 +24,7 @@ from build_database import (
     calc_indicators,
     enrich_deals,
     make_screener_results,
+    parse_file_date,
     read_52_week,
     read_all_deals,
     read_bhavcopy,
@@ -33,9 +35,19 @@ from build_database import (
     read_sector,
     write_database,
 )
+from index_history import build_index_features, load_all_index_history
 from sector_metrics import compute_sector_metrics
 from config import DAILY_DIR, DB_PATH, ROOT_DIR
+from price_adjustment import (
+    actions_from_corporate_actions_table,
+    adjust_prices,
+    drop_stale_adjustment_columns,
+    indicator_input,
+    summarize_adjustments,
+)
 from reference_history import load_reference_history
+
+NEW_PRICES_FILENAME_SLACK_DAYS = 10
 
 
 @dataclass(frozen=True)
@@ -53,8 +65,29 @@ def _load_table(name: str) -> pd.DataFrame:
         return con.execute(f"SELECT * FROM {name}").fetchdf()
 
 
+def _load_extra_actions() -> pd.DataFrame | None:
+    """Corporate actions from the live DB, re-parsed for `adjust_prices`' `extra_actions` param.
+
+    Returns `None` (which `adjust_prices` treats as "no extra actions") when the table isn't
+    available yet -- e.g. a database that predates the `corporate_actions` table, or one that
+    simply has no rows in it yet -- printing a warning with the underlying exception rather
+    than failing the whole append.
+    """
+    try:
+        return actions_from_corporate_actions_table(_load_table("corporate_actions"))
+    except Exception as exc:
+        print(f"Warning: corporate_actions table unavailable ({exc}); no extra actions fed to adjust_prices.")
+        return None
+
+
 def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataFrame:
-    """Any bhavcopy in daily, archive, or downloads newer than DB max is appended."""
+    """Any bhavcopy in daily, archive, or downloads newer than DB max is appended.
+
+    Files whose filename date is well before the DB max are skipped unparsed: NSE's DATE1
+    session is never later than the filename date (holiday duplicates and the Muhurat file
+    carry an earlier session), so they cannot hold new rows. The slack keeps the rule safe
+    against an odd file dated a little earlier than its session.
+    """
     from config import ARCHIVE_DIR, INPUT_DIR
 
     paths = set(Path(DAILY_DIR).glob("sec_bhavdata_full_*.csv"))
@@ -62,8 +95,12 @@ def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataF
     downloads = Path(INPUT_DIR) / "downloads"
     if downloads.exists():
         paths |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
+    cutoff = latest_date - pd.Timedelta(days=NEW_PRICES_FILENAME_SLACK_DAYS)
     frames = []
     for path in sorted(paths):
+        file_date = parse_file_date(path)
+        if file_date is not None and file_date < cutoff:
+            continue
         frame = read_bhavcopy(path, universe)
         if frame.empty:
             continue
@@ -74,6 +111,24 @@ def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataF
         return pd.DataFrame()
     out = pd.concat(frames, ignore_index=True)
     return out.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+
+
+def load_index_for_metrics(root_dir: Path, table_loader: Callable[[str], pd.DataFrame]) -> pd.DataFrame:
+    """Index features for sector metrics, including the session being appended.
+
+    The stored index_daily is rewritten from MA files only inside write_database, i.e. after
+    sector metrics are computed, so it lacks the newest session.
+    """
+    try:
+        raw = load_all_index_history(root_dir)
+        if raw is not None and not raw.empty:
+            return build_index_features(raw)
+    except Exception as exc:
+        print(f"Warning: index history unavailable ({exc}); using stored index_daily")
+    try:
+        return table_loader("index_daily")
+    except Exception:
+        return pd.DataFrame()
 
 
 def append_session(*, force_full: bool = False, notify_telegram: bool = True) -> AppendResult:
@@ -127,6 +182,11 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     prices = pd.concat([existing_prices, new_prices], ignore_index=True)
     prices["trade_date"] = pd.to_datetime(prices["trade_date"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+    prices = drop_stale_adjustment_columns(prices)
+
+    extra_actions = _load_extra_actions()
+    prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
+    print(summarize_adjustments(price_adjustments))
 
     sector = read_sector()
     mcap = read_market_cap()
@@ -139,27 +199,27 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     # Recompute derived tables from the merged price table. This avoids stale rolling
     # indicators while still skipping the slow archive CSV parse.
     reference_history = load_reference_history(ROOT_DIR)
-    indicators = calc_indicators(prices, reference_history if not reference_history.empty else enrichment)
+    indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
     deals_raw = read_all_deals()
     deals = enrich_deals(deals_raw, prices, indicators, master)
     latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
     enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
     breadth_daily = build_breadth_daily(indicators)
     sector_rotation = build_sector_rotation(indicators, master)
-    try:
-        reference_for_metrics = _load_table("security_reference_daily")
-    except Exception:
+    if not reference_history.empty:
         reference_for_metrics = reference_history
-    try:
-        index_for_metrics = _load_table("index_daily")
-    except Exception:
-        index_for_metrics = pd.DataFrame()
+    else:
+        try:
+            reference_for_metrics = _load_table("security_reference_daily")
+        except Exception:
+            reference_for_metrics = pd.DataFrame()
+    index_for_metrics = load_index_for_metrics(ROOT_DIR, _load_table)
     sector_metrics_daily = compute_sector_metrics(indicators, master, reference_for_metrics, index_for_metrics, deals)
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
 
     backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
     shutil.copy2(DB_PATH, backup)
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily)
+    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
     new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
     msg = f"Append update complete through {new_max}. Backup: {backup.name}"
     print(msg)

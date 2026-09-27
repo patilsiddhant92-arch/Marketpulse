@@ -159,12 +159,12 @@ def query_deals_desk_default(
     enriched = enrich_deals_with_tiers(raw_session)
 
 
-    # PROP is included by default. The old exclude_hft flag is an explicit
-    # compatibility alias; new callers should use clientele.
+    # Institutional by default: PROP/HFT excluded unless caller opts in
+    # (exclude_hft=False) or passes an explicit clientele tuple.
     if clientele is not None:
         allowed = {str(value).upper() for value in clientele}
         enriched = enriched[enriched["clientele"].isin(allowed)].copy()
-    elif exclude_hft is True:
+    elif exclude_hft is not False:
         enriched = enriched[~enriched["is_prop"]].copy()
 
 
@@ -345,7 +345,7 @@ def query_deals_advanced(
     if clientele is not None:
         allowed = {str(value).upper() for value in clientele}
         deals_classified = deals_classified[deals_classified["clientele"].isin(allowed)].copy()
-    elif exclude_hft is True:
+    elif exclude_hft is not False:
         deals_classified = deals_classified[~deals_classified["is_prop"]].copy()
 
     if tier_filter and tier_filter != "ALL":

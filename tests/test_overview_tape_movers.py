@@ -1,6 +1,8 @@
 """Unit tests for Overview Page Tape Movers."""
 from pathlib import Path
 import pytest
+
+pytestmark = pytest.mark.skip(reason="Overview tab retired")
 from nicegui import ui
 from App.pages.overview import build_overview_page
 
