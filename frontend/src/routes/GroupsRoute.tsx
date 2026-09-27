@@ -47,6 +47,7 @@ import { HealthCell, QuadrantWithNote, TrendArrow } from './groups/health';
 import { GroupsTreemap } from './groups/Treemap';
 import { QUADRANT_TONE, QUADRANTS, RankDelta, Segmented, SourceNote, ZoneNum } from './groups/kit';
 import { RrgChart } from './groups/RrgChart';
+import { RotationGrid } from './groups/RotationGrid';
 
 const EMPTY: GroupRow[] = [];
 const RRG_PER_QUADRANT = 8;
@@ -101,6 +102,19 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
       metricKey: 'group_health',
       cell: (v, r) => <HealthCell value={v as number} rank={r.health_rank} />,
     },
+    {
+      id: 'health_spark',
+      header: 'Health 21d',
+      accessor: (r) => {
+        const s = (r.health_spark_21 ?? []).filter((x): x is number => x != null);
+        return s.length >= 2 ? s[s.length - 1] - s[0] : null;
+      },
+      width: 80,
+      headerTitle: 'Health over the last 21 sessions (sorts by the change): is the group getting healthier or fading?',
+      renderNull: true,
+      cell: (_v, r) =>
+        r.health_spark_21 ? <Spark values={r.health_spark_21} baseline={50} label={`${r.group_name} Health, 21 sessions`} width={68} height={18} /> : <span className="text-fg-3">—</span>,
+    },
     { id: 'stocks', header: 'Stocks', accessor: 'stocks', format: 'int', width: 60, headerTitle: 'Members meeting the floor' },
     {
       id: 'rrg_quadrant',
@@ -119,7 +133,28 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
       renderNull: true,
       cell: (_v, r) => <TrendArrow trend={r.abs_trend} />,
     },
-    { id: 'ret_21', header: 'Ret 21d', accessor: 'return_ew_21d', format: 'signedPct', digits: 1, width: 64, metricKey: 'group_return_ew_21d', cell: (v) => <span className={cn('num', typeof v === 'number' ? (v < 0 ? 'text-down' : 'text-up') : 'text-fg-3')}>{fmtSignedPct(v as number, 1)}</span> },
+    {
+      id: 'ret_21',
+      header: 'Ret 21d',
+      accessor: 'return_ew_21d',
+      format: 'signedPct',
+      digits: 1,
+      width: 64,
+      metricKey: 'group_return_ew_21d',
+      // Heat tint (±15% = full) instead of red/green text: the colour reads across the column.
+      heat: (v) => (typeof v === 'number' ? v / 15 : null),
+      cell: (v) => <span className="num text-fg">{fmtSignedPct(v as number, 1)}</span>,
+    },
+    {
+      id: 'index_1y',
+      header: 'Index 1Y',
+      accessor: (r) => (r.index_spark_1y ? (r.index_spark_1y[r.index_spark_1y.length - 1] ?? null) : null),
+      width: 84,
+      headerTitle: "The group's own equal-weight index over about a year (weekly points, start = 100); sorts by the 1-year change",
+      renderNull: true,
+      cell: (_v, r) =>
+        r.index_spark_1y ? <Spark values={r.index_spark_1y} baseline={100} label={`${r.group_name} index, 1 year`} width={72} height={18} /> : <span className="text-fg-3">—</span>,
+    },
     { id: 'breadth_50', header: '>50E', accessor: 'breadth_50', format: 'pct', digits: 0, width: 52, metricKey: 'group_breadth_50', cell: (v) => <ZoneNum metricKey="group_breadth_50" value={v as number} format="pct" digits={0} /> },
     { id: 'rank', header: 'Rank MS', accessor: 'rank', format: 'int', width: 58, metricKey: 'group_rank', sortDescFirst: false, headerTitle: 'Rank by mean 21d/63d excess return vs NIFTY MIDSML 400 (1 = best)' },
     { id: 'rank_delta_5', header: 'Δ5', accessor: 'rank_delta_5', format: 'int', width: 50, metricKey: 'group_rank_delta_5', cell: (v) => <RankDelta value={v as number} /> },
@@ -134,8 +169,8 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
       headerTitle: 'Rank over the last 60 sessions (up = improving)',
       cell: (_v, r) => <Spark values={rankSparkValues(r.rank_spark_60)} label={`${r.group_name} rank, 60 sessions`} width={72} height={18} />,
     },
-    { id: 'excess_21', header: 'Exc 21d', accessor: 'excess_vs_midsml400_21d', format: 'signed', digits: 1, width: 64, metricKey: 'group_excess_21d', cell: (v) => <ZoneNum metricKey="group_excess_21d" value={v as number} format="signed" digits={1} /> },
-    { id: 'excess_63', header: 'Exc 63d', accessor: 'excess_vs_midsml400_63d', format: 'signed', digits: 1, width: 64, metricKey: 'group_excess_63d', cell: (v) => <ZoneNum metricKey="group_excess_63d" value={v as number} format="signed" digits={1} /> },
+    { id: 'excess_21', header: 'Exc 21d', accessor: 'excess_vs_midsml400_21d', format: 'signed', digits: 1, width: 64, metricKey: 'group_excess_21d', heat: (v) => (typeof v === 'number' ? v / 15 : null), cell: (v) => <ZoneNum metricKey="group_excess_21d" value={v as number} format="signed" digits={1} /> },
+    { id: 'excess_63', header: 'Exc 63d', accessor: 'excess_vs_midsml400_63d', format: 'signed', digits: 1, width: 64, metricKey: 'group_excess_63d', heat: (v) => (typeof v === 'number' ? v / 25 : null), cell: (v) => <ZoneNum metricKey="group_excess_63d" value={v as number} format="signed" digits={1} /> },
     {
       id: 'rs_line',
       header: 'RS line 60d',
@@ -241,7 +276,7 @@ export default function GroupsRoute() {
   const [quadParam, setQuad] = useUrlParam('quad');
   const [rrgAll, setRrgAll] = useUrlParam('rrg');
   const [viewParam, setView] = useUrlParam('view');
-  const view = viewParam === 'map' ? 'map' : viewParam === 'today' ? 'today' : 'board';
+  const view = viewParam === 'map' ? 'map' : viewParam === 'today' ? 'today' : viewParam === 'rotation' ? 'rotation' : 'board';
   const [asOf] = useAsOf();
   const sidecarOpen = !!useShell().symbol;
   const [text, setText] = useState('');
@@ -313,6 +348,7 @@ export default function GroupsRoute() {
             { value: 'board', label: 'Board', title: 'Board with RRG and money flow' },
             { value: 'map', label: 'Map', title: 'Taxonomy heatmap: Broad Sector › … sized by turnover, coloured by Health or 21d return' },
             { value: 'today', label: 'Today', title: 'What moved today and why: 1D return, breadth, contributors, turnover and delivery vs 20 days, deals, catalysts' },
+            { value: 'rotation', label: 'Rotation', title: 'Groups × the last 12 weeks coloured by weekly Health: who rotated in and out' },
           ]}
           value={view}
           onChange={(v) => setView(v === 'board' ? null : v)}
@@ -348,7 +384,11 @@ export default function GroupsRoute() {
           </Tooltip>
         </div>
       </div>
-      {view === 'today' ? (
+      {view === 'rotation' ? (
+        <div className="min-h-0 flex-1">
+          <RotationGrid level={level} floor={floor} text={text} onDrill={(id) => setGroup(id)} />
+        </div>
+      ) : view === 'today' ? (
         <div className="min-h-0 flex-1">
           <TodayGroups level={level} floor={floor} text={text} showThin={showThin} onDrill={(id) => setGroup(id)} />
         </div>

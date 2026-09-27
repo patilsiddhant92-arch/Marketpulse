@@ -91,6 +91,13 @@ export type TodayBreakoutRow = Schemas['TodayBreakoutRow'];
 export type TodayGroupRow = Schemas['TodayGroupRow'];
 export type TodayContributor = Schemas['TodayContributor'];
 export type TodayEvent = Schemas['TodayEvent'];
+export type GroupContext = Schemas['GroupContext'];
+export type StockContextRow = Schemas['StockContextRow'];
+export type ContextSetup = Schemas['ContextSetup'];
+export type WhyBullet = Schemas['WhyBullet'];
+export type CompareRow = Schemas['CompareRow'];
+export type RotationRow = Schemas['RotationRow'];
+export type RotationCell = Schemas['RotationCell'];
 
 /** Verdict words (spec 6.1.1). The schema types verdict as string; UI narrows. */
 export type Verdict = 'Favourable' | 'Constructive' | 'Mixed' | 'Weak' | 'Danger';

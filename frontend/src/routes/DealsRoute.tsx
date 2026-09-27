@@ -10,6 +10,8 @@
  * Follow-through: what happened after each event type vs all stocks.
  * Every symbol list copies to TradingView (lib/tradingview, same as Desk/Screener).
  */
+import { contextColumn } from '../context/StockContextChips';
+import { useStockContext } from '../context/stockContext';
 import { AlertTriangle, HelpCircle, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
@@ -162,7 +164,15 @@ function SessionView({ rows, dates, text, dealDate, onHouse, loading, error, onR
   }, [filtered, parts, ev]);
   const watch = useMemo(() => filtered.filter((r) => r.symbol && shell.isWatched(r.symbol)), [filtered, shell]);
   const visible = useMemo(() => uniqueSymbols(shown), [shown]);
-  const columns = useMemo(() => [selectColumn<DealSessionRow>((r) => r.symbol, sel, visible), ...sessionColumns(dates)], [dates, sel, visible]);
+  const allSyms = useMemo(() => filtered.map((r) => r.symbol), [filtered]);
+  const sctx = useStockContext(allSyms);
+  const columns = useMemo(() => {
+    const cols = [selectColumn<DealSessionRow>((r) => r.symbol, sel, visible), ...sessionColumns(dates)];
+    const at = cols.findIndex((c) => c.id === 'symbol') + 1;
+    // Deals are this view's subject: context adds the group's Health, setups, events and data gaps.
+    cols.splice(at, 0, contextColumn<DealSessionRow>((r) => r.symbol, sctx.map, { omit: ['deals'], width: 150 }));
+    return cols;
+  }, [dates, sel, visible, sctx.map]);
   const [sorted, setSorted] = useState<DealSessionRow[]>([]);
   const syms = useMemo(() => uniqueSymbols(sorted), [sorted]);
   const focusRow = rows.find((r) => r.symbol === focus) ?? null;
@@ -386,7 +396,10 @@ export default function DealsRoute() {
   const [setupParam, setSetup] = useUrlParam('setup');
   const [modeParam, setMode] = useUrlParam('tmode');
   const [asOf] = useAsOf();
-  const [text, setText] = useState('');
+  // Filter text lives in the URL (?q=) so other tabs can link to "Deals for SYMBOL".
+  const [qParam, setQParam] = useUrlParam('q');
+  const text = qParam ?? '';
+  const setText = (v: string) => setQParam(v || null);
   const [house, setHouse] = useState<string | null>(null);
   const view: View = viewParam === 'session' ? 'today' : (VIEWS.find((v) => v === viewParam) ?? 'today');
   const todayMode = modeParam === 'prints' ? 'prints' : 'stock';

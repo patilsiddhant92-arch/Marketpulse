@@ -12,6 +12,8 @@ import { fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { useAsOf } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
 import { ChipRow } from '../ui/ChipRow';
+import { contextColumn } from '../context/StockContextChips';
+import type { StockContextMap } from '../context/stockContext';
 import { Unclassified } from '../ui/Unclassified';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Tooltip } from '../ui/Tooltip';
@@ -156,6 +158,8 @@ export interface StockColumnOpts {
   isWatched?: (sym: string) => boolean;
   /** Extra columns after the change column (e.g. breakout kinds). */
   leading?: DataTableColumn<TodayStockRow>[];
+  /** Cross-tab context (group Health, deals 10s, data gaps); queue / catalyst columns already cover setups and events. */
+  ctx?: StockContextMap;
 }
 
 /** Columns shared by movers and breakouts. */
@@ -215,6 +219,7 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
     { id: 'to', header: 'T/O ₹Cr', accessor: 'turnover_cr', format: 'num', digits: 0, width: 66, headerTitle: 'Turnover today, ₹ Cr' },
     { id: 'to_x', header: 'T/O ×', accessor: 'turnover_vs_20d', format: 'num', digits: 1, width: 54, metricKey: 'turnover_vs_20d', cell: (v) => <ZoneNum metricKey="turnover_vs_20d" value={v as number} digits={1} /> },
     { id: 'group', header: 'Industry', accessor: 'industry', width: 140, cell: (_v, r) => <GroupLink name={r.industry} onGroup={o.onGroup} />, renderNull: true },
+    ...(o.ctx ? [contextColumn<TodayStockRow>((r) => r.symbol, o.ctx, { omit: ['setups', 'events'], width: 150 })] : []),
     { id: 'away', header: 'vs 52WH', accessor: 'away_52w_high_pct', format: 'signedPct', digits: 1, width: 64, metricKey: 'away_52w_high_pct' },
     { id: 'queues', header: 'Queue', accessor: (r) => r.queues?.join(',') || null, width: 78, headerTitle: 'Desk queues the stock is in today', cell: (_v, r) => <QueueChips queues={r.queues} />, renderNull: true },
     { id: 'deals', header: 'Deals', accessor: 'deal_net_cr_today', format: 'signed', digits: 1, width: 70, headerTitle: 'Bulk/block deal net today, ₹ Cr, PROP excluded', renderNull: true, cell: (_v, r) => <DealCell row={r} /> },

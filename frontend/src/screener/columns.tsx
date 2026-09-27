@@ -275,29 +275,17 @@ const common = {
 
 export function ruleColumns(ctx: ColumnCtx, lookback: boolean): DataTableColumn<SRow>[] {
   const c = common;
+  const g = (group: string, cols: DataTableColumn<SRow>[]) => cols.map((col) => ({ ...col, group }));
+  // Returns are heat-tinted (±30% = full tint) so the eye reads strength across the row.
+  const heat = (v: unknown) => (typeof v === 'number' ? Math.max(-1, Math.min(1, v / 30)) : null);
   return [
-    watchCol(ctx),
-    symbolCol,
-    industryCol,
-    c.close,
-    c.change,
-    c.rs,
-    c.rsPath,
-    c.d5,
-    c.d20,
-    c.excess,
-    c.tt,
-    c.off52,
-    c.since52,
-    c.stage2,
-    c.r1m,
-    c.r3m,
-    c.r6m,
-    c.rvol,
-    c.deliv,
-    c.delivVs,
-    c.mcap,
-    c.adv,
+    ...g('Stock', [watchCol(ctx), symbolCol, industryCol]),
+    ...g('Price', [c.close, c.change]),
+    ...g('Strength', [c.rs, c.rsPath, c.d5, c.d20, c.excess]),
+    ...g('Trend', [c.tt, c.off52, c.since52, c.stage2]),
+    ...g('Returns', [c.r1m, c.r3m, c.r6m]).map((col) => ({ ...col, heat })),
+    ...g('Volume & delivery', [c.rvol, c.deliv, c.delivVs]),
+    ...g('Size', [c.mcap, c.adv]),
     ...(lookback ? [c.lastPass] : []),
   ];
 }

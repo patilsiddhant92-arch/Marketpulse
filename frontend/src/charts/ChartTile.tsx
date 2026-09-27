@@ -7,6 +7,8 @@
 import { Expand, Maximize2, Minimize2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiQuery } from '../api/query';
+import type { StockContextRow } from '../api/types';
+import { StockContextChips } from '../context/StockContextChips';
 import { useChartPrefs } from '../lib/chartPrefs';
 import { cn } from '../lib/cn';
 import { fmtCr, fmtNum, fmtSignedPct } from '../lib/fmt';
@@ -59,6 +61,8 @@ export interface ChartTileProps {
   onToggleExpand: (sym: string) => void;
   /** Open the near-full-screen big chart for this symbol. */
   onOpenBig?: (sym: string) => void;
+  /** Cross-tab context (group Health, setups, deals 10s, events). */
+  context?: StockContextRow;
 }
 
 export function ChartTile({
@@ -73,6 +77,7 @@ export function ChartTile({
   onInspect,
   onToggleExpand,
   onOpenBig,
+  context,
 }: ChartTileProps) {
   const [prefs, setPrefs] = useChartPrefs();
   const [ref, inView] = useInView<HTMLDivElement>();
@@ -150,6 +155,7 @@ export function ChartTile({
             net <SignedNum value={item.net_cr} format="cr" digits={1} />
           </span>
         )}
+        {context && <StockContextChips ctx={context} omit={['warning']} budget={compact ? 12 : 26} className="min-w-0 shrink" />}
         <span className="ml-auto flex min-w-0 items-center gap-1">
           {!compact &&
             item.tags.slice(0, 2).map((t) => (

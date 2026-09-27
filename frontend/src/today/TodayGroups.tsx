@@ -8,7 +8,8 @@ import { ChevronRight, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
-import type { TodayContributor, TodayGroupRow } from '../api/types';
+import type { GroupContext, TodayContributor, TodayGroupRow } from '../api/types';
+import { GroupHealthChip, useGroupContext } from '../context/GroupContext';
 import { cn } from '../lib/cn';
 import { fmtDate, fmtInt, fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { TvCopyBar } from '../routes/deals/TvCopy';
@@ -24,7 +25,7 @@ import { BREADTH_TONE, PARTICIPATION_TONE, PERSISTENCE_TONE, broadMoveScore, cla
 
 const EMPTY: TodayGroupRow[] = [];
 
-function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[] {
+function columns(onDrill: (id: string) => void, gctx: ReadonlyMap<string, GroupContext>): DataTableColumn<TodayGroupRow>[] {
   return [
     { id: 'rank_1d', header: '#', accessor: 'rank_1d', format: 'int', width: 40, sticky: true, sortDescFirst: false, headerTitle: "Rank by today's return (groups with ≥ 3 members)" },
     {
@@ -49,6 +50,16 @@ function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[
           {r.breadth_label && r.breadth_label !== 'mixed' && <Chip tone={BREADTH_TONE[r.breadth_label] ?? 'neutral'}>{r.breadth_label}</Chip>}
         </span>
       ),
+    },
+    {
+      id: 'health',
+      header: 'Health 21d',
+      accessor: (r) => gctx.get(r.id)?.health ?? null,
+      format: 'num',
+      width: 118,
+      metricKey: 'group_health',
+      headerTitle: "The group's Health (0-100) with its last 21 sessions and quadrant vs peers: is today's move part of a healthy group?",
+      cell: (_v, r) => <GroupHealthChip g={gctx.get(r.id)} clickable={false} />,
     },
     {
       id: 'broad',
@@ -320,7 +331,8 @@ export function TodayGroups({
   const [picked, setSelected] = useState<string | null>(null);
   // The picked group, or the first row when nothing (or a filtered-out group) is picked.
   const selected = picked && rows.some((r) => r.id === picked) ? picked : (rows[0]?.id ?? null);
-  const cols = useMemo(() => columns(onDrill), [onDrill]);
+  const gctx = useGroupContext(level, floor);
+  const cols = useMemo(() => columns(onDrill, gctx), [onDrill, gctx]);
   const sel = rows.find((r) => r.id === selected);
   const ctx = q.data?.meta.context as RulesCtx | undefined;
   return (

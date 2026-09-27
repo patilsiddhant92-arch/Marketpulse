@@ -19,6 +19,8 @@ import { fmtDate, fmtInt } from '../lib/fmt';
 import { useTabUrlState } from '../lib/tabUrlState';
 import { formatTradingViewList } from '../lib/tradingview';
 import { queueColumns, ruleColumns, type SRow } from '../screener/columns';
+import { contextColumn } from '../context/StockContextChips';
+import { useStockContext } from '../context/stockContext';
 import { FilterBar } from '../screener/FilterBar';
 import {
   SCREENER_DEFAULTS,
@@ -122,10 +124,15 @@ export default function ScreenerRoute() {
   const symbolsInList = useMemo(() => new Set(rows.map((r) => r.symbol)), [rows]);
   const lookback = lookbackDays(state) > 1;
   const watchCtx = useMemo(() => ({ isWatched: shell.isWatched, toggleWatch: shell.toggleWatch }), [shell.isWatched, shell.toggleWatch]);
-  const columns = useMemo(
-    () => (queuePresetActive ? queueColumns(watchCtx, preset?.queue) : ruleColumns(watchCtx, lookback)),
-    [queuePresetActive, preset?.queue, lookback, watchCtx],
-  );
+  const rowSyms = useMemo(() => rows.map((r) => r.symbol), [rows]);
+  const sctx = useStockContext(rowSyms);
+  const columns = useMemo(() => {
+    const cols = queuePresetActive ? queueColumns(watchCtx, preset?.queue) : ruleColumns(watchCtx, lookback);
+    const at = cols.findIndex((c) => c.id === 'industry') + 1;
+    const ctxCol = contextColumn<SRow>((r) => r.symbol, sctx.map, { skipQueue: preset?.queue ?? undefined, width: 170 });
+    cols.splice(at, 0, queuePresetActive ? ctxCol : { ...ctxCol, group: 'Stock' });
+    return cols;
+  }, [queuePresetActive, preset?.queue, lookback, watchCtx, sctx.map]);
   const activeRow = activeId ? rows.find((r) => r.symbol === activeId) : undefined;
 
   // The debugger follows the focused / sidecar symbol unless the user typed one.
