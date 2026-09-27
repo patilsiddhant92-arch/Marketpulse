@@ -13,11 +13,13 @@ __pycache__/
 Input/archive/
 Input/downloads/
 Database/
+Database/backups/
 Exports/*
 !Exports/darvas_predicate_diff_2026-09-07.csv
 Logs/
 backup.zip
 *.duckdb
+*.tmp.duckdb
 *.duckdb.wal
 
 # Editor / OS
