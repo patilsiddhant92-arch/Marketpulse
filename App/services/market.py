@@ -73,6 +73,15 @@ def shape_regime_row(raw: dict[str, Any]) -> dict[str, Any]:
         "readings": _json_or_text(pick("readings", "connected_readings")),
         "pillars": pillars,
     }
+    evidence = db.text(pick("verdict_evidence"))
+    note = db.text(pick("verdict_evidence_note"))
+    if verdict and evidence is None:
+        # Tables built before the calibration study lack the columns; the status belongs to the rules.
+        from Scripts.derived.regime import VERDICT_EVIDENCE
+
+        evidence, note = VERDICT_EVIDENCE["status"], VERDICT_EVIDENCE["note"]
+    row["verdict_evidence"] = evidence
+    row["verdict_evidence_note"] = note
     other = {k: (db.num(v) if not isinstance(v, str) else v) for k, v in raw.items() if k not in used}
     row["inputs"] = other
     return row

@@ -76,6 +76,7 @@ export function EnvironmentPanel({ className }: { className?: string }) {
         <span className="flex min-w-0 flex-col">
           {view.verdict && <span className="text-xs font-medium text-fg-2">{VERDICT_ACTION[view.verdict]}</span>}
           {view.whatChanged && <span className="truncate text-2xs text-fg-3">{view.whatChanged}</span>}
+          {view.evidenceNote && <span className="truncate text-2xs text-warn" title={view.evidenceNote}>describes conditions — not a trade filter (5-yr test)</span>}
         </span>
         <span className="ml-2 flex flex-wrap gap-1">
           {view.pillars.map((p) => (

@@ -8845,6 +8845,29 @@
             ],
             "title": "Readings"
           },
+          "verdict_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Evidence",
+            "description": "descriptive_only when the verdict failed the out-of-sample ship gate (spec §6.1.5)"
+          },
+          "verdict_evidence_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Evidence Note"
+          },
           "pillars": {
             "$ref": "#/components/schemas/Pillars"
           },

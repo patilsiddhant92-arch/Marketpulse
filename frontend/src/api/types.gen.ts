@@ -2033,6 +2033,13 @@ export interface components {
             changed_on?: string | null;
             /** Readings */
             readings?: unknown | null;
+            /**
+             * Verdict Evidence
+             * @description descriptive_only when the verdict failed the out-of-sample ship gate (spec §6.1.5)
+             */
+            verdict_evidence?: string | null;
+            /** Verdict Evidence Note */
+            verdict_evidence_note?: string | null;
             pillars: components["schemas"]["Pillars"];
             /** Inputs */
             inputs?: {

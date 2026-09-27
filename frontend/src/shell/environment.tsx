@@ -192,6 +192,7 @@ export function EnvironmentDrawer({ open, onClose, view }: { open: boolean; onCl
             <span className="num ml-auto text-2xs text-fg-3">as of {fmtDate(view.asOf)}</span>
           </div>
           {view.whatChanged && <p className="mt-1 text-sm text-fg-2">{view.whatChanged}</p>}
+          {view.evidenceNote && <p className="mt-1 text-xs text-warn">Tested on 5 years: {view.evidenceNote}</p>}
           <p className="num mt-1 text-2xs text-fg-3">
             {view.daysInState != null && `${view.daysInState} sessions in state`}
             {view.previousVerdict && ` · previously ${view.previousVerdict}`}

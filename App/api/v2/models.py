@@ -88,6 +88,8 @@ class RegimeRow(BaseModel):
     days_in_state: Optional[int] = None
     changed_on: Optional[date] = None
     readings: Optional[Any] = None
+    verdict_evidence: Optional[str] = Field(None, description="descriptive_only when the verdict failed the out-of-sample ship gate (spec §6.1.5)")
+    verdict_evidence_note: Optional[str] = None
     pillars: Pillars
     inputs: dict[str, Any] = Field(default_factory=dict)
 

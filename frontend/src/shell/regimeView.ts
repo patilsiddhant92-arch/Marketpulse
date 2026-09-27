@@ -49,6 +49,8 @@ export interface EnvironmentView {
   /** e.g. "improved from Weak on Mon · 2nd day" (derived from served fields). */
   whatChanged: string | null;
   ruleId: string | null;
+  /** Set when the verdict failed the out-of-sample ship gate: describe conditions, don't filter trades. */
+  evidenceNote: string | null;
   pillars: PillarView[];
   readings: ReadingView[];
   /** Oldest -> newest verdicts for the trust strip. */
@@ -152,6 +154,7 @@ export function toEnvironmentView(rows: readonly RegimeRow[]): EnvironmentView |
     daysInState: latest.days_in_state ?? null,
     whatChanged: describeChange(verdict, previousVerdict, latest.changed_on ?? null, latest.days_in_state ?? null),
     ruleId: latest.rule_id ?? null,
+    evidenceNote: latest.verdict_evidence === 'descriptive_only' ? (latest.verdict_evidence_note ?? null) : null,
     pillars,
     readings: readingsOf(latest.readings),
     history: rows
