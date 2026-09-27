@@ -89,6 +89,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/desk/watchlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Desk Watchlist */
+        get: operations["desk_watchlist_api_v2_desk_watchlist_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/desk/diff": {
         parameters: {
             query?: never;
@@ -702,6 +719,71 @@ export interface components {
             /** Missing Input */
             missing_input?: boolean | null;
         };
+        /** DeskWatchRow */
+        DeskWatchRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Change 1D Pct
+             * @description Close vs previous close, %
+             */
+            change_1d_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Delivery Vs 20D */
+            delivery_vs_20d?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5 */
+            rs_delta_5?: number | null;
+            /** Excess Vs Midsml400 63D */
+            excess_vs_midsml400_63d?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Adv Cr 20D */
+            adv_cr_20d?: number | null;
+            /** Trade Date */
+            trade_date?: string | null;
+            /**
+             * Has Data
+             * @default false
+             */
+            has_data: boolean;
+            /**
+             * Queues
+             * @description Daily Desk queues the stock is in on as_of
+             */
+            queues?: string[];
+            /** Primary Queue */
+            primary_queue?: string | null;
+            /** Trigger Price */
+            trigger_price?: number | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Distance To Trigger Pct */
+            distance_to_trigger_pct?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Results Within 10 */
+            results_within_10?: boolean | null;
+            next_event?: components["schemas"]["NextEvent"] | null;
+        };
         /** DiffRow */
         DiffRow: {
             /** Queue */
@@ -774,6 +856,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DebugRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DeskWatchRow] */
+        Envelope_DeskWatchRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DeskWatchRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DiffRow] */
@@ -2202,6 +2297,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_QueueRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    desk_watchlist_api_v2_desk_watchlist_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Comma-separated symbols, in display order */
+                symbols?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DeskWatchRow_"];
                 };
             };
             /** @description Validation Error */

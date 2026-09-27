@@ -6,11 +6,12 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5199,
+    // MP_VITE_PORT / MP_API_TARGET let parallel worktrees run side by side.
+    port: Number(process.env.MP_VITE_PORT ?? 5199),
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.MP_API_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

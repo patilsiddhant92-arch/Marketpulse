@@ -1,7 +1,6 @@
 /**
- * Stock 360 sidecar: resizable (drag the left edge), pinnable (pinned docks
- * and pushes content; unpinned overlays it). Content is the legacy
- * InspectorSidecar until the Stock 360 rebuild lands (spec 10 step 6).
+ * Stock 360 sidecar frame: resizable (drag the left edge), pinnable (pinned
+ * docks and pushes content; unpinned overlays it). Body = Stock360Sidecar.
  */
 import { ExternalLink, Maximize2, Pin, PinOff, Star, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
@@ -17,7 +16,7 @@ const PREF_KEY = 'mp.sidecar.v1';
 
 export interface StockSidecarProps {
   symbol: string;
-  /** Sidecar body; the shell passes the legacy inspector for now. */
+  /** Sidecar body (Stock360Sidecar). */
   children: ReactNode;
 }
 

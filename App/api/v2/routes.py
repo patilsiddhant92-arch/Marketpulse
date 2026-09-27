@@ -178,6 +178,16 @@ def desk_queue(name: QueueName, as_of: Optional[date] = AsOf, tf: Literal["D", "
     return envelope(res, offset, limit)
 
 
+@router.get("/desk/watchlist", response_model=m.Envelope[m.DeskWatchRow])
+def desk_watchlist(as_of: Optional[date] = AsOf,
+                   symbols: str = Query("", max_length=25000, description="Comma-separated symbols, in display order"),
+                   offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    syms = [symbol_param(s) for s in symbols.split(",") if s.strip()]
+    if len(syms) > 1000:
+        raise HTTPException(status_code=422, detail="at most 1000 symbols")
+    return envelope(_call(desk.watchlist_rows, as_of, syms), offset, limit)
+
+
 @router.get("/desk/diff", response_model=m.Envelope[m.DiffRow])
 def desk_diff(as_of: Optional[date] = AsOf, queue: Optional[QueueName] = None, tf: Literal["D", "W", "M"] = "D",
               offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
