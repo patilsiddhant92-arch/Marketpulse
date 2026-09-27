@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 
 import duckdb
@@ -47,6 +48,9 @@ def test_all_tables_built_and_written(served):
     assert (so["environment_state"].dropna().isin(["Favourable", "Constructive", "Mixed", "Weak", "Danger"])).all()
     meta = dict(zip(tables["evidence_meta"]["key"], tables["evidence_meta"]["value"]))
     assert '"regime_daily.verdict"' == meta["env_source"]
+    ve = json.loads(meta["verdict_evidence"])
+    assert ve["status"] == "descriptive_only" and "not as a trade filter" in ve["note"]
+    assert set(ve["in_sample_ship_gate"] or {}) <= {"n_good", "n_bad", "gap_r", "welch_t", "passes"}
 
 
 def test_services_read_evidence_tables(served, monkeypatch, tmp_path):
