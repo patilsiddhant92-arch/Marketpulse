@@ -11,15 +11,6 @@ import { App } from '../../App';
 import { routes } from '..';
 import { fixtureFor } from './fixtures';
 
-vi.mock('../../components/CockpitWorkspace', () => ({ CockpitWorkspace: () => <div>legacy cockpit</div> }));
-vi.mock('../../components/ExposureGateHeader', () => ({ ExposureGateHeader: () => null }));
-vi.mock('../../components/MomentumWorkspace', () => ({ MomentumWorkspace: () => <div>legacy momentum</div> }));
-vi.mock('../../components/VcpWorkbenchWorkspace', () => ({ VcpWorkbenchWorkspace: () => <div>legacy vcp</div> }));
-vi.mock('../../components/SectorWorkspace', () => ({ SectorWorkspace: () => <div>legacy sectors</div> }));
-vi.mock('../../components/CapitalFlowDashboard', () => ({ CapitalFlowDashboard: () => <div>legacy flow</div> }));
-vi.mock('../../components/DealsWorkspace', () => ({ DealsWorkspace: () => <div>legacy deals</div> }));
-vi.mock('../../components/InspectorSidecar', () => ({ InspectorSidecar: () => <aside>legacy inspector</aside> }));
-vi.mock('../../components/MultiChartModal', () => ({ MultiChartModal: () => <div>legacy charts</div> }));
 vi.mock('../../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
 
 const json = (body: unknown, status = 200) =>

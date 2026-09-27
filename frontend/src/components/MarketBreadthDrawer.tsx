@@ -1,6 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { HistoricalBreadthRecord } from '../types';
 import { X, TrendingUp, BarChart2, Activity, ShieldAlert, ArrowUpRight, ArrowDownRight, Layers } from 'lucide-react';
+
+/** Row of GET /api/market/breadth/historical (legacy endpoint, still served). */
+interface HistoricalBreadthRecord {
+  trade_date: string;
+  stocks: number;
+  advancers: number;
+  decliners: number;
+  advance_pct: number;
+  advance_pct_5d_avg: number;
+  above_20ema_pct: number;
+  above_50ema_pct: number;
+  above_200ema_pct: number;
+  near_52w_highs: number;
+  breadth_state: string;
+  turnover_cr: number;
+}
 
 interface Props {
   isOpen: boolean;
