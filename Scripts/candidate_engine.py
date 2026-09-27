@@ -120,6 +120,23 @@ def classify_market_gate(breadth_row: Mapping[str, Any] | pd.Series, index_rows:
     return "Selective"
 
 
+def _level_rows(rotation_rows: pd.DataFrame, level: str) -> pd.DataFrame:
+    """Rows of a sector_rotation-shaped frame for one taxonomy level.
+
+    sector_rotation is keyed by (level, group_name) and the same group name can exist at
+    several levels (e.g. a name that is both a Sector and an Industry), so a stock's
+    `sector` must be matched only against level "Sector" rows; matching on group_name
+    alone picked whichever level came first in row order. Level labels are compared
+    case/separator-insensitively ("Sector", "sector", "broad_sector" ~ "Broad Sector").
+    Frames without a `level` column (legacy fixtures) are returned unchanged."""
+    if rotation_rows is None or rotation_rows.empty or "group_name" not in rotation_rows.columns:
+        return pd.DataFrame()
+    if "level" not in rotation_rows.columns:
+        return rotation_rows
+    norm = rotation_rows["level"].astype(str).str.strip().str.lower().str.replace("_", " ", regex=False)
+    return rotation_rows[norm == level.strip().lower().replace("_", " ")]
+
+
 def _merge_latest(base: pd.DataFrame, other: pd.DataFrame, keys: list[str], suffix: str = "") -> pd.DataFrame:
     if other is None or other.empty:
         return base
@@ -216,11 +233,12 @@ def score_candidates(indicators: pd.DataFrame, breadth: pd.DataFrame, rotations:
     except (KeyError, ValueError, TypeError):
         prepared_events = events
     prepared_sessions = prepare_event_sessions(sessions)
+    sector_rotation_rows = _level_rows(rotation_today, "sector")
     output = []
     for _, source in rows.iterrows():
         row = source.to_dict()
         sector = str(row.get("sector") or "")
-        sector_rotation = rotation_today[(rotation_today.get("group_name", pd.Series(dtype=str)).astype(str) == sector)] if not rotation_today.empty and "group_name" in rotation_today.columns else pd.DataFrame()
+        sector_rotation = sector_rotation_rows[sector_rotation_rows["group_name"].astype(str) == sector] if not sector_rotation_rows.empty else pd.DataFrame()
         sector_state = str(sector_rotation.iloc[0].get("rotation_state", "Unknown")) if not sector_rotation.empty else "Unknown"
         sector_score = _score(sector_rotation.iloc[0].get("rotation_score", 50)) if not sector_rotation.empty else 50
 
