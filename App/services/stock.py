@@ -334,10 +334,6 @@ def stock_deals(as_of: date | None, symbol: str) -> Result:
 
 
 def analogs(as_of: date | None, symbol: str) -> Result:
-    with db.market_conn() as con:
-        resolved = db.resolve_as_of(con, as_of)
-    return unavailable(
-        resolved, "stock analogs arrive with the evidence engine (setup_outcomes, spec §5)", ["setup_outcomes"],
-        symbol=symbol, distribution={"n": 0, "hit_rate_2r": None, "avg_r": None, "median_r": None,
-                                     "insufficient_sample": True},
-    )
+    from App.services import evidence  # evidence engine owns stock analogs (setup_outcomes, spec §5)
+
+    return evidence.stock_analogs(as_of, symbol)
