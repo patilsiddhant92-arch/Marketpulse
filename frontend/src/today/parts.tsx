@@ -11,6 +11,7 @@ import { cn } from '../lib/cn';
 import { fmtNum, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { useAsOf } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
+import { ChipRow } from '../ui/ChipRow';
 import type { DataTableColumn } from '../ui/DataTable';
 import { Tooltip } from '../ui/Tooltip';
 import { ZoneNum } from '../routes/groups/kit';
@@ -72,28 +73,20 @@ export function QualityChip({ row, rules }: { row: TodayStockRow; rules: readonl
 }
 
 export function TraitChips({ traits, evidence }: { traits: readonly string[] | undefined; evidence: readonly EvidenceTrait[] | undefined }) {
-  if (!traits?.length) return <span className="text-fg-3">—</span>;
   return (
-    <span className="flex flex-wrap gap-0.5">
-      {traits.map((t) => (
-        <Chip key={t} tone="violet" title={traitTitle(t, evidence)}>
-          {TRAIT_LABELS[t]?.short ?? t}
-        </Chip>
-      ))}
-    </span>
+    <ChipRow
+      budget={20}
+      items={(traits ?? []).map((t) => ({ key: t, label: TRAIT_LABELS[t]?.short ?? t, tone: 'violet' as const, title: traitTitle(t, evidence) }))}
+    />
   );
 }
 
 export function QueueChips({ queues }: { queues: readonly string[] | undefined }) {
-  if (!queues?.length) return <span className="text-fg-3">—</span>;
   return (
-    <span className="flex gap-0.5">
-      {queues.map((q) => (
-        <Chip key={q} tone="accent" title={`In the ${QUEUE_SHORT[q] ?? q} Desk queue today`}>
-          {QUEUE_SHORT[q] ?? q}
-        </Chip>
-      ))}
-    </span>
+    <ChipRow
+      budget={10}
+      items={(queues ?? []).map((q) => ({ key: q, label: QUEUE_SHORT[q] ?? q, tone: 'accent' as const, title: `In the ${QUEUE_SHORT[q] ?? q} Desk queue today` }))}
+    />
   );
 }
 
@@ -247,16 +240,7 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
   return cols as unknown as DataTableColumn<T>[];
 }
 
-export function KindChips({ kinds, only }: { kinds: readonly string[] | undefined; only?: readonly string[] }) {
+export function KindChips({ kinds, only, budget = 22 }: { kinds: readonly string[] | undefined; only?: readonly string[]; budget?: number }) {
   const ks = (kinds ?? []).filter((k) => !only || only.includes(k));
-  if (!ks.length) return <span className="text-fg-3">—</span>;
-  return (
-    <span className="flex flex-wrap gap-0.5">
-      {ks.map((k) => (
-        <Chip key={k} tone={KIND_LABELS[k]?.tone ?? 'neutral'}>
-          {KIND_LABELS[k]?.label ?? k}
-        </Chip>
-      ))}
-    </span>
-  );
+  return <ChipRow budget={budget} items={ks.map((k) => ({ key: k, label: KIND_LABELS[k]?.label ?? k, tone: KIND_LABELS[k]?.tone ?? 'neutral' }))} />;
 }

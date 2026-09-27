@@ -267,7 +267,7 @@ function BreakoutsPanel({ className }: { className?: string }) {
       width: 170,
       headerTitle: (ctx?.rules ?? []).map((r) => `${r.label}: ${r.rule}`).join('\n'),
       cell: (_v, r) => (
-        <span title={r.setup_trigger != null ? `Closed above the ${r.setup_queue ?? 'setup'} trigger ${fmtNum(r.setup_trigger, 2)} carried yesterday` : undefined}>
+        <span className="block min-w-0 overflow-hidden" title={r.setup_trigger != null ? `Closed above the ${r.setup_queue ?? 'setup'} trigger ${fmtNum(r.setup_trigger, 2)} carried yesterday` : undefined}>
           <KindChips kinds={r.kinds} only={family} />
         </span>
       ),

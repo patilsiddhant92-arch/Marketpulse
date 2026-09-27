@@ -1,5 +1,6 @@
 export { Chart, type ChartMarker, type ChartMarkerKind, type ChartOverlay, type ChartProps, type LinePoint, type Timeframe } from './Chart';
 export { Badge, Chip, type BadgeProps, type ChipProps, type ChipTone, type ChipVariant } from './Chip';
+export { ChipRow, visibleCount, type ChipRowItem, type ChipRowProps } from './ChipRow';
 export { Card, SectionHeader, type CardProps, type SectionHeaderProps } from './Card';
 export { DataWarningChip } from './DataWarningChip';
 export {
