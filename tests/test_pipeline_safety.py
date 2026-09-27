@@ -110,6 +110,7 @@ def test_session_loop_holds_writer_lock_and_backs_up_user_db(sandbox, monkeypatc
         return {"action": "noop", "message": "", "db_date": None, "new_rows": 0, "backup": None, "duration_ms": 0}
 
     monkeypatch.setattr(dp, "_run_append", fake_append)
+    monkeypatch.setattr(dp, "process_accepted_session", lambda *a, **k: {"score_version": "stub", "trade_date": "2026-09-25", "decision_rows": 0})
     monkeypatch.setattr(dp, "_backup_user_db", lambda: backups.append(1) or "user-backup")
     rc = dp.run_pipeline(skip_download=True, skip_telegram=True, skip_taxonomy=True, date=datetime(2026, 9, 25))
     assert rc == 0
