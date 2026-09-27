@@ -241,6 +241,7 @@ class PresetRow(BaseModel):
     description: str
     kind: Literal["rules", "queue", "lab"]
     queue: Optional[str] = None
+    category: Optional[str] = Field(None, description="Picker group: Trend | Highs | Coil | Momentum | Setups | Lab")
     rules: list[Rule]
     available: bool
 
@@ -265,7 +266,7 @@ class ScreenerRow(StockBase):
 
 
 class DebugRow(BaseModel):
-    kind: Literal["floor", "rule"]
+    kind: Literal["floor", "rule", "check", "result"]
     label: str
     field: Optional[str] = None
     op: Optional[str] = None
@@ -275,6 +276,7 @@ class DebugRow(BaseModel):
     ref_actual: Optional[float] = None
     passed: bool
     missing_input: Optional[bool] = None
+    detail: Optional[str] = None
 
 
 # --------------------------------------------------------------------------
