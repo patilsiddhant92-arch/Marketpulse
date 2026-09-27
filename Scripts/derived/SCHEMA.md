@@ -241,7 +241,10 @@ Full builds cost ~1 ms per candidate window (10 EMA, VCP); pass `setup_workers` 
 ## deal_session_net — bulk/block flow per symbol × session (§4.5, §7.5)
 
 One row per `(trade_date, symbol)` with ≥ 1 deal print. Indexes: `(trade_date)`, `(symbol)`.
-Prints are collapsed on (trade_date, symbol, client, side, quantity, price) first.
+Prints are collapsed on (trade_date, symbol, client, side, quantity, price) first. A print flagged `deals.is_prop` is PROP
+whatever its clientele; value = `deals.deal_value_cr` (qty × price / 1e7 when missing) — as the live API
+(`App.services.universe.collapsed_prints_sql`). Event rules are **one module**, `Scripts/derived/deal_rules.py`, imported by
+both this builder and the live fallback in `App/services/deals.py`, so stored and live labels cannot drift.
 
 | Column | Type | Meaning | NULL when |
 | :--- | :--- | :--- | :--- |
@@ -249,7 +252,7 @@ Prints are collapsed on (trade_date, symbol, client, side, quantity, price) firs
 | n_prints / n_clients | BIGINT | Collapsed prints / distinct clients | never |
 | deal_types | VARCHAR | e.g. `Bulk`, `Block+Bulk` | never |
 | buy_qty / sell_qty / net_qty | DOUBLE | Shares | never |
-| buy_value_cr / sell_value_cr / net_value_cr / gross_value_cr | DOUBLE | qty × price / 1e7 | never |
+| buy_value_cr / sell_value_cr / net_value_cr / gross_value_cr | DOUBLE | Σ print value (deal_value_cr, else qty × price / 1e7) | never |
 | net_value_cr_ex_prop | DOUBLE | Net excluding PROP clients (used for events and ADV) | never |
 | net_value_cr_fii / _dii / _prop / _corporate / _hni / _other | DOUBLE | Net by client class (deals.clientele, else institutional_engine.classify_client) | never (0 if none) |
 | buying_houses / selling_houses | DOUBLE | Non-PROP clients that are net buyers / net sellers that day | never |
@@ -260,14 +263,17 @@ Prints are collapsed on (trade_date, symbol, client, side, quantity, price) firs
 | net_vs_adv | DOUBLE | net_value_cr_ex_prop / adv_cr (× ADV) | adv NULL/0 |
 | deal_qty_pct_volume | DOUBLE | max(buy_qty, sell_qty) / session volume × 100 | volume NULL |
 | round_trip_value_cr | DOUBLE | Σ over clients of min(buy value, sell value) the same day | never |
+| round_trip_ex_prop_cr | DOUBLE | Same, non-PROP clients only (churn input) | never |
+| gross_ex_prop_cr | DOUBLE | Gross value of non-PROP prints (churn denominator) | never |
 | prop_value_cr | DOUBLE | Gross PROP value | never |
-| matched_value_cr | DOUBLE | BUY value matched by a SELL from another client (qty ±1 %, price ±0.25 %) | never (0) |
+| matched_value_cr | DOUBLE | BUY value matched by SELLs from other clients: print by print (qty ±1 %, price ±0.25 %), or in aggregate (non-PROP buy vs sell qty ±1 %, VWAPs ±0.25 %, no client on both sides); the larger | never (0) |
 | matched_buyers_institutional | BOOLEAN | All matched buyers are FII/DII | no match |
-| net_buy_sessions_10 | DOUBLE | Sessions with net_value_cr_ex_prop > 0 among the last 10 market sessions (incl. t) | never |
+| net_buy_sessions_10 | DOUBLE | Sessions with net_value_cr_ex_prop > 0 (rounded to 1e-6 Cr, so float noise is not a buy) among the last 10 market sessions (incl. t) | never |
 | event_type | VARCHAR | First matching rule below | no rule matched (not expected) |
 | event_rule | VARCHAR | Text of the matched rule | as above |
 
-Event rules (`EVENT_RULES`, top-down): `transfer_interse` (matched prints ≥ 50 % of buy value, buyers not all FII/DII) ·
-`placement` (same, buyers all FII/DII) · `churn` (round trips or PROP ≥ 50 % of gross, or net ex-PROP = 0) ·
+Event rules (`deal_rules.EVENT_RULES`, top-down): `transfer_interse` (matched value ≥ 50 % of buy value, buyers not all
+FII/DII) · `placement` (same, buyers all FII/DII) · `churn` (PROP removed first: non-PROP round trips ≥ 50 % of non-PROP
+gross, or net ex-PROP = 0 after rounding) ·
 `accumulate` (net ex-PROP > 0 with another net-buy session in the prior 9) · `fresh` (net ex-PROP > 0, none in the prior 9) ·
 `distribute` (net ex-PROP < 0).
