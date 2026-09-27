@@ -288,6 +288,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/today/market": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today Market
+         * @description Market today strip: index moves, advancers/decliners, 52W highs/lows vs 5-day avg, turnover and delivery vs 20-day avg, VIX.
+         */
+        get: operations["today_market_api_v2_today_market_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/today/movers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today Movers
+         * @description Top gainers and losers (side) with RVOL, delivery, turnover, queues, deals, catalysts and the quality-of-move label (rules in meta.context.quality_rules).
+         */
+        get: operations["today_movers_api_v2_today_movers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/today/breakouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today Breakouts
+         * @description Breakouts today (52W highs, setup triggers, 20-day highs on RVOL, gap-ups) and delivery footprints (accumulation / distribution). Rule ids in meta.context.rules.
+         */
+        get: operations["today_breakouts_api_v2_today_breakouts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/today/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today Groups
+         * @description Every group at a level today: 1D EW return, breadth, turnover/delivery vs 20d, contributors, concentration, deals, catalysts, 5d/21d persistence and a fact-only 'why' sentence.
+         */
+        get: operations["today_groups_api_v2_today_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/deals/session": {
         parameters: {
             query?: never;
@@ -1785,6 +1865,58 @@ export interface components {
             rows: components["schemas"]["StockHeaderRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[TodayBreakoutRow] */
+        Envelope_TodayBreakoutRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["TodayBreakoutRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[TodayGroupRow] */
+        Envelope_TodayGroupRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["TodayGroupRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[TodayMarketRow] */
+        Envelope_TodayMarketRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["TodayMarketRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[TodayMoverRow] */
+        Envelope_TodayMoverRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["TodayMoverRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[WatchlistItem] */
         Envelope_WatchlistItem_: {
             /** As Of */
@@ -3016,6 +3148,470 @@ export interface components {
             /** Id */
             id?: string | null;
         };
+        /** TodayBreakoutRow */
+        TodayBreakoutRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Change 1D Pct
+             * @description Close vs previous close, %
+             */
+            change_1d_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Delivery Vs 20D */
+            delivery_vs_20d?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5 */
+            rs_delta_5?: number | null;
+            /** Excess Vs Midsml400 63D */
+            excess_vs_midsml400_63d?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Adv Cr 20D */
+            adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+            /**
+             * Turnover Vs 20D
+             * @description Turnover ÷ 20-day average traded value
+             */
+            turnover_vs_20d?: number | null;
+            /**
+             * Delivery Spike
+             * @description Delivered shares > 2 × their 20-day average
+             */
+            delivery_spike?: boolean | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Is 52W High */
+            is_52w_high?: boolean | null;
+            /**
+             * Circuit Band
+             * @description Price band %, point-in-time where available
+             */
+            circuit_band?: number | null;
+            /** At Upper Circuit */
+            at_upper_circuit?: boolean | null;
+            /** At Lower Circuit */
+            at_lower_circuit?: boolean | null;
+            /**
+             * Gap Pct
+             * @description Open vs previous close, %
+             */
+            gap_pct?: number | null;
+            /**
+             * Queues
+             * @description Daily Desk queues the stock is in on as_of
+             */
+            queues?: string[];
+            /** Deal Prints Today */
+            deal_prints_today?: number | null;
+            /**
+             * Deal Net Cr Today
+             * @description Bulk/block net today, PROP excluded, ₹ Cr
+             */
+            deal_net_cr_today?: number | null;
+            /**
+             * Deal Event Type
+             * @description deal_session_net event type (accumulate / distribute / churn …)
+             */
+            deal_event_type?: string | null;
+            /** @description Results board meeting / financial results within ±5 sessions */
+            results_nearby?: components["schemas"]["TodayEvent"] | null;
+            corp_action_nearby?: components["schemas"]["TodayEvent"] | null;
+            /** News Today */
+            news_today?: components["schemas"]["TodayNews"][];
+            /**
+             * Quality
+             * @description Quality of move label (meta.context.quality_rules)
+             */
+            quality?: string | null;
+            /** Quality Id */
+            quality_id?: string | null;
+            /** Quality Tone */
+            quality_tone?: string | null;
+            /**
+             * Traits
+             * @description Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5
+             */
+            traits?: string[];
+            /**
+             * Kinds
+             * @description Rule ids from meta.context.rules
+             */
+            kinds?: string[];
+            /** Setup Queue */
+            setup_queue?: string | null;
+            /**
+             * Setup Trigger
+             * @description Trigger carried on the previous session that the close crossed
+             */
+            setup_trigger?: number | null;
+        };
+        /** TodayContributor */
+        TodayContributor: {
+            /** Symbol */
+            symbol: string;
+            /** Change 1D Pct */
+            change_1d_pct?: number | null;
+            /**
+             * Contribution
+             * @description Points of the equal-weight group return
+             */
+            contribution?: number | null;
+            /** Share Of Move Pct */
+            share_of_move_pct?: number | null;
+            /** Weight Pct */
+            weight_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Vs 20D */
+            delivery_vs_20d?: number | null;
+        };
+        /** TodayEvent */
+        TodayEvent: {
+            /** Event Type */
+            event_type?: string | null;
+            /** Event Date */
+            event_date?: string | null;
+            /** When */
+            when?: ("past" | "today" | "upcoming") | null;
+            /** Headline */
+            headline?: string | null;
+        };
+        /** TodayGroupRow */
+        TodayGroupRow: {
+            /** Id */
+            id: string;
+            /** Level */
+            level: string;
+            /** Group Name */
+            group_name: string;
+            /** Stocks */
+            stocks: number;
+            /** Stocks With Return */
+            stocks_with_return: number;
+            /**
+             * Return 1D
+             * @description Equal-weight mean 1D change of members, %
+             */
+            return_1d?: number | null;
+            /** Advancers */
+            advancers?: number | null;
+            /** Decliners */
+            decliners?: number | null;
+            /** Pct Up */
+            pct_up?: number | null;
+            /** Pct Down */
+            pct_down?: number | null;
+            /**
+             * Pct Up 2
+             * @description % of members up more than 2%
+             */
+            pct_up_2?: number | null;
+            /** Pct Down 2 */
+            pct_down_2?: number | null;
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+            /** Turnover Vs 20D */
+            turnover_vs_20d?: number | null;
+            /**
+             * Delivery Vs 20D
+             * @description Members' delivered shares ÷ their 20-day average
+             */
+            delivery_vs_20d?: number | null;
+            /** Top Contributors */
+            top_contributors?: components["schemas"]["TodayContributor"][];
+            /** Top Detractors */
+            top_detractors?: components["schemas"]["TodayContributor"][];
+            /**
+             * Top1 Share Pct
+             * @description Largest contributor's share of the group move, %
+             */
+            top1_share_pct?: number | null;
+            /**
+             * Breadth Label
+             * @description broad | mixed | one-stock | thin
+             */
+            breadth_label?: string | null;
+            /** Participation Id */
+            participation_id?: string | null;
+            /** Participation */
+            participation?: string | null;
+            /** Deal Stocks */
+            deal_stocks?: number | null;
+            /** Deal Buyers */
+            deal_buyers?: number | null;
+            /** Deal Sellers */
+            deal_sellers?: number | null;
+            /** Deal Net Cr */
+            deal_net_cr?: number | null;
+            /** Results Nearby N */
+            results_nearby_n?: number | null;
+            /** News Today N */
+            news_today_n?: number | null;
+            /** News Types */
+            news_types?: {
+                [key: string]: number;
+            };
+            /** Return 5D */
+            return_5d?: number | null;
+            /** Return 21D */
+            return_21d?: number | null;
+            /**
+             * Rank
+             * @description group_daily rank (mean 21d/63d excess vs MidSml400)
+             */
+            rank?: number | null;
+            /** Rank Delta 5 */
+            rank_delta_5?: number | null;
+            /** Rank N */
+            rank_n?: number | null;
+            /**
+             * Rank 1D
+             * @description Rank by today's return among groups with >= 3 members
+             */
+            rank_1d?: number | null;
+            /** Rank 1D N */
+            rank_1d_n?: number | null;
+            /** Context Source */
+            context_source?: string | null;
+            /** Persistence Id */
+            persistence_id?: string | null;
+            /** Persistence */
+            persistence?: string | null;
+            /** Persistence Phrase */
+            persistence_phrase?: string | null;
+            /**
+             * Symbols
+             * @description Members in move order (for charts / copy)
+             */
+            symbols?: string[];
+            /**
+             * Why
+             * @description Plain-language sentence built only from the facts in this row
+             */
+            why?: string | null;
+        };
+        /** TodayIndex */
+        TodayIndex: {
+            /** Name */
+            name: string;
+            /** Label */
+            label: string;
+            /** Close */
+            close?: number | null;
+            /** Return 1D Pct */
+            return_1d_pct?: number | null;
+            /** Return 5D Pct */
+            return_5d_pct?: number | null;
+            /** Return 20D Pct */
+            return_20d_pct?: number | null;
+        };
+        /** TodayMarketRow */
+        TodayMarketRow: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Indices */
+            indices?: components["schemas"]["TodayIndex"][];
+            /** India Vix */
+            india_vix?: number | null;
+            /** Vix Change 1D Pct */
+            vix_change_1d_pct?: number | null;
+            /** Advancers */
+            advancers?: number | null;
+            /** Decliners */
+            decliners?: number | null;
+            /** Unchanged */
+            unchanged?: number | null;
+            /** Advance Pct */
+            advance_pct?: number | null;
+            /** New 52W Highs */
+            new_52w_highs?: number | null;
+            /** New 52W Lows */
+            new_52w_lows?: number | null;
+            /**
+             * New 52W Highs 5D Avg
+             * @description Average of the prior 5 sessions
+             */
+            new_52w_highs_5d_avg?: number | null;
+            /** New 52W Lows 5D Avg */
+            new_52w_lows_5d_avg?: number | null;
+            /**
+             * Up 5Pct
+             * @description Stocks up >= 5% on the session
+             */
+            up_5pct?: number | null;
+            /** Down 5Pct */
+            down_5pct?: number | null;
+            /**
+             * Turnover Cr
+             * @description Sum of every stock's traded value, ₹ Cr
+             */
+            turnover_cr?: number | null;
+            /**
+             * Turnover 20D Avg Cr
+             * @description Average of the prior 20 sessions, ₹ Cr
+             */
+            turnover_20d_avg_cr?: number | null;
+            /** Turnover Vs 20D */
+            turnover_vs_20d?: number | null;
+            /**
+             * Delivery Pct
+             * @description Delivered value ÷ traded value (EQ series), %
+             */
+            delivery_pct?: number | null;
+            /** Delivery Pct 20D Avg */
+            delivery_pct_20d_avg?: number | null;
+            /** Delivery Vs 20D */
+            delivery_vs_20d?: number | null;
+        };
+        /** TodayMoverRow */
+        TodayMoverRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Broad Sector */
+            broad_sector?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Broad Industry */
+            broad_industry?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Change 1D Pct
+             * @description Close vs previous close, %
+             */
+            change_1d_pct?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Delivery Vs 20D */
+            delivery_vs_20d?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5 */
+            rs_delta_5?: number | null;
+            /** Excess Vs Midsml400 63D */
+            excess_vs_midsml400_63d?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Adv Cr 20D */
+            adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+            /**
+             * Turnover Vs 20D
+             * @description Turnover ÷ 20-day average traded value
+             */
+            turnover_vs_20d?: number | null;
+            /**
+             * Delivery Spike
+             * @description Delivered shares > 2 × their 20-day average
+             */
+            delivery_spike?: boolean | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Is 52W High */
+            is_52w_high?: boolean | null;
+            /**
+             * Circuit Band
+             * @description Price band %, point-in-time where available
+             */
+            circuit_band?: number | null;
+            /** At Upper Circuit */
+            at_upper_circuit?: boolean | null;
+            /** At Lower Circuit */
+            at_lower_circuit?: boolean | null;
+            /**
+             * Gap Pct
+             * @description Open vs previous close, %
+             */
+            gap_pct?: number | null;
+            /**
+             * Queues
+             * @description Daily Desk queues the stock is in on as_of
+             */
+            queues?: string[];
+            /** Deal Prints Today */
+            deal_prints_today?: number | null;
+            /**
+             * Deal Net Cr Today
+             * @description Bulk/block net today, PROP excluded, ₹ Cr
+             */
+            deal_net_cr_today?: number | null;
+            /**
+             * Deal Event Type
+             * @description deal_session_net event type (accumulate / distribute / churn …)
+             */
+            deal_event_type?: string | null;
+            /** @description Results board meeting / financial results within ±5 sessions */
+            results_nearby?: components["schemas"]["TodayEvent"] | null;
+            corp_action_nearby?: components["schemas"]["TodayEvent"] | null;
+            /** News Today */
+            news_today?: components["schemas"]["TodayNews"][];
+            /**
+             * Quality
+             * @description Quality of move label (meta.context.quality_rules)
+             */
+            quality?: string | null;
+            /** Quality Id */
+            quality_id?: string | null;
+            /** Quality Tone */
+            quality_tone?: string | null;
+            /**
+             * Traits
+             * @description Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5
+             */
+            traits?: string[];
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "gainer" | "loser";
+            /** Rank */
+            rank: number;
+        };
+        /** TodayNews */
+        TodayNews: {
+            /** Event Type */
+            event_type: string;
+            /** Label */
+            label: string;
+            /** Headline */
+            headline?: string | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -3620,6 +4216,144 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_GroupRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    today_market_api_v2_today_market_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_TodayMarketRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    today_movers_api_v2_today_movers_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                min_mcap_cr?: number;
+                /** @description Rows per side */
+                n?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_TodayMoverRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    today_breakouts_api_v2_today_breakouts_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                min_mcap_cr?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_TodayBreakoutRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    today_groups_api_v2_today_groups_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "broad_sector" | "sector" | "broad_industry" | "industry";
+                floor?: "1000" | "all" | "watch";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_TodayGroupRow_"];
                 };
             };
             /** @description Validation Error */
