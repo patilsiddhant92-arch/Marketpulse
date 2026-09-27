@@ -47,6 +47,7 @@ export type MetricZone = Schemas['MetricZone'];
 export type QueueSummaryRow = Schemas['QueueSummaryRow'];
 export type QueueRow = Schemas['QueueRow'];
 export type DiffRow = Schemas['DiffRow'];
+export type DeskWatchRow = Schemas['DeskWatchRow'];
 export type PresetRow = Schemas['PresetRow'];
 export type ScreenerRule = Schemas['Rule'];
 export type ScreenerRow = Schemas['ScreenerRow'];

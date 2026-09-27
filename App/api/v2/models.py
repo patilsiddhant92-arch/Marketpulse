@@ -199,6 +199,20 @@ class QueueRow(StockBase):
     status: Optional[str] = None
 
 
+class DeskWatchRow(StockBase):
+    trade_date: Optional[date] = None
+    has_data: bool = False
+    queues: list[str] = Field(default_factory=list, description="Daily Desk queues the stock is in on as_of")
+    primary_queue: Optional[str] = None
+    trigger_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    distance_to_trigger_pct: Optional[float] = None
+    risk_pct: Optional[float] = None
+    away_52w_high_pct: Optional[float] = None
+    results_within_10: Optional[bool] = None
+    next_event: Optional[NextEvent] = None
+
+
 class DiffRow(BaseModel):
     queue: str
     timeframe: str
