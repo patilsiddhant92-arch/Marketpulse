@@ -3,6 +3,7 @@ import type { StockHeaderRow } from '../api/types';
 import { cn } from '../lib/cn';
 import { fmtCr, fmtDateShort, fmtDateWithDay, fmtINR, fmtSignedPct } from '../lib/fmt';
 import { Chip } from '../ui/Chip';
+import { DataWarningChip } from '../ui/DataWarningChip';
 import { Skeleton } from '../ui/Skeleton';
 import { Tooltip } from '../ui/Tooltip';
 
@@ -57,6 +58,7 @@ export function StockHeader({ row: s, loading, asOf, compact }: StockHeaderProps
             stale: last traded {fmtDateShort(s.trade_date)}
           </Chip>
         )}
+        <DataWarningChip warning={s.data_warning} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <Chip title={s.mcap_point_in_time ? 'Market cap as of this session' : 'Market cap from the current master file (not point-in-time)'}>

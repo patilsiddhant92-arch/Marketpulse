@@ -30,9 +30,9 @@ import numpy as np
 import pandas as pd
 
 try:
-    from price_adjustment import PRICE_COLS
+    from price_adjustment import PRE_BREAK_COL, PRICE_COLS
 except ModuleNotFoundError:  # pragma: no cover
-    from Scripts.price_adjustment import PRICE_COLS  # type: ignore
+    from Scripts.price_adjustment import PRE_BREAK_COL, PRICE_COLS  # type: ignore
 
 # Batch sizing: rows per symbol batch and worker processes. A 30k-row batch peaks at roughly
 # 0.25 GB inside a worker (per-symbol pass + RS/sector copies) on top of ~0.15 GB of imports;
@@ -119,13 +119,19 @@ def indicator_input_select(price_columns: Iterable[str]) -> str:
     present = set(cols)
     parts = []
     for col in cols:
-        if col.startswith("adj_"):
+        if col.startswith("adj_") or col == PRE_BREAK_COL:
             continue
         if col in INDICATOR_SWAP_COLUMNS and f"adj_{col}" in present:
             parts.append(f"CAST({_q('adj_' + col)} AS DOUBLE) AS {_q(col)}")
         else:
             parts.append(_q(col))
     return ", ".join(parts)
+
+
+def indicator_input_where(price_columns: Iterable[str]) -> str:
+    """WHERE predicate matching `price_adjustment.indicator_input`'s row filter: rows flagged
+    `pre_break` (history before a series break) never reach indicators / RS ranks."""
+    return f"NOT COALESCE({_q(PRE_BREAK_COL)}, FALSE)" if PRE_BREAK_COL in set(price_columns) else "TRUE"
 
 
 def match_datetime_units(frame: pd.DataFrame, unit_dtype) -> pd.DataFrame:
@@ -446,15 +452,16 @@ def stream_full_indicators(
 
     price_cols = table_columns(con, "prices_daily")
     select_input = indicator_input_select(price_cols)
+    keep = indicator_input_where(price_cols)
     close_expr = "adj_close_price" if "adj_close_price" in price_cols else "close_price"
     print("  5c/8: Computing cross-sectional relative strength percentiles (all rows, slim)...", flush=True)
     compute_rank_table(
         con,
         f"SELECT symbol, trade_date, CAST({_q(close_expr)} AS DOUBLE) AS close_price "
-        f"FROM prices_daily ORDER BY symbol, trade_date",
+        f"FROM prices_daily WHERE {keep} ORDER BY symbol, trade_date",
     )
     rank_cols = ", ".join(_q(c) for c in ("symbol", "trade_date", *bd.RANK_COLUMNS))
-    counts = con.execute("SELECT symbol, count(*) AS n FROM prices_daily GROUP BY symbol ORDER BY symbol").fetchdf()
+    counts = con.execute(f"SELECT symbol, count(*) AS n FROM prices_daily WHERE {keep} GROUP BY symbol ORDER BY symbol").fetchdf()
     batches = symbol_batches(counts, batch_rows or DEFAULT_BATCH_ROWS)
     ref_groups = reference_by_symbol(reference)
     print(f"  5a/8: Calculating stock indicators in {len(batches):,} symbol batches...", flush=True)
@@ -463,7 +470,7 @@ def stream_full_indicators(
         for symbols in batches:
             lo, hi = symbols[0], symbols[-1]
             frame = con.execute(
-                f"SELECT {select_input} FROM prices_daily WHERE symbol BETWEEN ? AND ? ORDER BY symbol, trade_date",
+                f"SELECT {select_input} FROM prices_daily WHERE symbol BETWEEN ? AND ? AND {keep} ORDER BY symbol, trade_date",
                 [lo, hi],
             ).fetchdf()
             frame = match_datetime_units(frame, date_dtype)

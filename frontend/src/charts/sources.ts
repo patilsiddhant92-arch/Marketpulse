@@ -86,6 +86,8 @@ export interface ChartItem {
   darvas_box_bottom?: number | null;
   net_cr?: number | null;
   market_cap_cr?: number | null;
+  /** Served data_warning: an unexplained price gap inside a metric window (those metrics are NULL). */
+  data_warning?: string | null;
   /** Short tags shown on the tile, e.g. queue labels for queue:all. */
   tags: string[];
 }
@@ -107,6 +109,7 @@ export function fromQueueRow(r: QueueRow): ChartItem | null {
     darvas_box_top: r.darvas_box_top,
     darvas_box_bottom: r.darvas_box_bottom,
     market_cap_cr: r.market_cap_cr,
+    data_warning: r.data_warning ?? null,
     tags: [QUEUE_LABELS[r.queue] ?? r.queue],
   };
 }
@@ -128,6 +131,7 @@ export function fromScreenerRow(r: ScreenerRow & Partial<QueueRow>): ChartItem |
     darvas_box_top: r.darvas_box_top ?? null,
     darvas_box_bottom: r.darvas_box_bottom ?? null,
     market_cap_cr: r.market_cap_cr,
+    data_warning: r.data_warning ?? null,
     tags: r.is_new ? ['NEW'] : [],
   };
 }
@@ -143,6 +147,7 @@ export function fromMemberRow(r: MemberRow): ChartItem | null {
     rs_percentile: r.rs_percentile,
     rs_delta_5: r.rs_delta_5,
     market_cap_cr: r.market_cap_cr,
+    data_warning: r.data_warning ?? null,
     tags: (r.active_setups ?? []).map((s) => QUEUE_LABELS[s] ?? s),
   };
 }

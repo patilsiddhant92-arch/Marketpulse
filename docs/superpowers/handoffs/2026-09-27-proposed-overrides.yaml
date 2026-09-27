@@ -1,0 +1,288 @@
+# PROPOSED overrides from the 2026-09-27 gap triage (docs/superpowers/handoffs/2026-09-27-gap-triage.md).
+# REVIEW BEFORE COPYING into Input/reference/adjustments_override.yaml - this file is not read by the pipeline.
+# factor = pre-ex price multiplier; kind: break needs the series-break support from feat/w10-gap-guard.
+# Every line comes from a heuristic; check the NSE announcement first.
+
+# ---- break (32 rows) ----
+- {symbol: ARIHANT, ex_date: 2026-04-20, kind: break, note: "break: traded again after 1537 days; x22.9 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: ATLASCYCLE, ex_date: 2024-12-27, kind: break, note: "break: traded again after 1243 days; series BZ->BE - treat as a new listing"}
+- {symbol: AURUM, ex_date: 2020-12-23, kind: break, note: "break: x0.012 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: BCG, ex_date: 2025-07-14, kind: break, note: "break: traded again after 196 days; series BZ->BE - treat as a new listing"}
+- {symbol: BESTAGRO, ex_date: 2024-04-10, kind: break, note: "break: traded again after 259 days - treat as a new listing"}
+- {symbol: BILVYAPAR, ex_date: 2023-02-23, kind: break, note: "break: traded again after 1003 days; series BZ->BE - treat as a new listing"}
+- {symbol: BLUECHIP, ex_date: 2023-08-25, kind: break, note: "break: traded again after 53 days - treat as a new listing"}
+- {symbol: BURNPUR, ex_date: 2026-08-11, kind: break, note: "break: traded again after 559 days; restructuring context: other: CAPITAL REDUCTION (2025-01-30); x3.23 matches no clean split/bonus/consolidation ratio; series EQ->BE - treat as a new listing"}
+- {symbol: CCCL, ex_date: 2024-09-03, kind: break, note: "break: traded again after 468 days; x7.63 matches no clean split/bonus/consolidation ratio; series EQ->BE - treat as a new listing"}
+- {symbol: CLCIND, ex_date: 2026-01-30, kind: break, note: "break: traded again after 750 days; x3.20 matches no clean split/bonus/consolidation ratio; series BZ->BE - treat as a new listing"}
+- {symbol: COFFEEDAY, ex_date: 2021-04-26, kind: break, note: "break: traded again after 245 days; series BZ->BE - treat as a new listing"}
+- {symbol: DCMFINSERV, ex_date: 2021-10-11, kind: break, note: "break: traded again after 94 days; series EQ->BE - treat as a new listing"}
+- {symbol: EASTSILK, ex_date: 2025-08-18, kind: break, note: "break: traded again after 530 days; restructuring context: other: CAPITAL REDUCTION (2024-11-30); x14.0 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: GLFL, ex_date: 2021-12-27, kind: break, note: "break: traded again after 262 days; series EQ->BE - treat as a new listing"}
+- {symbol: GRAUWEIL, ex_date: 2026-04-20, kind: break, note: "break: traded again after 908 days - treat as a new listing"}
+- {symbol: GTNTEX, ex_date: 2022-01-10, kind: break, note: "break: traded again after 469 days; x3.80 matches no clean split/bonus/consolidation ratio; series EQ->BE - treat as a new listing"}
+- {symbol: GVKPIL, ex_date: 2022-08-12, kind: break, note: "break: traded again after 375 days; series BZ->BE - treat as a new listing"}
+- {symbol: KOVAI, ex_date: 2026-04-20, kind: break, note: "break: traded again after 908 days - treat as a new listing"}
+- {symbol: LANCER, ex_date: 2026-08-17, kind: break, note: "break: traded again after 1207 days; x0.074 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: MBECL, ex_date: 2026-09-01, kind: break, note: "break: traded again after 558 days; restructuring context: other: CAPITAL REDUCTION (2025-02-21); x68.4 matches no clean split/bonus/consolidation ratio; series BZ->BE - treat as a new listing"}
+- {symbol: NAGREEKCAP, ex_date: 2022-01-10, kind: break, note: "break: traded again after 469 days - treat as a new listing"}
+- {symbol: NATNLSTEEL, ex_date: 2020-07-13, kind: break, note: "break: traded again after 91 days; x3.14 matches no clean split/bonus/consolidation ratio; series EQ->BE - treat as a new listing"}
+- {symbol: PRAXIS, ex_date: 2023-08-25, kind: break, note: "break: traded again after 70 days - treat as a new listing"}
+- {symbol: RADAAN, ex_date: 2021-04-12, kind: break, note: "break: traded again after 94 days; series EQ->BE - treat as a new listing"}
+- {symbol: SABEVENTS, ex_date: 2023-07-10, kind: break, note: "break: traded again after 276 days; series EQ->BE - treat as a new listing"}
+- {symbol: SICAGEN, ex_date: 2026-04-20, kind: break, note: "break: traded again after 1735 days - treat as a new listing"}
+- {symbol: SUMEETINDS, ex_date: 2025-06-19, kind: break, note: "break: traded again after 245 days; restructuring context: other: CAPITAL REDUCTION (2024-10-18); x11.4 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: TIL, ex_date: 2024-03-26, kind: break, note: "break: x0.282 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: UEL, ex_date: 2024-05-27, kind: break, note: "break: restructuring context: demerger: DEMERGER (2024-05-22); x3.67 matches no clean split/bonus/consolidation ratio - treat as a new listing"}
+- {symbol: VIVIMEDLAB, ex_date: 2025-12-18, kind: break, note: "break: traded again after 871 days; x5.37 matches no clean split/bonus/consolidation ratio; series BZ->BE - treat as a new listing"}
+- {symbol: WAAREEINDO, ex_date: 2025-06-19, kind: break, note: "break: traded again after 1091 days; x52.5 matches no clean split/bonus/consolidation ratio; series BZ->BE - treat as a new listing"}
+- {symbol: WINSOME, ex_date: 2023-09-26, kind: break, note: "break: traded again after 1163 days; x57.0 matches no clean split/bonus/consolidation ratio; series BZ->BE - treat as a new listing"}
+
+# ---- likely split-or-bonus (26 rows) ----
+- {symbol: 360ONE, ex_date: 2023-03-02, factor: 0.25, note: "likely split-or-bonus: drop x0.249 snaps to 0.25 (1:3 bonus or 4-for-1 split, err 0.5%); no split/bonus text found - verify on NSE"}
+- {symbol: AUTOIETF, ex_date: 2024-03-01, factor: 0.1, note: "likely split-or-bonus: drop x0.103 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 2.5%); no split/bonus text found - verify on NSE"}
+- {symbol: DOLPHIN, ex_date: 2024-01-29, factor: 0.1, note: "likely split-or-bonus: drop x0.102 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 2.0%); no split/bonus text found - verify on NSE"}
+- {symbol: EBANK, ex_date: 2020-03-27, factor: 0.6, note: "likely split-or-bonus: drop x0.588 snaps to 0.6 (1:0.667 bonus or 1.67-for-1 split, err 2.1%); no split/bonus text found - verify on NSE"}
+- {symbol: ESSENTIA, ex_date: 2024-01-11, factor: 0.5, note: "likely split-or-bonus: drop x0.522 snaps to 0.5 (1:1 bonus or 2-for-1 split, err 4.5%); no split/bonus text found - verify on NSE"}
+- {symbol: FCONSUMER, ex_date: 2023-08-25, factor: 0.5, note: "likely split-or-bonus: drop x0.524 snaps to 0.5 (1:1 bonus or 2-for-1 split, err 4.8%); no split/bonus text found - verify on NSE"}
+- {symbol: HDFCLOWVOL, ex_date: 2023-10-20, factor: 0.1, note: "likely split-or-bonus: drop x0.099 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.9%); action text agrees"}
+- {symbol: HDFCMID150, ex_date: 2023-10-20, factor: 0.1, note: "likely split-or-bonus: drop x0.099 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.9%); action text agrees"}
+- {symbol: HDFCMOMENT, ex_date: 2023-10-20, factor: 0.1, note: "likely split-or-bonus: drop x0.098 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 1.9%); action text agrees"}
+- {symbol: HDFCNEXT50, ex_date: 2023-10-20, factor: 0.1, note: "likely split-or-bonus: drop x0.099 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.9%); action text agrees"}
+- {symbol: HDFCNIF100, ex_date: 2023-10-20, factor: 0.1, note: "likely split-or-bonus: drop x0.100 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.4%); action text agrees"}
+- {symbol: HDFCNIFBAN, ex_date: 2024-02-02, factor: 0.1, note: "likely split-or-bonus: drop x0.100 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.5%); no split/bonus text found - verify on NSE"}
+- {symbol: HDFCNIFIT, ex_date: 2024-02-02, factor: 0.1, note: "likely split-or-bonus: drop x0.102 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 2.2%); action text agrees"}
+- {symbol: HDFCPVTBAN, ex_date: 2024-02-02, factor: 0.1, note: "likely split-or-bonus: drop x0.099 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.6%); action text agrees"}
+- {symbol: HDFCSENSEX, ex_date: 2021-02-17, factor: 0.1, note: "likely split-or-bonus: drop x0.099 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.7%); action text agrees"}
+- {symbol: HDFCSENSEX, ex_date: 2024-02-02, factor: 0.1, note: "likely split-or-bonus: drop x0.100 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.1%); no split/bonus text found - verify on NSE"}
+- {symbol: KAMOPAINTS, ex_date: 2023-08-01, factor: 0.5, note: "likely split-or-bonus: drop x0.521 snaps to 0.5 (1:1 bonus or 2-for-1 split, err 4.3%); no split/bonus text found - verify on NSE"}
+- {symbol: LOWVOLIETF, ex_date: 2024-03-01, factor: 0.1, note: "likely split-or-bonus: drop x0.101 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 0.6%); no split/bonus text found - verify on NSE"}
+- {symbol: MOM30IETF, ex_date: 2022-08-12, factor: 0.1, note: "likely split-or-bonus: drop x0.101 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 1.2%); no split/bonus text found - verify on NSE"}
+- {symbol: NINSYS, ex_date: 2023-08-03, factor: 0.6, note: "likely split-or-bonus: drop x0.583 snaps to 0.6 (1:0.667 bonus or 1.67-for-1 split, err 2.8%); no split/bonus text found - verify on NSE"}
+- {symbol: NV20IETF, ex_date: 2024-03-01, factor: 0.1, note: "likely split-or-bonus: drop x0.102 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 1.6%); no split/bonus text found - verify on NSE"}
+- {symbol: PATINTLOG, ex_date: 2021-10-28, factor: 0.6, note: "likely split-or-bonus: drop x0.592 snaps to 0.6 (1:0.667 bonus or 1.67-for-1 split, err 1.4%); rights text nearby (rights: RIGHTS 613:399) - check whether it was a bonus-like issue"}
+- {symbol: PDSL, ex_date: 2022-08-26, factor: 0.2, note: "likely split-or-bonus: drop x0.199 snaps to 0.2 (1:4 bonus or 5-for-1 split, err 0.7%); no split/bonus text found - verify on NSE"}
+- {symbol: PRAXIS, ex_date: 2021-09-07, factor: 0.6, note: "likely split-or-bonus: drop x0.567 snaps to 0.6 (1:0.667 bonus or 1.67-for-1 split, err 5.6%); rights text nearby (rights: RIGHTS 11:8 @PRM RS 6.35) - check whether it was a bonus-like issue"}
+- {symbol: PVTBANIETF, ex_date: 2024-03-01, factor: 0.1, note: "likely split-or-bonus: drop x0.102 snaps to 0.1 (1:9 bonus or 10-for-1 split, err 2.3%); no split/bonus text found - verify on NSE"}
+- {symbol: WEIZMANIND, ex_date: 2020-03-16, factor: 0.6, note: "likely split-or-bonus: drop x0.600 snaps to 0.6 (1:0.667 bonus or 1.67-for-1 split, err 0.1%); no split/bonus text found - verify on NSE"}
+
+# ---- demerger (29 rows) ----
+- {symbol: ABFRL, ex_date: 2025-05-22, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: AHLEAST, ex_date: 2022-10-06, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: ALLCARGO, ex_date: 2025-11-12, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: ANANTRAJ, ex_date: 2020-10-06, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: BORORENEW, ex_date: 2020-03-06, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: DCMSRIND, ex_date: 2025-12-26, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: EDELWEISS, ex_date: 2023-06-02, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: HEGAM, ex_date: 2026-09-07, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: HERCULES, ex_date: 2024-10-11, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: INDIAGLYCO, ex_date: 2026-09-02, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: KAMDHENU, ex_date: 2022-09-06, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: KESORAMIND, ex_date: 2025-03-10, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: MIRZAINT, ex_date: 2023-03-29, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: NDLVENTURE, ex_date: 2022-11-22, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: NIITLTD, ex_date: 2023-06-08, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: OCCL, ex_date: 2024-07-01, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: PEL, ex_date: 2022-08-30, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: QUESS, ex_date: 2025-04-15, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: RAYMOND, ex_date: 2025-05-14, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: ROSSELLIND, ex_date: 2024-09-20, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: SHANKARA, ex_date: 2025-09-24, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: SIEMENS, ex_date: 2025-04-07, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: SKFINDIA, ex_date: 2025-10-15, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: STAR, ex_date: 2024-12-06, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: SUVEN, ex_date: 2020-01-21, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: TATACHEM, ex_date: 2020-03-04, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: TMPV, ex_date: 2025-10-14, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: TRIVENI, ex_date: 2026-07-22, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+- {symbol: VEDL, ex_date: 2026-04-30, kind: demerger, note: "demerger: price drop next to a demerger announcement (non-adjusting; value moved to the spun-off shares)"}
+
+# ---- genuine move (189 rows) ----
+- {symbol: ABCOTS, ex_date: 2025-06-30, factor: null, note: "genuine move: gap at the first stored row / after the last row: nothing spans it"}
+- {symbol: AKG, ex_date: 2022-12-16, kind: ignore, note: "genuine move: x0.465 on the rights ex-date (rights: RIGHTS 2:1 @ PRM RS 2/-): the price drops by the rights value, which is not a split/bonus adjustment"}
+- {symbol: AKSH-RE, ex_date: 2024-09-10, kind: ignore, note: "genuine move: penny stock: 0.46 -> 0.27 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: AMBUJACEM, ex_date: 2024-05-31, factor: null, note: "genuine move: x0.830 after a 1-day step, no clean ratio, no action text; no band (F&O / bandless) - verify it is a real move (results / news)"}
+- {symbol: ANMOL, ex_date: 2023-07-18, kind: ignore, note: "genuine move: x1.20 after a 1-day step, no clean ratio, no action text; band 5% - verify it is a real move (results / news); NOTE: outside the price band - more likely a data issue or unannounced action"}
+- {symbol: ANNAPURNA, ex_date: 2024-09-30, factor: null, note: "genuine move: gap at the first stored row / after the last row: nothing spans it"}
+- {symbol: ANZEN, ex_date: 2025-03-28, factor: null, note: "genuine move: no price rows"}
+- {symbol: ASTERDM, ex_date: 2026-08-31, factor: null, note: "genuine move: issue size x1.67 but no price gap near x0.600 within 40 days (largest move x0.957): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: ATAL-RE, ex_date: 2024-09-03, kind: ignore, note: "genuine move: penny stock: 0.39 -> 0.23 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: ATNINTER, ex_date: 2020-03-12, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: ATNINTER, ex_date: 2020-03-17, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: ATNINTER, ex_date: 2020-03-27, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: ATNINTER, ex_date: 2020-03-30, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: ATNINTER, ex_date: 2020-04-15, kind: ignore, note: "genuine move: penny stock: 0.15 -> 0.25 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: AVROIND, ex_date: 2025-04-30, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.08): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: BHANDA-RE1, ex_date: 2024-07-09, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: BLUECHIP, ex_date: 2020-04-01, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: BLUECHIP, ex_date: 2020-04-03, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: BLUECHIP, ex_date: 2020-09-07, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: BLUECHIP, ex_date: 2020-09-14, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: BLUECHIP, ex_date: 2020-09-16, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: BLUECHIP, ex_date: 2020-09-17, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: BURNPUR, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x2.31 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: CADSYS, ex_date: 2025-01-31, factor: null, note: "genuine move: no price rows"}
+- {symbol: CALSOFT-RE, ex_date: 2025-01-27, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: CAPTRU-RE, ex_date: 2025-07-14, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: CCAVENUE, ex_date: 2026-01-30, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: CGCL, ex_date: 2024-03-05, kind: ignore, note: "genuine move: x1.20 after a 1-day step, no clean ratio, no action text; band 20% - verify it is a real move (results / news); NOTE: outside the price band - more likely a data issue or unannounced action"}
+- {symbol: CHAVDA, ex_date: 2026-03-30, factor: null, note: "genuine move: no price rows"}
+- {symbol: CHROMATIC, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x1.64 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: COHANCE, ex_date: 2025-05-30, factor: null, note: "genuine move: issue size x1.50 but no price gap near x0.667 within 40 days (largest move x0.949): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: DIL, ex_date: 2024-05-31, factor: null, note: "genuine move: issue size x1.50 but no price gap near x0.667 within 40 days (largest move x0.964): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: EASEMYTRIP, ex_date: 2022-11-21, kind: ignore, note: "genuine move: x1.20 after a 3-day step, no clean ratio, no action text; band 20% - verify it is a real move (results / news); NOTE: outside the price band - more likely a data issue or unannounced action"}
+- {symbol: EUROMULTI, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x2.11 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: FELIX, ex_date: 2025-10-31, factor: null, note: "genuine move: no price rows"}
+- {symbol: FOODSIN, ex_date: 2024-09-30, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.08): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: GAYAPROJ, ex_date: 2026-07-31, factor: null, note: "genuine move: issue size x2.50 but no price gap near x0.400 within 40 days (largest move x0.956): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: GODHA-RE, ex_date: 2023-06-01, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: GODHA-RE, ex_date: 2023-06-02, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: GOLDTECH, ex_date: 2025-06-30, factor: null, note: "genuine move: issue size x1.50 but no price gap near x0.667 within 40 days (largest move x1.10): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: HERITGFOOD, ex_date: 2023-01-20, kind: ignore, note: "genuine move: x0.532 on the rights ex-date (rights: RIGHTS 1:1 @ PRM RS 0/-): the price drops by the rights value, which is not a split/bonus adjustment"}
+- {symbol: INDO-RE2, ex_date: 2025-12-02, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: INTEGRA, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 4 symbols have no stored rows between 2020-04-09 and 2020-07-13 (exchange-wide surveillance / series move), and x2.00 is a plausible market move over 95 days - not a corporate action"}
+- {symbol: ISHANCH, ex_date: 2025-12-31, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x0.960): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: JYOTI-RE1, ex_date: 2025-02-24, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: KAUSHALYA, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x1.67 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: KSERASERA, ex_date: 2020-03-03, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-04, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-09, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-17, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-23, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-24, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-26, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-03-27, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-04-09, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: KSERASERA, ex_date: 2020-04-13, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: LCCINFOTEC, ex_date: 2026-06-30, factor: null, note: "genuine move: issue size x1.33 but no price gap near x0.750 within 40 days (largest move x0.950): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: MAGSON, ex_date: 2025-08-29, factor: null, note: "genuine move: no price rows"}
+- {symbol: MANAKCOAT, ex_date: 2025-06-30, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.07): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: MBLINFRA, ex_date: 2025-08-29, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.06): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: MOHITIND, ex_date: 2021-01-11, kind: ignore, note: "genuine move: shared absence: 3 symbols have no stored rows between 2020-09-28 and 2021-01-11 (exchange-wide surveillance / series move), and x1.63 is a plausible market move over 105 days - not a corporate action"}
+- {symbol: MOKSH-RE, ex_date: 2024-12-31, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: MVL, ex_date: 2020-01-27, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: MVL, ex_date: 2020-02-17, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: MVL, ex_date: 2020-02-24, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: NAGREEKEXP, ex_date: 2024-01-30, kind: ignore, note: "genuine move: x0.539 on the rights ex-date (rights: RIGHTS 3:2 @ PRM RS 15/-): the price drops by the rights value, which is not a split/bonus adjustment"}
+- {symbol: NAMAN, ex_date: 2024-10-31, factor: null, note: "genuine move: no price rows"}
+- {symbol: NARMA-RE, ex_date: 2024-10-01, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: NARMA-RE, ex_date: 2024-10-03, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: NATNLSTEEL, ex_date: 2020-04-13, kind: ignore, note: "genuine move: shared absence: 5 symbols have no stored rows between 2020-01-10 and 2020-04-13 (exchange-wide surveillance / series move), and x0.524 is a plausible market move over 94 days - not a corporate action"}
+- {symbol: NEUEON, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x2.29 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: NIFTYAXIS, ex_date: 2020-07-23, kind: ignore, note: "genuine move: x1.20 after a 1-day step, no clean ratio, no action text; no band (F&O / bandless) - verify it is a real move (results / news)"}
+- {symbol: OMKARCHEM, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x1.74 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: ONDOOR, ex_date: 2026-07-31, factor: null, note: "genuine move: no price rows"}
+- {symbol: ORIENT-RE, ex_date: 2024-09-20, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: ORIENT-RE, ex_date: 2024-09-23, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: PFOCUS, ex_date: 2025-11-28, factor: null, note: "genuine move: issue size x2.50 but no price gap near x0.400 within 40 days (largest move x1.09): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: POLYSIL, ex_date: 2025-07-31, factor: null, note: "genuine move: no price rows"}
+- {symbol: PRAXIS-RE2, ex_date: 2025-08-08, kind: ignore, note: "genuine move: penny stock: 0.39 -> 0.23 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: PRAXIS-RE2, ex_date: 2025-08-11, kind: ignore, note: "genuine move: penny stock: 0.23 -> 0.13 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: PRITIKAUTO, ex_date: 2024-02-29, factor: null, note: "genuine move: issue size x1.67 but no price gap near x0.600 within 40 days (largest move x1.10): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: PROSEED, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x2.00 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: RAJRAYON, ex_date: 2020-01-03, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-01-08, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-01-17, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-01-24, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-01-27, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-01-31, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-02-12, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-02-17, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-04-15, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-04-27, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-04-28, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-05-12, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-05-13, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-05-26, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-05-27, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-05-29, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RAJRAYON, ex_date: 2020-06-01, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: RATNAVEER, ex_date: 2025-12-31, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x0.938): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: RBLBANK, ex_date: 2026-07-31, factor: null, note: "genuine move: issue size x2.50 but no price gap near x0.400 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: ROSSELLIND, ex_date: 2024-12-31, factor: null, note: "genuine move: issue size x1.67 but no price gap near x0.600 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: S&SPOWER, ex_date: 2024-08-30, factor: null, note: "genuine move: issue size x2.00 but no price gap near x0.500 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: SADHNANIQ, ex_date: 2026-02-18, kind: ignore, note: "genuine move: x0.296 on the rights ex-date (rights: RIGHTS 8:1 @ PRM RS 0/-): the price drops by the rights value, which is not a split/bonus adjustment"}
+- {symbol: SAHAJSOLAR, ex_date: 2025-04-02, factor: null, note: "genuine move: no price rows"}
+- {symbol: SAKUMA, ex_date: 2024-04-15, factor: null, note: "genuine move: issue size x1.33 but no price gap near x0.750 within 40 days (largest move x1.15): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: SALSTEEL, ex_date: 2026-08-31, factor: null, note: "genuine move: issue size x1.33 but no price gap near x0.750 within 40 days (largest move x1.10): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: SARTELE, ex_date: 2024-08-30, factor: null, note: "genuine move: no price rows"}
+- {symbol: SCML, ex_date: 2026-07-31, factor: null, note: "genuine move: no price rows"}
+- {symbol: SEPC-RE3, ex_date: 2025-06-10, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: SETCO, ex_date: 2026-06-02, kind: ignore, note: "genuine move: x0.557 after a 1-day step, no clean ratio, no action text; band 5% - verify it is a real move (results / news); NOTE: outside the price band - more likely a data issue or unannounced action"}
+- {symbol: SHRIRAMFIN, ex_date: 2026-04-30, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.10): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: SNXT50BETA, ex_date: 2021-02-17, kind: ignore, note: "genuine move: x1.20 after a 1-day step, no clean ratio, no action text; no band (F&O / bandless) - verify it is a real move (results / news)"}
+- {symbol: SOFTTECH, ex_date: 2024-05-03, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: SONUINFRA, ex_date: 2025-04-30, factor: null, note: "genuine move: no price rows"}
+- {symbol: SPAND-RE, ex_date: 2025-08-04, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: SRPL-RE, ex_date: 2023-07-21, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: SRPL-RE, ex_date: 2023-07-24, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: SUMIT, ex_date: 2024-12-31, factor: null, note: "genuine move: issue size x1.33 but no price gap near x0.750 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: TALBROAUTO, ex_date: 2023-10-27, kind: ignore, note: "genuine move: x1.20 after a 1-day step, no clean ratio, no action text; band 20% - verify it is a real move (results / news); NOTE: outside the price band - more likely a data issue or unannounced action"}
+- {symbol: TECHIN, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x1.95 is a plausible market move over 91 days - not a corporate action"}
+- {symbol: TEMBO, ex_date: 2025-07-31, factor: null, note: "genuine move: issue size x1.33 but no price gap near x0.750 within 40 days (largest move x1.05): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: UGRO-RE, ex_date: 2025-06-18, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: UVSL, ex_date: 2020-02-03, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-04, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-10, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-14, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-20, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-24, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-26, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-02-27, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-02, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-03, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-12, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-16, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-17, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-18, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-19, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-24, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-25, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-26, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-30, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-03-31, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-04-01, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-04-03, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-04-07, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-04-08, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-04-15, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: UVSL, ex_date: 2020-04-16, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VCL-RE, ex_date: 2023-08-10, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VCL-RE, ex_date: 2023-08-11, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VERANDA, ex_date: 2025-07-31, factor: null, note: "genuine move: issue size x1.25 but no price gap near x0.800 within 40 days (largest move x1.17): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: VIJIFIN, ex_date: 2026-08-31, factor: null, note: "genuine move: issue size x1.33 but no price gap near x0.750 within 40 days (largest move x1.02): share issuance (QIP / merger / preferential), not a bonus"}
+- {symbol: VINNY-RE, ex_date: 2024-08-28, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: VINNY-RE, ex_date: 2024-08-29, kind: ignore, note: "genuine move: rights-entitlement (-RE) instrument: thin, bandless trading around the rights period"}
+- {symbol: VISESHINFO, ex_date: 2020-01-02, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-03, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-10, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-14, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-17, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-20, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-21, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-23, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-24, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-28, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-30, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-01-31, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-03, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-05, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-07, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-12, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-13, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-17, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-18, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-24, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-26, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-27, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-02-28, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2020-03-02, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2021-03-01, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2021-04-19, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2021-04-26, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2021-05-10, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISESHINFO, ex_date: 2021-05-24, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: VISHWARAJ, ex_date: 2021-10-21, kind: ignore, note: "genuine move: x1.20 after a 1-day step, no clean ratio, no action text; band 20% - verify it is a real move (results / news); NOTE: outside the price band - more likely a data issue or unannounced action"}
+- {symbol: WINSOME, ex_date: 2020-03-30, kind: ignore, note: "genuine move: penny stock: 0.1 -> 0.05 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: WINSOME, ex_date: 2020-04-07, kind: ignore, note: "genuine move: penny stock: 0.05 -> 0.1 is a move of a few 5-paise ticks, which is a large ratio at this price level"}
+- {symbol: YESBANK, ex_date: 2020-03-06, kind: ignore, note: "genuine move: x0.439 after a 1-day step, no clean ratio, no action text; no band (F&O / bandless) - verify it is a real move (results / news)"}
+- {symbol: ZICOM, ex_date: 2020-07-13, kind: ignore, note: "genuine move: shared absence: 21 symbols have no stored rows between 2020-04-13 and 2020-07-13 (exchange-wide surveillance / series move), and x2.89 is a plausible market move over 91 days - not a corporate action"}

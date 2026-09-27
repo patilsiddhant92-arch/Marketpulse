@@ -69,7 +69,7 @@ def test_yaml_stub_is_fully_commented_and_valid_when_uncommented():
     entries = [ln.lstrip()[1:].strip() for ln in lines if ln.lstrip()[1:].strip().startswith("- {")]
     parsed = [yaml.safe_load(e)[0] for e in entries]
     kinds = {p.get("kind") for p in parsed}
-    assert kinds == {None, "ignore", "demerger"}
+    assert kinds == {None, "ignore", "demerger", "break"}
     assert all(p["symbol"] == "HEG" and str(p["ex_date"]) == "2026-09-01" for p in parsed)
 
 

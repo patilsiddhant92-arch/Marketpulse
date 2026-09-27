@@ -669,8 +669,13 @@ GAP_COLUMNS = ["symbol", "ex_date", "gap_ratio"]
 OVERRIDE_COLUMNS = ["symbol", "ex_date", "factor", "note", "kind"]
 # Optional `kind` in adjustments_override.yaml. None (absent) = factor override / null-factor
 # suppression as before; "ignore" = the unexplained gap was reviewed and needs no adjustment;
-# "demerger" = record a non-adjusting demerger (never applied to prices).
-OVERRIDE_KINDS = frozenset({"ignore", "demerger"})
+# "demerger" = record a non-adjusting demerger (never applied to prices); "break" = a series break
+# (relisting after capital restructuring, etc.): the symbol's history before ex_date is excluded
+# from indicators / derived / evidence (treated as a new listing from ex_date) while its raw rows
+# stay in prices_daily flagged `pre_break` (see `series_breaks`, `apply_adjustments`).
+OVERRIDE_KINDS = frozenset({"ignore", "demerger", "break"})
+BREAK_KIND = "break"
+PRE_BREAK_COL = "pre_break"
 _ADJUSTMENT_DTYPES = {
     "symbol": "object", "ex_date": "datetime64[ns]", "kind": "object", "factor": "float64",
     "source": "object", "confidence": "object", "applied": "bool", "description": "object",
@@ -1032,8 +1037,32 @@ def _apply_kind_override(rows: list[dict], claimed: set, o, kind: str, rank: int
     """`kind: ignore` -> the nearest unexplained gap is marked reviewed (confidence 'reviewed');
     nothing is added when no gap matches, and applied actions are never touched.
     `kind: demerger` -> the nearest gap (else any unapplied row) becomes a non-adjusting demerger
-    row; with no match a new demerger row is added. Neither is ever applied to prices."""
+    row; with no match a new demerger row is added. Neither is ever applied to prices.
+    `kind: break` -> the nearest unexplained gap becomes a `break` row dated at the override's
+    ex_date (the first session of the new series); with no match a new break row is added. Never
+    applied to prices; `apply_adjustments` flags the rows before it `pre_break`."""
     symbol, ex_date, note = o["symbol"], o["ex_date"], o.get("note", "")
+    if kind == BREAK_KIND:
+        idx = _closest_row(rows, claimed, symbol, ex_date, window_days, kinds={"unexplained_gap"})
+        if idx is not None:
+            claimed.add(idx)
+            r = rows[idx]
+            ratio = r["factor"]
+            r["kind"] = BREAK_KIND
+            r["ex_date"] = ex_date
+            r["factor"] = float("nan")
+            r["applied"] = False
+            r["confidence"] = "override"
+            r["source"] = f"{r['source']}+override"
+            r["description"] = _note_text(note, f"series break (gap ratio {ratio:.4f})" if pd.notna(ratio)
+                                          else "series break")
+            r["_override_rank"] = rank
+            return
+        new_row = _row(symbol, ex_date, BREAK_KIND, float("nan"), "override", "override", False,
+                       _note_text(note, "series break"))
+        new_row["_override_rank"] = rank
+        rows.append(new_row)
+        return
     if kind == "ignore":
         idx = _closest_row(rows, claimed, symbol, ex_date, window_days, kinds={"unexplained_gap"})
         if idx is None:
@@ -1282,8 +1311,28 @@ def drop_stale_adjustment_columns(df: pd.DataFrame) -> pd.DataFrame:
     previously-adjusted `prices_daily` frame (e.g. `append_database`, before merging in new
     rows and recomputing adjustments from scratch).
     """
-    stale = [c for c in df.columns if c.startswith("adj_") or c == "price_factor"]
+    stale = [c for c in df.columns if c.startswith("adj_") or c in ("price_factor", PRE_BREAK_COL)]
     return df.drop(columns=stale) if stale else df
+
+
+def series_breaks(adjustments: pd.DataFrame | None) -> pd.Series:
+    """symbol -> latest series-break date (`kind == 'break'` rows); empty when there are none."""
+    if adjustments is None or len(adjustments) == 0 or "kind" not in adjustments.columns:
+        return pd.Series(dtype="datetime64[ns]")
+    rows = adjustments[adjustments["kind"] == BREAK_KIND]
+    if rows.empty:
+        return pd.Series(dtype="datetime64[ns]")
+    dates = pd.to_datetime(rows["ex_date"], errors="coerce").dt.normalize()
+    return dates.groupby(rows["symbol"].astype(str).to_numpy()).max().dropna()
+
+
+def pre_break_mask(prices: pd.DataFrame, breaks: pd.Series) -> np.ndarray:
+    """True for rows dated before their symbol's series break (positional, same order as prices)."""
+    if breaks is None or breaks.empty or prices.empty:
+        return np.zeros(len(prices), dtype=bool)
+    cut = prices["symbol"].astype(str).map(breaks)
+    dates = pd.to_datetime(prices["trade_date"])
+    return (cut.notna() & (dates < cut)).to_numpy(dtype=bool)
 
 
 def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.DataFrame:
@@ -1297,6 +1346,11 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
     columns are dropped first so re-applying is idempotent (same output columns, freshly
     recomputed from the raw OHLCV columns).
 
+    Series breaks (`kind: break` rows): only when the adjustments carry any, a boolean
+    `pre_break` column is added (True for a symbol's rows before its latest break) and the first
+    row on/after the break takes the first-row `adj_prev_close` rule (a new listing). Without
+    breaks the output columns are unchanged, so existing tables need no new column.
+
     `last_price`, `avg_price`, `delivery_qty`, and `prev_close` are optional: columns absent
     from `prices` are simply skipped rather than raising `KeyError`. `prices.index` may contain
     duplicate labels — this works on a positional copy internally and restores the original
@@ -1304,6 +1358,8 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
     """
     orig_index = prices.index
     df = drop_stale_adjustment_columns(prices).reset_index(drop=True)
+    df = df.drop(columns=[PRE_BREAK_COL], errors="ignore")
+    breaks = series_breaks(adjustments)
 
     factor = cumulative_price_factor(df, adjustments)
     df["price_factor"] = factor.astype("float64")
@@ -1320,7 +1376,12 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
 
     if "adj_close_price" in df.columns:
         ordered = df.sort_values(["symbol", "trade_date"], kind="stable")
-        prev_adj_close = ordered.groupby("symbol")["adj_close_price"].shift(1)
+        if not breaks.empty:
+            # Segment key: pre-break rows and the new series are separate "listings".
+            seg = ordered["symbol"].astype(str) + np.where(pre_break_mask(ordered, breaks), "|pre-break", "")
+            prev_adj_close = ordered.groupby(seg.to_numpy())["adj_close_price"].shift(1)
+        else:
+            prev_adj_close = ordered.groupby("symbol")["adj_close_price"].shift(1)
         if "prev_close" in df.columns:
             first_row_fill = ordered["prev_close"].astype("float64") * ordered["price_factor"]
             adj_prev_close = prev_adj_close.fillna(first_row_fill)
@@ -1328,6 +1389,8 @@ def apply_adjustments(prices: pd.DataFrame, adjustments: pd.DataFrame) -> pd.Dat
             adj_prev_close = prev_adj_close
         df["adj_prev_close"] = adj_prev_close.reindex(df.index).astype("float64")
 
+    if not breaks.empty:
+        df[PRE_BREAK_COL] = pre_break_mask(df, breaks)
     df.index = orig_index
     return df
 
@@ -1502,8 +1565,13 @@ def indicator_input(adjusted: pd.DataFrame) -> pd.DataFrame:
     the NSE-reported 52-week high/low (adjusted by NSE only up to each file's date, so on that
     row's raw scale) onto today's adjusted-price scale used by the OHLCV columns above, before
     computing `away_52w_high_pct` and everything derived from it.
+
+    Rows flagged `pre_break` (history before a series break) are dropped, and so is the flag:
+    indicators see the symbol as a new listing from the break date.
     """
     df = adjusted.copy()
+    if PRE_BREAK_COL in df.columns:
+        df = df.loc[~df[PRE_BREAK_COL].fillna(False).astype(bool)].drop(columns=[PRE_BREAK_COL]).reset_index(drop=True)
     swap = {**{col: f"adj_{col}" for col in PRICE_COLS},
             "prev_close": "adj_prev_close",
             "volume": "adj_volume",

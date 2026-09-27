@@ -828,6 +828,11 @@ export interface components {
             market_cap_cr?: number | null;
             /** Adv Cr 20D */
             adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
             /** Trade Date */
             trade_date?: string | null;
             /**
@@ -1716,6 +1721,11 @@ export interface components {
             market_cap_cr?: number | null;
             /** Adv Cr 20D */
             adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
             /** Rs Vs Sector Index 63D */
             rs_vs_sector_index_63d?: number | null;
             /** Sector Index Name */
@@ -1946,6 +1956,11 @@ export interface components {
             market_cap_cr?: number | null;
             /** Adv Cr 20D */
             adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
             /** Queue */
             queue: string;
             /** Timeframe */
@@ -2151,6 +2166,11 @@ export interface components {
             /** Adv Cr 20D */
             adv_cr_20d?: number | null;
             /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
+            /**
              * Rs Is Ipo Rank
              * @default false
              */
@@ -2270,6 +2290,11 @@ export interface components {
             market_cap_cr?: number | null;
             /** Adv Cr 20D */
             adv_cr_20d?: number | null;
+            /**
+             * Data Warning
+             * @description Unexplained price gap inside a metric window; those metrics are served NULL
+             */
+            data_warning?: string | null;
             /** Trade Date */
             trade_date?: string | null;
             /**

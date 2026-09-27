@@ -143,6 +143,8 @@ class StockBase(BaseModel):
     excess_vs_midsml400_63d: Optional[float] = None
     market_cap_cr: Optional[float] = None
     adv_cr_20d: Optional[float] = None
+    data_warning: Optional[str] = Field(
+        None, description="Unexplained price gap inside a metric window; those metrics are served NULL")
 
 
 # --------------------------------------------------------------------------

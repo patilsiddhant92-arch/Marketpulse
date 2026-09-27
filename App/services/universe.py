@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any, Iterable
 
-from App.services import db
+from App.services import data_gaps, db
 
 LEVELS = {
     "broad_sector": ("broad_sector", "Broad Sector"),
@@ -35,7 +35,11 @@ def snapshot_sql(con: Any, extra_where: str = "", extra_cols: str = "") -> str:
     """SELECT for one session of stock rows. Params: [as_of] + params for extra_where.
 
     `extra_where`/`extra_cols` must be built from whitelisted fragments only.
+    Multi-session metrics whose window spans an unexplained price gap are NULL and the row carries
+    `data_warning` (App/services/data_gaps.py); `extra_cols` can use `data_gaps.guard(...)` likewise.
     """
+    data_gaps.register(con)
+    g = data_gaps.guard
     has_ref = db.table_exists(con, "security_reference_daily")
     ref_join = (
         "ASOF LEFT JOIN security_reference_daily r ON r.symbol = i.symbol AND i.trade_date >= r.effective_date"
@@ -53,41 +57,46 @@ def snapshot_sql(con: Any, extra_where: str = "", extra_cols: str = "") -> str:
                i.trade_date,
                i.close_price AS close,
                i.prev_close,
-               (i.close_price / nullif(i.prev_close, 0) - 1) * 100 AS change_1d_pct,
+               {g('(i.close_price / nullif(i.prev_close, 0) - 1) * 100', 'change_1d_pct')} AS change_1d_pct,
                i.volume,
                i.avg_volume_20d,
                i.rvol,
                i.delivery_pct,
                i.delivery_pct / nullif(i.avg_delivery_pct_20d, 0) AS delivery_vs_20d,
-               i.rs_percentile,
-               i.rs_percentile_ipo,
-               i.rs_percentile - i.rs_rank_t5 AS rs_delta_5,
-               i.rs_rank_t5, i.rs_rank_t15, i.rs_rank_t30,
-               i.rs_vs_midsml400_21d AS excess_vs_midsml400_21d,
-               i.rs_vs_midsml400_63d AS excess_vs_midsml400_63d,
-               i.rs_vs_nifty50_21d AS excess_vs_nifty50_21d,
-               i.rs_vs_nifty50_63d AS excess_vs_nifty50_63d,
-               i.rs_vs_sector_index_63d,
+               {g('i.rs_percentile', 'rs_percentile')} AS rs_percentile,
+               {g('i.rs_percentile_ipo', 'rs_percentile_ipo')} AS rs_percentile_ipo,
+               {g('i.rs_percentile - i.rs_rank_t5', 'rs_delta_5')} AS rs_delta_5,
+               {g('i.rs_rank_t5', 'rs_rank_t5')} AS rs_rank_t5, {g('i.rs_rank_t15', 'rs_rank_t15')} AS rs_rank_t15,
+               {g('i.rs_rank_t30', 'rs_rank_t30')} AS rs_rank_t30,
+               {g('i.rs_vs_midsml400_21d', 'excess_vs_midsml400_21d')} AS excess_vs_midsml400_21d,
+               {g('i.rs_vs_midsml400_63d', 'excess_vs_midsml400_63d')} AS excess_vs_midsml400_63d,
+               {g('i.rs_vs_nifty50_21d', 'excess_vs_nifty50_21d')} AS excess_vs_nifty50_21d,
+               {g('i.rs_vs_nifty50_63d', 'excess_vs_nifty50_63d')} AS excess_vs_nifty50_63d,
+               {g('i.rs_vs_sector_index_63d', 'rs_vs_sector_index_63d')} AS rs_vs_sector_index_63d,
                i.sector_index_name,
-               i.trend_template_pass_n,
-               i.trend_template_pass,
-               i.away_52w_high_pct,
-               i.away_52w_low_pct,
+               {g('i.trend_template_pass_n', 'trend_template_pass_n')} AS trend_template_pass_n,
+               {g('i.trend_template_pass', 'trend_template_pass')} AS trend_template_pass,
+               {g('i.away_52w_high_pct', 'away_52w_high_pct')} AS away_52w_high_pct,
+               {g('i.away_52w_low_pct', 'away_52w_low_pct')} AS away_52w_low_pct,
                i.away_10ema_pct,
                i.high_52w_date,
                i.adr_20_pct,
                i.atr_pct,
-               i.trend_score,
-               i.return_1m_pct, i.return_3m_pct, i.return_6m_pct,
+               {g('i.trend_score', 'trend_score')} AS trend_score,
+               {g('i.return_1m_pct', 'return_1m_pct')} AS return_1m_pct,
+               {g('i.return_3m_pct', 'return_3m_pct')} AS return_3m_pct,
+               {g('i.return_6m_pct', 'return_6m_pct')} AS return_6m_pct,
                i.ema_10, i.ema_20, i.ema_50, i.ema_200,
                i.avg_traded_value_cr_20d AS adv_cr_20d,
                {mcap} AS market_cap_cr,
                {pit} AS mcap_point_in_time,
-               {band} AS circuit_band
+               {band} AS circuit_band,
+               gw.data_warning
                {extra_cols}
         FROM indicators_daily i
         LEFT JOIN stocks_master m ON m.symbol = i.symbol
         {ref_join}
+        {data_gaps.lateral_sql()}
         WHERE i.trade_date = ?
           AND upper(i.symbol) <> 'TOTAL'
           {extra_where}
@@ -113,6 +122,7 @@ def shape_stock(r: dict[str, Any]) -> dict[str, Any]:
         "excess_vs_midsml400_63d": db.num(r.get("excess_vs_midsml400_63d"), 2),
         "market_cap_cr": db.num(r.get("market_cap_cr"), 0),
         "adv_cr_20d": db.num(r.get("adv_cr_20d"), 2),
+        "data_warning": db.text(r.get("data_warning")),
     }
 
 
