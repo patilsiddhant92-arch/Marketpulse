@@ -27,7 +27,10 @@ function HistoryBanner() {
   const [asOf, setAsOf] = useAsOf();
   if (!asOf) return null;
   return (
-    <div role="status" className="mp-fade-in flex h-7 shrink-0 items-center gap-3 border-b border-violet/40 bg-violet/10 px-3 text-xs text-violet">
+    <div
+      role="status"
+      className="mp-fade-in flex h-7 shrink-0 items-center gap-3 border-b border-violet/40 bg-violet/10 px-3 text-xs text-violet"
+    >
       <span className="mp-label !text-violet">History mode</span>
       <span className="text-fg-2">
         Viewing data as of <span className="num text-fg">{fmtDate(asOf)}</span>. Every v2 query uses this date.

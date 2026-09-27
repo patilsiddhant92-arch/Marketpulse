@@ -46,11 +46,7 @@ export function SectionHeader({ title, meta, actions, icon, variant = 'bar', lev
   const H = level === 2 ? 'h2' : 'h3';
   return (
     <header
-      className={cn(
-        'flex shrink-0 items-center gap-2',
-        variant === 'bar' ? 'h-9 border-b border-line/80 px-3' : 'min-h-6',
-        className,
-      )}
+      className={cn('flex shrink-0 items-center gap-2', variant === 'bar' ? 'h-9 border-b border-line/80 px-3' : 'min-h-6', className)}
     >
       {icon && <span className="flex text-fg-3 [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>}
       <H className="mp-label whitespace-nowrap !text-fg-2">{title}</H>

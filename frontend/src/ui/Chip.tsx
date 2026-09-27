@@ -90,7 +90,11 @@ export function Badge({ children, tone = 'neutral', title, className }: BadgePro
   return (
     <span
       title={title}
-      className={cn('num inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1.5 text-2xs font-semibold leading-none', SOFT[tone], className)}
+      className={cn(
+        'num inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1.5 text-2xs font-semibold leading-none',
+        SOFT[tone],
+        className,
+      )}
     >
       {children}
     </span>

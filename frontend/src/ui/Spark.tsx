@@ -27,7 +27,17 @@ const STROKE = {
 const FILL = { up: 'fill-up', down: 'fill-down', neutral: 'fill-fg-3', accent: 'fill-accent' } as const;
 
 /** Tiny inline SVG line chart for tables and cards. */
-export function Spark({ values, width = 72, height = 20, tone = 'auto', baseline, showLastDot = true, area = false, label, className }: SparkProps) {
+export function Spark({
+  values,
+  width = 72,
+  height = 20,
+  tone = 'auto',
+  baseline,
+  showLastDot = true,
+  area = false,
+  label,
+  className,
+}: SparkProps) {
   const geo = useMemo(() => {
     const nums = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
     if (nums.length < 2) return null;

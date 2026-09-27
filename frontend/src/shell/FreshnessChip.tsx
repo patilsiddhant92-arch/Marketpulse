@@ -46,7 +46,9 @@ export function FreshnessChip({ info }: { info: FreshnessInfo }) {
         title="Data health"
       >
         <span className={cn('relative flex h-2 w-2 rounded-full', s.dot)} aria-hidden>
-          {info.status === 'fresh' && <span className={cn('absolute inset-0 animate-ping rounded-full opacity-40 [animation-iteration-count:3]', s.dot)} />}
+          {info.status === 'fresh' && (
+            <span className={cn('absolute inset-0 animate-ping rounded-full opacity-40 [animation-iteration-count:3]', s.dot)} />
+          )}
         </span>
         <span className="mp-label hidden xl:inline">Data</span>
         <span className="num text-fg">{info.latestSession ? fmtDateWithDay(info.latestSession) : '—'}</span>

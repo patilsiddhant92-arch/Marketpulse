@@ -18,7 +18,7 @@ export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { ErrorBoundary, type ErrorBoundaryProps } from './ErrorBoundary';
 export { ErrorState, describeError, type ErrorStateProps } from './ErrorState';
 export { GlanceBand, type GlanceBandProps } from './GlanceBand';
-export { KpiTile, type KpiTileProps, type KpiTone } from './KpiTile';
+export { KpiList, KpiTile, type KpiListItem, type KpiListProps, type KpiTileProps, type KpiTone } from './KpiTile';
 export { Metric, type MetricProps } from './Metric';
 export { Panel, type PanelProps } from './Panel';
 export { MetricTooltipBody } from './MetricTooltip';

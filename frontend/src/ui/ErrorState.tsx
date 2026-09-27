@@ -84,7 +84,10 @@ const DISC: Record<ErrorDescription['tone'], string> = {
 export function ErrorState({ error, onRetry, title, compact, className }: ErrorStateProps) {
   const d = describeError(error);
   return (
-    <div role="alert" className={cn('mp-fade-in flex flex-col items-center justify-center gap-1.5 text-center', compact ? 'p-3' : 'p-10', className)}>
+    <div
+      role="alert"
+      className={cn('mp-fade-in flex flex-col items-center justify-center gap-1.5 text-center', compact ? 'p-3' : 'p-10', className)}
+    >
       <div
         className={cn(
           'flex items-center justify-center rounded-full border [&>svg]:h-4 [&>svg]:w-4',

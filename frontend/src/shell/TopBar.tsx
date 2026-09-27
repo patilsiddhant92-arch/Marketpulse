@@ -19,7 +19,10 @@ export function TopBar({ freshness }: { freshness: FreshnessInfo }) {
   return (
     <header className="relative flex h-topbar shrink-0 items-center gap-4 border-b border-line bg-gradient-to-b from-surface-2 to-surface px-3">
       <div className="flex shrink-0 items-center gap-2 pr-1">
-        <span className="flex h-6 w-6 items-center justify-center rounded-[5px] bg-accent/15 text-accent ring-1 ring-inset ring-accent/30" aria-hidden>
+        <span
+          className="flex h-6 w-6 items-center justify-center rounded-[5px] bg-accent/15 text-accent ring-1 ring-inset ring-accent/30"
+          aria-hidden
+        >
           <Activity className="h-3.5 w-3.5" strokeWidth={2.25} />
         </span>
         <span className="text-[15px] font-semibold tracking-tight">
@@ -42,7 +45,9 @@ export function TopBar({ freshness }: { freshness: FreshnessInfo }) {
               )
             }
           >
-            <span className="num rounded-[3px] border border-line/80 px-1 text-[10px] leading-[14px] text-fg-3 group-hover:border-line-strong">{t.key}</span>
+            <span className="num rounded-[3px] border border-line/80 px-1 text-[10px] leading-[14px] text-fg-3 group-hover:border-line-strong">
+              {t.key}
+            </span>
             {t.label}
           </NavLink>
         ))}

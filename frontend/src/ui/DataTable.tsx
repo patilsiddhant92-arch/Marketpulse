@@ -143,7 +143,9 @@ export function heatStyle(h: number | null | undefined): { backgroundColor: stri
 }
 
 /** Runs of adjacent columns sharing a `group`; null when no column is grouped. */
-export function columnGroupRuns<T extends RowData>(cols: DataTableColumn<T>[]): { key: string; label: string | null; cols: DataTableColumn<T>[] }[] | null {
+export function columnGroupRuns<T extends RowData>(
+  cols: DataTableColumn<T>[],
+): { key: string; label: string | null; cols: DataTableColumn<T>[] }[] | null {
   if (!cols.some((c) => c.group)) return null;
   const runs: { key: string; label: string | null; cols: DataTableColumn<T>[] }[] = [];
   for (const c of cols) {
@@ -516,7 +518,10 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                       <button
                         type="button"
                         onClick={tc.getToggleSortingHandler()}
-                        className={cn('flex min-w-0 items-center gap-1 transition-colors duration-fast hover:text-fg', sorted && 'text-accent')}
+                        className={cn(
+                          'flex min-w-0 items-center gap-1 transition-colors duration-fast hover:text-fg',
+                          sorted && 'text-accent',
+                        )}
                       >
                         {alignOf(c) === 'right' && <SortIcon dir={sorted} />}
                         <HeaderLabel col={c} />

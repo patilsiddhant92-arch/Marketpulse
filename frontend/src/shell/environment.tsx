@@ -86,7 +86,9 @@ export function EnvironmentStrip() {
   } else if (q.error) {
     const notShipped = isApiError(q.error) && (q.error.kind === 'not_found' || q.error.kind === 'parse');
     content = (
-      <span className="truncate px-2 text-fg-3">Market environment {notShipped ? 'not available yet (API v2 pending)' : 'could not be loaded'}</span>
+      <span className="truncate px-2 text-fg-3">
+        Market environment {notShipped ? 'not available yet (API v2 pending)' : 'could not be loaded'}
+      </span>
     );
   } else if (unavailable || !view) {
     const reason = q.data?.meta?.reason;
@@ -107,7 +109,9 @@ export function EnvironmentStrip() {
         <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', view.verdict ? VERDICT_BG[view.verdict] : 'bg-line-strong')} aria-hidden />
         <span className="mp-label hidden xl:inline">Env</span>
         <span className={cn('text-xs font-semibold', view.verdict ? VERDICT_TEXT[view.verdict] : 'text-fg-3')}>{view.verdict ?? '—'}</span>
-        {view.verdict && <span className="hidden whitespace-nowrap text-2xs text-fg-3 min-[1560px]:inline">{VERDICT_ACTION[view.verdict]}</span>}
+        {view.verdict && (
+          <span className="hidden whitespace-nowrap text-2xs text-fg-3 min-[1560px]:inline">{VERDICT_ACTION[view.verdict]}</span>
+        )}
         {view.whatChanged && <span className="hidden min-w-0 truncate text-2xs text-fg-3 min-[1800px]:inline">{view.whatChanged}</span>}
         <span className="flex items-center gap-[3px] pl-0.5" aria-label="Pillars">
           {view.pillars.map((p) => (
@@ -119,7 +123,10 @@ export function EnvironmentStrip() {
             </Tooltip>
           ))}
         </span>
-        <ChevronRight className="h-3.5 w-3.5 text-fg-3 transition-transform duration-fast group-hover:translate-x-0.5 group-hover:text-fg" aria-hidden />
+        <ChevronRight
+          className="h-3.5 w-3.5 text-fg-3 transition-transform duration-fast group-hover:translate-x-0.5 group-hover:text-fg"
+          aria-hidden
+        />
       </button>
     );
   }
