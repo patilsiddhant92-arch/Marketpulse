@@ -285,6 +285,20 @@ def groups_rrg(as_of: Optional[date] = AsOf, level: Level = "industry", floor: F
     return envelope(_call(groups.rrg, as_of, level, floor, tail_weeks), offset, limit)
 
 
+@router.get("/groups/treemap", response_model=m.Envelope[m.GroupTreeRow],
+            description="Every taxonomy group (all four levels) with parent, Health, 21d return and turnover.")
+def groups_treemap(as_of: Optional[date] = AsOf, floor: Floor = "1000", offset: int = Offset,
+                   limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(groups.treemap, as_of, floor), offset, limit)
+
+
+@router.get("/groups/{group_id:path}/index", response_model=m.Envelope[m.GroupIndexRow],
+            description="The group's equal-weight index with its 50/200 EMA (oldest first). group_id = '<level>:<name>'.")
+def groups_index(group_id: str = Path(..., max_length=160), as_of: Optional[date] = AsOf, floor: Floor = "1000",
+                 days: int = Query(500, ge=20, le=2000), offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(groups.index_history, as_of, group_id, floor, days), offset, limit)
+
+
 @router.get("/groups/{group_id:path}/members", response_model=m.Envelope[m.MemberRow],
             description="Group members at as_of — also a Charts source. group_id = '<level>:<name>'.")
 def groups_members(group_id: str = Path(..., max_length=160), as_of: Optional[date] = AsOf, floor: Floor = "1000",

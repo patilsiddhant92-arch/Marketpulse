@@ -1,27 +1,74 @@
 /**
  * Group drill-down: breadcrumb (click a parent to move up), sub-groups,
- * headline metrics with dictionary tooltips, 120-session history and the
- * member table. Row focus opens the Stock 360 sidecar; Enter opens the page.
+ * Health + headline metrics with dictionary tooltips, the group's own
+ * equal-weight index chart (50/200 EMA), members in Desk queues now, top
+ * movers, 120-session history sparks and the member table. Row focus opens
+ * the Stock 360 sidecar; Enter opens the page.
  */
 import { ArrowLeft, ChevronRight, LineChart } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useApiQuery } from '../../api/query';
-import type { GroupRow, MemberRow } from '../../api/types';
+import type { GroupIndexRow, GroupRow, MemberRow } from '../../api/types';
 import { cn } from '../../lib/cn';
 import { fmtDate, fmtDateShort, fmtNum, fmtSigned, fmtValue, isNum, type FormatKind } from '../../lib/fmt';
 import { useShell } from '../../shell/ShellContext';
+import { Chart, type ChartOverlay } from '../../ui/Chart';
+import type { OHLCBar } from '../../lib/indicators';
+import { tokenColor } from '../../lib/tokens';
 import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
-import { FLOORS, levelLabel, parseGroupId, rankSparkValues, type Floor } from './groupsModel';
-import { MetricInline, QuadrantChip, RankDelta, SourceNote, ZoneNum } from './kit';
+import { FLOORS, levelLabel, parseGroupId, queueLabel, rankSparkValues, setupsByQueue, topMovers, type Floor } from './groupsModel';
+import { HealthCell, QuadrantWithNote, TrendArrow } from './health';
+import { MetricInline, RankDelta, SourceNote, ZoneNum } from './kit';
 
 const EMPTY_M: MemberRow[] = [];
 const EMPTY_G: GroupRow[] = [];
+const EMPTY_I: GroupIndexRow[] = [];
+
+/** Index rows -> flat bars (the EW index has no OHLC) + index / EMA overlay lines. */
+function indexSeries(rows: readonly GroupIndexRow[]): { bars: OHLCBar[]; overlays: ChartOverlay[] } {
+  const pts = rows.filter((r) => r.trade_date && typeof r.ew_index === 'number');
+  const bars = pts.map((r) => ({ time: r.trade_date as string, open: r.ew_index as number, high: r.ew_index as number, low: r.ew_index as number, close: r.ew_index as number }));
+  const line = (key: 'ew_index' | 'ema_50' | 'ema_200') => pts.map((r) => ({ time: r.trade_date as string, value: r[key] ?? null }));
+  return {
+    bars,
+    overlays: [
+      { id: 'ema200', label: 'EMA 200', data: line('ema_200'), color: 'ema-200' },
+      { id: 'ema50', label: 'EMA 50', data: line('ema_50'), color: 'ema-50' },
+      { id: 'idx', label: 'EW index', data: line('ew_index'), color: 'accent' },
+    ],
+  };
+}
+
+function MoverList({ title, rows, fmt, onPick }: { title: string; rows: MemberRow[]; fmt: (r: MemberRow) => number | null | undefined; onPick: (s: string) => void }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="mb-0.5 text-2xs uppercase tracking-wide text-fg-3">{title}</div>
+      {rows.length === 0 ? (
+        <div className="text-2xs text-fg-3">None</div>
+      ) : (
+        <ul className="space-y-px">
+          {rows.map((r) => {
+            const v = fmt(r);
+            return (
+              <li key={r.symbol}>
+                <button type="button" onClick={() => r.symbol && onPick(r.symbol)} className="flex w-full items-center gap-1 rounded px-1 text-left text-2xs hover:bg-surface-3">
+                  <span className="min-w-0 flex-1 truncate font-mono text-fg">{r.symbol}</span>
+                  <span className={cn('num', (v ?? 0) >= 0 ? 'text-up' : 'text-down')}>{fmtValue(v ?? null, 'signedPct', 1)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 interface Crumb {
   level: string;
@@ -134,6 +181,8 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
   const [sorted, setSorted] = useState<MemberRow[]>(EMPTY_M);
   const detail = useApiQuery('groups/{group_id}', { params: { group_id: groupId }, query: { floor, days: 120 } }, { enabled: !!parsed });
   const members = useApiQuery('groups/{group_id}/members', { params: { group_id: groupId }, query: { floor, limit: 5000 } }, { enabled: !!parsed });
+  const index = useApiQuery('groups/{group_id}/index', { params: { group_id: groupId }, query: { floor, days: 500, limit: 5000 } }, { enabled: !!parsed });
+  const series = useMemo(() => indexSeries(index.data?.rows ?? EMPTY_I), [index.data]);
 
   const hist = detail.data?.rows ?? EMPTY_G;
   const g = hist[0];
@@ -143,6 +192,10 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
   const children = ctx?.children ?? [];
   const memberRows = members.data?.rows ?? EMPTY_M;
   const syms = (sorted.length ? sorted : memberRows).map((m) => m.symbol).filter((s): s is string => !!s);
+  const queues = useMemo(() => setupsByQueue(memberRows), [memberRows]);
+  const movers1d = useMemo(() => topMovers(memberRows, 'change_1d_pct', 4), [memberRows]);
+  const movers1m = useMemo(() => topMovers(memberRows, 'return_1m_pct', 4), [memberRows]);
+  const setupsKnown = memberRows.some((m) => m.active_setups != null);
 
   if (!parsed) {
     return <EmptyState title="Unknown group" detail={`"${groupId}" is not a valid group id.`} action={<button type="button" onClick={onBack} className="text-accent">Back to board</button>} />;
@@ -171,7 +224,15 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
           ))}
         </nav>
         <Chip>{levelLabel(parsed.level)}</Chip>
-        {g && <QuadrantChip quadrant={g.rrg_quadrant} days={g.days_in_quadrant} />}
+        {g && (
+          <span className="flex items-center gap-2">
+            <span className="w-24">
+              <HealthCell value={g.health} rank={g.health_rank} />
+            </span>
+            <QuadrantWithNote quadrant={g.rrg_quadrant} days={g.days_in_quadrant} note={g.quadrant_note} />
+            <TrendArrow trend={g.abs_trend} withLabel />
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <SourceNote meta={detail.data?.meta} />
           <Link
@@ -194,6 +255,13 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
         ) : (
           <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
             <Headline
+              label={`Health${g.health_rank ? ` · #${g.health_rank}` : ''}`}
+              metricKey="group_health"
+              value={g.health}
+              digits={0}
+            />
+            <Headline label="Ret 21d" metricKey="group_return_ew_21d" value={g.return_ew_21d} format="signedPct" digits={1} />
+            <Headline
               label={`Rank${g.rank_n ? ` of ${g.rank_n}` : ''}`}
               metricKey="group_rank"
               value={g.rank}
@@ -209,15 +277,14 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
             />
             <Headline label="Excess 21d" metricKey="group_excess_21d" value={g.excess_vs_midsml400_21d} format="signed" digits={1} />
             <Headline label="Excess 63d" metricKey="group_excess_63d" value={g.excess_vs_midsml400_63d} format="signed" digits={1} />
-            <Headline label="RS-Ratio" metricKey="rs_ratio" value={g.rs_ratio} digits={2} />
-            <Headline label="RS-Mom" metricKey="rs_momentum" value={g.rs_momentum} digits={2} />
+            <Headline label="RS-Ratio vs peers" metricKey="rs_ratio" value={g.rs_ratio} digits={1} />
+            <Headline label="RS-Mom vs peers" metricKey="rs_momentum" value={g.rs_momentum} digits={1} />
             <Headline label=">50 EMA" metricKey="group_breadth_50" value={g.breadth_50} format="pct" digits={0} />
             <Headline label=">200 EMA" metricKey="group_breadth_200" value={g.breadth_200} format="pct" digits={0} />
             <Headline label="Trend tmpl" metricKey="group_trend_template_pct" value={g.trend_template_pct} format="pct" digits={0} />
             <Headline label="Flow Δ" metricKey="turnover_share_delta_20d" value={g.turnover_share_delta} format="signed" digits={2} />
             <Headline label="Deliv acc" metricKey="group_delivery_accumulation" value={g.delivery_accumulation} format="signed" digits={0} />
             <Headline label="Deals 10s ₹Cr" metricKey="deal_net_10s_cr" value={g.deal_net_10s_cr} format="signed" digits={0} />
-            <Headline label="Top-1 share" metricKey="group_top1_turnover_share" value={g.top1_turnover_share_pct} format="pct" digits={0} />
             <div className="flex flex-col gap-0.5">
               <span className="text-2xs uppercase tracking-wide text-fg-3">Members</span>
               <span className="num text-sm font-semibold text-fg">{g.stocks ?? '—'}</span>
@@ -228,9 +295,9 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
           <div className="mt-2 flex flex-wrap gap-6">
             <HistorySpark label={`Rank, ${oldest.length} sessions (up = better)`} values={rankSparkValues(oldest.map((r) => r.rank ?? null))} fmt={(v) => (v == null ? '—' : String(-v))} />
             <HistorySpark label="Excess vs MidSml400 63d" values={oldest.map((r) => r.excess_vs_midsml400_63d ?? null)} fmt={(v) => fmtSigned(v, 1)} baseline={0} />
-            <HistorySpark label="RS-Ratio" values={oldest.map((r) => r.rs_ratio ?? null)} fmt={(v) => fmtNum(v, 1)} baseline={100} />
+            <HistorySpark label="Health" values={oldest.map((r) => r.health ?? null)} fmt={(v) => fmtNum(v, 0)} baseline={50} />
+            <HistorySpark label="RS-Ratio vs peers" values={oldest.map((r) => r.rs_ratio ?? null)} fmt={(v) => fmtNum(v, 1)} baseline={100} />
             <HistorySpark label="% above 50 EMA" values={oldest.map((r) => r.breadth_50 ?? null)} fmt={(v) => fmtValue(v, 'pct', 0)} />
-            <HistorySpark label="Turnover share 5d" values={oldest.map((r) => r.turnover_share_5d ?? null)} fmt={(v) => fmtValue(v, 'pct', 2)} />
             <div className="text-2xs text-fg-3">
               {fmtDateShort(oldest[0].trade_date ?? null)} → {fmtDate(g?.trade_date ?? null)}
             </div>
@@ -246,6 +313,76 @@ export function GroupDrill({ groupId, floor, onBack, onNavigate, chartsHref }: G
             ))}
           </div>
         )}
+      </div>
+
+      <div className="flex h-[230px] shrink-0 border-b border-line bg-surface">
+        <div className="flex min-w-0 flex-1 flex-col border-r border-line">
+          <div className="flex h-6 shrink-0 items-center gap-2 px-2 text-2xs text-fg-3">
+            <span className="font-semibold uppercase tracking-wide text-fg-2">Equal-weight index</span>
+            <span>
+              <span className="text-accent">index</span> · <span style={{ color: tokenColor('ema-50') }}>EMA 50</span> · <span style={{ color: tokenColor('ema-200') }}>EMA 200</span> — own trend, no benchmark
+            </span>
+            <span className="ml-auto">
+              <SourceNote meta={index.data?.meta} />
+            </span>
+          </div>
+          <div className="min-h-0 flex-1">
+            {index.error ? (
+              <ErrorState error={index.error} compact onRetry={() => void index.refetch()} />
+            ) : index.isLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : series.bars.length < 2 ? (
+              <EmptyState compact title="No index history" detail={index.data?.meta.reason ?? undefined} />
+            ) : (
+              <Chart
+                bars={series.bars}
+                overlays={series.overlays}
+                emaPeriods={[]}
+                volume={false}
+                initialBars={250}
+                showLegend={false}
+                label={`${parsed.name} equal-weight index with 50 and 200 EMA`}
+                className="h-full"
+              />
+            )}
+          </div>
+        </div>
+        <div className="flex w-[360px] shrink-0 flex-col gap-2 overflow-auto p-2">
+          <div>
+            <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-fg-2">In Desk queues now</div>
+            {members.isLoading ? (
+              <Skeleton height={36} />
+            ) : !setupsKnown ? (
+              <div className="text-2xs text-fg-3">setup_daily not built — see the Desk queues.</div>
+            ) : queues.length === 0 ? (
+              <div className="text-2xs text-fg-3">No member is in a Desk queue today.</div>
+            ) : (
+              <div className="space-y-1">
+                {queues.map((qq) => (
+                  <div key={qq.queue} className="flex flex-wrap items-center gap-1">
+                    <Chip tone="accent">
+                      {queueLabel(qq.queue)} <span className="num">{qq.symbols.length}</span>
+                    </Chip>
+                    {qq.symbols.slice(0, 10).map((sym) => (
+                      <button key={sym} type="button" className="font-mono text-2xs text-fg hover:text-accent hover:underline" onClick={() => shell.openSymbol(sym)}>
+                        {sym}
+                      </button>
+                    ))}
+                    {qq.symbols.length > 10 && <span className="text-2xs text-fg-3">+{qq.symbols.length - 10}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <MoverList title="Top 1D" rows={movers1d.up} fmt={(r) => r.change_1d_pct} onPick={shell.openSymbol} />
+            <MoverList title="Worst 1D" rows={movers1d.down} fmt={(r) => r.change_1d_pct} onPick={shell.openSymbol} />
+          </div>
+          <div className="flex gap-3">
+            <MoverList title="Top 1M" rows={movers1m.up} fmt={(r) => r.return_1m_pct} onPick={shell.openSymbol} />
+            <MoverList title="Worst 1M" rows={movers1m.down} fmt={(r) => r.return_1m_pct} onPick={shell.openSymbol} />
+          </div>
+        </div>
       </div>
 
       <div className="flex h-7 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 text-2xs text-fg-3">

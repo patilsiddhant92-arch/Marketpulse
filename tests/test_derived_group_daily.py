@@ -88,13 +88,57 @@ def test_rank_rrg_breadth_and_flow():
     assert last.loc["UpInd", "deliv_acc_10d_pct"] == pytest.approx(100.0)
     assert last.loc["DnInd", "deliv_acc_10d_pct"] == pytest.approx(-100.0)
     assert last.loc["UpInd", "acc_day_members_pct"] == 100
-    # RRG: up group outperforms the benchmark on an accelerating relative line? ratio > 100.
-    assert last.loc["UpInd", "rs_ratio"] > 100 and last.loc["DnInd", "rs_ratio"] < 100
-    assert last.loc["UpInd", "rrg_quadrant"] in {"Leading", "Weakening"}
-    assert last.loc["DnInd", "rrg_quadrant"] in {"Lagging", "Improving"}
-    assert last.loc["UpInd", "days_in_quadrant"] >= 1
+    # Self-normalised RS trend: the up group's relative line rises, the down group's falls.
+    assert last.loc["UpInd", "rs_ratio_self"] > 100 and last.loc["DnInd", "rs_ratio_self"] < 100
+    # Only 2 groups: < PEER_MIN peers, so the peer-relative RRG stays NULL (never defaulted).
+    assert last["rs_ratio"].isna().all() and last["rrg_quadrant"].isna().all()
+    assert last.loc["UpInd", "abs_trend"] == "Up" and last.loc["DnInd", "abs_trend"] == "Down"
+    assert last["health"].isna().all()  # needs the relative leg
     early = out[(out.trade_date == D[20]) & (out.group_name == "UpInd")]
-    assert early["rs_ratio"].isna().all()  # EMA50 not yet formed
+    assert early["rs_ratio_self"].isna().all()  # EMA50 not yet formed
+
+
+def falling_market():
+    """Six 3-member industries in a falling market (benchmark -0.5 %/day); every group falls, g5 least and accelerating."""
+    frames, rows = [], []
+    for k in range(6):
+        base = -0.004 + 0.0006 * k
+        for j in range(3):
+            r = np.full(N, base + 0.0001 * j)
+            r[-30:] += 0.0001 * k
+            c = 100 * np.cumprod(1 + r)
+            cs = pd.Series(c)
+            sym = f"G{k}S{j}"
+            frames.append(pd.DataFrame({
+                "symbol": sym, "trade_date": D, "close_price": c, "high_price": c, "low_price": c, "turnover_cr": 10.0 + k,
+                "ema_50": cs.ewm(span=50, adjust=False).mean().to_numpy(), "ema_200": cs.ewm(span=200, adjust=False).mean().to_numpy(),
+                "trend_template_pass": False, "delivery_qty": 1000.0, "delivery_pct": 50.0, "avg_delivery_pct_20d": 50.0}))
+            rows.append({"symbol": sym, "broad_sector": "BS", "sector": f"S{k % 2}", "broad_industry": f"BI{k % 3}",
+                         "industry": f"g{k}", "market_cap_cr": 5000.0, "market_cap_date": D[-1]})
+    idx = pd.DataFrame({"trade_date": D, "index_name": "NIFTY MIDSML 400", "close_price": 1000.0 * 0.995 ** np.arange(N)})
+    return pd.concat(frames, ignore_index=True), pd.DataFrame(rows), idx
+
+
+def test_peer_relative_rrg_health_and_notes_in_a_falling_market():
+    ind, master, idx = falling_market()
+    out = build_group_daily(ind, master, idx)
+    last = out[(out.trade_date == D[-1]) & (out.level == "Industry") & (out.floor == "all")].set_index("group_name")
+    # Every group beats the falling benchmark, so the old self-normalised ratio is > 100 for all of them ...
+    assert (last["rs_ratio_self"] > 100).all()
+    # ... but the peer-relative RS-Ratio is a cross-sectional z-score: mean 100, sd 10, about half above 100.
+    assert last["rs_ratio"].mean() == pytest.approx(100.0, abs=1e-9)
+    assert last["rs_ratio"].std() == pytest.approx(10.0, abs=1e-9)
+    assert (last["rs_ratio"] > 100).sum() == 3
+    assert list(last["rs_ratio"].sort_values().index) == list(last["rs_ratio_self"].sort_values().index)
+    assert last.loc["g5", "rrg_quadrant"] == "Leading" and last.loc["g0", "rrg_quadrant"] == "Lagging"
+    # Leading vs peers but falling in absolute terms: flagged, absolute trend Down.
+    assert last.loc["g5", "ret_ew_21d"] < 0
+    assert last.loc["g5", "quadrant_note"] == "Leading but falling"
+    assert (last["abs_trend"] == "Down").all()
+    assert last["health"].between(0, 100).all()
+    assert last.loc["g5", "health_rank"] == 1 and last["health"].idxmax() == "g5"
+    assert last["health"].max() < 60  # a falling market cannot score as healthy
+    assert last.loc["g5", "ew_index"] < 100 and last.loc["g5", "ew_index_ema50"] > last.loc["g5", "ew_index"]
 
 
 def test_deal_net_10_sessions_null_before_coverage():

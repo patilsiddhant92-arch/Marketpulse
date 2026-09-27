@@ -20,12 +20,19 @@ Same rule and constants as the live API fallback (App/services/groups.py imports
 Everything is vectorised: per-stock features via groupby-shift, group stats via one
 groupby-sum per (level, floor), time-series stats via groupby rolling/ewm on an integer group id.
 
-JdK RS-Ratio / RS-Momentum (simple, deterministic re-implementation, not the proprietary formula):
-  G_t   = equal-weight group index, cumulative product of (1 + ret_ew_1d)
+JdK RS-Ratio / RS-Momentum, PEER-RELATIVE (deterministic re-implementation, not the proprietary formula):
+  G_t   = equal-weight group index (ew_index), cumulative product of (1 + ret_ew_1d)
   RS_t  = G_t / MidSml400_close_t
-  RS-Ratio_t    = 100 * EMA10(RS)_t / EMA50(RS)_t            (>100: relative trend improving)
-  RS-Momentum_t = 100 * RS-Ratio_t / RS-Ratio_{t-10 group sessions}
+  rs_ratio_self_t    = 100 * EMA10(RS)_t / EMA50(RS)_t         (the group's smoothed RS trend vs its OWN history)
+  rs_momentum_self_t = 100 * rs_ratio_self_t / rs_ratio_self_{t-10 group sessions}   (its 10-session rate of change)
+  Cross-sectional normalisation per (trade_date, level, floor) over groups with >= 3 members (JdK practice):
+  RS-Ratio_t    = 100 + 10 * z(rs_ratio_self_t)      z = (x - peer mean) / peer std
+  RS-Momentum_t = 100 + 10 * z(rs_momentum_self_t)
+  so about half the groups sit above 100 on each axis by construction and "Leading" means strong vs PEERS,
+  not vs a falling benchmark. NULL when fewer than 4 eligible peers or zero dispersion.
   Quadrant: Leading (ratio>=100, mom>=100) · Weakening (>=100, <100) · Lagging (<100, <100) · Improving (<100, >=100)
+Absolute context and Health (see add_health_columns): abs_trend (ew_index vs its EMA50/EMA200 and EMA50 slope),
+  quadrant_note ("Leading but falling" ...), health 0-100 = 0.40 relative + 0.35 absolute + 0.25 breadth, health_rank.
 Rank: groups with >= 3 members ranked within (date, level, floor) by rank_score =
   mean(excess_midsml_21d, excess_midsml_63d) of the equal-weight return; 1 = strongest.
   rank_chg_h = rank h group-sessions ago - rank today (positive = moved up).
@@ -70,7 +77,8 @@ OUTPUT_COLUMNS = [
     *[f"ret_ew_{h}d" for h in HORIZONS], *[f"ret_cw_{h}d" for h in HORIZONS],
     "excess_nifty_21d", "excess_nifty_63d", "excess_midsml_21d", "excess_midsml_63d",
     "excess_cw_midsml_21d", "excess_cw_midsml_63d",
-    "rs_ratio", "rs_momentum", "rrg_quadrant", "days_in_quadrant",
+    "rs_ratio", "rs_momentum", "rrg_quadrant", "days_in_quadrant", "rs_ratio_self", "rs_momentum_self",
+    "ew_index", "ew_index_ema50", "ew_index_ema200", "abs_trend", "quadrant_note", "health", "health_rank",
     "rank_score", "rank", "rank_n", "rank_chg_5d", "rank_chg_20d", "rank_chg_63d",
     "pct_above_50ema", "pct_above_200ema", "pct_trend_template", "new_highs_52w", "pct_new_highs_52w",
     "turnover_cr", "turnover_share_pct", "turnover_share_5d_avg", "turnover_share_20d_avg",
@@ -78,6 +86,109 @@ OUTPUT_COLUMNS = [
     "delivery_value_cr", "deliv_acc_1d_pct", "deliv_acc_10d_pct", "acc_day_members_pct",
     "deal_net_10s_cr",
 ]
+
+
+PEER_MIN = 4                 # eligible peers needed for a cross-sectional z-score
+TREND_SLOPE_LAG = 10         # EMA50 slope = EMA50_t / EMA50_{t-10} - 1
+HEALTH_WEIGHTS = {"relative": 0.40, "absolute": 0.35, "breadth": 0.25}
+QUADRANTS = ("Leading", "Weakening", "Lagging", "Improving")
+
+
+def _quadrant(rr: pd.Series, mm: pd.Series) -> np.ndarray:
+    return np.select([(rr >= 100) & (mm >= 100), (rr >= 100) & (mm < 100), (rr < 100) & (mm < 100), (rr < 100) & (mm >= 100)],
+                     list(QUADRANTS), default=None)
+
+
+def _streak(values: np.ndarray, gid: pd.Series) -> np.ndarray:
+    """1-based run length of equal values per group (rows sorted by gid, date); NaN where value is NULL."""
+    key = pd.Series(values, index=gid.index).fillna("__NULL__")
+    new = (key != key.shift()) | (gid != gid.shift())
+    run = new.cumsum()
+    return np.where(pd.isna(values), np.nan, (run.groupby(run).cumcount() + 1).to_numpy(dtype=float))
+
+
+def add_health_columns(df: pd.DataFrame, gid: str, part: list[str], *, members: str = "members",
+                       ret1: str = "ret_ew_1d", ret21: str = "ret_ew_21d", b50: str = "pct_above_50ema",
+                       b200: str = "pct_above_200ema", ratio_self: str = "rs_ratio_self",
+                       mom_self: str = "rs_momentum_self") -> pd.DataFrame:
+    """Peer-relative RRG, absolute trend, quadrant note and Health, in place on a frame sorted by (gid, date).
+
+    Shared by the nightly builder and the API (App/services/groups.py) so both give identical numbers.
+    Input: one row per (group, session) with the named columns (returns / breadth in percent units);
+    `part` = columns that define a cross-section (e.g. trade_date, level, floor).
+    Adds: ew_index, ew_index_ema50, ew_index_ema200, rs_ratio, rs_momentum, rrg_quadrant, days_in_quadrant,
+    abs_trend, quadrant_note, health, health_rank.
+
+      RS-Ratio    = 100 + 10 * z(rs_ratio_self)    z across groups with >= 3 members in the same cross-section
+      RS-Momentum = 100 + 10 * z(rs_momentum_self)
+      abs_trend   = Up   if ew_index > EMA50, EMA50 rising over 10 sessions and (EMA200 unknown or EMA50 > EMA200)
+                    Down if ew_index < EMA50 and EMA50 falling over 10 sessions;  Flat otherwise
+      quadrant_note = "<Q> but falling"    Leading/Improving with 21d EW return < 0
+                      "<Q>, narrow breadth" Leading/Improving with < 50 % of members above their 50 EMA
+                      "<Q> but rising"      Weakening/Lagging with 21d return > 0 and >= 50 % above 50 EMA
+      health = 0.40 relative + 0.35 absolute + 0.25 breadth (each 0-100):
+        relative = clip(50 + 2.5 (RS-Ratio - 100) + 1.5 (RS-Momentum - 100), 0, 100)
+        absolute = 0.7 trend_points + 0.3 clip(50 + 5 ret_ew_21d, 0, 100)
+                   trend_points = 100 x share of [idx > EMA50, EMA50 > EMA200, EMA50 rising] that hold (known ones)
+                   (the 21d-return leg alone until EMA50 has formed)
+        breadth  = 0.7 % above 50 EMA + 0.3 % above 200 EMA (whichever is known)
+      health_rank = rank by health (1 = healthiest) among groups with >= 3 members in the cross-section.
+    """
+    g = df[gid]
+    r1 = (pd.to_numeric(df[ret1], errors="coerce") / 100.0).fillna(0.0).clip(lower=-0.99)
+    idx = np.exp(np.log1p(r1).groupby(g, sort=False).cumsum())
+    df["ew_index"] = idx * 100.0
+    gb = df.groupby(g, sort=False)["ew_index"]
+    e50 = gb.ewm(span=50, adjust=False, min_periods=50).mean().reset_index(level=0, drop=True).sort_index()
+    e200 = gb.ewm(span=200, adjust=False, min_periods=200).mean().reset_index(level=0, drop=True).sort_index()
+    df["ew_index_ema50"], df["ew_index_ema200"] = e50, e200
+    slope = e50 / e50.groupby(g, sort=False).shift(TREND_SLOPE_LAG) - 1.0
+    lvl = df["ew_index"]
+    up = (lvl > e50) & (slope > 0) & (e200.isna() | (e50 > e200))
+    down = (lvl < e50) & (slope < 0)
+    df["abs_trend"] = np.where(e50.isna() | slope.isna(), None, np.where(up, "Up", np.where(down, "Down", "Flat")))
+
+    n_mem = pd.to_numeric(df[members], errors="coerce")
+    elig = n_mem >= MIN_MEMBERS_RANK
+    keys = [df[c] for c in part]
+    for src, dst in ((ratio_self, "rs_ratio"), (mom_self, "rs_momentum")):
+        x = pd.to_numeric(df[src], errors="coerce")
+        grp = x.where(elig).groupby(keys, sort=False)
+        mu, sd, n = grp.transform("mean"), grp.transform("std"), grp.transform("count")
+        ok = (n >= PEER_MIN) & (sd > 1e-12)
+        df[dst] = (100.0 + 10.0 * (x - mu) / sd.where(ok)).where(ok & x.notna())
+    rr, mm = df["rs_ratio"], df["rs_momentum"]
+    quad = _quadrant(rr, mm)
+    df["rrg_quadrant"] = quad
+    df["days_in_quadrant"] = _streak(quad, g)
+
+    ret = pd.to_numeric(df[ret21], errors="coerce")
+    br50 = pd.to_numeric(df[b50], errors="coerce")
+    br200 = pd.to_numeric(df[b200], errors="coerce") if b200 in df.columns else pd.Series(np.nan, index=df.index)
+    q = pd.Series(quad, index=df.index, dtype=object)
+    pos = q.isin(["Leading", "Improving"]).to_numpy()
+    neg = q.isin(["Weakening", "Lagging"]).to_numpy()
+    qs = q.fillna("").astype(str)
+    note = np.where(pos & (ret < 0).to_numpy(), qs + " but falling",
+                    np.where(pos & (br50 < 50).to_numpy(), qs + ", narrow breadth",
+                             np.where(neg & (ret > 0).to_numpy() & (br50 >= 50).to_numpy(), qs + " but rising", None)))
+    df["quadrant_note"] = note
+
+    rel = (50.0 + 2.5 * (rr - 100.0) + 1.5 * (mm - 100.0)).clip(0.0, 100.0)
+    conds = [(lvl > e50).astype(float).where(e50.notna()),
+             (e50 > e200).astype(float).where(e50.notna() & e200.notna()),
+             (slope > 0).astype(float).where(slope.notna())]
+    known = sum(c.notna().astype(float) for c in conds)
+    hits = sum(c.fillna(0.0) for c in conds)
+    trend_pts = 100.0 * hits / known.where(known > 0)
+    ret_pts = (50.0 + 5.0 * ret).clip(0.0, 100.0)
+    absolute = (0.7 * trend_pts + 0.3 * ret_pts).where(trend_pts.notna(), ret_pts)  # EMAs not formed yet: return leg
+    breadth = (0.7 * br50 + 0.3 * br200).where(br200.notna(), br50)
+    w = HEALTH_WEIGHTS
+    df["health"] = (w["relative"] * rel + w["absolute"] * absolute + w["breadth"] * breadth).round(1)
+    hs = df["health"].where(elig)
+    df["health_rank"] = hs.groupby(keys, sort=False).rank(ascending=False, method="min")
+    return df
 
 
 def _taxonomy(master: pd.DataFrame) -> pd.DataFrame:
@@ -286,25 +397,17 @@ def build_group_daily(
     dv10 = roll("_dv", 10, "sum")
     out["deliv_acc_10d_pct"] = np.where(dv10 > 0, dvs10 / np.where(dv10 > 0, dv10, 1.0) * 100.0, np.nan)
 
-    # RRG
-    r1 = (out["ret_ew_1d"] / 100.0).fillna(0.0)
-    out["_logidx"] = np.log1p(r1.clip(lower=-0.99))
-    out["_lvl"] = np.exp(out.groupby("_gid", sort=False)["_logidx"].cumsum())
+    # RRG: self-normalised RS trend per group, then peer-relative (cross-sectional) axes + Health.
     bench = out["trade_date"].map(ms["close"]) if not ms.empty else pd.Series(np.nan, index=out.index)
-    out["_rs"] = out["_lvl"] / bench
+    r1 = (out["ret_ew_1d"] / 100.0).fillna(0.0)
+    lvl = np.exp(np.log1p(r1.clip(lower=-0.99)).groupby(out["_gid"], sort=False).cumsum())
+    out["_rs"] = lvl / bench
     gb = out.groupby("_gid", sort=False)
     fast = gb["_rs"].ewm(span=RS_FAST, adjust=False, min_periods=RS_FAST).mean().reset_index(level=0, drop=True).sort_index()
     slow = gb["_rs"].ewm(span=RS_SLOW, adjust=False, min_periods=RS_SLOW).mean().reset_index(level=0, drop=True).sort_index()
-    out["rs_ratio"] = 100.0 * fast / slow
-    out["rs_momentum"] = 100.0 * out["rs_ratio"] / out.groupby("_gid", sort=False)["rs_ratio"].shift(RS_MOM_LAG)
-    rr, mm = out["rs_ratio"], out["rs_momentum"]
-    quad = np.select([(rr >= 100) & (mm >= 100), (rr >= 100) & (mm < 100), (rr < 100) & (mm < 100), (rr < 100) & (mm >= 100)],
-                     ["Leading", "Weakening", "Lagging", "Improving"], default=None)
-    out["rrg_quadrant"] = quad
-    qkey = pd.Series(quad, index=out.index).fillna("__NULL__")
-    new_streak = (qkey != qkey.shift()) | (out["_gid"] != out["_gid"].shift())
-    streak = new_streak.cumsum()
-    out["days_in_quadrant"] = np.where(pd.isna(quad), np.nan, (streak.groupby(streak).cumcount() + 1).to_numpy(dtype=float))
+    out["rs_ratio_self"] = 100.0 * fast / slow
+    out["rs_momentum_self"] = 100.0 * out["rs_ratio_self"] / out.groupby("_gid", sort=False)["rs_ratio_self"].shift(RS_MOM_LAG)
+    add_health_columns(out, "_gid", ["trade_date", "level", "floor"])
 
     # Rank vs benchmark
     score = (out["excess_midsml_21d"] + out["excess_midsml_63d"]) / 2.0

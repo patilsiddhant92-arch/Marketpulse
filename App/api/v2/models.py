@@ -296,6 +296,18 @@ class GroupRow(BaseModel):
     days_in_quadrant: Optional[int] = None
     rs_ratio: Optional[float] = None
     rs_momentum: Optional[float] = None
+    rs_ratio_self: Optional[float] = Field(
+        None, description="Self-normalised RS trend: 100 x EMA10/EMA50 of (EW group index / MidSml400); the pre-2026-09-27 RS-Ratio")
+    rs_momentum_self: Optional[float] = Field(None, description="100 x rs_ratio_self / rs_ratio_self 10 sessions ago")
+    health: Optional[float] = Field(
+        None, description="Group Health 0-100 = 0.40 relative (peer RRG) + 0.35 absolute trend + 0.25 breadth")
+    health_rank: Optional[int] = Field(None, description="Rank by Health among groups with >= 3 members, 1 = healthiest")
+    abs_trend: Optional[str] = Field(None, description="Up / Flat / Down: EW index vs its 50/200 EMA and the EMA50 slope")
+    quadrant_note: Optional[str] = Field(None, description="e.g. 'Leading but falling' (21d EW return < 0)")
+    ew_index: Optional[float] = Field(None, description="Equal-weight group index, start of history = 100")
+    ew_index_ema50: Optional[float] = None
+    ew_index_ema200: Optional[float] = None
+    turnover_cr: Optional[float] = Field(None, description="Group turnover that session, ₹ Cr")
     rank: Optional[int] = None
     rank_delta_5: Optional[int] = None
     rank_delta_20: Optional[int] = None
@@ -352,7 +364,35 @@ class RrgRow(BaseModel):
     days_in_quadrant: Optional[int] = None
     stocks: Optional[int] = None
     rank: Optional[int] = None
+    health: Optional[float] = None
+    health_rank: Optional[int] = None
+    abs_trend: Optional[str] = None
+    quadrant_note: Optional[str] = None
+    return_ew_21d: Optional[float] = None
     tail: list[RrgPoint]
+
+
+class GroupIndexRow(BaseModel):
+    trade_date: Optional[date] = None
+    ew_index: Optional[float] = Field(None, description="Equal-weight group index, start of history = 100")
+    ema_50: Optional[float] = None
+    ema_200: Optional[float] = None
+    abs_trend: Optional[str] = None
+    health: Optional[float] = None
+
+
+class GroupTreeRow(BaseModel):
+    id: str
+    level: str
+    group_name: str
+    parent_id: Optional[str] = Field(None, description="Parent group id (most common parent in today's mapping)")
+    stocks: Optional[int] = None
+    turnover_20d_cr: Optional[float] = Field(None, description="Average daily turnover over 20 sessions, ₹ Cr (tile size)")
+    health: Optional[float] = None
+    return_ew_21d: Optional[float] = None
+    rrg_quadrant: Optional[str] = None
+    quadrant_note: Optional[str] = None
+    abs_trend: Optional[str] = None
 
 
 class MemberRow(StockBase):

@@ -736,41 +736,92 @@ metrics:
   # ---------------------------------------------------------------------------
   # Groups
   # ---------------------------------------------------------------------------
-  - key: rs_ratio
-    plain_name: RS-Ratio (relative trend)
-    unit: x
-    measures: "JdK RS-Ratio: a smoothed, normalised measure of the group's performance relative to the benchmark. 100 means in line; above 100 is outperforming."
+  - key: group_health
+    plain_name: Group Health (0-100)
+    unit: score
+    measures: "One score for how healthy a group is right now: 40% relative strength versus the other groups (peer RS-Ratio and RS-Momentum), 35% its own absolute trend (equal-weight index vs its 50- and 200-day EMA, EMA slope, 21-day return) and 25% breadth (% of members above their 50- and 200-day EMA). The board is sorted by it."
     zones:
-      - {range: "> 101", label: Outperforming, tone: good, why: "The group has been beating the benchmark."}
-      - {range: "99-101", label: In line, tone: neutral, why: "Moving with the benchmark."}
-      - {range: "< 99", label: Underperforming, tone: bad, why: "The group has been lagging."}
-    read_with: [rs_momentum, rrg_quadrant]
-    read_with_why: "RS-Ratio is where the group stands; RS-Momentum is which way it is heading. Together they place it on the RRG."
+      - {range: ">= 65", label: Healthy, tone: good, why: "Strong against peers AND rising with broad participation. Where to hunt for setups."}
+      - {range: "45-65", label: Mixed, tone: caution, why: "Some legs strong, others not: often relatively strong but falling with the market, or rising on narrow breadth. Be selective."}
+      - {range: "< 45", label: Weak, tone: bad, why: "Weak against peers, in a downtrend or with few members participating. Avoid new longs."}
+    read_with: [rrg_quadrant, group_abs_trend]
+    read_with_why: "Health folds the absolute picture into the RRG: a 'Leading' group with Health below 45 is only falling less than its peers."
+    caveats: "Weights and zones are starting points (not yet calibrated against forward returns). In a weak market few groups reach Healthy by design."
+    definition_sql_ref: "group_daily.health"
+
+  - key: group_abs_trend
+    plain_name: Group absolute trend
+    unit: state
+    measures: "Direction of the group's own equal-weight index, ignoring the benchmark: Up when the index is above its 50-day EMA, the 50-day EMA is rising over 10 sessions and is above the 200-day EMA; Down when the index is below a falling 50-day EMA; Flat otherwise."
+    zones:
+      - {range: Up, label: Up, tone: good, why: "The group is rising in absolute terms, not just holding up better than others."}
+      - {range: Flat, label: Flat, tone: neutral, why: "Basing or turning; no clear direction."}
+      - {range: Down, label: Down, tone: bad, why: "The group is falling. Even a 'Leading' RRG reading only means it falls less than peers."}
+    read_with: [rrg_quadrant, group_health]
+    read_with_why: "RRG says strong or weak versus peers; absolute trend says whether the group is actually going up."
+    definition_sql_ref: "group_daily.abs_trend"
+
+  - key: quadrant_note
+    plain_name: RRG caveat
+    unit: state
+    measures: "Flags an RRG quadrant that the absolute picture contradicts: 'Leading/Improving but falling' when the group's 21-day equal-weight return is negative, ', narrow breadth' when fewer than half the members are above their 50-day EMA, 'Weakening/Lagging but rising' when the group is up over 21 days with broad participation."
+    zones:
+      - {range: "but falling", label: But falling, tone: caution, why: "Strong vs peers only because it is falling less. Wait for the absolute trend to turn."}
+      - {range: "narrow breadth", label: Narrow breadth, tone: caution, why: "Relative strength rests on a few members; check the member list."}
+      - {range: "but rising", label: But rising, tone: neutral, why: "Lagging peers yet rising in a strong tape. Not a short, just not the leader."}
+    read_with: [rrg_quadrant, group_breadth_50]
+    read_with_why: "The note is the RRG's reality check against absolute return and breadth."
+    definition_sql_ref: "group_daily.quadrant_note"
+
+  - key: rs_ratio
+    plain_name: RS-Ratio (strength vs peers)
+    unit: x
+    measures: "JdK-style RS-Ratio, peer-relative: each group's smoothed relative-strength trend versus MidSml400 (EMA10/EMA50 of the equal-weight group index / MidSml400), turned into a z-score across all groups at the same level and floor that session: 100 + 10 x z. 100 = average group; about half the groups are above 100 by construction."
+    zones:
+      - {range: "> 105", label: Stronger than peers, tone: good, why: "Relative trend in the top part of its peer group (above +0.5 standard deviation)."}
+      - {range: "95-105", label: In line with peers, tone: neutral, why: "Middle of the pack."}
+      - {range: "< 95", label: Weaker than peers, tone: bad, why: "Relative trend in the bottom part of its peer group."}
+    read_with: [rs_momentum, group_abs_trend]
+    read_with_why: "RS-Ratio is where the group stands against peers; RS-Momentum is which way it is heading; absolute trend says whether it actually rises."
+    caveats: "Relative only: in a falling market the strongest group can still be falling. Check abs trend and Health. Needs >= 4 groups with >= 3 members."
     definition_sql_ref: "group_daily.rs_ratio"
 
   - key: rs_momentum
-    plain_name: RS-Momentum (relative direction)
+    plain_name: RS-Momentum (direction vs peers)
     unit: x
-    measures: "JdK RS-Momentum: the rate of change of RS-Ratio, normalised around 100. Above 100 means relative strength is improving."
+    measures: "JdK-style RS-Momentum, peer-relative: the 10-session rate of change of each group's smoothed relative-strength trend, as a z-score across the groups at the same level and floor: 100 + 10 x z. Above 100 = relative strength improving faster than the average group."
     zones:
-      - {range: "> 101", label: Improving, tone: good, why: "Relative strength is accelerating; the group is attracting money."}
-      - {range: "99-101", label: Flat, tone: neutral, why: "No change in relative direction."}
-      - {range: "< 99", label: Fading, tone: caution, why: "Relative strength is decelerating; leaders may be rotating out."}
+      - {range: "> 105", label: Improving, tone: good, why: "Relative strength is accelerating faster than peers; money is rotating in."}
+      - {range: "95-105", label: Flat, tone: neutral, why: "Relative direction in line with peers."}
+      - {range: "< 95", label: Fading, tone: caution, why: "Relative strength decelerating versus peers; leaders may be rotating out."}
     read_with: [rs_ratio, rrg_quadrant]
     read_with_why: "Momentum turns before the ratio does, so it is an early warning."
     definition_sql_ref: "group_daily.rs_momentum"
 
+  - key: rs_ratio_self
+    plain_name: RS trend vs own history
+    unit: x
+    measures: "The group's relative-strength trend against MidSml400 normalised to its OWN history: 100 x EMA10 / EMA50 of (equal-weight group index / MidSml400). This was the RS-Ratio before 2026-09-27. Above 100 = the group is doing better against the benchmark than over the last ~50 sessions."
+    zones:
+      - {range: "> 101", label: Improving vs own past, tone: good, why: "Relative line rising against the benchmark."}
+      - {range: "99-101", label: Flat, tone: neutral, why: "No change in relative trend."}
+      - {range: "< 99", label: Deteriorating, tone: bad, why: "Relative line falling against the benchmark."}
+    read_with: [rs_ratio]
+    read_with_why: "When the benchmark drops, most groups' self-normalised ratio rises together; the peer-relative RS-Ratio removes that common move."
+    caveats: "Not comparable across groups; reference only."
+    definition_sql_ref: "group_daily.rs_ratio_self"
+
   - key: rrg_quadrant
     plain_name: Rotation quadrant (RRG)
     unit: state
-    measures: "Position on the Relative Rotation Graph from RS-Ratio and RS-Momentum. Groups typically rotate clockwise: Improving, Leading, Weakening, Lagging."
+    measures: "Position on the Relative Rotation Graph from the peer-relative RS-Ratio and RS-Momentum. Leading = strongest versus the other groups and still gaining; it does NOT mean the group is rising. Groups typically rotate clockwise: Improving, Leading, Weakening, Lagging."
     zones:
-      - {range: Leading, label: Leading, tone: good, why: "Outperforming and still gaining. Best place to look for setups."}
-      - {range: Weakening, label: Weakening, tone: caution, why: "Still outperforming but losing steam. Hold winners, be careful with new entries."}
-      - {range: Lagging, label: Lagging, tone: bad, why: "Underperforming and falling further. Avoid."}
-      - {range: Improving, label: Improving, tone: neutral, why: "Still underperforming but gaining. Next candidates for Leading; watch closely."}
-    read_with: [group_rank, rs_momentum]
-    read_with_why: "A group moving from Improving into Leading with a rising rank is the classic rotation entry."
+      - {range: Leading, label: Leading, tone: good, why: "Stronger than peers and still gaining. Best place to look for setups once the absolute trend is up (see the note / Health)."}
+      - {range: Weakening, label: Weakening, tone: caution, why: "Still stronger than peers but losing steam. Hold winners, be careful with new entries."}
+      - {range: Lagging, label: Lagging, tone: bad, why: "Weaker than peers and falling further behind. Avoid."}
+      - {range: Improving, label: Improving, tone: neutral, why: "Still weaker than peers but gaining. Next candidates for Leading; watch closely."}
+    read_with: [group_health, quadrant_note]
+    read_with_why: "A Leading group flagged 'but falling' is only holding up better than peers; Health and the note add the absolute side."
     caveats: "Not every group rotates cleanly; tails can reverse. Days in quadrant shows how established it is."
     definition_sql_ref: "group_daily.rrg_quadrant"
 

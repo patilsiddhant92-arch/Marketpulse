@@ -8,8 +8,13 @@ same rules as the builder (status "partial", reason says so):
   * members  = stocks meeting the market-cap floor on as_of (current taxonomy mapping)
   * ret_ew_h = equal-weight mean of member returns over h sessions (each member's own sessions)
   * excess   = ret_ew − MidSml400 (or Nifty 50) return over the same horizon, points
-  * RS-Ratio = 100 × EMA10(RS) / EMA50(RS), RS = equal-weight group index / MidSml400
-  * RS-Mom   = 100 × RS-Ratio / RS-Ratio 10 sessions ago; quadrant from both vs 100
+  * rs_ratio_self = 100 × EMA10(RS) / EMA50(RS), RS = equal-weight group index / MidSml400;
+    rs_momentum_self = 100 × rs_ratio_self / rs_ratio_self 10 sessions ago (each group vs its own history)
+  * RS-Ratio / RS-Mom = 100 + 10 × cross-sectional z-score of rs_ratio_self / rs_momentum_self across the
+    groups (≥ 3 members) of the same level, floor and session — peer-relative, so "Leading" = strong vs peers;
+    quadrant from both vs 100. abs_trend, quadrant_note and Health (0–100) as in
+    Scripts.derived.group_daily.add_health_columns (shared code, identical numbers). When the stored
+    group_daily predates these columns they are computed on the fly from its rs_ratio / rs_momentum history.
   * rank     = by mean(excess_21d, excess_63d) vs MidSml400 among groups with ≥ 3 members, 1 = best;
                rank change = rank h sessions ago − rank now (positive = climbed)
   * money flow = group share of floor-universe turnover, 5-session avg − 20-session avg
@@ -33,10 +38,10 @@ import pandas as pd
 from App.services import db, universe
 from App.services.common import STATUS_PARTIAL, Result, no_session, unavailable
 # Floor bands and the corporate-action guard are shared with the nightly group_daily builder.
-from Scripts.derived.group_daily import FLOORS as _GD_FLOORS, SPLIT_DOWN, SPLIT_UP
+from Scripts.derived.group_daily import FLOORS as _GD_FLOORS, SPLIT_DOWN, SPLIT_UP, add_health_columns
 
 GROUP_METRICS = [
-    "rs_ratio", "rs_momentum", "rrg_quadrant", "group_rank", "group_rank_delta_5", "group_rank_delta_20",
+    "group_health", "group_abs_trend", "quadrant_note", "rs_ratio_self", "rs_ratio", "rs_momentum", "rrg_quadrant", "group_rank", "group_rank_delta_5", "group_rank_delta_20",
     "group_excess_21d", "group_excess_63d", "group_breadth_50", "group_breadth_200", "group_trend_template_pct",
     "turnover_share_5d", "turnover_share_delta_20d", "deal_net_10s_cr", "group_top1_turnover_share",
     "group_delivery_accumulation", "group_flow_up_days", "group_return_ew_21d",
@@ -63,6 +68,16 @@ _GD_FIELDS: dict[str, tuple[str, ...]] = {
     "days_in_quadrant": ("days_in_quadrant",),
     "rs_ratio": ("rs_ratio", "jdk_rs_ratio"),
     "rs_momentum": ("rs_momentum", "jdk_rs_momentum"),
+    "rs_ratio_self": ("rs_ratio_self",),
+    "rs_momentum_self": ("rs_momentum_self",),
+    "health": ("health",),
+    "health_rank": ("health_rank",),
+    "abs_trend": ("abs_trend",),
+    "quadrant_note": ("quadrant_note",),
+    "ew_index": ("ew_index",),
+    "ew_index_ema50": ("ew_index_ema50",),
+    "ew_index_ema200": ("ew_index_ema200",),
+    "turnover_cr": ("turnover_cr",),
     "rank": ("rank", "group_rank", "rank_vs_benchmark"),
     "rank_n": ("rank_n",),
     "rank_score": ("rank_score",),
@@ -93,10 +108,12 @@ _GD_FIELDS: dict[str, tuple[str, ...]] = {
     "acc_day_members_pct": ("acc_day_members_pct",),
     "deal_net_10s_cr": ("deal_net_10s_cr", "deal_net_10_cr"),
 }
-_TEXT = {"group_name", "rrg_quadrant"}
-_INT = {"stocks", "days_in_quadrant", "rank", "rank_n", "rank_delta_5", "rank_delta_20", "rank_delta_63", "new_highs"}
+_TEXT = {"group_name", "rrg_quadrant", "abs_trend", "quadrant_note"}
+_INT = {"stocks", "days_in_quadrant", "rank", "health_rank", "rank_n", "rank_delta_5", "rank_delta_20", "rank_delta_63", "new_highs"}
 _BOOL = {"concentration_flag"}
 FIELDS = list(_GD_FIELDS)
+_HEALTH_FIELDS = ("rs_ratio", "rs_momentum", "rrg_quadrant", "days_in_quadrant", "rs_ratio_self", "rs_momentum_self",
+                  "health", "health_rank", "abs_trend", "quadrant_note", "ew_index", "ew_index_ema50", "ew_index_ema200")
 
 
 def parse_group_id(group_id: str) -> tuple[str, str]:
@@ -289,15 +306,10 @@ def _finish_live(a: pd.DataFrame, idx: dict[str, pd.Series], deal_start: date | 
     a["_rs"] = a["_idx"] / (a["trade_date"].map(bench) if bench is not None else np.nan)
     fast = gb["_rs"].transform(lambda s: s.ewm(span=RS_FAST, adjust=False, min_periods=RS_FAST).mean())
     slow = gb["_rs"].transform(lambda s: s.ewm(span=RS_SLOW, adjust=False, min_periods=RS_SLOW).mean())
-    a["rs_ratio"] = 100.0 * fast / slow
-    a["rs_momentum"] = 100.0 * a["rs_ratio"] / a.groupby("group_name", sort=False)["rs_ratio"].shift(RS_MOM_LAG)
-    rr, mm = a["rs_ratio"], a["rs_momentum"]
-    quad = np.select([(rr >= 100) & (mm >= 100), (rr >= 100) & (mm < 100), (rr < 100) & (mm < 100), (rr < 100) & (mm >= 100)],
-                     ["Leading", "Weakening", "Lagging", "Improving"], default="")
-    a["rrg_quadrant"] = pd.Series(quad, index=a.index).replace("", None)
-    qkey = a["rrg_quadrant"].fillna("__")
-    streak = ((qkey != qkey.shift()) | (a["group_name"] != a["group_name"].shift())).cumsum()
-    a["days_in_quadrant"] = (streak.groupby(streak).cumcount() + 1).astype(float).where(a["rrg_quadrant"].notna())
+    a["rs_ratio_self"] = 100.0 * fast / slow
+    a["rs_momentum_self"] = 100.0 * a["rs_ratio_self"] / a.groupby("group_name", sort=False)["rs_ratio_self"].shift(RS_MOM_LAG)
+    add_health_columns(a, "group_name", ["trade_date"], members="stocks", ret1="return_ew_1d", ret21="return_ew_21d",
+                       b50="breadth_50", b200="breadth_200")
     score = (a["excess_vs_midsml400_21d"] + a["excess_vs_midsml400_63d"]) / 2.0
     a["rank_score"] = score
     elig = score.where((a["stocks"] >= MIN_MEMBERS_RANK) & score.notna())
@@ -305,6 +317,7 @@ def _finish_live(a: pd.DataFrame, idx: dict[str, pd.Series], deal_start: date | 
     a["rank_n"] = elig.groupby(a["trade_date"]).transform("count")
     for h in (5, 20, 63):
         a[f"rank_delta_{h}"] = a.groupby("group_name", sort=False)["rank"].shift(h) - a["rank"]
+    a["turnover_cr"] = a["turnover"]
     tot = a.groupby("trade_date")["turnover"].transform("sum")
     a["turnover_share_pct"] = a["turnover"] / tot.where(tot > 0) * 100.0
     a["turnover_share_5d"] = _grp_roll(a, "turnover_share_pct", 5)
@@ -359,6 +372,10 @@ def _gd_frame(con: Any, as_of: date, level_key: str, floor: str) -> pd.DataFrame
         out[field] = raw[col] if col else None
     out = out[out["group_name"].notna() & (out["group_name"].astype(str).str.upper() != "TOTAL")]
     out = out.sort_values(["group_name", "trade_date"], kind="mergesort").reset_index(drop=True)
+    if "health" not in cols:  # built before the peer-relative RRG / Health columns: compute them on the fly
+        long = _long(con, as_of, level_key, floor)
+        if long is not None:
+            out = out.drop(columns=list(_HEALTH_FIELDS)).merge(long, on=["trade_date", "group_name"], how="left")
     delta = pd.to_numeric(out["turnover_share_delta"], errors="coerce")
     out["_up"] = (delta > 0).astype(float).where(delta.notna())
     if fmap["return_ew_1d"]:
@@ -369,6 +386,59 @@ def _gd_frame(con: Any, as_of: date, level_key: str, floor: str) -> pd.DataFrame
     else:
         out["_rs"] = np.nan
     return out
+
+
+def _gd_where(con: Any, level_key: str, floor: str) -> tuple[str, list[Any]] | None:
+    cols = set(db.table_columns(con, "group_daily"))
+    label = universe.LEVELS[level_key][1]
+    where = "lower(replace(CAST(level AS VARCHAR), '_', ' ')) = lower(?)"
+    params: list[Any] = [label]
+    if "floor" in cols:
+        vals = _gd_floor_values(floor)
+        where += f" AND lower(CAST(floor AS VARCHAR)) IN ({','.join('?' * len(vals))})"
+        params += vals
+    elif str(floor).lower() != "1000":
+        return None
+    return where, params
+
+
+def _gd_long(con: Any, as_of: date, level_key: str, floor: str) -> pd.DataFrame | None:
+    """Full group_daily history (≤ as_of) of the Health / peer-RRG / EW-index columns for (level, floor).
+
+    Read as stored when the table has them; otherwise computed here with the builder's shared
+    add_health_columns from the stored self-normalised rs_ratio / rs_momentum (tables built before
+    2026-09-27 hold the self-normalised values in those columns)."""
+    cols = set(db.table_columns(con, "group_daily"))
+    wp = _gd_where(con, level_key, floor)
+    if wp is None or not {"group_name", "trade_date", "level"} <= cols:
+        return None
+    where, params = wp
+    if {"health", "ew_index", "rs_ratio_self"} <= cols:
+        sel = ", ".join(c for c in ("trade_date", "group_name", *_HEALTH_FIELDS) if c in cols)
+        df = con.execute(f"SELECT {sel} FROM group_daily WHERE trade_date <= ? AND {where}", [as_of, *params]).df()
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        return df.sort_values(["group_name", "trade_date"], kind="mergesort").reset_index(drop=True)
+    need = {"members", "ret_ew_1d", "rs_ratio", "rs_momentum"}
+    if not need <= cols:
+        return None
+    opt = [c for c in ("ret_ew_21d", "pct_above_50ema", "pct_above_200ema") if c in cols]
+    sel = ", ".join(["trade_date", "group_name", "members", "ret_ew_1d", "rs_ratio AS rs_ratio_self",
+                     "rs_momentum AS rs_momentum_self", *opt])
+    df = con.execute(f"SELECT {sel} FROM group_daily WHERE trade_date <= ? AND {where} "
+                     "AND upper(CAST(group_name AS VARCHAR)) <> 'TOTAL'", [as_of, *params]).df()
+    if df.empty:
+        return None
+    for c in ("ret_ew_21d", "pct_above_50ema", "pct_above_200ema"):
+        if c not in df.columns:
+            df[c] = np.nan
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+    df = df.sort_values(["group_name", "trade_date"], kind="mergesort").reset_index(drop=True)
+    add_health_columns(df, "group_name", ["trade_date"])
+    return df[["trade_date", "group_name", *_HEALTH_FIELDS]]
+
+
+def _long(con: Any, as_of: date, level_key: str, floor: str) -> pd.DataFrame | None:
+    return db.cached("groups.gd_long", (as_of, level_key, floor), lambda: _gd_long(con, as_of, level_key, floor))
 
 
 def _frame(con: Any, as_of: date, level_key: str, floor: str) -> tuple[pd.DataFrame, str]:
@@ -435,6 +505,56 @@ def _leaders(members: pd.DataFrame, level_key: str) -> dict[str, list[str]]:
     return {str(k): [str(s) for s in g["symbol"].head(3)] for k, g in m.groupby(level_key, sort=False)}
 
 
+HEALTH_ZONES = ((65.0, "Healthy"), (45.0, "Mixed"), (-1.0, "Weak"))  # metric_dictionary.yaml group_health
+
+
+def health_zone(v: float | None) -> str | None:
+    if v is None:
+        return None
+    return next(label for lo, label in HEALTH_ZONES if v >= lo)
+
+
+def _desk_verdict(con: Any, as_of: date) -> str | None:
+    """The Desk's environment verdict (regime_daily) on or before as_of, for the Groups context line."""
+    if not db.table_exists(con, "regime_daily"):
+        return None
+    from App.services.market import shape_regime_row
+
+    recs = db.records(con, "SELECT * FROM regime_daily WHERE trade_date <= ? ORDER BY trade_date DESC LIMIT 1", [as_of])
+    return shape_regime_row(recs[0]).get("verdict") if recs else None
+
+
+def _bench_return(s: pd.Series | None, d: date, h: int) -> float | None:
+    if s is None or s.empty:
+        return None
+    s = s[s.index <= pd.Timestamp(d)]
+    if len(s) <= h:
+        return None
+    return db.num((s.iloc[-1] / s.iloc[-1 - h] - 1.0) * 100.0, 2)
+
+
+def _market_line(rows: list[dict[str, Any]], bench: dict[str, pd.Series], d: date, verdict: str | None) -> dict[str, Any]:
+    """Absolute context for the board header: Desk verdict, benchmark 21d returns, how many 'Leading' groups fall."""
+    ranked = [r for r in rows if (r.get("stocks") or 0) >= MIN_MEMBERS_RANK]
+    quads = Counter(r.get("rrg_quadrant") for r in ranked if r.get("rrg_quadrant"))
+    lead = [r for r in ranked if r.get("rrg_quadrant") == "Leading"]
+    healths = [r["health"] for r in ranked if r.get("health") is not None]
+    zones = Counter(health_zone(h) for h in healths)
+    return {
+        "verdict": verdict,
+        "midsml400_ret_21d": _bench_return(bench.get(MIDSML400), d, 21),
+        "nifty50_ret_21d": _bench_return(bench.get(NIFTY50), d, 21),
+        "groups": len(ranked),
+        "quadrants": {q: int(quads.get(q, 0)) for q in ("Leading", "Improving", "Weakening", "Lagging")},
+        "leading_falling": sum(1 for r in lead if (r.get("return_ew_21d") or 0) < 0),
+        "leading_narrow": sum(1 for r in lead if r.get("breadth_50") is not None and r["breadth_50"] < 50),
+        "falling_21d": sum(1 for r in ranked if (r.get("return_ew_21d") or 0) < 0),
+        "trend": {t: sum(1 for r in ranked if r.get("abs_trend") == t) for t in ("Up", "Flat", "Down")},
+        "health_median": db.num(float(np.median(healths)), 1) if healths else None,
+        "health_zones": {z: int(zones.get(z, 0)) for z in ("Healthy", "Mixed", "Weak")},
+    }
+
+
 def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
     level_key = universe.level_key(level)
     if level_key is None:
@@ -447,6 +567,8 @@ def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
         has_gd = db.table_exists(con, "group_daily")
         df, src = _frame(con, resolved, level_key, floor)
         members = db.cached("groups.members_snap", (resolved, floor), lambda: _members_snapshot(con, resolved, floor))
+        bench = _index_closes(con, resolved)
+        verdict = _desk_verdict(con, resolved)
     if df.empty:
         return unavailable(resolved, "no group data on or before as_of", ["group_daily", "indicators_daily"])
     last, d = _last_rows(df, resolved)
@@ -467,7 +589,10 @@ def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
         row["flow_up_days_10"] = int(up.sum()) if up.notna().sum() == 10 else None
         row["leader_symbols"] = leaders.get(str(name)) or None
         rows.append(row)
-    rows.sort(key=lambda r: (r.get("rank") is None, r.get("rank") or 0, -(r.get("rank_score") or -1e9)))
+    market_line = _market_line(rows, bench, d or resolved, verdict)
+    # Default order: Health (relative + absolute trend + breadth), healthiest first; unranked last.
+    rows.sort(key=lambda r: (r.get("health_rank") is None, r.get("health_rank") or 0, -(r.get("health") or -1e9),
+                             r.get("rank") or 1e9))
     status, reason = ("ok", None) if src == "group_daily" else (STATUS_PARTIAL, _live_reason(has_gd, floor))
     ranked = sum(1 for r in rows if r["rank"] is not None)
     return Result(
@@ -475,8 +600,13 @@ def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
         sources=["group_daily"] if src == "group_daily" else ["indicators_daily", "index_daily", "deals", "stocks_master"],
         extra={"level": level_key, "floor": floor, "floor_label": floor_label(floor), "floor_applied": True,
                "source": src, "ranked": ranked, "benchmark": MIDSML400,
+               "market": market_line,
                "rank_rule": f"rank by mean of 21d and 63d excess return vs {MIDSML400}; groups with < {MIN_MEMBERS_RANK} "
-                            "members are listed but not ranked"},
+                            "members are listed but not ranked",
+               "health_rule": "Health 0-100 = 0.40 relative (peer RS-Ratio / RS-Momentum) + 0.35 absolute (EW index vs "
+                              "its 50/200 EMA and slope, 21d return) + 0.25 breadth (% above 50/200 EMA); default sort",
+               "rrg_rule": "RS-Ratio / RS-Momentum = 100 + 10 x z-score across this level's groups (peer-relative): "
+                           "'Leading' = strongest vs peers, not necessarily rising"},
         notes=["Taxonomy is today's mapping (documented limitation).",
                "Members are fixed at as_of for the live computation; group_daily applies the floor each session."],
         metric_keys=GROUP_METRICS)
@@ -511,6 +641,9 @@ def rrg(as_of: date | None, level: str, floor: str = "1000", tail_weeks: int = 6
             "rs_ratio": db.num(last["rs_ratio"], 3), "rs_momentum": db.num(last["rs_momentum"], 3),
             "rrg_quadrant": db.text(last["rrg_quadrant"]), "days_in_quadrant": db.integer(last["days_in_quadrant"]),
             "stocks": db.integer(last["stocks"]), "rank": db.integer(last["rank"]),
+            "health": db.num(last.get("health"), 1), "health_rank": db.integer(last.get("health_rank")),
+            "abs_trend": db.text(last.get("abs_trend")), "quadrant_note": db.text(last.get("quadrant_note")),
+            "return_ew_21d": db.num(last.get("return_ew_21d"), 2),
             "tail": [{"trade_date": db.to_date(p["trade_date"]), "rs_ratio": db.num(p["rs_ratio"], 3),
                       "rs_momentum": db.num(p["rs_momentum"], 3)} for _, p in g.iterrows()
                      if db.num(p["rs_ratio"]) is not None and db.num(p["rs_momentum"]) is not None],
@@ -522,8 +655,9 @@ def rrg(as_of: date | None, level: str, floor: str = "1000", tail_weeks: int = 6
     return Result(as_of=db.to_date(dates[0]), rows=rows, status=status, reason=reason,
                   sources=["group_daily"] if src == "group_daily" else ["indicators_daily", "index_daily"],
                   extra={"level": level_key, "floor": floor, "floor_label": floor_label(floor), "tail_weeks": tail_weeks,
-                         "source": src, "tail_step_sessions": 5, "benchmark": MIDSML400},
-                  metric_keys=GROUP_METRICS[:3])
+                         "source": src, "tail_step_sessions": 5, "benchmark": MIDSML400,
+                         "axes": "peer-relative: 100 + 10 x z-score across this level's groups (>= 3 members)"},
+                  metric_keys=["rs_ratio", "rs_momentum", "rrg_quadrant", "group_health", "quadrant_note"])
 
 
 def _breadcrumb(con: Any, level_key: str, name: str) -> list[dict[str, Any]]:
@@ -648,3 +782,97 @@ def members(as_of: date | None, gid: str, floor: str = "1000", sort: str = "rs_p
         notes=[] if has_setups else ["Active setups need setup_daily (not built yet); use the Desk queues meanwhile."],
         metric_keys=MEMBER_METRICS,
     )
+
+
+def index_history(as_of: date | None, gid: str, floor: str = "1000", days: int = 500) -> Result:
+    """The group's own equal-weight index (rebased to 100 at the start of history) with its 50/200 EMA."""
+    level_key, name = parse_group_id(gid)
+    floor_value(floor)
+    days = max(20, min(int(days), 2000))
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        long = _long(con, resolved, level_key, floor) if db.table_exists(con, "group_daily") else None
+        src = "group_daily"
+        if long is None or long.empty or not (long["group_name"] == name).any():
+            with _LIVE_LOCK:
+                live = db.cached("groups.live", (resolved, floor), lambda: _live_frames(con, resolved, floor))
+            long, src = live.get(level_key, pd.DataFrame()), "live"
+    g = long[long["group_name"] == name] if not long.empty else long
+    if g.empty or "ew_index" not in g.columns:
+        return unavailable(resolved, f"no index history for group {gid!r} at this floor", [src])
+    g = g[g["trade_date"] <= pd.Timestamp(resolved)].sort_values("trade_date").tail(days)
+    rows = [{"trade_date": db.to_date(r["trade_date"]), "ew_index": db.num(r["ew_index"], 3),
+             "ema_50": db.num(r.get("ew_index_ema50"), 3), "ema_200": db.num(r.get("ew_index_ema200"), 3),
+             "abs_trend": db.text(r.get("abs_trend")), "health": db.num(r.get("health"), 1)}
+            for r in g.to_dict("records")]
+    status, reason = ("ok", None) if src == "group_daily" else (
+        STATUS_PARTIAL, "computed live from indicators_daily (group_daily does not cover this floor); ~260 sessions")
+    return Result(as_of=rows[-1]["trade_date"] or resolved, rows=rows, status=status, reason=reason,
+                  sources=["group_daily"] if src == "group_daily" else ["indicators_daily"],
+                  extra={"group": {"id": gid, "level": level_key, "name": name}, "floor": floor, "source": src,
+                         "index_rule": "equal-weight members, cumulative product of (1 + mean member return), start = 100"},
+                  metric_keys=["group_abs_trend", "group_health"])
+
+
+def _parents(con: Any) -> dict[str, dict[str, str]]:
+    """Most common parent of every taxonomy group, per child level (current stocks_master mapping)."""
+    cols = [universe.LEVELS[k][0] for k in LEVEL_ORDER]
+    recs = con.execute(f"SELECT {', '.join(cols)}, count(*) FROM stocks_master WHERE upper(symbol) <> 'TOTAL' "
+                       f"GROUP BY ALL").fetchall()
+    out: dict[str, dict[str, str]] = {}
+    for i in range(1, len(LEVEL_ORDER)):
+        votes: dict[str, Counter] = {}
+        for r in recs:
+            child, parent = r[i], r[i - 1]
+            if child and parent:
+                votes.setdefault(str(child).strip(), Counter())[str(parent).strip()] += int(r[-1])
+        out[LEVEL_ORDER[i]] = {c: v.most_common(1)[0][0] for c, v in votes.items()}
+    return out
+
+
+def treemap(as_of: date | None, floor: str = "1000") -> Result:
+    """Every group of every level at as_of with its parent, Health, 21d return and 20-session average turnover
+    (tile size) — the Groups taxonomy heatmap."""
+    floor_value(floor)
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if resolved is None:
+            return no_session(as_of)
+        parents = db.cached("groups.parents", (), lambda: _parents(con))
+        frames = {lvl: _frame(con, resolved, lvl, floor) for lvl in LEVEL_ORDER}
+    rows: list[dict[str, Any]] = []
+    srcs = set()
+    d_out = None
+    for lvl, (df, src) in frames.items():
+        if df.empty:
+            continue
+        srcs.add(src)
+        hist = df[df["trade_date"] <= pd.Timestamp(resolved)]
+        last, d = _last_rows(hist, resolved)
+        d_out = d_out or d
+        to20 = (pd.to_numeric(hist["turnover_cr"], errors="coerce").groupby(hist["group_name"]).apply(lambda s: s.tail(20).mean())
+                if "turnover_cr" in hist.columns else pd.Series(dtype=float))
+        for r in last.to_dict("records"):
+            name = str(r["group_name"])
+            parent = parents.get(lvl, {}).get(name) if lvl != "broad_sector" else None
+            prev = LEVEL_ORDER[LEVEL_ORDER.index(lvl) - 1] if lvl != "broad_sector" else None
+            rows.append({
+                "id": group_id(lvl, name), "level": lvl, "group_name": name,
+                "parent_id": group_id(prev, parent) if prev and parent else None,
+                "stocks": db.integer(r.get("stocks")), "turnover_20d_cr": db.num(to20.get(name), 2),
+                "health": db.num(r.get("health"), 1), "return_ew_21d": db.num(r.get("return_ew_21d"), 2),
+                "rrg_quadrant": db.text(r.get("rrg_quadrant")), "quadrant_note": db.text(r.get("quadrant_note")),
+                "abs_trend": db.text(r.get("abs_trend")),
+            })
+    if not rows:
+        return unavailable(resolved, "no group data on or before as_of", ["group_daily", "indicators_daily"])
+    live = "live" in srcs
+    return Result(as_of=d_out or resolved, rows=rows, status=STATUS_PARTIAL if live else "ok",
+                  reason=_live_reason(True, floor) if live else None,
+                  sources=sorted({"group_daily" if s == "group_daily" else "indicators_daily" for s in srcs} | {"stocks_master"}),
+                  extra={"floor": floor, "floor_label": floor_label(floor),
+                         "size": "average daily turnover over the last 20 sessions, ₹ Cr",
+                         "parents": "most common parent in today's stocks_master mapping"},
+                  metric_keys=["group_health", "group_return_ew_21d"])
