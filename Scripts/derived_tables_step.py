@@ -9,7 +9,12 @@ builders use are loaded.
 """
 from __future__ import annotations
 
+import argparse
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -99,3 +104,46 @@ def rebuild_in_place(con, *, incremental: bool, quiet: bool = False, own_transac
         rows = ", ".join(f"{k} {v:,}" for k, v in written.items())
         print(f"Derived tables rebuilt in {time.perf_counter() - started:.0f}s ({'incremental' if incremental else 'full'}): {rows}", flush=True)
     return written
+
+
+def run_isolated(db_path: Path, *, incremental: bool, quiet: bool = False) -> int:
+    """Rebuild the derived tables of ``db_path`` in a child process (fail-soft).
+
+    The builders read multi-million-row frames; running them in their own process keeps that
+    memory (and any MemoryError) out of the build / append process, which by then may hold a
+    large heap of its own. The caller must not hold a DuckDB connection to ``db_path``.
+    Returns the child's exit code (0 also when the builders failed - they report and skip).
+    """
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--db", str(db_path), "--mode", "incremental" if incremental else "full"]
+    if quiet:
+        cmd.append("--quiet")
+    try:
+        done = subprocess.run(cmd, check=False)
+    except Exception as exc:  # noqa: BLE001 - fail-soft
+        print(f"WARNING: DERIVED TABLES NOT REBUILT - could not start the derived step ({exc}).", flush=True)
+        return -1
+    if done.returncode != 0:
+        print(f"WARNING: DERIVED TABLES NOT REBUILT - derived step exited with code {done.returncode}; core tables are unaffected.", flush=True)
+    return done.returncode
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Rebuild the Scripts/derived tables of a MarketPulse DuckDB (fail-soft).")
+    parser.add_argument("--db", required=True)
+    parser.add_argument("--mode", choices=("full", "incremental"), default="incremental")
+    parser.add_argument("--quiet", action="store_true")
+    args = parser.parse_args(argv)
+    import duckdb
+
+    memory = os.environ.get("MP_BUILD_DUCKDB_MEMORY", "2GB") or "2GB"
+    con = duckdb.connect(args.db, config={"memory_limit": memory})
+    try:
+        rebuild_in_place(con, incremental=args.mode == "incremental", quiet=args.quiet)
+        con.execute("CHECKPOINT")
+    finally:
+        con.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1739,11 +1739,6 @@ def build_temp_database(
                 con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
                 print(f"Created table security_reference_daily: {len(reference_history):,} rows")
 
-        if with_derived:
-            import derived_tables_step
-
-            derived_tables_step.rebuild_in_place(con, incremental=False, own_transaction=False)
-
         from migrations import _apply_always_on_repairs
 
         _apply_always_on_repairs(con)
@@ -1759,6 +1754,11 @@ def build_temp_database(
                 print(f"Warning: could not remove temp DB {leftover}: {exc}")
         raise
     con.close()
+    if with_derived:
+        # separate process: the derived builders read multi-million-row frames (fail-soft)
+        import derived_tables_step
+
+        derived_tables_step.run_isolated(temp_db, incremental=False)
     return temp_db
 
 

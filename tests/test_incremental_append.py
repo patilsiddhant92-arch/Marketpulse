@@ -70,7 +70,7 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(bd, "ROOT_DIR", tmp_path)
     monkeypatch.setattr(bd, "ensure_folders", lambda: None)
     import derived_tables_step
-    monkeypatch.setattr(derived_tables_step, "rebuild_in_place", lambda con, **k: {})
+    monkeypatch.setattr(derived_tables_step, "run_isolated", lambda *a, **k: 0)
     return tmp_path
 
 

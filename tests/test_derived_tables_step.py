@@ -79,3 +79,13 @@ def test_missing_package_is_soft(tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "derived", None)  # import raises ImportError
     assert dts.rebuild_in_place(con, incremental=False) == {}
     assert "not available" in capsys.readouterr().out
+
+
+def test_run_isolated_is_fail_soft_without_package(tmp_path, capsys):
+    """The child process runs the step against the DB file; without Scripts/derived it only warns."""
+    db = tmp_path / "m.duckdb"
+    _db(tmp_path).close()
+    rc = dts.run_isolated(db, incremental=True, quiet=True)
+    assert rc == 0
+    with duckdb.connect(str(db), read_only=True) as con:  # file intact and not left locked
+        assert con.execute("SELECT count(*) FROM prices_daily").fetchone()[0] == 1

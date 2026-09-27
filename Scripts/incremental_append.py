@@ -400,10 +400,10 @@ def incremental_append(db_path: Path, new_prices: pd.DataFrame, *, root: Path, e
             raise
         lap("write transaction")
         con.execute("CHECKPOINT")
-        _derived_step(con, quiet=quiet)
-        lap("derived tables")
     finally:
         con.close()
+    _derived_step(db_path, quiet=quiet)
+    lap("derived tables")
     summary.update({"backup": backup, "timings_s": timings, "reasons": plan.reasons})
     return summary
 
@@ -1126,12 +1126,9 @@ def _update_sector_metrics(con, master, reference, index_features, deals, since:
 # Derived tables (Scripts/derived) - fail-soft
 # --------------------------------------------------------------------------------------------
 
-def _derived_step(con, *, quiet: bool) -> None:
-    """Rebuild the Scripts/derived tables in their own transaction; a failure is reported
-    loudly but never undoes the committed price/indicator append."""
-    try:
-        import derived_tables_step
-    except Exception as exc:  # pragma: no cover
-        print(f"WARNING: derived tables not rebuilt ({exc})", flush=True)
-        return
-    derived_tables_step.rebuild_in_place(con, incremental=True, quiet=quiet)
+def _derived_step(db_path: Path, *, quiet: bool) -> None:
+    """Rebuild the Scripts/derived tables (incremental setup_daily) in a child process after the
+    core commit; a failure is reported loudly but never undoes the committed append."""
+    import derived_tables_step
+
+    derived_tables_step.run_isolated(db_path, incremental=True, quiet=quiet)
