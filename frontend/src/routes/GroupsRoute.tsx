@@ -98,7 +98,7 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
       metricKey: 'group_health',
       cell: (v, r) => <HealthCell value={v as number} rank={r.health_rank} />,
     },
-    { id: 'stocks', header: 'Stocks', accessor: 'stocks', format: 'int', width: 52, headerTitle: 'Members meeting the floor' },
+    { id: 'stocks', header: 'Stocks', accessor: 'stocks', format: 'int', width: 60, headerTitle: 'Members meeting the floor' },
     {
       id: 'rrg_quadrant',
       header: 'RRG vs peers',
