@@ -4,6 +4,9 @@ from pathlib import Path
 import pytest
 import pandas as pd
 
+# Reads the live market DB; its rankings change with every rebuild.
+pytestmark = pytest.mark.realdb
+
 from App.ui.stock_drawer import query_stock_peer_comparison, query_stock_360_data
 
 
