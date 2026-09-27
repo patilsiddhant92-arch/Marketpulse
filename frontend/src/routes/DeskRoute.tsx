@@ -1,46 +1,60 @@
-import { useEffect, useState } from 'react';
-import { CockpitWorkspace } from '../components/CockpitWorkspace';
-import { ExposureGateHeader } from '../components/ExposureGateHeader';
-import type { MarketRegimeResponse } from '../types';
-import { useShell } from '../shell/ShellContext';
-import { LegacyFrame, useLegacyProps } from './legacy';
+/**
+ * Desk (spec 7.2) — today's decision screen: environment + what changed,
+ * the three setup queues with trigger/stop/risk, what's new vs yesterday,
+ * and the watchlist with its setup status.
+ */
+import { useEffect, useRef, useState } from 'react';
+import { EnvironmentPanel } from '../desk/EnvironmentPanel';
+import { QueuePanel } from '../desk/QueuePanel';
+import { DiffPanel, LeadingGroupsPanel, WatchlistPanel } from '../desk/SidePanels';
 
-/** Desk — legacy Action Desk (Cockpit) + exposure strip until the rebuild. */
-export default function DeskRoute() {
-  const shell = useShell();
-  const legacy = useLegacyProps();
-  const [regime, setRegime] = useState<MarketRegimeResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-
+/** Width of an element (ResizeObserver). */
+function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = useRef<T>(null);
+  const [w, setW] = useState(0);
   useEffect(() => {
-    const ctrl = new AbortController();
-    fetch('/api/market/regime', { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setRegime(d as MarketRegimeResponse | null))
-      .catch(() => undefined)
-      .finally(() => setLoading(false));
-    return () => ctrl.abort();
+    const el = ref.current;
+    if (!el) return;
+    setW(el.clientWidth);
+    const ro = new ResizeObserver((e) => setW(Math.round(e[0]?.contentRect.width ?? 0)));
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
+  return [ref, w];
+}
 
+/** Below this width the right rail folds into the queue panel's tabs. */
+const RAIL_MIN_WIDTH = 1060;
+
+export default function DeskRoute() {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const rail = width === 0 || width >= RAIL_MIN_WIDTH;
   return (
-    <LegacyFrame note="Desk rebuild pending (spec 7.2)">
-      <div className="flex min-h-0 flex-1 flex-col">
-        {(loading || regime) && (
-          <ExposureGateHeader
-            regime={regime}
-            loading={loading}
-            onOpenBreadth={() => shell.setBreadthOpen(true)}
-            onNavigateTab={(t) => shell.goTab(t === 'sector' ? 'groups' : t === 'deals' ? 'deals' : t === 'cockpit' ? 'desk' : 'screener')}
-          />
-        )}
-        <div className="flex min-h-0 flex-1">
-          <CockpitWorkspace
-            selectedSymbol={legacy.selectedSymbol}
-            onSelectSymbol={legacy.onSelectSymbol}
-            onAddToBasket={legacy.onAddToBasket}
-          />
-        </div>
+    <div ref={ref} className="flex h-full min-h-0 flex-col gap-2 overflow-hidden p-2">
+      <div className={rail ? 'grid shrink-0 grid-cols-[minmax(0,1fr)_320px] gap-2' : 'flex shrink-0 flex-col gap-2'}>
+        <EnvironmentPanel />
+        {rail && <LeadingGroupsPanel />}
       </div>
-    </LegacyFrame>
+      <div className={rail ? 'grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px] gap-2' : 'flex min-h-0 flex-1 flex-col'}>
+        <QueuePanel
+          className="min-h-0 flex-1"
+          extraTabs={
+            rail
+              ? []
+              : [
+                  { id: 'diff', label: 'New vs yesterday', render: () => <DiffPanel /> },
+                  { id: 'watch', label: 'Watchlist', render: () => <WatchlistPanel /> },
+                  { id: 'groups', label: 'Groups', render: () => <LeadingGroupsPanel /> },
+                ]
+          }
+        />
+        {rail && (
+          <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+            <DiffPanel className="min-h-0" />
+            <WatchlistPanel className="min-h-0" />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

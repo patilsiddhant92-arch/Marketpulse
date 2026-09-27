@@ -5,12 +5,12 @@
 import { CloudOff } from 'lucide-react';
 import { Suspense, useState } from 'react';
 import { Outlet, useLocation } from 'react-router';
-import { InspectorSidecar } from '../components/InspectorSidecar';
 import { MarketBreadthDrawer } from '../components/MarketBreadthDrawer';
 import { StagingBasketDrawer } from '../components/StagingBasketDrawer';
 import { cn } from '../lib/cn';
 import { fmtDate } from '../lib/fmt';
 import { TAB_COMPONENTS } from '../routes/registry';
+import { Stock360Sidecar } from '../stock360/Stock360';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { SkeletonRows } from '../ui/Skeleton';
 import { CommandPalette } from './CommandPalette';
@@ -117,18 +117,15 @@ function ShellLayout() {
         {shell.symbol && !isStockPage && (
           <StockSidecar symbol={shell.symbol}>
             <ErrorBoundary name="Stock 360" resetKeys={[shell.symbol]}>
-              <InspectorSidecar
-                symbol={shell.symbol}
-                onAddToBasket={shell.toggleWatch}
-                isStaged={shell.isWatched(shell.symbol)}
-                onSelectSymbol={(s) => shell.openSymbol(s)}
-                onOpenMultiChart={(syms) => shell.openCharts(syms)}
-              />
+              <Stock360Sidecar key={shell.symbol} symbol={shell.symbol} />
             </ErrorBoundary>
           </StockSidecar>
         )}
       </div>
-      <StagingBasketDrawer basket={shell.watchlist} onRemove={shell.removeWatch} onClear={shell.clearWatch} />
+      {/* Legacy basket bar: the Desk has its own watchlist panel and Stock 360 its star; it would cover their content. */}
+      {activeTab !== 'desk' && !isStockPage && (
+        <StagingBasketDrawer basket={shell.watchlist} onRemove={shell.removeWatch} onClear={shell.clearWatch} />
+      )}
       <MarketBreadthDrawer isOpen={shell.breadthOpen} onClose={() => shell.setBreadthOpen(false)} />
       <CommandPalette />
     </div>

@@ -2,8 +2,9 @@
  * Shell-wide actions shared by every tab (new and legacy):
  * sidecar symbol, watchlist, navigation helpers, legacy drawers.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { apiGet, apiPut } from '../api/client';
 import { readJSON, writeJSON } from '../lib/storage';
 import { TABS, type TabId } from './tabs';
 import { GLOBAL_PARAMS, isSymbol, useSidecarSymbol } from './urlState';
@@ -19,8 +20,12 @@ export interface ShellApi {
   openCharts: (symbols?: string[]) => void;
   goTab: (id: TabId) => void;
 
-  /** Watchlist (local until /api/v2/watchlist lands). */
+  /**
+   * Watchlist, persisted to /api/v2/watchlist (localStorage is only an
+   * offline cache). `watchSync` says whether the server has the latest list.
+   */
   watchlist: string[];
+  watchSync: WatchSync;
   isWatched: (sym: string) => boolean;
   toggleWatch: (sym: string) => void;
   removeWatch: (sym: string) => void;
@@ -35,6 +40,9 @@ export interface ShellApi {
   setBreadthOpen: (open: boolean) => void;
 }
 
+/** loading = first GET in flight · synced = server has it · local = server unreachable (cache only) · error = last save failed. */
+export type WatchSync = 'loading' | 'synced' | 'local' | 'error';
+
 const Ctx = createContext<ShellApi | null>(null);
 
 const WATCH_KEY = 'mp.watchlist.v1';
@@ -45,11 +53,63 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [symbol, setSymbol] = useSidecarSymbol();
   const [watchlist, setWatchlist] = useState<string[]>(() => readJSON<string[]>(WATCH_KEY, []).filter(isSymbol));
+  const [watchSync, setWatchSync] = useState<WatchSync>('loading');
+  const watchRef = useRef(watchlist);
+  const serverOk = useRef(false);
+  const saveSeq = useRef(0);
   const [recent, setRecent] = useState<string[]>(() => readJSON<string[]>(RECENT_KEY, []).filter(isSymbol));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [breadthOpen, setBreadthOpen] = useState(false);
 
   useEffect(() => writeJSON(WATCH_KEY, watchlist), [watchlist]);
+
+  /** PUT the full list; latest call wins. */
+  const saveWatch = useCallback((list: string[]) => {
+    const seq = ++saveSeq.current;
+    apiPut('watchlist', { symbols: list })
+      .then((env) => {
+        if (seq !== saveSeq.current) return;
+        serverOk.current = true;
+        setWatchSync('synced');
+        const served = env.rows.map((r) => r.symbol).filter(isSymbol);
+        watchRef.current = served;
+        setWatchlist(served);
+      })
+      .catch(() => {
+        if (seq === saveSeq.current) setWatchSync('error');
+      });
+  }, []);
+
+  // Hydrate once from the server. Server wins; a local-only list (pre-v2) is migrated up.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    apiGet('watchlist', {}, { signal: ctrl.signal })
+      .then((env) => {
+        const served = env.rows.map((r) => r.symbol).filter(isSymbol);
+        serverOk.current = true;
+        if (served.length === 0 && watchRef.current.length > 0) {
+          saveWatch(watchRef.current);
+          return;
+        }
+        watchRef.current = served;
+        setWatchlist(served);
+        setWatchSync('synced');
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted) setWatchSync('local');
+      });
+    return () => ctrl.abort();
+  }, [saveWatch]);
+
+  const commitWatch = useCallback(
+    (next: (cur: string[]) => string[]) => {
+      const list = next(watchRef.current);
+      watchRef.current = list;
+      setWatchlist(list);
+      if (serverOk.current) saveWatch(list);
+    },
+    [saveWatch],
+  );
   useEffect(() => writeJSON(RECENT_KEY, recent), [recent]);
 
   const remember = useCallback((sym: string) => {
@@ -111,13 +171,16 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   );
 
   const isWatched = useCallback((sym: string) => watchlist.includes(sym), [watchlist]);
-  const toggleWatch = useCallback((sym: string) => {
-    const s = sym.toUpperCase();
-    if (!isSymbol(s)) return;
-    setWatchlist((w) => (w.includes(s) ? w.filter((x) => x !== s) : [...w, s]));
-  }, []);
-  const removeWatch = useCallback((sym: string) => setWatchlist((w) => w.filter((x) => x !== sym)), []);
-  const clearWatch = useCallback(() => setWatchlist([]), []);
+  const toggleWatch = useCallback(
+    (sym: string) => {
+      const s = sym.toUpperCase();
+      if (!isSymbol(s)) return;
+      commitWatch((w) => (w.includes(s) ? w.filter((x) => x !== s) : [...w, s]));
+    },
+    [commitWatch],
+  );
+  const removeWatch = useCallback((sym: string) => commitWatch((w) => w.filter((x) => x !== sym)), [commitWatch]);
+  const clearWatch = useCallback(() => commitWatch(() => []), [commitWatch]);
 
   const value = useMemo<ShellApi>(
     () => ({
@@ -127,6 +190,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       openCharts,
       goTab,
       watchlist,
+      watchSync,
       isWatched,
       toggleWatch,
       removeWatch,
@@ -144,6 +208,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       openCharts,
       goTab,
       watchlist,
+      watchSync,
       isWatched,
       toggleWatch,
       removeWatch,
