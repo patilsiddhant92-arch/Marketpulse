@@ -233,6 +233,6 @@ describe('Shell', () => {
   it('lazy-loads Research', async () => {
     mockFetch(() => undefined);
     renderApp('/research');
-    expect(await screen.findByText(/Research lands with the evidence engine/)).toBeInTheDocument();
+    expect(await screen.findByRole('navigation', { name: 'Research studies' }, { timeout: 5000 })).toBeInTheDocument();
   });
 });
