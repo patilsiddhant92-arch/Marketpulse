@@ -25,17 +25,28 @@ export function defaultSidecarWidth(viewport: number): number {
 }
 
 interface SidecarPrefs {
-  width: number;
+  /** User-dragged width; null = automatic (40 % of the window). */
+  width: number | null;
   pinned: boolean;
 }
 
 function loadPrefs(): SidecarPrefs {
   const v2 = readJSON<Partial<SidecarPrefs> | null>(PREF_KEY, null);
   const old = readJSON<Partial<SidecarPrefs> | null>(OLD_KEY, null);
-  const vw = typeof window === 'undefined' ? 1400 : window.innerWidth;
-  const width = typeof v2?.width === 'number' ? v2.width : defaultSidecarWidth(vw);
+  const width = typeof v2?.width === 'number' && Number.isFinite(v2.width) ? v2.width : null;
   const pinned = typeof v2?.pinned === 'boolean' ? v2.pinned : typeof old?.pinned === 'boolean' ? old.pinned : true;
-  return { width: Math.min(maxWidth(), Math.max(MIN_W, width)), pinned };
+  return { width, pinned };
+}
+
+/** Re-render on window resize (auto width and the max follow the window). */
+function useViewportWidth(): number {
+  const [vw, setVw] = useState(() => (typeof window === 'undefined' ? 1400 : window.innerWidth));
+  useEffect(() => {
+    const on = () => setVw(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return vw;
 }
 
 export interface StockSidecarProps {
@@ -47,16 +58,18 @@ export interface StockSidecarProps {
 export function StockSidecar({ symbol, children }: StockSidecarProps) {
   const shell = useShell();
   const [prefs, setPrefs] = useState<SidecarPrefs>(loadPrefs);
+  const vw = useViewportWidth();
+  const width = Math.min(maxWidth(), Math.max(MIN_W, prefs.width ?? defaultSidecarWidth(vw)));
   const dragging = useRef<{ x: number; w: number } | null>(null);
   useEffect(() => writeJSON(PREF_KEY, prefs), [prefs]);
   useEscapeLayer(true, () => shell.openSymbol(null), { modal: false });
 
   const onPointerDown = useCallback(
     (e: PointerEvent) => {
-      dragging.current = { x: e.clientX, w: prefs.width };
+      dragging.current = { x: e.clientX, w: width };
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [prefs.width],
+    [width],
   );
   const onPointerMove = (e: PointerEvent) => {
     if (!dragging.current) return;
@@ -67,8 +80,8 @@ export function StockSidecar({ symbol, children }: StockSidecarProps) {
     dragging.current = null;
   };
   const onKeyResize = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowLeft') setPrefs((p) => ({ ...p, width: Math.min(maxWidth(), p.width + 20) }));
-    if (e.key === 'ArrowRight') setPrefs((p) => ({ ...p, width: Math.max(MIN_W, p.width - 20) }));
+    if (e.key === 'ArrowLeft') setPrefs((p) => ({ ...p, width: Math.min(maxWidth(), width + 20) }));
+    if (e.key === 'ArrowRight') setPrefs((p) => ({ ...p, width: Math.max(MIN_W, width - 20) }));
   };
 
   const watched = shell.isWatched(symbol);
@@ -81,13 +94,13 @@ export function StockSidecar({ symbol, children }: StockSidecarProps) {
         'flex h-full shrink-0 flex-col border-l border-line bg-surface',
         !prefs.pinned && 'absolute bottom-0 right-0 top-0 z-30 shadow-2xl',
       )}
-      style={{ width: prefs.width }}
+      style={{ width }}
     >
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize sidecar"
-        aria-valuenow={prefs.width}
+        aria-valuenow={width}
         aria-valuemin={MIN_W}
         aria-valuemax={maxWidth()}
         tabIndex={0}
@@ -95,6 +108,8 @@ export function StockSidecar({ symbol, children }: StockSidecarProps) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onKeyDown={onKeyResize}
+        onDoubleClick={() => setPrefs((p) => ({ ...p, width: null }))}
+        title="Drag to resize · double-click = automatic width"
         className="absolute bottom-0 left-0 top-0 z-10 w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-accent/40"
       />
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">

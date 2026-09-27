@@ -38,6 +38,8 @@ export interface StockChartPanelProps {
   onExpand?: () => void;
   /** Log price scale. */
   logScale?: boolean;
+  /** Volume / RS pane heights (big chart gives them more room). */
+  paneHeights?: { volume?: number; rs?: number };
 }
 
 const seg = (on: boolean) =>
@@ -55,6 +57,7 @@ export function StockChartPanel({
   onTimeframeChange,
   onExpand,
   logScale,
+  paneHeights,
 }: StockChartPanelProps) {
   const [innerTf, setInnerTf] = useState<Timeframe>('D');
   const tf = timeframe ?? innerTf;
@@ -135,17 +138,6 @@ export function StockChartPanel({
           Setup levels
         </button>
       )}
-      {activeBox && (
-        <span className="num shrink-0 text-fg-2" title="Open Darvas box (top / bottom)">
-          box {activeBox.top.toFixed(2)} / {activeBox.bottom.toFixed(2)}
-        </span>
-      )}
-      <span
-        className="ml-auto min-w-0 truncate"
-        title="Markers: BO/BD Darvas breakout/breakdown · R results · B/S bonus/split · X ex-date · ▲▼ institutional deals · dots on RS = new RS high"
-      >
-        BO/BD box break · R results · ▲▼ inst. deals · ● RS high
-      </span>
       {onExpand && (
         <button
           type="button"
@@ -157,6 +149,17 @@ export function StockChartPanel({
           <Expand className="h-3 w-3" aria-hidden /> Big
         </button>
       )}
+      {activeBox && (
+        <span className="num min-w-0 truncate text-fg-2" title="Open Darvas box (top / bottom)">
+          box {activeBox.top.toFixed(2)} / {activeBox.bottom.toFixed(2)}
+        </span>
+      )}
+      <span
+        className="ml-auto min-w-0 truncate"
+        title="Markers: BO/BD Darvas breakout/breakdown · R results · B/S bonus/split · X ex-date · ▲▼ institutional deals · dots on RS = new RS high"
+      >
+        BO/BD box break · R results · ▲▼ inst. deals · ● RS high
+      </span>
     </div>
   );
 
@@ -176,6 +179,7 @@ export function StockChartPanel({
         rs={rsLine}
         markers={markers}
         logScale={logScale}
+        paneHeights={paneHeights}
         syncGroup={`stock360-${symbol}`}
         label={`${symbol} ${tf === 'D' ? 'daily' : tf === 'W' ? 'weekly' : 'monthly'} chart`}
         initialBars={initialBars ?? (tf === 'D' ? 150 : tf === 'W' ? 120 : 60)}

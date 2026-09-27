@@ -29,8 +29,8 @@ interface Palette {
 
 function palette(): Palette {
   return {
-    fill: tokenColor('accent', 0.07),
-    fillActive: tokenColor('accent', 0.16),
+    fill: tokenColor('accent', 0.11),
+    fillActive: tokenColor('accent', 0.22),
     top: tokenColor('up', 0.85),
     bottom: tokenColor('down', 0.85),
     edge: tokenColor('accent', 0.55),

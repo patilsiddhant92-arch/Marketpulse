@@ -28,6 +28,8 @@ function isTyping(target: EventTarget | null): boolean {
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
 }
 
+const BIG_PANES = { volume: 120, rs: 110 };
+
 export function BigChart({ symbol }: { symbol: string }) {
   const shell = useShell();
   const [prefs, setPrefs] = useChartPrefs();
@@ -149,6 +151,7 @@ export function BigChart({ symbol }: { symbol: string }) {
               timeframe={prefs.bigTf}
               onTimeframeChange={(t) => setPrefs({ bigTf: t })}
               logScale={prefs.bigLog}
+              paneHeights={BIG_PANES}
               initialBars={prefs.bigTf === 'D' ? 250 : prefs.bigTf === 'W' ? 160 : 90}
               className="min-w-0 border-r border-line"
             />

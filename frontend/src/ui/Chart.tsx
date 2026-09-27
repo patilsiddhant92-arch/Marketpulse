@@ -92,6 +92,8 @@ export interface ChartProps {
   /** Charts with the same group share a date-synced crosshair. */
   syncGroup?: string;
   logScale?: boolean;
+  /** Lower pane heights in px (defaults: volume 90 / 70 with RS, RS 80). */
+  paneHeights?: { volume?: number; rs?: number };
   /** Fixed height in px; default fills the parent. */
   height?: number;
   /** Visible bars on first render (default 150). */
@@ -227,6 +229,7 @@ export function Chart({
   markers,
   syncGroup,
   logScale = false,
+  paneHeights,
   height,
   initialBars = 150,
   showLegend = true,
@@ -366,8 +369,8 @@ export function Chart({
       rsMarkersRef.current = createSeriesMarkers(rsRef.current, []);
     }
     const panes = chart.panes();
-    if (panes[1]) panes[1].setHeight(volume && hasRs ? 70 : 90);
-    if (panes[2]) panes[2].setHeight(80);
+    if (panes[1]) panes[1].setHeight(volume ? (paneHeights?.volume ?? (hasRs ? 70 : 90)) : (paneHeights?.rs ?? 80));
+    if (panes[2]) panes[2].setHeight(paneHeights?.rs ?? 80);
 
     // ---- crosshair: legend + sync
     const onMove = (param: MouseEventParams<Time>) => {
@@ -434,7 +437,7 @@ export function Chart({
     };
     // Rebuild only on structural change; data flows through the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emaKey, overlayKey, volume, hasRs, syncGroup]);
+  }, [emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
 
   // ---- log / linear without rebuild
   useEffect(() => {
@@ -494,7 +497,7 @@ export function Chart({
     markersRef.current?.setMarkers(snapped);
 
     boxesRef.current?.setBoxes(boxes ?? []);
-  }, [shown, overlays, boxes, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup]);
+  }, [shown, overlays, boxes, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
 
   // ---- initial visible range: only when the bars (or chart structure) change, so toggling
   // overlays / boxes keeps the user's zoom.
@@ -502,7 +505,7 @@ export function Chart({
     const chart = chartRef.current;
     const n = shown.length;
     if (chart && n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + 3 });
-  }, [shown, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup]);
+  }, [shown, initialBars, emaKey, overlayKey, volume, hasRs, syncGroup, paneHeights?.volume, paneHeights?.rs]);
 
   return (
     <div className={cn('relative flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>
