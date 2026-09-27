@@ -31,10 +31,8 @@ export default function DeskRoute() {
   const rail = width === 0 || width >= RAIL_MIN_WIDTH;
   return (
     <div ref={ref} className="flex h-full min-h-0 flex-col gap-2 overflow-hidden p-2">
-      <div className={rail ? 'grid shrink-0 grid-cols-[minmax(0,1fr)_320px] gap-2' : 'flex shrink-0 flex-col gap-2'}>
-        <EnvironmentPanel />
-        {rail && <LeadingGroupsPanel />}
-      </div>
+      {/* At-a-glance band: verdict + breadth + queue counts (desk/EnvironmentPanel). */}
+      <EnvironmentPanel />
       <div className={rail ? 'grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px] gap-2' : 'flex min-h-0 flex-1 flex-col'}>
         <QueuePanel
           className="min-h-0 flex-1"
@@ -49,7 +47,8 @@ export default function DeskRoute() {
           }
         />
         {rail && (
-          <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-2">
+            <LeadingGroupsPanel />
             <DiffPanel className="min-h-0" />
             <WatchlistPanel className="min-h-0" />
           </div>

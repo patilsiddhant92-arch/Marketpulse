@@ -1,121 +1,209 @@
-import { ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+/**
+ * Desk "at a glance" band (spec 7.2): verdict hero + key breadth KPIs + the
+ * three queue counts with what is new today. Built only from queries the Desk
+ * already makes (market/regime, market/health, desk/queues, desk/diff) —
+ * TanStack Query shares them with the panels below.
+ */
+import { useMemo, useState } from 'react';
 import { isApiError } from '../api/client';
 import { useApiQuery } from '../api/query';
-import type { PillarStatus } from '../api/types';
+import type { PillarStatus, Verdict } from '../api/types';
 import { cn } from '../lib/cn';
-import { fmtDateWithDay } from '../lib/fmt';
+import { fmtDateWithDay, fmtInt, fmtNum, fmtSignedPct } from '../lib/fmt';
 import { EnvironmentDrawer, VERDICT_ACTION, VERDICT_TEXT, useEnvironment } from '../shell/environment';
-import { Chip } from '../ui/Chip';
-import { ErrorState } from '../ui/ErrorState';
-import { Metric } from '../ui/Metric';
-import { Panel } from '../ui/Panel';
-import { Skeleton } from '../ui/Skeleton';
-import { Spark } from '../ui/Spark';
+import { useUrlParam } from '../shell/urlState';
+import { GlanceBand } from '../ui/GlanceBand';
+import { KpiTile, type KpiTone } from '../ui/KpiTile';
 import { Tooltip } from '../ui/Tooltip';
-import { breadthSeries, breadthSnapshot } from './deskModel';
+import { QUEUES, asQueueId, breadthSeries, breadthSnapshot, groupDiff } from './deskModel';
 
-const PILLAR_TONE: Record<PillarStatus, 'positive' | 'warn' | 'negative'> = { Healthy: 'positive', Neutral: 'warn', Weak: 'negative' };
+const VERDICT_TONE: Record<Verdict, KpiTone> = { Favourable: 'up', Constructive: 'up', Mixed: 'accent', Weak: 'warn', Danger: 'down' };
+const PILLAR_DOT: Record<PillarStatus, string> = { Healthy: 'bg-up', Neutral: 'bg-warn', Weak: 'bg-down' };
 
-const DIGITS: Record<string, { format: 'num' | 'int' | 'pct'; digits?: number; label: string }> = {
-  pct_above_50ema: { format: 'pct', digits: 1, label: '> 50 EMA' },
-  pct_above_200ema: { format: 'pct', digits: 1, label: '> 200 EMA' },
-  pct_above_10ema: { format: 'pct', digits: 1, label: '> 10 EMA (timing)' },
-  advance_pct: { format: 'pct', digits: 1, label: 'Advancers' },
-  net_new_highs: { format: 'int', label: 'Net new highs' },
-  distribution_days_25: { format: 'int', label: 'Distribution days' },
-  india_vix: { format: 'num', digits: 2, label: 'India VIX' },
-};
-
-/** Raw breadth readings — shown on their own when the verdict is not built, and under it when it is. */
-function BreadthRow() {
-  const q = useApiQuery('market/health', { query: { days: 60, limit: 60 } });
-  if (q.isLoading) return <Skeleton height={36} />;
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} compact />;
-  const rows = q.data?.rows ?? [];
-  const snap = breadthSnapshot(rows);
-  if (!snap.date) return <p className="text-2xs text-fg-3">No breadth rows for this date.</p>;
-  return (
-    <div className="flex flex-wrap items-end gap-x-5 gap-y-2">
-      {snap.readings.map((r) => (
-        <Metric
-          key={r.key}
-          metricKey={r.key}
-          value={r.value}
-          format={DIGITS[r.key]?.format ?? 'num'}
-          digits={DIGITS[r.key]?.digits}
-          label={DIGITS[r.key]?.label}
-          delta={r.key === 'india_vix' ? undefined : r.delta}
-          deltaFormat={DIGITS[r.key]?.format === 'pct' ? 'signedPct' : 'signed'}
-          size="sm"
-        />
-      ))}
-      <Metric metricKey="vix_change_5d" value={rows[0]?.vix_change_5d_pct ?? null} format="signedPct" digits={1} size="sm" label="VIX 5d" />
-      <Tooltip content="% of stocks above their 50-day EMA, last 60 sessions">
-        <span className="inline-flex flex-col gap-0.5" tabIndex={0}>
-          <span className="text-2xs uppercase tracking-wide text-fg-3">&gt;50 EMA · 60d</span>
-          <Spark values={breadthSeries(rows, 'pct_above_50ema')} label="% above 50 EMA, 60 sessions" width={96} height={20} baseline={50} />
-        </span>
-      </Tooltip>
-    </div>
-  );
-}
-
-/** Desk Environment panel (spec 6.1 / 7.2): verdict + what changed + pillars, with raw breadth. */
-export function EnvironmentPanel({ className }: { className?: string }) {
+/** Verdict hero tile (click = environment drawer). */
+function VerdictTile() {
   const { q, view, unavailable } = useEnvironment();
   const [open, setOpen] = useState(false);
   const notShipped = isApiError(q.error) && (q.error.kind === 'not_found' || q.error.kind === 'parse');
 
-  let verdictBlock;
-  if (q.isLoading) verdictBlock = <Skeleton width={260} height={28} />;
-  else if (view && !unavailable) {
-    verdictBlock = (
-      <button type="button" onClick={() => setOpen(true)} className="group flex min-w-0 items-center gap-3 text-left" aria-label="Open market environment details">
-        <span className={cn('text-2xl font-semibold leading-none', view.verdict ? VERDICT_TEXT[view.verdict] : 'text-fg-3')}>{view.verdict ?? '—'}</span>
-        <span className="flex min-w-0 flex-col">
-          {view.verdict && <span className="text-xs font-medium text-fg-2">{VERDICT_ACTION[view.verdict]}</span>}
-          {view.whatChanged && <span className="truncate text-2xs text-fg-3">{view.whatChanged}</span>}
-          {view.evidenceNote && <span className="truncate text-2xs text-warn" title={view.evidenceNote}>describes conditions — not a trade filter (5-yr test)</span>}
-        </span>
-        <span className="ml-2 flex flex-wrap gap-1">
-          {view.pillars.map((p) => (
-            <Tooltip key={p.key} content={`${p.question} ${p.sentence ?? ''}`}>
-              <span>
-                <Chip tone={p.status ? PILLAR_TONE[p.status] : 'neutral'}>
-                  {p.name}
-                  {p.status ? '' : ' —'}
-                </Chip>
-              </span>
-            </Tooltip>
-          ))}
-        </span>
-        <ChevronRight className="h-4 w-4 text-fg-3 group-hover:text-fg" aria-hidden />
-      </button>
-    );
-  } else {
+  if (q.isLoading) return <KpiTile hero label="Environment" value={null} loading />;
+  if (!view || unavailable || !view.verdict) {
     const reason = q.data?.meta?.reason;
-    verdictBlock = (
-      <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-medium text-fg-2">Verdict not available</span>
-        <span className="truncate text-2xs text-fg-3">
-          {notShipped ? 'API v2 regime endpoint not deployed.' : q.error ? 'Could not load the regime.' : (reason ?? 'regime_daily has no row for this date.')}{' '}
-          Read the raw breadth below instead.
-        </span>
-      </div>
+    return (
+      <KpiTile
+        hero
+        label="Environment"
+        value={<span className="text-title text-fg-2">Verdict not available</span>}
+        caption={
+          <>
+            {notShipped
+              ? 'API v2 regime endpoint not deployed.'
+              : q.error
+                ? 'Could not load the regime.'
+                : (reason ?? 'regime_daily has no row for this date.')}{' '}
+            Read the raw breadth instead.
+          </>
+        }
+        className="!min-w-[280px] !flex-[1.6]"
+      />
     );
   }
-
+  const v = view.verdict;
   return (
-    <Panel
-      title="Market environment"
-      meta={`${view?.asOf ? `as of ${fmtDateWithDay(view.asOf)} · ` : ''}small figures = change vs previous session · hover any number for what it means`}
-      className={className}
-      bodyClassName="space-y-3 px-3 py-2.5"
-    >
-      {verdictBlock}
-      <BreadthRow />
-      {view && <EnvironmentDrawer open={open} onClose={() => setOpen(false)} view={view} />}
-    </Panel>
+    <>
+      <KpiTile
+        hero
+        tone={VERDICT_TONE[v]}
+        label={<>Environment{view.asOf ? ` · ${fmtDateWithDay(view.asOf)}` : ''}</>}
+        value={<span className={VERDICT_TEXT[v]}>{v}</span>}
+        caption={
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="font-medium text-fg-2">{VERDICT_ACTION[v]}</span>
+            <span className="flex items-center gap-[3px]" aria-label="Pillars">
+              {view.pillars.map((p) => (
+                <Tooltip key={p.key} content={`${p.name}: ${p.status ?? 'no data'}${p.sentence ? ` — ${p.sentence}` : ''}`}>
+                  <span
+                    className={cn('h-[7px] w-[7px] rounded-[2px]', p.status ? PILLAR_DOT[p.status] : 'bg-line-strong')}
+                    aria-label={`${p.name} ${p.status ?? 'no data'}`}
+                  />
+                </Tooltip>
+              ))}
+            </span>
+            {view.whatChanged && <span className="min-w-0 truncate">{view.whatChanged}</span>}
+          </span>
+        }
+        onClick={() => setOpen(true)}
+        className="!min-w-[260px] !flex-[1.25]"
+      />
+      {view.evidenceNote && <span className="sr-only">{view.evidenceNote}</span>}
+      <EnvironmentDrawer open={open} onClose={() => setOpen(false)} view={view} />
+    </>
+  );
+}
+
+/** Four breadth tiles; the other readings ride in their captions so nothing is dropped. */
+function BreadthTiles() {
+  const q = useApiQuery('market/health', { query: { days: 60, limit: 60 } });
+  const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
+  const snap = useMemo(() => breadthSnapshot(rows), [rows]);
+  const r = (k: string) => snap.readings.find((x) => x.key === k);
+  const loading = q.isLoading;
+  if (q.error) {
+    return <KpiTile label="Breadth" value={<span className="text-sm text-fg-3">could not load</span>} caption="market/health failed" />;
+  }
+  if (!loading && !snap.date) {
+    return <KpiTile label="Breadth" value={null} caption="No breadth rows for this date." />;
+  }
+  const a50 = r('pct_above_50ema');
+  const a200 = r('pct_above_200ema');
+  const a10 = r('pct_above_10ema');
+  const nnh = r('net_new_highs');
+  const adv = r('advance_pct');
+  const dd = r('distribution_days_25');
+  const vix = r('india_vix');
+  const vix5 = rows[0]?.vix_change_5d_pct ?? null;
+  return (
+    <>
+      <KpiTile
+        label="Above 50 EMA"
+        metricKey="pct_above_50ema"
+        value={a50?.value ?? null}
+        format="pct"
+        digits={1}
+        delta={a50?.delta ?? null}
+        deltaFormat="signedPct"
+        spark={breadthSeries(rows, 'pct_above_50ema')}
+        sparkBaseline={50}
+        sparkLabel="% above 50 EMA, 60 sessions"
+        caption={a10?.value != null ? `10 EMA ${fmtNum(a10.value, 1)}%` : undefined}
+        loading={loading}
+      />
+      <KpiTile
+        label="Above 200 EMA"
+        metricKey="pct_above_200ema"
+        value={a200?.value ?? null}
+        format="pct"
+        digits={1}
+        delta={a200?.delta ?? null}
+        deltaFormat="signedPct"
+        spark={breadthSeries(rows, 'pct_above_200ema')}
+        sparkBaseline={50}
+        sparkLabel="% above 200 EMA, 60 sessions"
+        loading={loading}
+      />
+      <KpiTile
+        label="Net new highs"
+        metricKey="net_new_highs"
+        value={nnh?.value ?? null}
+        format="int"
+        delta={nnh?.delta ?? null}
+        spark={breadthSeries(rows, 'net_new_highs')}
+        sparkBaseline={0}
+        sparkLabel="Net new highs, 60 sessions"
+        caption={
+          adv?.value != null || dd?.value != null
+            ? `Adv ${adv?.value != null ? `${fmtNum(adv.value, 1)}%` : '—'} · dist days ${dd?.value != null ? fmtInt(dd.value) : '—'}`
+            : undefined
+        }
+        loading={loading}
+      />
+      <KpiTile
+        label="India VIX"
+        metricKey="india_vix"
+        value={vix?.value ?? null}
+        format="num"
+        digits={2}
+        delta={vix5}
+        deltaFormat="signedPct"
+        deltaTone="invert"
+        caption={vix5 != null ? `5-day change ${fmtSignedPct(vix5, 1)}` : undefined}
+        loading={loading}
+      />
+    </>
+  );
+}
+
+/** Queue count tiles (count today + new vs yesterday); click switches the queue below. */
+function QueueTiles() {
+  const summary = useApiQuery('desk/queues');
+  const diff = useApiQuery('desk/diff', { query: { limit: 5000 } });
+  const newCounts = useMemo(() => groupDiff(diff.data?.rows ?? []), [diff.data]);
+  const [queueParam, setQueueParam] = useUrlParam('queue');
+  const active = asQueueId(queueParam);
+  return (
+    <>
+      {QUEUES.map((x) => {
+        const row = summary.data?.rows.find((r) => r.name === x.id);
+        const added = newCounts[x.id]?.added.length ?? 0;
+        const dropped = newCounts[x.id]?.dropped.length ?? 0;
+        return (
+          <KpiTile
+            key={x.id}
+            label={`${x.short} queue`}
+            value={row?.counts?.D ?? null}
+            format="int"
+            delta={diff.data ? added : undefined}
+            deltaTone={added > 0 ? 'auto' : 'neutral'}
+            caption={diff.data ? `${added} new · ${dropped} dropped` : undefined}
+            loading={summary.isLoading}
+            tone="neutral"
+            hint={row?.description ?? undefined}
+            selected={active === x.id}
+            onClick={() => setQueueParam(x.id === 'darvas_squeeze' ? null : x.id)}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/** Desk header band. Exported under the old panel name so the Desk layout stays put. */
+export function EnvironmentPanel({ className }: { className?: string }) {
+  return (
+    <GlanceBand label="Desk at a glance" className={className}>
+      <VerdictTile />
+      <BreadthTiles />
+      <QueueTiles />
+    </GlanceBand>
   );
 }

@@ -35,6 +35,7 @@ import {
 } from '../screener/model';
 import { RuleBar } from '../screener/RuleBar';
 import { RuleDebugger } from '../screener/RuleDebugger';
+import { ScreenerGlance } from '../screener/ScreenerGlance';
 import { VcpDetail } from '../screener/VcpDetail';
 import { useShell } from '../shell/ShellContext';
 import { Chip } from '../ui/Chip';
@@ -172,6 +173,21 @@ export default function ScreenerRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* at-a-glance band */}
+      <div className="shrink-0 px-2 pb-1.5 pt-2">
+        <ScreenerGlance
+          presetLabel={preset?.label ?? state.preset}
+          rows={rows}
+          total={unavailable ? null : run.data?.total}
+          asOf={run.data?.as_of}
+          newCount={ctx.new_count}
+          droppedCount={dropped.length}
+          previousSession={ctx.previous_session}
+          evidence={evRow}
+          custom={custom}
+          loading={run.isLoading || presetsQ.isLoading}
+        />
+      </div>
       {/* presets */}
       <div
         className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5"
