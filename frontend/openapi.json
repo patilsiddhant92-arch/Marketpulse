@@ -1789,6 +1789,441 @@
         }
       }
     },
+    "/api/v2/deals/prints": {
+      "get": {
+        "summary": "Deals Prints",
+        "operationId": "deals_prints_api_v2_deals_prints_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "min_mcap_cr",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.0,
+              "title": "Min Mcap Cr"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DealPrintRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/window": {
+      "get": {
+        "summary": "Deals Window",
+        "operationId": "deals_window_api_v2_deals_window_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 2,
+              "description": "Deal sessions in the window (old desk: 10 / 20 / 30)",
+              "default": 20,
+              "title": "Lookback"
+            },
+            "description": "Deal sessions in the window (old desk: 10 / 20 / 30)"
+          },
+          {
+            "name": "min_mcap_cr",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "default": 1000.0,
+              "title": "Min Mcap Cr"
+            }
+          },
+          {
+            "name": "setup",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ALL",
+                "ABOVE_200",
+                "TURNAROUND"
+              ],
+              "type": "string",
+              "default": "ALL",
+              "title": "Setup"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DealWindowRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/leaderboard": {
+      "get": {
+        "summary": "Deals Leaderboard",
+        "operationId": "deals_leaderboard_api_v2_deals_leaderboard_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 2,
+              "description": "Deal sessions in the window (old desk: 10 / 20 / 30)",
+              "default": 20,
+              "title": "Lookback"
+            },
+            "description": "Deal sessions in the window (old desk: 10 / 20 / 30)"
+          },
+          {
+            "name": "include_individuals",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Individuals"
+            }
+          },
+          {
+            "name": "ranked_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Ranked Only"
+            }
+          },
+          {
+            "name": "min_bets",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 3,
+              "default": 5,
+              "title": "Min Bets"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DealLeaderRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/star-radar": {
+      "get": {
+        "summary": "Deals Star Radar",
+        "operationId": "deals_star_radar_api_v2_deals_star_radar_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 2,
+              "description": "Deal sessions in the window (old desk: 10 / 20 / 30)",
+              "default": 20,
+              "title": "Lookback"
+            },
+            "description": "Deal sessions in the window (old desk: 10 / 20 / 30)"
+          },
+          {
+            "name": "include_individuals",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Individuals"
+            }
+          },
+          {
+            "name": "stars_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "strong",
+                "steady"
+              ],
+              "type": "string",
+              "default": "strong",
+              "title": "Stars From"
+            }
+          },
+          {
+            "name": "min_bets",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 3,
+              "default": 5,
+              "title": "Min Bets"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DealStarRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/deals/followthrough": {
       "get": {
         "summary": "Deals Followthrough",
@@ -3353,6 +3788,548 @@
         ],
         "title": "Contraction"
       },
+      "DealHolding": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "buy_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buy Cr"
+          },
+          "sell_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sell Cr"
+          },
+          "net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Cr"
+          },
+          "prints": {
+            "type": "integer",
+            "title": "Prints"
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Date"
+          },
+          "last_side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Side"
+          },
+          "last_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Price"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "prints"
+        ],
+        "title": "DealHolding"
+      },
+      "DealLeaderRow": {
+        "properties": {
+          "house": {
+            "type": "string",
+            "title": "House"
+          },
+          "clientele": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientele"
+          },
+          "individual": {
+            "type": "boolean",
+            "title": "Individual"
+          },
+          "clients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Clients"
+          },
+          "bets": {
+            "type": "integer",
+            "title": "Bets"
+          },
+          "bets_t20": {
+            "type": "integer",
+            "title": "Bets T20"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "total_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cr"
+          },
+          "win_rate_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate 20D"
+          },
+          "hit_rate_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate 20D"
+          },
+          "avg_ret_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Ret 20D"
+          },
+          "avg_excess_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Excess 20D"
+          },
+          "avg_peak_runup": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Peak Runup"
+          },
+          "avg_days_to_peak": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Days To Peak"
+          },
+          "baggers": {
+            "type": "integer",
+            "title": "Baggers",
+            "default": 0
+          },
+          "best_gain": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Gain"
+          },
+          "latest_buy_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Buy Date"
+          },
+          "catalyst_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalyst Score"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier"
+          },
+          "ranked": {
+            "type": "boolean",
+            "title": "Ranked"
+          },
+          "names_in_window": {
+            "type": "integer",
+            "title": "Names In Window",
+            "default": 0
+          },
+          "net_long_count": {
+            "type": "integer",
+            "title": "Net Long Count",
+            "default": 0
+          },
+          "holdings": {
+            "items": {
+              "$ref": "#/components/schemas/DealHolding"
+            },
+            "type": "array",
+            "title": "Holdings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "house",
+          "individual",
+          "bets",
+          "bets_t20",
+          "names",
+          "tier",
+          "ranked"
+        ],
+        "title": "DealLeaderRow"
+      },
+      "DealPrintRow": {
+        "properties": {
+          "security_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Name"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "ema_200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ema 200"
+          },
+          "above_200ema": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above 200Ema"
+          },
+          "away_52w_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W High Pct"
+          },
+          "rs_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Percentile"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          },
+          "circuit_band": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Circuit Band"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client"
+          },
+          "house": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "House",
+            "description": "Fund house (entity suffixes such as -FPI / -ODI / PVT LTD stripped)"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Cr"
+          },
+          "deal_types": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Types"
+          },
+          "clientele": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientele"
+          },
+          "is_prop": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Prop"
+          },
+          "price_vs_close_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Vs Close Pct"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type",
+            "description": "The stock's event label for the session"
+          }
+        },
+        "type": "object",
+        "title": "DealPrintRow",
+        "description": "One collapsed print of the deal session (Today)."
+      },
       "DealSessionRow": {
         "properties": {
           "symbol": {
@@ -3790,6 +4767,585 @@
         },
         "type": "object",
         "title": "DealSessionRow"
+      },
+      "DealStarRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "house": {
+            "type": "string",
+            "title": "House"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client"
+          },
+          "clientele": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientele"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "catalyst_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalyst Score"
+          },
+          "win_rate_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate 20D"
+          },
+          "deal_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Date"
+          },
+          "deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price"
+          },
+          "entry_open": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Open"
+          },
+          "cmp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cmp"
+          },
+          "gain_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gain Pct"
+          },
+          "peak_runup_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Runup Pct"
+          },
+          "holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holding Days"
+          },
+          "deal_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Cr"
+          },
+          "rs_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Percentile"
+          },
+          "away_52w_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W High Pct"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "house"
+        ],
+        "title": "DealStarRow"
+      },
+      "DealWindowRow": {
+        "properties": {
+          "security_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Name"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "ema_200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ema 200"
+          },
+          "above_200ema": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above 200Ema"
+          },
+          "away_52w_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W High Pct"
+          },
+          "rs_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Percentile"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          },
+          "circuit_band": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Circuit Band"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "deal_days": {
+            "type": "integer",
+            "title": "Deal Days",
+            "description": "Sessions in the window with any collapsed print"
+          },
+          "net_buy_days": {
+            "type": "integer",
+            "title": "Net Buy Days"
+          },
+          "net_sell_days": {
+            "type": "integer",
+            "title": "Net Sell Days"
+          },
+          "transfer_days": {
+            "type": "integer",
+            "title": "Transfer Days"
+          },
+          "churn_days": {
+            "type": "integer",
+            "title": "Churn Days"
+          },
+          "buy_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buy Cr"
+          },
+          "sell_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sell Cr"
+          },
+          "net_ex_prop_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Ex Prop Cr"
+          },
+          "flow_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow Net Cr",
+            "description": "Net ex-PROP on accumulate / fresh / distribute sessions only"
+          },
+          "flow_buy_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow Buy Cr"
+          },
+          "transfer_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transfer Cr"
+          },
+          "prop_value_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prop Value Cr"
+          },
+          "fii_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fii Net Cr"
+          },
+          "dii_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dii Net Cr"
+          },
+          "first_deal_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Deal Date"
+          },
+          "last_deal_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Deal Date"
+          },
+          "last_event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event Type"
+          },
+          "net_by_session": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Net By Session",
+            "description": "Flow net per window session (dates in meta.context.window_dates); 0 = transfer/churn, NULL = no deal"
+          },
+          "n_houses": {
+            "type": "integer",
+            "title": "N Houses",
+            "default": 0
+          },
+          "n_buy_houses": {
+            "type": "integer",
+            "title": "N Buy Houses",
+            "default": 0
+          },
+          "n_sell_houses": {
+            "type": "integer",
+            "title": "N Sell Houses",
+            "default": 0
+          },
+          "repeat_house": {
+            "type": "boolean",
+            "title": "Repeat House",
+            "default": false
+          },
+          "top_buyers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Top Buyers"
+          },
+          "top_sellers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Top Sellers"
+          },
+          "adv_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adv Cr"
+          },
+          "net_vs_adv": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Vs Adv"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier",
+            "description": "quarantined | transfer | churn | conviction | fresh | distribution"
+          },
+          "play_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Play Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "deal_days",
+          "net_buy_days",
+          "net_sell_days",
+          "transfer_days",
+          "churn_days",
+          "tier"
+        ],
+        "title": "DealWindowRow",
+        "description": "One stock over the last N deal sessions (repeated deals, Play tiers, churn, transfers)."
       },
       "DebugRow": {
         "properties": {
@@ -4388,6 +5944,98 @@
         ],
         "title": "Envelope[BigMoveRow]"
       },
+      "Envelope_DealLeaderRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealLeaderRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealLeaderRow]"
+      },
+      "Envelope_DealPrintRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealPrintRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealPrintRow]"
+      },
       "Envelope_DealSessionRow_": {
         "properties": {
           "as_of": {
@@ -4433,6 +6081,98 @@
           "meta"
         ],
         "title": "Envelope[DealSessionRow]"
+      },
+      "Envelope_DealStarRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealStarRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealStarRow]"
+      },
+      "Envelope_DealWindowRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealWindowRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealWindowRow]"
       },
       "Envelope_DebugRow_": {
         "properties": {

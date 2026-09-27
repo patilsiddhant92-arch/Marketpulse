@@ -302,6 +302,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/deals/prints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Deals Prints */
+        get: operations["deals_prints_api_v2_deals_prints_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Deals Window */
+        get: operations["deals_window_api_v2_deals_window_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Deals Leaderboard */
+        get: operations["deals_leaderboard_api_v2_deals_leaderboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/star-radar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Deals Star Radar */
+        get: operations["deals_star_radar_api_v2_deals_star_radar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/deals/followthrough": {
         parameters: {
             query?: never;
@@ -675,6 +743,141 @@ export interface components {
             /** Volume Ratio */
             volume_ratio?: number | null;
         };
+        /** DealHolding */
+        DealHolding: {
+            /** Symbol */
+            symbol: string;
+            /** Buy Cr */
+            buy_cr?: number | null;
+            /** Sell Cr */
+            sell_cr?: number | null;
+            /** Net Cr */
+            net_cr?: number | null;
+            /** Prints */
+            prints: number;
+            /** Last Date */
+            last_date?: string | null;
+            /** Last Side */
+            last_side?: string | null;
+            /** Last Price */
+            last_price?: number | null;
+        };
+        /** DealLeaderRow */
+        DealLeaderRow: {
+            /** House */
+            house: string;
+            /** Clientele */
+            clientele?: string | null;
+            /** Individual */
+            individual: boolean;
+            /** Clients */
+            clients?: string[];
+            /** Bets */
+            bets: number;
+            /** Bets T20 */
+            bets_t20: number;
+            /** Names */
+            names: number;
+            /** Total Cr */
+            total_cr?: number | null;
+            /** Win Rate 20D */
+            win_rate_20d?: number | null;
+            /** Hit Rate 20D */
+            hit_rate_20d?: number | null;
+            /** Avg Ret 20D */
+            avg_ret_20d?: number | null;
+            /** Avg Excess 20D */
+            avg_excess_20d?: number | null;
+            /** Avg Peak Runup */
+            avg_peak_runup?: number | null;
+            /** Avg Days To Peak */
+            avg_days_to_peak?: number | null;
+            /**
+             * Baggers
+             * @default 0
+             */
+            baggers: number;
+            /** Best Gain */
+            best_gain?: number | null;
+            /** Latest Buy Date */
+            latest_buy_date?: string | null;
+            /** Catalyst Score */
+            catalyst_score?: number | null;
+            /** Tier */
+            tier: string;
+            /** Ranked */
+            ranked: boolean;
+            /**
+             * Names In Window
+             * @default 0
+             */
+            names_in_window: number;
+            /**
+             * Net Long Count
+             * @default 0
+             */
+            net_long_count: number;
+            /** Holdings */
+            holdings?: components["schemas"]["DealHolding"][];
+        };
+        /**
+         * DealPrintRow
+         * @description One collapsed print of the deal session (Today).
+         */
+        DealPrintRow: {
+            /** Security Name */
+            security_name?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /** Ema 200 */
+            ema_200?: number | null;
+            /** Above 200Ema */
+            above_200ema?: boolean | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Circuit Band */
+            circuit_band?: number | null;
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Symbol */
+            symbol?: string | null;
+            /** Client */
+            client?: string | null;
+            /**
+             * House
+             * @description Fund house (entity suffixes such as -FPI / -ODI / PVT LTD stripped)
+             */
+            house?: string | null;
+            /** Side */
+            side?: string | null;
+            /** Quantity */
+            quantity?: number | null;
+            /** Price */
+            price?: number | null;
+            /** Value Cr */
+            value_cr?: number | null;
+            /** Deal Types */
+            deal_types?: string | null;
+            /** Clientele */
+            clientele?: string | null;
+            /** Is Prop */
+            is_prop?: boolean | null;
+            /** Price Vs Close Pct */
+            price_vs_close_pct?: number | null;
+            /**
+             * Event Type
+             * @description The stock's event label for the session
+             */
+            event_type?: string | null;
+        };
         /** DealSessionRow */
         DealSessionRow: {
             /** Symbol */
@@ -762,6 +965,155 @@ export interface components {
             rs_ge_70?: boolean | null;
             /** Within 15Pct Of High */
             within_15pct_of_high?: boolean | null;
+        };
+        /** DealStarRow */
+        DealStarRow: {
+            /** Symbol */
+            symbol: string;
+            /** House */
+            house: string;
+            /** Client */
+            client?: string | null;
+            /** Clientele */
+            clientele?: string | null;
+            /** Tier */
+            tier?: string | null;
+            /** Catalyst Score */
+            catalyst_score?: number | null;
+            /** Win Rate 20D */
+            win_rate_20d?: number | null;
+            /** Deal Date */
+            deal_date?: string | null;
+            /** Deal Price */
+            deal_price?: number | null;
+            /** Entry Open */
+            entry_open?: number | null;
+            /** Cmp */
+            cmp?: number | null;
+            /** Gain Pct */
+            gain_pct?: number | null;
+            /** Peak Runup Pct */
+            peak_runup_pct?: number | null;
+            /** Holding Days */
+            holding_days?: number | null;
+            /** Deal Cr */
+            deal_cr?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Sector */
+            sector?: string | null;
+        };
+        /**
+         * DealWindowRow
+         * @description One stock over the last N deal sessions (repeated deals, Play tiers, churn, transfers).
+         */
+        DealWindowRow: {
+            /** Security Name */
+            security_name?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+            /** Ema 200 */
+            ema_200?: number | null;
+            /** Above 200Ema */
+            above_200ema?: boolean | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Circuit Band */
+            circuit_band?: number | null;
+            /** Symbol */
+            symbol: string;
+            /**
+             * Deal Days
+             * @description Sessions in the window with any collapsed print
+             */
+            deal_days: number;
+            /** Net Buy Days */
+            net_buy_days: number;
+            /** Net Sell Days */
+            net_sell_days: number;
+            /** Transfer Days */
+            transfer_days: number;
+            /** Churn Days */
+            churn_days: number;
+            /** Buy Cr */
+            buy_cr?: number | null;
+            /** Sell Cr */
+            sell_cr?: number | null;
+            /** Net Ex Prop Cr */
+            net_ex_prop_cr?: number | null;
+            /**
+             * Flow Net Cr
+             * @description Net ex-PROP on accumulate / fresh / distribute sessions only
+             */
+            flow_net_cr?: number | null;
+            /** Flow Buy Cr */
+            flow_buy_cr?: number | null;
+            /** Transfer Cr */
+            transfer_cr?: number | null;
+            /** Prop Value Cr */
+            prop_value_cr?: number | null;
+            /** Fii Net Cr */
+            fii_net_cr?: number | null;
+            /** Dii Net Cr */
+            dii_net_cr?: number | null;
+            /** First Deal Date */
+            first_deal_date?: string | null;
+            /** Last Deal Date */
+            last_deal_date?: string | null;
+            /** Last Event Type */
+            last_event_type?: string | null;
+            /**
+             * Net By Session
+             * @description Flow net per window session (dates in meta.context.window_dates); 0 = transfer/churn, NULL = no deal
+             */
+            net_by_session?: (number | null)[];
+            /**
+             * N Houses
+             * @default 0
+             */
+            n_houses: number;
+            /**
+             * N Buy Houses
+             * @default 0
+             */
+            n_buy_houses: number;
+            /**
+             * N Sell Houses
+             * @default 0
+             */
+            n_sell_houses: number;
+            /**
+             * Repeat House
+             * @default false
+             */
+            repeat_house: boolean;
+            /** Top Buyers */
+            top_buyers?: string[];
+            /** Top Sellers */
+            top_sellers?: string[];
+            /** Adv Cr */
+            adv_cr?: number | null;
+            /** Net Vs Adv */
+            net_vs_adv?: number | null;
+            /**
+             * Tier
+             * @description quarantined | transfer | churn | conviction | fresh | distribution
+             */
+            tier: string;
+            /** Play Reason */
+            play_reason?: string | null;
         };
         /** DebugRow */
         DebugRow: {
@@ -909,6 +1261,32 @@ export interface components {
             rows: components["schemas"]["BigMoveRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[DealLeaderRow] */
+        Envelope_DealLeaderRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealLeaderRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealPrintRow] */
+        Envelope_DealPrintRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealPrintRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[DealSessionRow] */
         Envelope_DealSessionRow_: {
             /** As Of */
@@ -920,6 +1298,32 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DealSessionRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealStarRow] */
+        Envelope_DealStarRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealStarRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealWindowRow] */
+        Envelope_DealWindowRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealWindowRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DebugRow] */
@@ -3025,6 +3429,157 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_HousePrintRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deals_prints_api_v2_deals_prints_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                min_mcap_cr?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DealPrintRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deals_window_api_v2_deals_window_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Deal sessions in the window (old desk: 10 / 20 / 30) */
+                lookback?: number;
+                min_mcap_cr?: number;
+                setup?: "ALL" | "ABOVE_200" | "TURNAROUND";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DealWindowRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deals_leaderboard_api_v2_deals_leaderboard_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Deal sessions in the window (old desk: 10 / 20 / 30) */
+                lookback?: number;
+                include_individuals?: boolean;
+                ranked_only?: boolean;
+                min_bets?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DealLeaderRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deals_star_radar_api_v2_deals_star_radar_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Deal sessions in the window (old desk: 10 / 20 / 30) */
+                lookback?: number;
+                include_individuals?: boolean;
+                stars_from?: "strong" | "steady";
+                min_bets?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DealStarRow_"];
                 };
             };
             /** @description Validation Error */

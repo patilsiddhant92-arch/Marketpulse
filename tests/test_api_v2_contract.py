@@ -60,7 +60,8 @@ READ_URLS = [
     "/api/v2/screener/run?preset=minervini_8of8", "/api/v2/screener/debug?symbol=AAA&preset=minervini_8of8",
     "/api/v2/groups/board", "/api/v2/groups/rrg", "/api/v2/groups/industry:Heavy Electrical",
     "/api/v2/groups/industry:Heavy Electrical/members", "/api/v2/deals/session", "/api/v2/deals/house/GOOD FUND LP",
-    "/api/v2/deals/followthrough", "/api/v2/stock/AAA", "/api/v2/stock/AAA/bars", "/api/v2/stock/AAA/bars?tf=W",
+    "/api/v2/deals/followthrough", "/api/v2/deals/prints", "/api/v2/deals/window?min_mcap_cr=0",
+    "/api/v2/deals/leaderboard", "/api/v2/deals/star-radar", "/api/v2/stock/AAA", "/api/v2/stock/AAA/bars", "/api/v2/stock/AAA/bars?tf=W",
     "/api/v2/stock/AAA/bars?tf=M", "/api/v2/stock/AAA/rs", "/api/v2/stock/AAA/events", "/api/v2/stock/AAA/deals",
     "/api/v2/stock/AAA/analogs", "/api/v2/evidence/vcp", "/api/v2/research/analogs", "/api/v2/research/big-moves",
     "/api/v2/research/big-moves/abc", "/api/v2/research/pre-move", "/api/v2/metrics/dictionary", "/api/v2/watchlist",
@@ -399,6 +400,22 @@ def test_duplicate_bulk_block_print_counted_once(client):
     assert "TOTAL" not in {r["symbol"] for r in rows}
     prints = _ok(client, "/api/v2/stock/AAA/deals")["rows"]
     assert len(prints) == 1 and set(prints[0]["deal_types"].split("+")) == {"Bulk", "Block"}
+
+
+def test_deals_desk_views_restored(client):
+    """Today prints, the multi-session window and the house leaderboard (old desk features) on the fixture."""
+    prints = _ok(client, "/api/v2/deals/prints")
+    assert prints["total"] == 1 and prints["rows"][0]["symbol"] == "AAA"  # bulk+block duplicate once, TOTAL dropped
+    assert prints["rows"][0]["house"] == "GOOD FUND LP" and prints["rows"][0]["event_type"] == "fresh"
+    win = _ok(client, "/api/v2/deals/window?min_mcap_cr=0&lookback=10")
+    aaa = next(r for r in win["rows"] if r["symbol"] == "AAA")
+    assert aaa["deal_days"] == 1 and aaa["net_buy_days"] == 1 and aaa["flow_net_cr"] == 1.28
+    assert aaa["tier"] == "fresh" and aaa["play_reason"] == "Single" and aaa["n_buy_houses"] == 1
+    assert win["meta"]["context"]["lookback"] == 10 and len(aaa["net_by_session"]) == len(win["meta"]["context"]["window_dates"])
+    # A ₹1.28 Cr print is below the ₹5 Cr bet floor: no house is ranked, no star radar rows (never fabricated).
+    assert _ok(client, "/api/v2/deals/leaderboard?include_individuals=true")["total"] == 0
+    assert _ok(client, "/api/v2/deals/star-radar")["total"] == 0
+    assert client.get("/api/v2/deals/window?setup=BOGUS").status_code == 422
 
 
 def test_house_page_forward_returns_never_look_past_as_of(client):
