@@ -1,11 +1,14 @@
 /**
  * Deals — disclosed bulk/block deals (spec 7.5).
  *
- * Session: per-stock nets for the latest deal session (prints collapsed, PROP
- * excluded from events), grouped Accumulate · Fresh · Distribute, with rails
- * for strategic transfers, churn/prop and the watchlist, and the prints behind
- * the focused row. Houses: every client with its next-open track record.
+ * Today: every stock of the latest deal session (prints collapsed, PROP excluded
+ * from events) — all event types incl. transfers and churn, below-floor stocks
+ * behind a floor toggle — with the prints behind the focused row, or the flat
+ * list of all prints. Repeated / Play / Prop-churn: the old desk's multi-session
+ * window (lookback 10/20/30, setup filter, persistence). Star funds / Leaderboard:
+ * house attribution (next-open entry). Houses: every client with its track record.
  * Follow-through: what happened after each event type vs all stocks.
+ * Every symbol list copies to TradingView (lib/tradingview, same as Desk/Screener).
  */
 import { AlertTriangle, HelpCircle, LineChart } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -23,10 +26,15 @@ import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
 import { Tooltip } from '../ui/Tooltip';
 import { Segmented, SourceNote, ZoneNum } from './groups/kit';
-import { chartsDealsHref, EVENTS, filterDeals, splitSession, type EventType } from './deals/dealsModel';
+import { chartsDealsHref, eventGroup, EVENTS, filterDeals, sortMain, splitSession, type EventType } from './deals/dealsModel';
+import { LeaderView, StarView, TodayPrintsView, WindowView } from './deals/DeskViews';
+import { LOOKBACKS, uniqueSymbols, type Setup } from './deals/deskModel';
 import { EventChip, HouseDrawer, NetStrip, PrintsPanel } from './deals/parts';
+import { selectColumn, TvCopyBar, useSelection } from './deals/TvCopy';
 
-type View = 'session' | 'houses' | 'follow';
+type View = 'today' | 'repeated' | 'play' | 'star' | 'leader' | 'prop' | 'follow' | 'houses';
+const VIEWS: readonly View[] = ['today', 'repeated', 'play', 'star', 'leader', 'prop', 'follow', 'houses'];
+type EventFilter = 'all' | 'flow' | 'strategic' | 'churn';
 const EMPTY: DealSessionRow[] = [];
 const EMPTY_H: HouseRow[] = [];
 
@@ -139,11 +147,22 @@ function SessionView({ rows, dates, text, dealDate, onHouse, loading, error, onR
   onRetry: () => void;
 }) {
   const shell = useShell();
+  const sel = useSelection();
   const [focus, setFocus] = useState<string | null>(null);
+  const [evParam, setEv] = useUrlParam('ev');
+  const ev: EventFilter = evParam === 'flow' || evParam === 'strategic' || evParam === 'churn' ? evParam : 'all';
   const filtered = useMemo(() => filterDeals(rows, text), [rows, text]);
   const parts = useMemo(() => splitSession(filtered), [filtered]);
+  const shown = useMemo(() => {
+    if (ev === 'all') return sortMain(filtered);
+    if (ev === 'flow') return parts.main;
+    return filtered.filter((r) => eventGroup(r.event_type) === ev);
+  }, [filtered, parts, ev]);
   const watch = useMemo(() => filtered.filter((r) => r.symbol && shell.isWatched(r.symbol)), [filtered, shell]);
-  const columns = useMemo(() => sessionColumns(dates), [dates]);
+  const visible = useMemo(() => uniqueSymbols(shown), [shown]);
+  const columns = useMemo(() => [selectColumn<DealSessionRow>((r) => r.symbol, sel, visible), ...sessionColumns(dates)], [dates, sel, visible]);
+  const [sorted, setSorted] = useState<DealSessionRow[]>([]);
+  const syms = useMemo(() => uniqueSymbols(sorted), [sorted]);
   const focusRow = rows.find((r) => r.symbol === focus) ?? null;
   const onFocus = (r: DealSessionRow) => {
     if (!r.symbol) return;
@@ -153,11 +172,28 @@ function SessionView({ rows, dates, text, dealDate, onHouse, loading, error, onR
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 text-2xs text-fg-3">
+          <Segmented
+            size="xs"
+            label="Event filter"
+            value={ev}
+            onChange={(v) => setEv(v === 'all' ? null : v)}
+            options={[
+              { value: 'all', label: `All stocks (${filtered.length})` },
+              { value: 'flow', label: `Accumulate · fresh · distribute (${parts.main.length})` },
+              { value: 'strategic', label: `Transfers (${parts.strategic.length})`, title: 'Inter-se transfers and placements: ownership moves, not market flow' },
+              { value: 'churn', label: `Churn / prop (${parts.churn.length})`, title: 'PROP desks or same-day round trips dominate; not a signal' },
+            ]}
+          />
+          <span className="ml-auto">
+            <TvCopyBar title="Deals Today" symbols={syms} selected={sel.selected} onClear={sel.clear} />
+          </span>
+        </div>
         <DataTable
-          label="Deal session: accumulate, fresh buyers and distribution"
+          label="Deal session: every stock with a print"
           columns={columns}
-          rows={parts.main}
-          total={parts.main.length}
+          rows={shown}
+          total={shown.length}
           getRowId={(r, i) => r.symbol ?? String(i)}
           loading={loading}
           error={error}
@@ -165,12 +201,8 @@ function SessionView({ rows, dates, text, dealDate, onHouse, loading, error, onR
           activeRowId={focus}
           onActiveRowChange={onFocus}
           onRowActivate={(r) => r.symbol && shell.openStockPage(r.symbol)}
-          emptyState={
-            <EmptyState
-              title="No accumulate / fresh / distribute rows"
-              detail="Every deal this session was a transfer or churn (see the rails), or nothing passed the floor."
-            />
-          }
+          onSortedRowsChange={setSorted}
+          emptyState={<EmptyState title="No stocks" detail="Nothing matches the event filter or the floor. Switch the floor to All caps." />}
           className="min-h-0 flex-1"
         />
         <div className="h-[190px] shrink-0 overflow-auto border-t border-line bg-surface p-2">
@@ -192,23 +224,11 @@ function SessionView({ rows, dates, text, dealDate, onHouse, loading, error, onR
           )}
         </div>
       </div>
-      <aside className={cn('shrink-0 overflow-auto border-l border-line bg-surface', shell.symbol ? 'w-[270px]' : 'w-[330px]')}>
-        <RailList
-          title="Strategic / transfer"
-          hint="Inter-se transfers (seller matched by buyers at the same price and quantity — promoter or group entities) and placements absorbed by FII/DII. Ownership moves, not market flow."
-          rows={parts.strategic}
-          focus={focus}
-          onFocus={onFocus}
-        />
-        <RailList
-          title="Churn / prop"
-          hint="PROP desks or same-day round trips are at least half the value, or the net excluding PROP is zero. Not a signal."
-          rows={parts.churn}
-          focus={focus}
-          onFocus={onFocus}
-        />
-        <RailList title="Watch" hint="Your watchlist symbols with deals this session." rows={watch} focus={focus} onFocus={onFocus} />
-      </aside>
+      {watch.length > 0 && (
+        <aside className="w-[240px] shrink-0 overflow-auto border-l border-line bg-surface">
+          <RailList title="Watch" hint="Your watchlist symbols with deals this session." rows={watch} focus={focus} onFocus={onFocus} />
+        </aside>
+      )}
     </div>
   );
 }
@@ -360,12 +380,24 @@ function FollowView() {
 export default function DealsRoute() {
   const [viewParam, setView] = useUrlParam('view');
   const [floorParam, setFloor] = useUrlParam('floor');
+  const [lbParam, setLb] = useUrlParam('lb');
+  const [setupParam, setSetup] = useUrlParam('setup');
+  const [modeParam, setMode] = useUrlParam('tmode');
   const [asOf] = useAsOf();
   const [text, setText] = useState('');
   const [house, setHouse] = useState<string | null>(null);
-  const view: View = viewParam === 'houses' || viewParam === 'follow' ? viewParam : 'session';
-  const minMcap = floorParam === 'all' ? 0 : 1000;
-  const q = useApiQuery('deals/session', { query: { min_mcap_cr: minMcap, limit: 5000 } });
+  const view: View = viewParam === 'session' ? 'today' : (VIEWS.find((v) => v === viewParam) ?? 'today');
+  const todayMode = modeParam === 'prints' ? 'prints' : 'stock';
+  // Today shows every stock by default (the old desk hid nothing); the window views default to the ₹1,000 Cr floor.
+  const floorAll = floorParam ? floorParam === 'all' : view === 'today';
+  const minMcap = floorAll ? 0 : 1000;
+  const lookback = LOOKBACKS.find((n) => String(n) === lbParam) ?? 20;
+  const setup: Setup = setupParam === 'ABOVE_200' || setupParam === 'TURNAROUND' ? setupParam : 'ALL';
+  const hasFloor = view === 'today' || view === 'repeated' || view === 'play' || view === 'prop';
+  const hasWindow = view === 'repeated' || view === 'play' || view === 'prop' || view === 'star' || view === 'leader';
+  const hasSetup = view === 'repeated' || view === 'play' || view === 'prop';
+  const sessionView = view === 'today' && todayMode === 'stock';
+  const q = useApiQuery('deals/session', { query: { min_mcap_cr: minMcap, limit: 5000 } }, { enabled: sessionView });
   const ctx = q.data?.meta.context as
     | { deal_session?: string | null; no_records_for_session?: boolean; excluded_below_floor?: number; event_counts?: Record<string, number>; net_10s_dates?: (string | null)[] }
     | undefined;
@@ -380,37 +412,63 @@ export default function DealsRoute() {
         <Segmented
           label="Deals view"
           value={view}
-          onChange={(v) => setView(v === 'session' ? null : v)}
+          onChange={(v) => setView(v === 'today' ? null : v)}
           options={[
-            { value: 'session', label: 'Session' },
-            { value: 'houses', label: 'Houses' },
+            { value: 'today', label: 'Today', title: 'Every stock and print of the latest deal session' },
+            { value: 'repeated', label: 'Repeated', title: 'Stocks with deals on several sessions of the lookback' },
+            { value: 'play', label: 'Play', title: 'Conviction accumulation + fresh whales (old desk tiers)' },
+            { value: 'star', label: 'Star funds', title: 'Buys by the best-scoring fund houses' },
+            { value: 'leader', label: 'Leaderboard', title: 'Fund houses by catalyst score, win rate and alpha' },
+            { value: 'prop', label: 'Prop / churn', title: 'Stocks with only PROP desk / round-trip churn' },
             { value: 'follow', label: 'Follow-through' },
+            { value: 'houses', label: 'Houses' },
           ]}
         />
-        {view === 'session' && (
-          <Segmented label="Market-cap floor" value={minMcap ? '1000' : 'all'} onChange={(v) => setFloor(v === '1000' ? null : v)} options={[{ value: '1000', label: '≥ ₹1,000 Cr' }, { value: 'all', label: 'All' }]} />
+        {view === 'today' && (
+          <Segmented size="xs" label="Today layout" value={todayMode} onChange={(v) => setMode(v === 'stock' ? null : v)} options={[{ value: 'stock', label: 'By stock' }, { value: 'prints', label: 'All prints' }]} />
+        )}
+        {hasWindow && (
+          <Segmented
+            size="xs"
+            label="Lookback (deal sessions)"
+            value={String(lookback) as '10' | '20' | '30'}
+            onChange={(v) => setLb(v === '20' ? null : v)}
+            options={LOOKBACKS.map((n) => ({ value: String(n) as '10' | '20' | '30', label: `${n} sessions`, title: `Last ${n} sessions with deals` }))}
+          />
+        )}
+        {hasSetup && (
+          <Segmented
+            size="xs"
+            label="Setup filter"
+            value={setup}
+            onChange={(v) => setSetup(v === 'ALL' ? null : v)}
+            options={[{ value: 'ALL', label: 'All setups' }, { value: 'ABOVE_200', label: 'Stage 2 (>200 EMA)' }, { value: 'TURNAROUND', label: 'Base / turnaround' }]}
+          />
+        )}
+        {hasFloor && (
+          <Segmented size="xs" label="Market-cap floor" value={floorAll ? 'all' : '1000'} onChange={(v) => setFloor(v)} options={[{ value: 'all', label: 'All caps' }, { value: '1000', label: '≥ ₹1,000 Cr' }]} />
         )}
         {view !== 'follow' && (
           <input
             data-filter-input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={view === 'houses' ? 'Filter houses / stocks  /' : 'Filter symbol / name  /'}
+            placeholder={view === 'houses' || view === 'leader' ? 'Filter houses / stocks  /' : 'Filter symbol / name  /'}
             aria-label="Filter"
             className="h-6 w-44 rounded border border-line bg-surface-2 px-2 text-xs text-fg placeholder:text-fg-3 focus:border-focus focus:outline-none"
           />
         )}
-        {ctx?.deal_session && (
+        {sessionView && ctx?.deal_session && (
           <span className="text-xs text-fg-2">
             Session <span className="num text-fg">{fmtDate(ctx.deal_session)}</span>
           </span>
         )}
-        {ctx?.no_records_for_session && ctx.deal_session && (
+        {sessionView && ctx?.no_records_for_session && ctx.deal_session && (
           <Chip tone="warn" icon={<AlertTriangle className="h-3 w-3" />} title="No bulk/block deals were stored for the as-of session">
             NO RECORDS for {fmtDate(q.data?.as_of ?? null)} — showing {fmtDate(ctx.deal_session)}
           </Chip>
         )}
-        {view === 'session' && ctx?.event_counts && (
+        {sessionView && ctx?.event_counts && (
           <span className="flex items-center gap-1">
             {(Object.keys(EVENTS) as EventType[])
               .filter((k) => ctx.event_counts?.[k])
@@ -422,13 +480,13 @@ export default function DealsRoute() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {view === 'session' && ctx && (ctx.excluded_below_floor ?? 0) > 0 && (
+          {sessionView && ctx && (ctx.excluded_below_floor ?? 0) > 0 && (
             <span className="text-2xs text-fg-3" title="Stocks below the market-cap floor (or with unknown market cap) hidden">
               {ctx.excluded_below_floor} below floor hidden
             </span>
           )}
-          {view === 'session' && <SourceNote meta={q.data?.meta} />}
-          {view === 'session' && (
+          {sessionView && <SourceNote meta={q.data?.meta} />}
+          {sessionView && (
             <Link
               to={chartsDealsHref('buy', buySyms, asOf)}
               className="inline-flex items-center gap-1 rounded border border-line px-2 py-0.5 text-xs text-fg-2 hover:bg-surface-3"
@@ -439,7 +497,7 @@ export default function DealsRoute() {
           )}
         </div>
       </div>
-      {view === 'session' && (
+      {sessionView && (
         <div className="flex h-6 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 text-2xs text-fg-3">
           <span>Prints collapsed (bulk ∩ block counted once) · net and events exclude PROP desks · deals are context, not a buy signal —</span>
           <button type="button" className="text-accent hover:underline" onClick={() => setView('follow')}>
@@ -447,10 +505,18 @@ export default function DealsRoute() {
           </button>
         </div>
       )}
-      {q.error && view === 'session' ? (
+      {q.error && sessionView ? (
         <ErrorState error={q.error} onRetry={() => void q.refetch()} />
-      ) : view === 'session' ? (
+      ) : sessionView ? (
         <SessionView rows={rows} dates={dates} text={text} dealDate={ctx?.deal_session ?? null} onHouse={setHouse} loading={q.isLoading} error={q.error} onRetry={() => void q.refetch()} />
+      ) : view === 'today' ? (
+        <TodayPrintsView minMcap={minMcap} text={text} onHouse={setHouse} />
+      ) : view === 'repeated' || view === 'play' || view === 'prop' ? (
+        <WindowView key={view} mode={view} lookback={lookback} minMcap={minMcap} setup={setup} text={text} onHouse={setHouse} />
+      ) : view === 'star' ? (
+        <StarView lookback={lookback} text={text} onHouse={setHouse} />
+      ) : view === 'leader' ? (
+        <LeaderView lookback={lookback} text={text} onHouse={setHouse} />
       ) : view === 'houses' ? (
         <HousesView text={text} onHouse={setHouse} />
       ) : (
