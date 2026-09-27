@@ -1,7 +1,10 @@
 """Validated full rebuild of the MarketPulse market DB.
 
 Runs the FULL build (universe = bhavcopy EQ/BE/BZ rows, symbol changes applied) into
-``<db>.tmp.duckdb``, carries over the preserved user/auxiliary tables, prints row counts and
+``<db>.tmp.duckdb``: prices_daily and indicators_daily are streamed in symbol batches into
+``<db>.stage.duckdb`` (memory stays bounded on a multi-year history), which then becomes the temp
+DB. It carries over the preserved user/auxiliary tables, rebuilds the Scripts/derived tables
+(fail-soft), prints row counts and
 date ranges per table, validates the result against the target DB, and only then takes a dated
 backup and swaps it in with ``os.replace`` (see build_database.install_database). The target's
 writer lock is held from the temp build to the swap.

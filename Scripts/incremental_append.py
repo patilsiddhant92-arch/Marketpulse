@@ -53,6 +53,7 @@ import build_database as bd
 from price_adjustment import adjust_prices, apply_adjustments, indicator_input, summarize_adjustments
 from streaming_build import (
     BREADTH_COLUMNS,
+    DUCKDB_MEMORY_LIMIT,
     METRICS_COLUMNS,
     ROTATION_COLUMNS,
     compute_indicator_batch,
@@ -370,7 +371,7 @@ def incremental_append(db_path: Path, new_prices: pd.DataFrame, *, root: Path, e
             print(f"  [incremental] {name}: {timings[name]:.1f}s", flush=True)
 
     db_path = Path(db_path)
-    con = duckdb.connect(str(db_path), read_only=True)
+    con = duckdb.connect(str(db_path), read_only=True, config={"memory_limit": DUCKDB_MEMORY_LIMIT})
     try:
         _require_current_schema(con)
         plan, ctx = _plan(con, new_prices, root=root, equity=equity, quiet=quiet)
@@ -385,7 +386,7 @@ def incremental_append(db_path: Path, new_prices: pd.DataFrame, *, root: Path, e
 
     backup = db_backup.backup_database(db_path)
     lap("backup")
-    con = duckdb.connect(str(db_path))
+    con = duckdb.connect(str(db_path), config={"memory_limit": DUCKDB_MEMORY_LIMIT})
     try:
         con.execute("BEGIN TRANSACTION")
         try:

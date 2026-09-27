@@ -40,7 +40,7 @@ except ModuleNotFoundError:  # pragma: no cover
 DEFAULT_BATCH_ROWS = int(os.environ.get("MP_BUILD_BATCH_ROWS", "30000") or 30000)
 DEFAULT_WORKERS = int(os.environ.get("MP_BUILD_WORKERS", "4") or 4)
 # DuckDB's own buffer pool (default: 80% of RAM) is capped for the build connections.
-DUCKDB_MEMORY_LIMIT = os.environ.get("MP_BUILD_DUCKDB_MEMORY", "2GB") or "2GB"
+DUCKDB_MEMORY_LIMIT = os.environ.get("MP_BUILD_DUCKDB_MEMORY", "1GB") or "1GB"
 
 # Columns each downstream builder reads from indicators_daily.
 BREADTH_COLUMNS = (
