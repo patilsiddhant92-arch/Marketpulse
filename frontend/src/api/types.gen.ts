@@ -123,6 +123,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/desk/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Desk Compare
+         * @description Now vs N sessions ago: queue counts, breadth, verdict and top groups by Health.
+         */
+        get: operations["desk_compare_api_v2_desk_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/context/stocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Context Stocks
+         * @description Batched cross-tab context for up to 200 symbols: group Health/quadrant, deals 10s, setups, data warning, results / corporate action soon.
+         */
+        get: operations["context_stocks_api_v2_context_stocks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/context/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Context Groups
+         * @description Health zone, rank, quadrant (+ falling note) and 21-session Health spark for every group of a level.
+         */
+        get: operations["context_groups_api_v2_context_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/screener/presets": {
         parameters: {
             query?: never;
@@ -220,6 +280,26 @@ export interface paths {
          * @description Every taxonomy group (all four levels) with parent, Health, 21d return and turnover.
          */
         get: operations["groups_treemap_api_v2_groups_treemap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/groups/rotation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Groups Rotation
+         * @description Groups x the last N week-ends coloured by Health (rotation over time). Ranked groups only.
+         */
+        get: operations["groups_rotation_api_v2_groups_rotation_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -516,6 +596,26 @@ export interface paths {
         };
         /** Stock Header */
         get: operations["stock_header_api_v2_stock__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/stock/{sym}/why": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stock Why
+         * @description 'Why is this stock here?': plain-language bullets built only from stored facts.
+         */
+        get: operations["stock_why_api_v2_stock__sym__why_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -858,6 +958,58 @@ export interface components {
             industry?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** CompareRow */
+        CompareRow: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Group
+             * @enum {string}
+             */
+            group: "Queues" | "Breadth";
+            /** Unit */
+            unit: string;
+            /** Better */
+            better?: ("up" | "down") | null;
+            /** Now */
+            now?: number | null;
+            /** Then */
+            then?: number | null;
+            /** Delta */
+            delta?: number | null;
+        };
+        /** ContextEvent */
+        ContextEvent: {
+            /** Event Type */
+            event_type?: string | null;
+            /** Event Date */
+            event_date?: string | null;
+            /** Headline */
+            headline?: string | null;
+        };
+        /** ContextSetup */
+        ContextSetup: {
+            /** Queue */
+            queue: string;
+            /** Label */
+            label: string;
+            /** Trigger Price */
+            trigger_price?: number | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Distance To Trigger Pct */
+            distance_to_trigger_pct?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Setup Age Sessions */
+            setup_age_sessions?: number | null;
+            /** First Seen */
+            first_seen?: string | null;
+            /** Flavor */
+            flavor?: string | null;
         };
         /** Contraction */
         Contraction: {
@@ -1426,6 +1578,19 @@ export interface components {
             rows: components["schemas"]["BigMoveRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[CompareRow] */
+        Envelope_CompareRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["CompareRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[DarvasBoxRow] */
         Envelope_DarvasBoxRow_: {
             /** As Of */
@@ -1580,6 +1745,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["FollowThroughRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[GroupContext] */
+        Envelope_GroupContext_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["GroupContext"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[GroupIndexRow] */
@@ -1790,6 +1968,19 @@ export interface components {
             rows: components["schemas"]["RegimeRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[RotationRow] */
+        Envelope_RotationRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["RotationRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[RrgRow] */
         Envelope_RrgRow_: {
             /** As Of */
@@ -1840,6 +2031,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["StockAnalogRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[StockContextRow] */
+        Envelope_StockContextRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["StockContextRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[StockDealRow] */
@@ -1933,6 +2137,19 @@ export interface components {
             rows: components["schemas"]["WatchlistItem"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[WhyBullet] */
+        Envelope_WhyBullet_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["WhyBullet"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** EventRow */
         EventRow: {
             /** Event Date */
@@ -2022,6 +2239,45 @@ export interface components {
             history_mode: boolean;
             /** Reason */
             reason?: string | null;
+        };
+        /** GroupContext */
+        GroupContext: {
+            /** Id */
+            id: string;
+            /** Group Name */
+            group_name?: string | null;
+            /** Level */
+            level: string;
+            /** Stocks */
+            stocks?: number | null;
+            /**
+             * Thin
+             * @description Fewer than 3 members: listed, not ranked
+             * @default false
+             */
+            thin: boolean;
+            /** Health */
+            health?: number | null;
+            /** Health Zone */
+            health_zone?: ("Healthy" | "Mixed" | "Weak") | null;
+            /** Health Rank */
+            health_rank?: number | null;
+            /** Rrg Quadrant */
+            rrg_quadrant?: string | null;
+            /**
+             * Quadrant Note
+             * @description 'falling' / 'narrow' caveat on a Leading / Improving group
+             */
+            quadrant_note?: string | null;
+            /** Abs Trend */
+            abs_trend?: string | null;
+            /** Return Ew 21D */
+            return_ew_21d?: number | null;
+            /**
+             * Health Spark 21
+             * @description Health over the last 21 sessions, oldest first
+             */
+            health_spark_21?: (number | null)[] | null;
         };
         /** GroupIndexRow */
         GroupIndexRow: {
@@ -2204,6 +2460,16 @@ export interface components {
             legacy_median_rs_percentile?: number | null;
             /** Leader Symbols */
             leader_symbols?: string[] | null;
+            /**
+             * Health Spark 21
+             * @description Health over the last 21 sessions, oldest first
+             */
+            health_spark_21?: (number | null)[] | null;
+            /**
+             * Index Spark 1Y
+             * @description Equal-weight group index over ~1 year (every 5th session, oldest first), rebased to 100
+             */
+            index_spark_1y?: (number | null)[] | null;
         };
         /**
          * GroupStudyRow
@@ -2820,6 +3086,40 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** RotationCell */
+        RotationCell: {
+            /** Week End */
+            week_end?: string | null;
+            /** Health */
+            health?: number | null;
+            /** Health Rank */
+            health_rank?: number | null;
+            /** Rrg Quadrant */
+            rrg_quadrant?: string | null;
+        };
+        /** RotationRow */
+        RotationRow: {
+            /** Id */
+            id: string;
+            /** Group Name */
+            group_name: string;
+            /** Level */
+            level: string;
+            /** Stocks */
+            stocks?: number | null;
+            /** Health Now */
+            health_now?: number | null;
+            /**
+             * Health Change
+             * @description Health, last week minus first week of the grid
+             */
+            health_change?: number | null;
+            /**
+             * Cells
+             * @description One per week_end in meta.context.weeks
+             */
+            cells?: components["schemas"]["RotationCell"][];
+        };
         /** RrgPoint */
         RrgPoint: {
             /** Trade Date */
@@ -3001,6 +3301,46 @@ export interface components {
             hit_2r?: boolean | null;
             /** Days Held */
             days_held?: number | null;
+        };
+        /** StockContextRow */
+        StockContextRow: {
+            /** Symbol */
+            symbol: string;
+            /** Security Name */
+            security_name?: string | null;
+            /**
+             * In Session
+             * @description The symbol has an indicators_daily row on as_of
+             * @default false
+             */
+            in_session: boolean;
+            /** Industry */
+            industry?: string | null;
+            /** @description Its industry group at the ₹1,000 Cr floor */
+            group?: components["schemas"]["GroupContext"] | null;
+            /**
+             * Deal Net 10S Cr
+             * @description Bulk/block net over 10 sessions, PROP excluded, ₹ Cr
+             */
+            deal_net_10s_cr?: number | null;
+            /**
+             * Deal Prints 10S
+             * @default 0
+             */
+            deal_prints_10s: number;
+            /** Deal Last Date */
+            deal_last_date?: string | null;
+            /**
+             * Setups
+             * @description Desk queues the stock is in on as_of
+             */
+            setups?: components["schemas"]["ContextSetup"][];
+            /** Data Warning */
+            data_warning?: string | null;
+            /** @description Results / board meeting within 14 days */
+            next_results?: components["schemas"]["ContextEvent"] | null;
+            /** @description Split / bonus / dividend … ex-date within 14 days */
+            next_corp_action?: components["schemas"]["ContextEvent"] | null;
         };
         /** StockDealRow */
         StockDealRow: {
@@ -3676,6 +4016,33 @@ export interface components {
             /** Symbols */
             symbols: string[];
         };
+        /** WhyBullet */
+        WhyBullet: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "setup" | "trigger" | "evidence" | "group" | "deals" | "footprint" | "event" | "data" | "environment";
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "positive" | "negative" | "neutral" | "warn" | "info" | "accent";
+            /**
+             * Text
+             * @description Plain-language sentence restating stored facts
+             */
+            text: string;
+            /**
+             * Link
+             * @description In-app path for the underlying view
+             */
+            link?: string | null;
+            /** Facts */
+            facts?: {
+                [key: string]: unknown;
+            };
+        };
     };
     responses: never;
     parameters: never;
@@ -3929,6 +4296,109 @@ export interface operations {
             };
         };
     };
+    desk_compare_api_v2_desk_compare_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                sessions?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_CompareRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    context_stocks_api_v2_context_stocks_get: {
+        parameters: {
+            query: {
+                /** @description Comma-separated symbols (max 200) */
+                symbols: string;
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_StockContextRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    context_groups_api_v2_context_groups_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "broad_sector" | "sector" | "broad_industry" | "industry";
+                floor?: "1000" | "all" | "watch";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_GroupContext_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     screener_presets_api_v2_screener_presets_get: {
         parameters: {
             query?: never;
@@ -4138,6 +4608,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_GroupTreeRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    groups_rotation_api_v2_groups_rotation_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "broad_sector" | "sector" | "broad_industry" | "industry";
+                floor?: "1000" | "all" | "watch";
+                weeks?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_RotationRow_"];
                 };
             };
             /** @description Validation Error */
@@ -4715,6 +5222,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_StockHeaderRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stock_why_api_v2_stock__sym__why_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_WhyBullet_"];
                 };
             };
             /** @description Validation Error */

@@ -12,7 +12,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from App.api.v2 import models as m
-from App.services import common, db, deals, desk, evidence, groups, market, metrics, research, screener, stock, today, user
+from App.services import (common, context, db, deals, desk, evidence, groups, history, market, metrics, research, screener,
+                          stock, today, user)
 from App.services.common import Result
 
 API_VERSION = "2.0.0"
@@ -67,6 +68,8 @@ def symbol_param(raw: str) -> str:
 AsOf = Query(None, description="Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)")
 Offset = Query(0, ge=0)
 Limit = Query(500, ge=1, le=MAX_LIMIT)
+Level = Literal["broad_sector", "sector", "broad_industry", "industry"]
+Floor = Literal["1000", "all", "watch"]
 
 
 def _freshness(as_of: date | None, strict: bool = True) -> dict[str, Any]:
@@ -202,6 +205,33 @@ ScreenerSort = Literal["rs_percentile", "change_1d_pct", "rvol", "delivery_pct",
                        "rs_delta_5"]
 
 
+@router.get("/desk/compare", response_model=m.Envelope[m.CompareRow],
+            description="Now vs N sessions ago: queue counts, breadth, verdict and top groups by Health.")
+def desk_compare(as_of: Optional[date] = AsOf, sessions: int = Query(5, ge=1, le=60)) -> dict[str, Any]:
+    return envelope(_call(history.compare, as_of, sessions))
+
+
+# --------------------------------------------------------------------------
+# Context (connect the dots across tabs)
+# --------------------------------------------------------------------------
+@router.get("/context/stocks", response_model=m.Envelope[m.StockContextRow],
+            description="Batched cross-tab context for up to 200 symbols: group Health/quadrant, deals 10s, setups, "
+                        "data warning, results / corporate action soon.")
+def context_stocks(symbols: str = Query(..., max_length=4400, description="Comma-separated symbols (max 200)"),
+                   as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    syms = [symbol_param(s) for s in context.parse_symbols(symbols)]
+    if len(syms) > context.MAX_SYMBOLS:
+        raise HTTPException(status_code=422, detail=f"at most {context.MAX_SYMBOLS} symbols")
+    return envelope(_call(context.stocks, as_of, syms))
+
+
+@router.get("/context/groups", response_model=m.Envelope[m.GroupContext],
+            description="Health zone, rank, quadrant (+ falling note) and 21-session Health spark for every group of a level.")
+def context_groups(as_of: Optional[date] = AsOf, level: Level = "industry", floor: Floor = "1000",
+                   offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(context.groups_context, as_of, level, floor), offset, limit)
+
+
 def _params(min_mcap_cr: float, min_price: Optional[float], min_day_volume: Optional[float],
             min_avg_volume_20d: Optional[float], lookback_days: int, include_ipos: bool,
             level: Optional[str], group: Optional[str]) -> screener.Params:
@@ -267,8 +297,6 @@ def screener_debug(
 # --------------------------------------------------------------------------
 # Groups
 # --------------------------------------------------------------------------
-Level = Literal["broad_sector", "sector", "broad_industry", "industry"]
-Floor = Literal["1000", "all", "watch"]
 MemberSort = Literal["rs_percentile", "change_1d_pct", "rvol", "delivery_pct", "market_cap_cr", "rs_delta_5",
                      "rs_vs_sector_index_63d", "trend_template_pass_n", "delivery_accumulation_days", "symbol"]
 
@@ -290,6 +318,13 @@ def groups_rrg(as_of: Optional[date] = AsOf, level: Level = "industry", floor: F
 def groups_treemap(as_of: Optional[date] = AsOf, floor: Floor = "1000", offset: int = Offset,
                    limit: int = Limit) -> dict[str, Any]:
     return envelope(_call(groups.treemap, as_of, floor), offset, limit)
+
+
+@router.get("/groups/rotation", response_model=m.Envelope[m.RotationRow],
+            description="Groups x the last N week-ends coloured by Health (rotation over time). Ranked groups only.")
+def groups_rotation(as_of: Optional[date] = AsOf, level: Level = "industry", floor: Floor = "1000",
+                    weeks: int = Query(12, ge=2, le=52), offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(history.rotation, as_of, level, floor, weeks), offset, limit)
 
 
 @router.get("/groups/{group_id:path}/index", response_model=m.Envelope[m.GroupIndexRow],
@@ -411,6 +446,12 @@ def deals_followthrough(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query
 @router.get("/stock/{sym}", response_model=m.Envelope[m.StockHeaderRow])
 def stock_header(sym: str, as_of: Optional[date] = AsOf) -> dict[str, Any]:
     return envelope(_call(stock.header, as_of, symbol_param(sym)))
+
+
+@router.get("/stock/{sym}/why", response_model=m.Envelope[m.WhyBullet],
+            description="'Why is this stock here?': plain-language bullets built only from stored facts.")
+def stock_why(sym: str, as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    return envelope(_call(context.why, as_of, symbol_param(sym)))
 
 
 @router.get("/stock/{sym}/bars", response_model=m.Envelope[m.BarRow])

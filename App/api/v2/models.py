@@ -347,6 +347,9 @@ class GroupRow(BaseModel):
     legacy_rotation_state: Optional[str] = Field(None, description="Legacy sector_rotation label (not an RRG quadrant)")
     legacy_median_rs_percentile: Optional[float] = None
     leader_symbols: Optional[list[str]] = None
+    health_spark_21: Optional[list[Optional[float]]] = Field(None, description="Health over the last 21 sessions, oldest first")
+    index_spark_1y: Optional[list[Optional[float]]] = Field(
+        None, description="Equal-weight group index over ~1 year (every 5th session, oldest first), rebased to 100")
 
 
 class RrgPoint(BaseModel):
@@ -1013,3 +1016,91 @@ class TodayGroupRow(BaseModel):
     persistence_phrase: Optional[str] = None
     symbols: list[str] = Field(default_factory=list, description="Members in move order (for charts / copy)")
     why: Optional[str] = Field(None, description="Plain-language sentence built only from the facts in this row")
+
+
+# --------------------------------------------------------------------------
+# Cross-tab context (connect the dots) and history views
+# --------------------------------------------------------------------------
+class GroupContext(BaseModel):
+    id: str
+    group_name: Optional[str] = None
+    level: str
+    stocks: Optional[int] = None
+    thin: bool = Field(False, description="Fewer than 3 members: listed, not ranked")
+    health: Optional[float] = None
+    health_zone: Optional[Literal["Healthy", "Mixed", "Weak"]] = None
+    health_rank: Optional[int] = None
+    rrg_quadrant: Optional[str] = None
+    quadrant_note: Optional[str] = Field(None, description="'falling' / 'narrow' caveat on a Leading / Improving group")
+    abs_trend: Optional[str] = None
+    return_ew_21d: Optional[float] = None
+    health_spark_21: Optional[list[Optional[float]]] = Field(None, description="Health over the last 21 sessions, oldest first")
+
+
+class ContextSetup(BaseModel):
+    queue: str
+    label: str
+    trigger_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    distance_to_trigger_pct: Optional[float] = None
+    risk_pct: Optional[float] = None
+    setup_age_sessions: Optional[int] = None
+    first_seen: Optional[date] = None
+    flavor: Optional[str] = None
+
+
+class ContextEvent(BaseModel):
+    event_type: Optional[str] = None
+    event_date: Optional[date] = None
+    headline: Optional[str] = None
+
+
+class StockContextRow(BaseModel):
+    symbol: str
+    security_name: Optional[str] = None
+    in_session: bool = Field(False, description="The symbol has an indicators_daily row on as_of")
+    industry: Optional[str] = None
+    group: Optional[GroupContext] = Field(None, description="Its industry group at the ₹1,000 Cr floor")
+    deal_net_10s_cr: Optional[float] = Field(None, description="Bulk/block net over 10 sessions, PROP excluded, ₹ Cr")
+    deal_prints_10s: int = 0
+    deal_last_date: Optional[date] = None
+    setups: list[ContextSetup] = Field(default_factory=list, description="Desk queues the stock is in on as_of")
+    data_warning: Optional[str] = None
+    next_results: Optional[ContextEvent] = Field(None, description="Results / board meeting within 14 days")
+    next_corp_action: Optional[ContextEvent] = Field(None, description="Split / bonus / dividend … ex-date within 14 days")
+
+
+class WhyBullet(BaseModel):
+    kind: Literal["setup", "trigger", "evidence", "group", "deals", "footprint", "event", "data", "environment"]
+    tone: Literal["positive", "negative", "neutral", "warn", "info", "accent"]
+    text: str = Field(..., description="Plain-language sentence restating stored facts")
+    link: Optional[str] = Field(None, description="In-app path for the underlying view")
+    facts: dict[str, Any] = Field(default_factory=dict)
+
+
+class CompareRow(BaseModel):
+    key: str
+    label: str
+    group: Literal["Queues", "Breadth"]
+    unit: str
+    better: Optional[Literal["up", "down"]] = None
+    now: Optional[float] = None
+    then: Optional[float] = None
+    delta: Optional[float] = None
+
+
+class RotationCell(BaseModel):
+    week_end: Optional[date] = None
+    health: Optional[float] = None
+    health_rank: Optional[int] = None
+    rrg_quadrant: Optional[str] = None
+
+
+class RotationRow(BaseModel):
+    id: str
+    group_name: str
+    level: str
+    stocks: Optional[int] = None
+    health_now: Optional[float] = None
+    health_change: Optional[float] = Field(None, description="Health, last week minus first week of the grid")
+    cells: list[RotationCell] = Field(default_factory=list, description="One per week_end in meta.context.weeks")

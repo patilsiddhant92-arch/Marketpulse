@@ -65,7 +65,8 @@ READ_URLS = [
     "/api/v2/stock/AAA/bars?tf=M", "/api/v2/stock/AAA/rs", "/api/v2/stock/AAA/events", "/api/v2/stock/AAA/deals",
     "/api/v2/stock/AAA/analogs", "/api/v2/evidence/vcp", "/api/v2/research/analogs", "/api/v2/research/big-moves",
     "/api/v2/research/big-moves/abc", "/api/v2/research/pre-move", "/api/v2/metrics/dictionary", "/api/v2/watchlist",
-    "/api/v2/notes/AAA",
+    "/api/v2/notes/AAA", "/api/v2/context/stocks?symbols=AAA,SMALL", "/api/v2/context/groups", "/api/v2/desk/compare",
+    "/api/v2/groups/rotation", "/api/v2/stock/AAA/why",
 ]
 
 

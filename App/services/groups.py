@@ -555,6 +555,25 @@ def _market_line(rows: list[dict[str, Any]], bench: dict[str, pd.Series], d: dat
     }
 
 
+YEAR_SESSIONS = 250
+YEAR_STEP = 5
+
+
+def _year_sparks(long: pd.DataFrame | None, as_of: date) -> dict[str, list[float | None]]:
+    """EW index over ~1 year per group, every YEAR_STEP-th session ending on the last one, rebased to 100."""
+    if long is None or long.empty or "ew_index" not in long.columns:
+        return {}
+    h = long[long["trade_date"] <= pd.Timestamp(as_of)]
+    out: dict[str, list[float | None]] = {}
+    for name, g in h.groupby("group_name", sort=False):
+        v = pd.to_numeric(g.sort_values("trade_date")["ew_index"], errors="coerce").tail(YEAR_SESSIONS)
+        v = v.iloc[::-1].iloc[::YEAR_STEP].iloc[::-1]
+        base = v.dropna().iloc[0] if v.notna().any() else None
+        if base:
+            out[str(name)] = [db.num(x / base * 100.0, 2) for x in v]
+    return out
+
+
 def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
     level_key = universe.level_key(level)
     if level_key is None:
@@ -569,8 +588,10 @@ def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
         members = db.cached("groups.members_snap", (resolved, floor), lambda: _members_snapshot(con, resolved, floor))
         bench = _index_closes(con, resolved)
         verdict = _desk_verdict(con, resolved)
+        long = _long(con, resolved, level_key, floor) if src == "group_daily" else df
     if df.empty:
         return unavailable(resolved, "no group data on or before as_of", ["group_daily", "indicators_daily"])
+    year = _year_sparks(long, resolved)
     last, d = _last_rows(df, resolved)
     leaders = _leaders(members, level_key)
     hist = df[df["trade_date"] <= pd.Timestamp(resolved)]
@@ -588,6 +609,9 @@ def board(as_of: date | None, level: str, floor: str = "1000") -> Result:
         up = pd.to_numeric(g["_up"], errors="coerce").tail(10)
         row["flow_up_days_10"] = int(up.sum()) if up.notna().sum() == 10 else None
         row["leader_symbols"] = leaders.get(str(name)) or None
+        h = pd.to_numeric(g["health"], errors="coerce").tail(21) if "health" in g.columns else None
+        row["health_spark_21"] = [db.num(x, 1) for x in h] if h is not None and h.notna().any() else None
+        row["index_spark_1y"] = year.get(str(name))
         rows.append(row)
     market_line = _market_line(rows, bench, d or resolved, verdict)
     # Default order: Health (relative + absolute trend + breadth), healthiest first; unranked last.
