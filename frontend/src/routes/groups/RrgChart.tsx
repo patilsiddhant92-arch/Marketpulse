@@ -1,13 +1,16 @@
 /**
- * Relative Rotation Graph: RS-Ratio (x) vs RS-Momentum (y), both centred on
- * 100, with weekly tails (every 5th session). Groups rotate clockwise:
+ * Relative Rotation Graph: peer-relative RS-Ratio (x) vs RS-Momentum (y),
+ * both 100 + 10 x z-score across the level's groups (so ~half sit right of
+ * 100 by construction), with weekly tails (every 5th session). Heads of
+ * groups whose own index is in a Down trend are drawn hollow: strong vs
+ * peers is not the same as rising. Groups rotate clockwise:
  * Improving (top-left) → Leading (top-right) → Weakening (bottom-right) →
  * Lagging (bottom-left). Click a head to drill into the group.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RrgRow } from '../../api/types';
 import { cn } from '../../lib/cn';
-import { fmtDateShort, fmtNum } from '../../lib/fmt';
+import { fmtDateShort, fmtNum, fmtSignedPct } from '../../lib/fmt';
 import { isQuadrant, QUADRANT_TOKEN, type Quadrant } from './kit';
 import { rrgDomain } from './groupsModel';
 
@@ -52,15 +55,15 @@ export function RrgChart({ rows, selectedId, onSelect, labelAll = 24, className 
   const cx = sx(100);
   const cy = sy(100);
   const topIds = useMemo(
-    () => new Set([...rows].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 12).map((r) => r.id)),
+    () => new Set([...rows].sort((a, b) => (a.health_rank ?? a.rank ?? 1e9) - (b.health_rank ?? b.rank ?? 1e9)).slice(0, 12).map((r) => r.id)),
     [rows],
   );
   const hovered = rows.find((r) => r.id === hover) ?? null;
-  // Greedy label placement: best-ranked first; skip a label that would overlap one already placed.
+  // Greedy label placement: healthiest first; skip a label that would overlap one already placed.
   const labelled = new Set<string>();
   {
     const boxes: { x: number; y: number; w: number }[] = [];
-    for (const r of [...rows].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9))) {
+    for (const r of [...rows].sort((a, b) => (a.health_rank ?? a.rank ?? 1e9) - (b.health_rank ?? b.rank ?? 1e9))) {
       if (typeof r.rs_ratio !== 'number' || typeof r.rs_momentum !== 'number') continue;
       if (rows.length > labelAll && !topIds.has(r.id)) continue;
       const x = sx(r.rs_ratio) + 7;
@@ -73,7 +76,7 @@ export function RrgChart({ rows, selectedId, onSelect, labelAll = 24, className 
   }
   const ticks = (d: [number, number]) => {
     const span = d[1] - d[0];
-    const step = span > 12 ? 5 : span > 6 ? 2 : span > 3 ? 1 : 0.5;
+    const step = span > 40 ? 10 : span > 12 ? 5 : span > 6 ? 2 : span > 3 ? 1 : 0.5;
     const out: number[] = [];
     for (let v = Math.ceil(d[0] / step) * step; v <= d[1]; v += step) out.push(Number(v.toFixed(2)));
     return out;
@@ -164,7 +167,11 @@ export function RrgChart({ rows, selectedId, onSelect, labelAll = 24, className 
               onMouseLeave={() => setHover((h) => (h === r.id ? null : h))}
               onClick={() => onSelect?.(r.id)}
             >
-              <circle cx={x} cy={y} r={active ? 6 : 4.2} className={cn(FILL[tok], 'stroke-bg')} strokeWidth={1.2} />
+              {r.abs_trend === 'Down' ? (
+                <circle cx={x} cy={y} r={active ? 5.5 : 3.8} className={cn(STROKE[tok], 'fill-bg')} strokeWidth={1.8} />
+              ) : (
+                <circle cx={x} cy={y} r={active ? 6 : 4.2} className={cn(FILL[tok], 'stroke-bg')} strokeWidth={1.2} />
+              )}
               <circle cx={x} cy={y} r={10} className="fill-transparent" />
               {showLabel && (
                 <text x={x + 7} y={y + 3} className={cn('text-2xs', active ? 'fill-fg font-semibold' : 'fill-fg-2')}>
@@ -180,7 +187,7 @@ export function RrgChart({ rows, selectedId, onSelect, labelAll = 24, className 
           className="pointer-events-none absolute z-10 w-56 rounded border border-line-strong bg-surface-3 p-2 text-2xs shadow-xl"
           style={{
             left: Math.min(size.w - 230, sx(hovered.rs_ratio) + 12),
-            top: Math.max(4, Math.min(size.h - 110, sy(hovered.rs_momentum) - 20)),
+            top: Math.max(4, Math.min(size.h - 170, sy(hovered.rs_momentum) - 20)),
           }}
         >
           <div className="mb-1 text-xs font-semibold text-fg">{hovered.group_name}</div>
@@ -194,11 +201,21 @@ export function RrgChart({ rows, selectedId, onSelect, labelAll = 24, className 
             <span className="num text-right text-fg">{fmtNum(hovered.rs_ratio, 2)}</span>
             <span>RS-Momentum</span>
             <span className="num text-right text-fg">{fmtNum(hovered.rs_momentum, 2)}</span>
-            <span>Rank</span>
+            <span>Health</span>
+            <span className="num text-right text-fg">
+              {fmtNum(hovered.health ?? null, 0)}
+              {hovered.health_rank != null ? ` · #${hovered.health_rank}` : ''}
+            </span>
+            <span>Own trend</span>
+            <span className="text-right text-fg">{hovered.abs_trend ?? '—'}</span>
+            <span>21d return</span>
+            <span className="num text-right text-fg">{fmtSignedPct(hovered.return_ew_21d ?? null, 1)}</span>
+            <span>Rank vs MidSml</span>
             <span className="num text-right text-fg">{hovered.rank ?? '—'}</span>
             <span>Members</span>
             <span className="num text-right text-fg">{hovered.stocks ?? '—'}</span>
           </div>
+          {hovered.quadrant_note && <div className="mt-1 font-medium text-warn">{hovered.quadrant_note}</div>}
           {hovered.tail.length > 1 && (
             <div className="mt-1 text-fg-3">
               Tail from {fmtDateShort(hovered.tail[0].trade_date ?? null)} (weekly points). Click to drill in.

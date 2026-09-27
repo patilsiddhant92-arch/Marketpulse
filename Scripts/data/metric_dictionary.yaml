@@ -742,7 +742,7 @@ metrics:
     measures: "One score for how healthy a group is right now: 40% relative strength versus the other groups (peer RS-Ratio and RS-Momentum), 35% its own absolute trend (equal-weight index vs its 50- and 200-day EMA, EMA slope, 21-day return) and 25% breadth (% of members above their 50- and 200-day EMA). The board is sorted by it."
     zones:
       - {range: ">= 65", label: Healthy, tone: good, why: "Strong against peers AND rising with broad participation. Where to hunt for setups."}
-      - {range: "45-65", label: Mixed, tone: neutral, why: "Some legs strong, others not: often relatively strong but falling with the market, or rising on narrow breadth. Be selective."}
+      - {range: "45-65", label: Mixed, tone: caution, why: "Some legs strong, others not: often relatively strong but falling with the market, or rising on narrow breadth. Be selective."}
       - {range: "< 45", label: Weak, tone: bad, why: "Weak against peers, in a downtrend or with few members participating. Avoid new longs."}
     read_with: [rrg_quadrant, group_abs_trend]
     read_with_why: "Health folds the absolute picture into the RRG: a 'Leading' group with Health below 45 is only falling less than its peers."

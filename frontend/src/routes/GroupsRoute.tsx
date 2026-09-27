@@ -2,8 +2,9 @@
  * Groups — Sector Intel + Capital Flow merged (spec 7.4).
  *
  * Board of taxonomy groups (Broad Sector › Sector › Broad Industry › Industry)
- * at a market-cap floor, ranked against NIFTY MIDSML 400, with the RRG and a
- * money-flow panel. Enter / double-click (or the RRG) drills into a group:
+ * at a market-cap floor, sorted by Health (peer-relative RRG + the group's own
+ * trend + breadth), with a context line tied to the Desk verdict, the RRG, a
+ * money-flow panel and a taxonomy heatmap view. Enter / double-click (or the RRG) drills into a group:
  * breadcrumb, history and members (row focus opens Stock 360).
  */
 import { ChevronRight, HelpCircle, LineChart } from 'lucide-react';
@@ -12,7 +13,7 @@ import { Link } from 'react-router';
 import { useApiQuery } from '../api/query';
 import type { GroupRow } from '../api/types';
 import { cn } from '../lib/cn';
-import { fmtDate, fmtSigned } from '../lib/fmt';
+import { fmtDate, fmtSigned, fmtSignedPct } from '../lib/fmt';
 import { useShell } from '../shell/ShellContext';
 import { useAsOf, useUrlParam } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
@@ -32,12 +33,16 @@ import {
   flowLeaders,
   LEVELS,
   levelLabel,
+  marketContextLine,
   quadrantCounts,
   rankSparkValues,
   rrgVisible,
   type FlowItem,
+  type MarketContext,
 } from './groups/groupsModel';
-import { QUADRANT_TONE, QUADRANTS, QuadrantChip, RankDelta, Segmented, SourceNote, ZoneNum } from './groups/kit';
+import { HealthCell, QuadrantWithNote, TrendArrow } from './groups/health';
+import { GroupsTreemap } from './groups/Treemap';
+import { QUADRANT_TONE, QUADRANTS, RankDelta, Segmented, SourceNote, ZoneNum } from './groups/kit';
 import { RrgChart } from './groups/RrgChart';
 
 const EMPTY: GroupRow[] = [];
@@ -73,7 +78,7 @@ function NameCell({ row, onDrill }: { row: GroupRow; onDrill: (id: string) => vo
 
 function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[] {
   return [
-    { id: 'rank', header: '#', accessor: 'rank', format: 'int', width: 44, metricKey: 'group_rank', sticky: true, sortDescFirst: false },
+    { id: 'health_rank', header: '#', accessor: 'health_rank', format: 'int', width: 40, metricKey: 'group_health', sticky: true, sortDescFirst: false, headerTitle: 'Rank by Health (1 = healthiest); groups with < 3 members are not ranked' },
     {
       id: 'group_name',
       header: 'Group',
@@ -83,15 +88,37 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
       renderNull: true,
       cell: (_v, r) => <NameCell row={r} onDrill={onDrill} />,
     },
-    { id: 'stocks', header: 'Stocks', accessor: 'stocks', format: 'int', width: 56, headerTitle: 'Members meeting the floor' },
+    {
+      id: 'health',
+      header: 'Health',
+      accessor: 'health',
+      format: 'num',
+      digits: 0,
+      width: 92,
+      metricKey: 'group_health',
+      cell: (v, r) => <HealthCell value={v as number} rank={r.health_rank} />,
+    },
+    { id: 'stocks', header: 'Stocks', accessor: 'stocks', format: 'int', width: 52, headerTitle: 'Members meeting the floor' },
     {
       id: 'rrg_quadrant',
-      header: 'RRG',
+      header: 'RRG vs peers',
       accessor: 'rrg_quadrant',
-      width: 112,
+      width: 158,
       metricKey: 'rrg_quadrant',
-      cell: (_v, r) => <QuadrantChip quadrant={r.rrg_quadrant} days={r.days_in_quadrant} />,
+      cell: (_v, r) => <QuadrantWithNote quadrant={r.rrg_quadrant} days={r.days_in_quadrant} note={r.quadrant_note} />,
     },
+    {
+      id: 'abs_trend',
+      header: 'Trend',
+      accessor: (r) => ({ Up: 1, Flat: 0, Down: -1 } as Record<string, number>)[r.abs_trend ?? ''] ?? null,
+      width: 50,
+      metricKey: 'group_abs_trend',
+      renderNull: true,
+      cell: (_v, r) => <TrendArrow trend={r.abs_trend} />,
+    },
+    { id: 'ret_21', header: 'Ret 21d', accessor: 'return_ew_21d', format: 'signedPct', digits: 1, width: 64, metricKey: 'group_return_ew_21d', cell: (v) => <span className={cn('num', typeof v === 'number' ? (v < 0 ? 'text-down' : 'text-up') : 'text-fg-3')}>{fmtSignedPct(v as number, 1)}</span> },
+    { id: 'breadth_50', header: '>50E', accessor: 'breadth_50', format: 'pct', digits: 0, width: 52, metricKey: 'group_breadth_50', cell: (v) => <ZoneNum metricKey="group_breadth_50" value={v as number} format="pct" digits={0} /> },
+    { id: 'rank', header: 'Rank MS', accessor: 'rank', format: 'int', width: 58, metricKey: 'group_rank', sortDescFirst: false, headerTitle: 'Rank by mean 21d/63d excess return vs NIFTY MIDSML 400 (1 = best)' },
     { id: 'rank_delta_5', header: 'Δ5', accessor: 'rank_delta_5', format: 'int', width: 50, metricKey: 'group_rank_delta_5', cell: (v) => <RankDelta value={v as number} /> },
     { id: 'rank_delta_20', header: 'Δ20', accessor: 'rank_delta_20', format: 'int', width: 50, metricKey: 'group_rank_delta_20', cell: (v) => <RankDelta value={v as number} /> },
     { id: 'rank_delta_63', header: 'Δ63', accessor: 'rank_delta_63', format: 'int', width: 50, defaultHidden: true, headerTitle: 'Rank change over 63 sessions (positive = climbed)', cell: (v) => <RankDelta value={v as number} /> },
@@ -118,11 +145,10 @@ function boardColumns(onDrill: (id: string) => void): DataTableColumn<GroupRow>[
     },
     { id: 'rs_ratio', header: 'RS-R', accessor: 'rs_ratio', format: 'num', digits: 1, width: 56, metricKey: 'rs_ratio', cell: (v) => <ZoneNum metricKey="rs_ratio" value={v as number} digits={1} /> },
     { id: 'rs_momentum', header: 'RS-M', accessor: 'rs_momentum', format: 'num', digits: 1, width: 56, metricKey: 'rs_momentum', cell: (v) => <ZoneNum metricKey="rs_momentum" value={v as number} digits={1} /> },
-    { id: 'ret_21', header: 'Ret 21d', accessor: 'return_ew_21d', format: 'signedPct', digits: 1, width: 64, metricKey: 'group_return_ew_21d', defaultHidden: true },
+    { id: 'rs_ratio_self', header: 'RS self', accessor: 'rs_ratio_self', format: 'num', digits: 1, width: 60, metricKey: 'rs_ratio_self', defaultHidden: true },
     { id: 'ret_cw_21', header: 'Ret 21d CW', accessor: 'return_cw_21d', format: 'signedPct', digits: 1, width: 72, defaultHidden: true, headerTitle: 'Cap-weighted 21-session return' },
     { id: 'exn_21', header: 'vs N50 21d', accessor: 'excess_vs_nifty50_21d', format: 'signed', digits: 1, width: 72, defaultHidden: true, metricKey: 'excess_vs_nifty50_21d' },
     { id: 'exn_63', header: 'vs N50 63d', accessor: 'excess_vs_nifty50_63d', format: 'signed', digits: 1, width: 72, defaultHidden: true, metricKey: 'excess_vs_nifty50_63d' },
-    { id: 'breadth_50', header: '>50E', accessor: 'breadth_50', format: 'pct', digits: 0, width: 52, metricKey: 'group_breadth_50', cell: (v) => <ZoneNum metricKey="group_breadth_50" value={v as number} format="pct" digits={0} /> },
     { id: 'breadth_200', header: '>200E', accessor: 'breadth_200', format: 'pct', digits: 0, width: 56, metricKey: 'group_breadth_200', cell: (v) => <ZoneNum metricKey="group_breadth_200" value={v as number} format="pct" digits={0} /> },
     { id: 'tt', header: 'TT', accessor: 'trend_template_pct', format: 'pct', digits: 0, width: 48, metricKey: 'group_trend_template_pct', cell: (v) => <ZoneNum metricKey="group_trend_template_pct" value={v as number} format="pct" digits={0} /> },
     { id: 'nh', header: 'NH', accessor: 'new_highs', format: 'int', width: 40, headerTitle: 'Members making an official new 52-week high today', defaultHidden: true },
@@ -183,12 +209,17 @@ const HOW_TO = (
   <div className="max-w-md space-y-1.5 text-fg-2">
     <div className="font-medium text-fg">How to read Groups</div>
     <div>
-      <b className="text-fg">Rank</b> — mean of the group&apos;s 21- and 63-session excess return over NIFTY MIDSML 400 (equal-weight members). Groups with fewer
-      than 3 members are listed but not ranked. Δ = places climbed.
+      <b className="text-fg">Health</b> (0–100, default sort) — 40% strength vs peers (RRG) + 35% the group&apos;s own trend (equal-weight index vs its 50/200
+      EMA, 21d return) + 25% breadth (% of members above 50/200 EMA). ≥ 65 Healthy · 45–65 Mixed · &lt; 45 Weak.
     </div>
     <div>
-      <b className="text-fg">RRG</b> — RS-Ratio (x) is the relative trend (EMA10 ÷ EMA50 of group ÷ MidSml400); RS-Momentum (y) is its change over 10 sessions.
-      Groups rotate clockwise: Improving → Leading → Weakening → Lagging. Look for groups entering Leading with a rising rank.
+      <b className="text-fg">RRG vs peers</b> — RS-Ratio (x) and RS-Momentum (y) are z-scores across this level&apos;s groups (100 = average group), so
+      about half sit right of 100 by construction. <i>Leading = strongest vs peers, not necessarily rising</i>: the chip &quot;falling&quot; marks a
+      Leading/Improving group whose 21d return is negative, &quot;narrow&quot; one with &lt; 50% of members above their 50 EMA. Trend arrow = the
+      group&apos;s own direction. Hollow RRG dots = own trend Down.
+    </div>
+    <div>
+      <b className="text-fg">Rank MS</b> — mean 21/63-session excess return over NIFTY MIDSML 400; Δ = places climbed.
     </div>
     <div>
       <b className="text-fg">Money flow</b> — share of the floor universe&apos;s turnover, 5-day average minus 20-day average (smoothed; single days swing).
@@ -206,6 +237,8 @@ export default function GroupsRoute() {
   const [groupParam, setGroup] = useUrlParam('group', { push: true });
   const [quadParam, setQuad] = useUrlParam('quad');
   const [rrgAll, setRrgAll] = useUrlParam('rrg');
+  const [viewParam, setView] = useUrlParam('view');
+  const view = viewParam === 'map' ? 'map' : 'board';
   const [asOf] = useAsOf();
   const sidecarOpen = !!useShell().symbol;
   const [text, setText] = useState('');
@@ -225,7 +258,8 @@ export default function GroupsRoute() {
   const rrgRows = rrg.data?.rows;
   const rrgView = useMemo(() => rrgVisible(rrgRows ?? [], allowed, rrgAll === 'all' || (rrgRows?.length ?? 0) <= RRG_SHOW_ALL_UP_TO ? null : RRG_PER_QUADRANT), [rrgRows, allowed, rrgAll]);
   const columns = useMemo(() => boardColumns((id) => setGroup(id)), [setGroup]);
-  const ctx = board.data?.meta.context as { floor_label?: string; ranked?: number; benchmark?: string } | undefined;
+  const ctx = board.data?.meta.context as { floor_label?: string; ranked?: number; benchmark?: string; market?: MarketContext } | undefined;
+  const contextLine = marketContextLine(ctx?.market);
 
   const toggleQuad = (q: string) => {
     const next = new Set(quadSet);
@@ -252,6 +286,15 @@ export default function GroupsRoute() {
         <h1 className="text-sm font-semibold text-fg">Groups</h1>
         <Segmented label="Taxonomy level" options={LEVELS.map((l) => ({ value: l.value, label: l.short, title: l.label }))} value={level} onChange={(v) => setLevel(v === 'industry' ? null : v)} />
         <Segmented label="Market-cap floor" options={FLOORS} value={floor} onChange={(v) => setFloor(v === '1000' ? null : v)} />
+        <Segmented
+          label="View"
+          options={[
+            { value: 'board', label: 'Board', title: 'Board with RRG and money flow' },
+            { value: 'map', label: 'Map', title: 'Taxonomy heatmap: Broad Sector › … sized by turnover, coloured by Health or 21d return' },
+          ]}
+          value={view}
+          onChange={(v) => setView(v === 'board' ? null : v)}
+        />
         <input
           data-filter-input
           value={text}
@@ -276,16 +319,29 @@ export default function GroupsRoute() {
           </Tooltip>
         </div>
       </div>
-      <div className="flex h-6 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 text-2xs text-fg-3">
+      <div className="flex min-h-6 shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line bg-surface px-3 py-0.5 text-2xs text-fg-3">
+        {contextLine && (
+          <span className="font-medium text-fg" data-testid="groups-context">
+            {contextLine}
+          </span>
+        )}
+        {ctx?.market?.health_zones && (
+          <span title="Groups (≥ 3 members) per Health zone">
+            Health: <span className="num text-up">{ctx.market.health_zones.Healthy ?? 0}</span> healthy ·{' '}
+            <span className="num text-warn">{ctx.market.health_zones.Mixed ?? 0}</span> mixed ·{' '}
+            <span className="num text-down">{ctx.market.health_zones.Weak ?? 0}</span> weak
+          </span>
+        )}
         <span>
-          <span className="num text-fg-2">{rows.length}</span> {levelLabel(level).toLowerCase()} groups ·{' '}
-          <span className="num text-fg-2">{ctx?.ranked ?? '—'}</span> ranked
+          <span className="num text-fg-2">{rows.length}</span> {levelLabel(level).toLowerCase()} groups · floor {ctx?.floor_label ?? FLOORS.find((f) => f.value === floor)?.title}
         </span>
-        <span>Floor: {ctx?.floor_label ?? FLOORS.find((f) => f.value === floor)?.title}</span>
-        <span>Benchmark: {ctx?.benchmark ?? 'NIFTY MIDSML 400'}</span>
-        <span>TOTAL row excluded</span>
         {board.data?.as_of && <span className="ml-auto">As of {fmtDate(board.data.as_of)}</span>}
       </div>
+      {view === 'map' ? (
+        <div className="min-h-0 flex-1">
+          <GroupsTreemap floor={floor} onDrill={(id) => setGroup(id)} />
+        </div>
+      ) : (
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <DataTable
@@ -297,7 +353,7 @@ export default function GroupsRoute() {
             loading={board.isLoading}
             error={board.error}
             onRetry={() => void board.refetch()}
-            initialSort={[{ id: 'rank', desc: false }]}
+            initialSort={[{ id: 'health_rank', desc: false }]}
             activeRowId={selected}
             onActiveRowChange={(r) => setSelected(r.id)}
             onRowActivate={(r) => setGroup(r.id)}
@@ -310,15 +366,15 @@ export default function GroupsRoute() {
             <span className="font-semibold uppercase tracking-wide text-fg-2">Rotation</span>
             <span
               className="truncate text-fg-3"
-              title="x = RS-Ratio (relative trend vs MidSml400), y = RS-Momentum (its direction); tails = weekly points over 6 weeks"
+              title="x = RS-Ratio, y = RS-Momentum, both vs the other groups (100 = average group); hollow dot = own trend Down; tails = weekly points over 6 weeks"
             >
-              x RS-Ratio · y RS-Mom · 6-wk tails
+              vs peers · hollow = falling · 6-wk tails
             </span>
             {rrgRows && rrgAll !== 'all' && rrgView.total > rrgView.shown.length && (
               <button
                 type="button"
                 className="ml-auto shrink-0 text-accent hover:underline"
-                title={`Showing the best-ranked ${RRG_PER_QUADRANT} groups of each quadrant`}
+                title={`Showing the healthiest ${RRG_PER_QUADRANT} groups of each quadrant`}
                 onClick={() => setRrgAll('all')}
               >
                 {rrgView.shown.length}/{rrgView.total} · show all
@@ -326,7 +382,7 @@ export default function GroupsRoute() {
             )}
             {rrgAll === 'all' && (rrgRows?.length ?? 0) > RRG_SHOW_ALL_UP_TO && (
               <button type="button" className="ml-auto shrink-0 text-accent hover:underline" onClick={() => setRrgAll(null)}>
-                best {RRG_PER_QUADRANT} per quadrant
+                top {RRG_PER_QUADRANT} per quadrant
               </button>
             )}
           </div>
@@ -377,6 +433,7 @@ export default function GroupsRoute() {
           </div>
         </aside>
       </div>
+      )}
     </div>
   );
 }

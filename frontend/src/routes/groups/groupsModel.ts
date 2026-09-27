@@ -112,7 +112,7 @@ export function rrgDomain(rows: readonly RrgRow[], pad = 0.08): { x: [number, nu
 }
 
 /**
- * Which RRG rows to draw. With a cap, keep the best-ranked `perQuadrant` groups of
+ * Which RRG rows to draw. With a cap, keep the healthiest `perQuadrant` groups of
  * EACH quadrant, so Improving groups (the next leaders) are never crowded out by the
  * top of the board. Returns the shown rows and the true total (never a silent cap).
  */
@@ -122,7 +122,7 @@ export function rrgVisible(
   perQuadrant: number | null,
 ): { shown: RrgRow[]; total: number } {
   const pool = allowed ? rows.filter((r) => allowed.has(r.id)) : [...rows];
-  const sorted = [...pool].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  const sorted = [...pool].sort((a, b) => (a.health_rank ?? 1e9) - (b.health_rank ?? 1e9) || (a.rank ?? 1e9) - (b.rank ?? 1e9));
   if (perQuadrant == null) return { shown: sorted, total: pool.length };
   const taken = new Map<string, number>();
   const shown = sorted.filter((r) => {
@@ -147,4 +147,159 @@ export function chartsSourceHref(groupId: string, symbols: readonly string[], as
   if (symbols.length) p.set('syms', symbols.slice(0, 60).join(','));
   if (asOf) p.set('as_of', asOf);
   return `/charts?${p.toString()}`;
+}
+
+// ------------------------------------------------------------------ Health, market context, drill helpers
+
+export type HealthZone = 'Healthy' | 'Mixed' | 'Weak';
+
+/** metric_dictionary.yaml group_health: >= 65 Healthy, 45-65 Mixed, < 45 Weak. */
+export function healthZone(v: number | null | undefined): HealthZone | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return v >= 65 ? 'Healthy' : v >= 45 ? 'Mixed' : 'Weak';
+}
+
+/** Board context from the API (meta.context.market). */
+export interface MarketContext {
+  verdict?: string | null;
+  midsml400_ret_21d?: number | null;
+  nifty50_ret_21d?: number | null;
+  groups?: number;
+  quadrants?: Partial<Record<Quadrant, number>>;
+  leading_falling?: number;
+  leading_narrow?: number;
+  falling_21d?: number;
+  trend?: { Up?: number; Flat?: number; Down?: number };
+  health_median?: number | null;
+  health_zones?: Partial<Record<HealthZone, number>>;
+}
+
+function signedPct(v: number | null | undefined): string {
+  if (typeof v !== 'number') return '—';
+  const s = v.toFixed(1).replace('-', '−');
+  return `${v > 0 ? '+' : ''}${s}%`;
+}
+
+/**
+ * One sentence tying the board to the Desk verdict and the absolute tape, e.g.
+ * "Market Mixed — MidSml400 −3.6% (21d). 'Leading' = strongest vs peers; 1 of 14 is falling in absolute terms."
+ */
+export function marketContextLine(m: MarketContext | null | undefined): string | null {
+  if (!m) return null;
+  const parts: string[] = [];
+  const head = m.verdict ? `Market ${m.verdict}` : 'Market';
+  parts.push(typeof m.midsml400_ret_21d === 'number' ? `${head} — MidSml400 ${signedPct(m.midsml400_ret_21d)} (21d).` : `${head}.`);
+  const lead = m.quadrants?.Leading;
+  if (typeof lead === 'number') {
+    const falling = m.leading_falling ?? 0;
+    parts.push(
+      lead === 0
+        ? "No group is 'Leading' (strongest vs peers)."
+        : `'Leading' = strongest vs peers; ${falling} of ${lead} ${falling === 1 ? 'is' : 'are'} falling in absolute terms.`,
+    );
+  }
+  if (typeof m.groups === 'number' && typeof m.falling_21d === 'number' && m.groups > 0) {
+    parts.push(`${m.falling_21d} of ${m.groups} groups are down over 21 sessions.`);
+  }
+  return parts.join(' ');
+}
+
+export type Trend = 'Up' | 'Flat' | 'Down';
+export function asTrend(v: string | null | undefined): Trend | null {
+  return v === 'Up' || v === 'Flat' || v === 'Down' ? v : null;
+}
+
+/** Top gainers / losers among members with a value for `key` (null-safe, stable). */
+export function topMovers<T extends Record<string, unknown>>(rows: readonly T[], key: keyof T, n = 5): { up: T[]; down: T[] } {
+  const withVal = rows.filter((r) => typeof r[key] === 'number' && Number.isFinite(r[key] as number));
+  const sorted = [...withVal].sort((a, b) => (b[key] as number) - (a[key] as number));
+  return {
+    up: sorted.filter((r) => (r[key] as number) > 0).slice(0, n),
+    down: [...sorted].reverse().filter((r) => (r[key] as number) < 0).slice(0, n),
+  };
+}
+
+/** Members grouped by the Desk queue they are in today (from active_setups). */
+export function setupsByQueue<T extends { symbol?: string | null; active_setups?: string[] | null }>(rows: readonly T[]): { queue: string; symbols: string[] }[] {
+  const map = new Map<string, string[]>();
+  for (const r of rows) {
+    for (const q of r.active_setups ?? []) {
+      if (!r.symbol) continue;
+      const list = map.get(q) ?? [];
+      list.push(r.symbol);
+      map.set(q, list);
+    }
+  }
+  return [...map.entries()].map(([queue, symbols]) => ({ queue, symbols })).sort((a, b) => a.queue.localeCompare(b.queue));
+}
+
+/** Desk queue id -> short label. */
+export function queueLabel(q: string): string {
+  return ({ vcp: 'VCP', darvas_10ema: 'Darvas 10EMA', darvas_squeeze: 'Darvas squeeze' } as Record<string, string>)[q] ?? q.replace(/_/g, ' ');
+}
+
+// ------------------------------------------------------------------ treemap (squarified)
+
+export interface TreeTile<T> {
+  item: T;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Squarified treemap (Bruls et al.) of `items` sized by `size` into the rectangle
+ * (x, y, w, h). Non-positive sizes are dropped. Pure; order = descending size.
+ */
+export function squarify<T>(items: readonly T[], size: (t: T) => number, x: number, y: number, w: number, h: number): TreeTile<T>[] {
+  const data = items
+    .map((item) => ({ item, v: size(item) }))
+    .filter((d) => Number.isFinite(d.v) && d.v > 0)
+    .sort((a, b) => b.v - a.v);
+  const total = data.reduce((s, d) => s + d.v, 0);
+  const out: TreeTile<T>[] = [];
+  if (!data.length || w <= 0 || h <= 0 || total <= 0) return out;
+  const scale = (w * h) / total;
+  let rect = { x, y, w, h };
+  let i = 0;
+  const worst = (row: number[], side: number) => {
+    const s = row.reduce((a, b) => a + b, 0);
+    const mx = Math.max(...row);
+    const mn = Math.min(...row);
+    return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
+  };
+  while (i < data.length) {
+    const side = Math.min(rect.w, rect.h);
+    const row: number[] = [data[i].v * scale];
+    let j = i + 1;
+    while (j < data.length) {
+      const next = [...row, data[j].v * scale];
+      if (worst(next, side) > worst(row, side)) break;
+      row.push(data[j].v * scale);
+      j += 1;
+    }
+    const sum = row.reduce((a, b) => a + b, 0);
+    if (rect.w >= rect.h) {
+      const cw = sum / rect.h;
+      let cy = rect.y;
+      for (let k = 0; k < row.length; k += 1) {
+        const ch = row[k] / cw;
+        out.push({ item: data[i + k].item, x: rect.x, y: cy, w: cw, h: ch });
+        cy += ch;
+      }
+      rect = { x: rect.x + cw, y: rect.y, w: rect.w - cw, h: rect.h };
+    } else {
+      const ch = sum / rect.w;
+      let cx = rect.x;
+      for (let k = 0; k < row.length; k += 1) {
+        const cw = row[k] / ch;
+        out.push({ item: data[i + k].item, x: cx, y: rect.y, w: cw, h: ch });
+        cx += cw;
+      }
+      rect = { x: rect.x, y: rect.y + ch, w: rect.w, h: rect.h - ch };
+    }
+    i = j;
+  }
+  return out;
 }
