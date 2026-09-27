@@ -208,6 +208,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/groups/treemap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Groups Treemap
+         * @description Every taxonomy group (all four levels) with parent, Health, 21d return and turnover.
+         */
+        get: operations["groups_treemap_api_v2_groups_treemap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/groups/{group_id}/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Groups Index
+         * @description The group's equal-weight index with its 50/200 EMA (oldest first). group_id = '<level>:<name>'.
+         */
+        get: operations["groups_index_api_v2_groups__group_id__index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/groups/{group_id}/members": {
         parameters: {
             query?: never;
@@ -1000,6 +1040,19 @@ export interface components {
             rows: components["schemas"]["FollowThroughRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[GroupIndexRow] */
+        Envelope_GroupIndexRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["GroupIndexRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[GroupRow] */
         Envelope_GroupRow_: {
             /** As Of */
@@ -1024,6 +1077,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["GroupStudyRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[GroupTreeRow] */
+        Envelope_GroupTreeRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["GroupTreeRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[HousePrintRow] */
@@ -1363,6 +1429,24 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /** GroupIndexRow */
+        GroupIndexRow: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /**
+             * Ew Index
+             * @description Equal-weight group index, start of history = 100
+             */
+            ew_index?: number | null;
+            /** Ema 50 */
+            ema_50?: number | null;
+            /** Ema 200 */
+            ema_200?: number | null;
+            /** Abs Trend */
+            abs_trend?: string | null;
+            /** Health */
+            health?: number | null;
+        };
         /** GroupRow */
         GroupRow: {
             /** Id */
@@ -1383,6 +1467,50 @@ export interface components {
             rs_ratio?: number | null;
             /** Rs Momentum */
             rs_momentum?: number | null;
+            /**
+             * Rs Ratio Self
+             * @description Self-normalised RS trend: 100 x EMA10/EMA50 of (EW group index / MidSml400); the pre-2026-09-27 RS-Ratio
+             */
+            rs_ratio_self?: number | null;
+            /**
+             * Rs Momentum Self
+             * @description 100 x rs_ratio_self / rs_ratio_self 10 sessions ago
+             */
+            rs_momentum_self?: number | null;
+            /**
+             * Health
+             * @description Group Health 0-100 = 0.40 relative (peer RRG) + 0.35 absolute trend + 0.25 breadth
+             */
+            health?: number | null;
+            /**
+             * Health Rank
+             * @description Rank by Health among groups with >= 3 members, 1 = healthiest
+             */
+            health_rank?: number | null;
+            /**
+             * Abs Trend
+             * @description Up / Flat / Down: EW index vs its 50/200 EMA and the EMA50 slope
+             */
+            abs_trend?: string | null;
+            /**
+             * Quadrant Note
+             * @description e.g. 'Leading but falling' (21d EW return < 0)
+             */
+            quadrant_note?: string | null;
+            /**
+             * Ew Index
+             * @description Equal-weight group index, start of history = 100
+             */
+            ew_index?: number | null;
+            /** Ew Index Ema50 */
+            ew_index_ema50?: number | null;
+            /** Ew Index Ema200 */
+            ew_index_ema200?: number | null;
+            /**
+             * Turnover Cr
+             * @description Group turnover that session, ₹ Cr
+             */
+            turnover_cr?: number | null;
             /** Rank */
             rank?: number | null;
             /** Rank Delta 5 */
@@ -1506,6 +1634,37 @@ export interface components {
             label?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** GroupTreeRow */
+        GroupTreeRow: {
+            /** Id */
+            id: string;
+            /** Level */
+            level: string;
+            /** Group Name */
+            group_name: string;
+            /**
+             * Parent Id
+             * @description Parent group id (most common parent in today's mapping)
+             */
+            parent_id?: string | null;
+            /** Stocks */
+            stocks?: number | null;
+            /**
+             * Turnover 20D Cr
+             * @description Average daily turnover over 20 sessions, ₹ Cr (tile size)
+             */
+            turnover_20d_cr?: number | null;
+            /** Health */
+            health?: number | null;
+            /** Return Ew 21D */
+            return_ew_21d?: number | null;
+            /** Rrg Quadrant */
+            rrg_quadrant?: string | null;
+            /** Quadrant Note */
+            quadrant_note?: string | null;
+            /** Abs Trend */
+            abs_trend?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2090,6 +2249,16 @@ export interface components {
             stocks?: number | null;
             /** Rank */
             rank?: number | null;
+            /** Health */
+            health?: number | null;
+            /** Health Rank */
+            health_rank?: number | null;
+            /** Abs Trend */
+            abs_trend?: string | null;
+            /** Quadrant Note */
+            quadrant_note?: string | null;
+            /** Return Ew 21D */
+            return_ew_21d?: number | null;
             /** Tail */
             tail: components["schemas"]["RrgPoint"][];
         };
@@ -2842,6 +3011,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_RrgRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    groups_treemap_api_v2_groups_treemap_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                floor?: "1000" | "all" | "watch";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_GroupTreeRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    groups_index_api_v2_groups__group_id__index_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                floor?: "1000" | "all" | "watch";
+                days?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_GroupIndexRow_"];
                 };
             };
             /** @description Validation Error */

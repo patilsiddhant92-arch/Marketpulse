@@ -290,11 +290,14 @@ def test_groups_and_deals_switch_to_derived_tables(tmp_path, monkeypatch):
                    members BIGINT, ret_ew_1d DOUBLE, ret_ew_21d DOUBLE, excess_midsml_21d DOUBLE, excess_midsml_63d DOUBLE,
                    rs_ratio DOUBLE, rs_momentum DOUBLE, rrg_quadrant VARCHAR, days_in_quadrant DOUBLE, rank DOUBLE,
                    rank_n DOUBLE, rank_chg_5d DOUBLE, pct_above_50ema DOUBLE, turnover_share_delta DOUBLE,
-                   top1_turnover_share_pct DOUBLE, concentration_flag BOOLEAN, deliv_acc_10d_pct DOUBLE)""")
+                   top1_turnover_share_pct DOUBLE, concentration_flag BOOLEAN, deliv_acc_10d_pct DOUBLE,
+                   rs_ratio_self DOUBLE, rs_momentum_self DOUBLE, ew_index DOUBLE, ew_index_ema50 DOUBLE,
+                   ew_index_ema200 DOUBLE, abs_trend VARCHAR, quadrant_note VARCHAR, health DOUBLE, health_rank DOUBLE)""")
     for i, d in enumerate(days):
         for fl in ("all", "1000cr"):
             con.execute("INSERT INTO group_daily VALUES (?, 'Industry', ?, 'Heavy Electrical', 3, 0.5, 7.5, 2.0, 4.0, "
-                        "101.5, 100.4, 'Leading', ?, 1, 1, 2, 66.7, 0.1, 40, FALSE, 12.5)", [d, fl, i + 1])
+                        "101.5, 100.4, 'Leading', ?, 1, 1, 2, 66.7, 0.1, 40, FALSE, 12.5, "
+                        "103.0, 100.9, ?, NULL, NULL, 'Up', NULL, 71.5, 1)", [d, fl, i + 1, 100 + i])
     con.execute("""CREATE TABLE deal_session_net (trade_date TIMESTAMP, symbol VARCHAR, n_prints BIGINT,
                    buy_value_cr DOUBLE, sell_value_cr DOUBLE, net_value_cr DOUBLE, net_value_cr_ex_prop DOUBLE,
                    buying_houses DOUBLE, net_vs_adv DOUBLE, net_buy_sessions_10 DOUBLE, event_type VARCHAR)""")
@@ -312,6 +315,11 @@ def test_groups_and_deals_switch_to_derived_tables(tmp_path, monkeypatch):
     row = board["rows"][0]
     assert row["rrg_quadrant"] == "Leading" and row["rank_delta_5"] == 2 and row["excess_vs_midsml400_63d"] == 4.0
     assert row["delivery_accumulation"] == 12.5 and row["days_in_quadrant"] == len(days)
+    assert row["health"] == 71.5 and row["health_rank"] == 1 and row["abs_trend"] == "Up" and row["rs_ratio_self"] == 103.0
+    idx = _ok(c, "/api/v2/groups/industry:Heavy Electrical/index")
+    assert idx["meta"]["status"] == "ok" and idx["rows"][-1]["ew_index"] == 100 + len(days) - 1
+    tree = _ok(c, "/api/v2/groups/treemap")
+    assert any(r["id"] == "industry:Heavy Electrical" and r["health"] == 71.5 for r in tree["rows"])
     rrg = _ok(c, "/api/v2/groups/rrg?level=industry")
     assert rrg["meta"]["status"] == "ok" and rrg["rows"][0]["tail"][-1]["rs_ratio"] == 101.5
     watch = _ok(c, "/api/v2/groups/board?level=industry&floor=watch")  # not in group_daily -> live, labelled
@@ -320,6 +328,41 @@ def test_groups_and_deals_switch_to_derived_tables(tmp_path, monkeypatch):
     assert deals_body["meta"]["status"] == "ok"
     aaa = deals_body["rows"][0]
     assert aaa["event_type"] == "accumulate" and aaa["persistence_days"] == 2 and aaa["vs_adv"] == 0.07
+    db.clear_cache()
+
+
+def test_legacy_group_daily_gets_peer_rrg_and_health_on_the_fly(tmp_path, monkeypatch):
+    """A group_daily built before the peer-relative columns: the API derives them from the stored self RS-Ratio."""
+    market = build_market_db(tmp_path / "m4.duckdb")
+    con = duckdb.connect(str(market))
+    days = sessions()
+    con.execute("""CREATE TABLE group_daily (trade_date TIMESTAMP, level VARCHAR, floor VARCHAR, group_name VARCHAR,
+                   members BIGINT, ret_ew_1d DOUBLE, ret_ew_21d DOUBLE, rs_ratio DOUBLE, rs_momentum DOUBLE,
+                   rrg_quadrant VARCHAR, pct_above_50ema DOUBLE, pct_above_200ema DOUBLE)""")
+    for i, d in enumerate(days):
+        for k in range(6):  # every group's self ratio > 100 (falling benchmark), stored quadrant all 'Leading'
+            con.execute("INSERT INTO group_daily VALUES (?, 'Industry', '1000cr', ?, 3, -0.2, ?, ?, ?, 'Leading', 40, 30)",
+                        [d, f"G{k}", -2.0 + k, 101.0 + k, 100.1 + 0.1 * k])
+    con.close()
+    monkeypatch.setenv("MP_DB_PATH", str(market))
+    monkeypatch.setenv("MP_HOLIDAYS_PATH", str(tmp_path / "none.json"))
+    from App.api.v2 import create_app
+    from App.services import db
+
+    db.clear_cache()
+    c = TestClient(create_app())
+    board = _ok(c, "/api/v2/groups/board?level=industry")
+    rows = {r["group_name"]: r for r in board["rows"]}
+    assert board["meta"]["status"] == "ok"
+    assert rows["G5"]["rs_ratio_self"] == 106.0 and abs(sum(r["rs_ratio"] for r in rows.values()) / 6 - 100) < 1e-3
+    assert sum(1 for r in rows.values() if r["rrg_quadrant"] == "Leading") == 3  # was 6 of 6
+    assert rows["G5"]["rrg_quadrant"] == "Leading" and rows["G5"]["quadrant_note"] == "Leading, narrow breadth"
+    assert rows["G3"]["quadrant_note"] == "Leading, narrow breadth" and rows["G0"]["rrg_quadrant"] == "Lagging"
+    assert board["rows"][0]["group_name"] == "G5" and rows["G5"]["health_rank"] == 1
+    market_ctx = board["meta"]["context"]["market"]
+    assert market_ctx["quadrants"]["Leading"] == 3 and market_ctx["groups"] == 6
+    rrg = _ok(c, "/api/v2/groups/rrg?level=industry")
+    assert {r["group_name"] for r in rrg["rows"] if r["rrg_quadrant"] == "Leading"} == {"G3", "G4", "G5"}
     db.clear_cache()
 
 

@@ -1301,6 +1301,204 @@
         }
       }
     },
+    "/api/v2/groups/treemap": {
+      "get": {
+        "summary": "Groups Treemap",
+        "description": "Every taxonomy group (all four levels) with parent, Health, 21d return and turnover.",
+        "operationId": "groups_treemap_api_v2_groups_treemap_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "floor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1000",
+                "all",
+                "watch"
+              ],
+              "type": "string",
+              "default": "1000",
+              "title": "Floor"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_GroupTreeRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/groups/{group_id}/index": {
+      "get": {
+        "summary": "Groups Index",
+        "description": "The group's equal-weight index with its 50/200 EMA (oldest first). group_id = '<level>:<name>'.",
+        "operationId": "groups_index_api_v2_groups__group_id__index_get",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "floor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1000",
+                "all",
+                "watch"
+              ],
+              "type": "string",
+              "default": "1000",
+              "title": "Floor"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2000,
+              "minimum": 20,
+              "default": 500,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_GroupIndexRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/groups/{group_id}/members": {
       "get": {
         "summary": "Groups Members",
@@ -4710,6 +4908,52 @@
         ],
         "title": "Envelope[FollowThroughRow]"
       },
+      "Envelope_GroupIndexRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GroupIndexRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[GroupIndexRow]"
+      },
       "Envelope_GroupRow_": {
         "properties": {
           "as_of": {
@@ -4801,6 +5045,52 @@
           "meta"
         ],
         "title": "Envelope[GroupStudyRow]"
+      },
+      "Envelope_GroupTreeRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GroupTreeRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[GroupTreeRow]"
       },
       "Envelope_HousePrintRow_": {
         "properties": {
@@ -6020,6 +6310,80 @@
         ],
         "title": "Freshness"
       },
+      "GroupIndexRow": {
+        "properties": {
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "ew_index": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ew Index",
+            "description": "Equal-weight group index, start of history = 100"
+          },
+          "ema_50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ema 50"
+          },
+          "ema_200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ema 200"
+          },
+          "abs_trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abs Trend"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          }
+        },
+        "type": "object",
+        "title": "GroupIndexRow"
+      },
       "GroupRow": {
         "properties": {
           "id": {
@@ -6107,6 +6471,124 @@
               }
             ],
             "title": "Rs Momentum"
+          },
+          "rs_ratio_self": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Ratio Self",
+            "description": "Self-normalised RS trend: 100 x EMA10/EMA50 of (EW group index / MidSml400); the pre-2026-09-27 RS-Ratio"
+          },
+          "rs_momentum_self": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Momentum Self",
+            "description": "100 x rs_ratio_self / rs_ratio_self 10 sessions ago"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health",
+            "description": "Group Health 0-100 = 0.40 relative (peer RRG) + 0.35 absolute trend + 0.25 breadth"
+          },
+          "health_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Rank",
+            "description": "Rank by Health among groups with >= 3 members, 1 = healthiest"
+          },
+          "abs_trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abs Trend",
+            "description": "Up / Flat / Down: EW index vs its 50/200 EMA and the EMA50 slope"
+          },
+          "quadrant_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant Note",
+            "description": "e.g. 'Leading but falling' (21d EW return < 0)"
+          },
+          "ew_index": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ew Index",
+            "description": "Equal-weight group index, start of history = 100"
+          },
+          "ew_index_ema50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ew Index Ema50"
+          },
+          "ew_index_ema200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ew Index Ema200"
+          },
+          "turnover_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover Cr",
+            "description": "Group turnover that session, ₹ Cr"
           },
           "rank": {
             "anyOf": [
@@ -6639,6 +7121,119 @@
         "type": "object",
         "title": "GroupStudyRow",
         "description": "Big movers by taxonomy level (evidence engine, spec §7.6)."
+      },
+      "GroupTreeRow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id",
+            "description": "Parent group id (most common parent in today's mapping)"
+          },
+          "stocks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stocks"
+          },
+          "turnover_20d_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover 20D Cr",
+            "description": "Average daily turnover over 20 sessions, ₹ Cr (tile size)"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "return_ew_21d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ew 21D"
+          },
+          "rrg_quadrant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrg Quadrant"
+          },
+          "quadrant_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant Note"
+          },
+          "abs_trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abs Trend"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "level",
+          "group_name"
+        ],
+        "title": "GroupTreeRow"
       },
       "HTTPValidationError": {
         "properties": {
@@ -9038,6 +9633,61 @@
               }
             ],
             "title": "Rank"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "health_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Rank"
+          },
+          "abs_trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abs Trend"
+          },
+          "quadrant_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quadrant Note"
+          },
+          "return_ew_21d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ew 21D"
           },
           "tail": {
             "items": {
