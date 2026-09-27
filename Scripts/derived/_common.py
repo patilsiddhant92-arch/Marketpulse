@@ -146,6 +146,61 @@ def new_high_low_flags(ind: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"new_high": nh, "new_low": nl, "valid_52w": valid}, index=ind.index)
 
 
+REFERENCE_MAX_AGE = pd.Timedelta(days=10)
+
+
+def asof_reference(ind: pd.DataFrame, reference: pd.DataFrame | None, column: str) -> pd.Series:
+    """security_reference_daily[column] as of each (symbol, trade_date): effective_date <= trade_date,
+    at most REFERENCE_MAX_AGE old; NaN otherwise. Aligned to ind.index."""
+    if reference is None or reference.empty or column not in reference.columns:
+        return pd.Series(np.nan, index=ind.index, dtype=float)
+    r = clean_symbols(reference[["symbol", "effective_date", column]].copy())
+    r["effective_date"] = normalise_dates(r["effective_date"])
+    r["_v"] = pd.to_numeric(r[column], errors="coerce")
+    r = r.dropna(subset=["effective_date", "_v"]).sort_values("effective_date")
+    left = pd.DataFrame({"trade_date": ind["trade_date"].to_numpy(), "symbol": ind["symbol"].to_numpy(),
+                         "_row": np.arange(len(ind))}).sort_values("trade_date", kind="mergesort")
+    j = pd.merge_asof(left, r[["symbol", "effective_date", "_v"]], left_on="trade_date", right_on="effective_date",
+                      by="symbol", direction="backward", tolerance=REFERENCE_MAX_AGE)
+    vals = np.full(len(ind), np.nan)
+    vals[j["_row"].to_numpy()] = j["_v"].to_numpy(dtype=float)
+    return pd.Series(vals, index=ind.index)
+
+
+def point_in_time_mcap(ind: pd.DataFrame, master: pd.DataFrame | None, reference: pd.DataFrame | None) -> tuple[pd.Series, pd.Series]:
+    """Market cap (Cr) per indicator row and its basis.
+
+    1. security_reference_daily.market_cap_cr as of the row (<= 10 days old)  -> 'reference_asof'
+    2. else stocks_master.market_cap_cr * close_t / close on master.market_cap_date -> 'price_scaled_current'
+       (current share count; exact across splits/bonuses on adjusted prices; this uses today's
+       share count for past rows — a documented approximation, not point-in-time)
+    `ind` must be sorted by (symbol, trade_date) and carry close_price.
+    """
+    close = num(ind, "close_price")
+    sym = ind["symbol"]
+    mcap = pd.Series(np.nan, index=ind.index, dtype=float)
+    basis = pd.Series(None, index=ind.index, dtype="object")
+    if master is not None and not master.empty and "market_cap_cr" in master.columns:
+        m = clean_symbols(master[[c for c in ("symbol", "market_cap_cr", "market_cap_date") if c in master.columns]].copy())
+        m = m.drop_duplicates("symbol", keep="last").set_index("symbol")
+        cap_now = sym.map(pd.to_numeric(m["market_cap_cr"], errors="coerce"))
+        if "market_cap_date" in m.columns:
+            cap_date = sym.map(normalise_dates(m["market_cap_date"]))
+            on_or_before = cap_date.isna() | (ind["trade_date"] <= cap_date)
+        else:
+            on_or_before = pd.Series(True, index=ind.index)
+        g = close.groupby(sym, sort=False)
+        ref_close = close.where(on_or_before).groupby(sym, sort=False).transform("last")
+        ref_close = ref_close.where(ref_close.notna(), g.transform("last"))
+        mcap = cap_now * close / ref_close
+        basis[mcap.notna().to_numpy()] = "price_scaled_current"
+    ref = asof_reference(ind, reference, "market_cap_cr")
+    has = ref.notna().to_numpy()
+    mcap[has] = ref[has]
+    basis[has] = "reference_asof"
+    return mcap, basis
+
+
 def sign_dir(delta: pd.Series, tol: float) -> pd.Series:
     """'improving' / 'deteriorating' / 'flat' from a goodness-oriented change; NULL stays NULL."""
     out = pd.Series(None, index=delta.index, dtype="object")

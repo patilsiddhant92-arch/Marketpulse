@@ -39,6 +39,7 @@ from ._common import (
     new_high_low_flags,
     normalise_dates,
     num,
+    point_in_time_mcap,
     prep_indicators,
 )
 from .deal_session_net import normalise_deals
@@ -48,7 +49,6 @@ FLOORS = {"all": None, "1000cr": 1000.0}
 HORIZONS = (1, 5, 21, 63)
 MIN_MEMBERS_RANK = 3
 RS_FAST, RS_SLOW, RS_MOM_LAG = 10, 50, 10
-REFERENCE_MAX_AGE = pd.Timedelta(days=10)
 CONCENTRATION_TOP1_SHARE = 50.0
 DEAL_WINDOW = 10
 
@@ -100,27 +100,11 @@ def _stock_frame(indicators, master, reference, deals) -> tuple[pd.DataFrame, pd
     for lvl_col in LEVELS.values():
         f[lvl_col] = ind[lvl_col].astype("category")
 
-    # Market cap: reference as-of, else price-scaled current.
-    last_on_or_before = ind["market_cap_date"].isna() | (ind["trade_date"] <= ind["market_cap_date"])
-    ref_close = c.where(last_on_or_before).groupby(sym, sort=False).transform("last")
-    ref_close = ref_close.where(ref_close.notna(), gc.transform("last"))
-    mcap = ind["market_cap_cr"] * c / ref_close
-    basis = np.where(mcap.notna(), 0, -1)  # 0 = price_scaled_current
-    if reference is not None and not reference.empty and "market_cap_cr" in reference.columns:
-        r = clean_symbols(reference[["symbol", "effective_date", "market_cap_cr"]].copy())
-        r["effective_date"] = normalise_dates(r["effective_date"])
-        r["ref_mcap"] = pd.to_numeric(r["market_cap_cr"], errors="coerce")
-        r = r.dropna(subset=["effective_date", "ref_mcap"]).sort_values("effective_date")
-        left = pd.DataFrame({"trade_date": ind["trade_date"], "symbol": sym, "_row": np.arange(len(ind))}).sort_values("trade_date")
-        j = pd.merge_asof(left, r[["symbol", "effective_date", "ref_mcap"]], left_on="trade_date",
-                          right_on="effective_date", by="symbol", direction="backward", tolerance=REFERENCE_MAX_AGE)
-        ref_mcap = pd.Series(j["ref_mcap"].to_numpy(), index=j["_row"].to_numpy()).sort_index()
-        has = ref_mcap.notna().to_numpy()
-        mcap = pd.Series(np.where(has, ref_mcap.to_numpy(), mcap.to_numpy()), index=ind.index)
-        basis = np.where(has, 1, basis)  # 1 = reference_asof
+    # Market cap: reference as-of, else price-scaled current (shared helper).
+    mcap, basis = point_in_time_mcap(ind, tax, reference)
     f["mcap"] = mcap.to_numpy()
-    f["mcap_ref"] = (basis == 1).astype(float)
-    f["mcap_known"] = np.isfinite(f["mcap"].to_numpy()).astype(float)
+    f["mcap_ref"] = (basis == "reference_asof").to_numpy(dtype=float)
+    f["mcap_known"] = mcap.notna().to_numpy(dtype=float)
 
     f["n"] = 1.0
     for h in HORIZONS:
