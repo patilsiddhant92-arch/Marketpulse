@@ -838,6 +838,12 @@ def build_big_moves(sd: pd.DataFrame, *, pr, events_tbl, corp_actions, deals, gr
     controls = match_controls(sd, events, flags)
     fp = fingerprint_rows(sd, events, controls)
     lift, test_start = lift_table(fp, sessions)
+    lift["subset"] = "all"
+    # upper-circuit events only: T is the circuit day itself (for +30%/+50% events T-1 is the window low by
+    # construction, which biases return/52W-distance traits); controls are those matched to these events
+    uc_ids = set(events.loc[events["eligible"] & (events["trigger"] == "upper_circuit"), "event_id"])
+    lift_uc, _ = lift_table(fp.loc[fp["event_id"].isin(uc_ids)], sessions)
+    lift_uc["subset"] = "upper_circuit"
     label = forward_event_label(sd, events)
     precision, traits, chosen = precision_table(sd, label, lift, sessions)
     cats = attribute_catalysts(sd, events, pr, events_tbl, corp_actions, deals)
@@ -855,7 +861,7 @@ def build_big_moves(sd: pd.DataFrame, *, pr, events_tbl, corp_actions, deals, gr
     lift_long = fp.melt(id_vars=["event_id", "role", "symbol", "event_date", "offset"], value_vars=FEATURES,
                         var_name="feature", value_name="value")
     return {"big_move_events": ev_out.reset_index(drop=True), "big_move_features": lift_long,
-            "big_move_controls": controls, "big_move_lift": lift, "big_move_precision": precision,
+            "big_move_controls": controls, "big_move_lift": pd.concat([lift, lift_uc], ignore_index=True), "big_move_precision": precision,
             "big_move_paths": paths, "big_move_catalyst_stats": catalyst_stats(events),
             "big_move_group_stats": groups, "group_entry_study": entries, "pre_move_watch": watch,
             "_all_events": events}

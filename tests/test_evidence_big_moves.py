@@ -76,7 +76,7 @@ def test_controls_match_date_industry_and_are_clean(built):
 def test_lift_table_prints_n_and_uses_purged_split(built):
     _sd, out = built
     lift = out["big_move_lift"]
-    assert set(FEATURES) == set(lift["feature"])
+    assert set(FEATURES) == set(lift.loc[lift["subset"] == "all", "feature"])
     for col in ("n_events", "n_controls", "k_events", "n_events_train", "n_events_test", "lift_train", "lift_test"):
         assert col in lift.columns
     assert lift["label"].eq("insufficient sample").all()  # a handful of synthetic events: never a number without n

@@ -469,6 +469,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/group-studies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Group Studies */
+        get: operations["research_group_studies_api_v2_research_group_studies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/metrics/dictionary": {
         parameters: {
             query?: never;
@@ -839,6 +856,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["GroupRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[GroupStudyRow] */
+        Envelope_GroupStudyRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["GroupStudyRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[HousePrintRow] */
@@ -1223,6 +1253,30 @@ export interface components {
             legacy_median_rs_percentile?: number | null;
             /** Leader Symbols */
             leader_symbols?: string[] | null;
+        };
+        /**
+         * GroupStudyRow
+         * @description Big movers by taxonomy level (evidence engine, spec §7.6).
+         */
+        GroupStudyRow: {
+            /** Level */
+            level?: string | null;
+            /** Group Name */
+            group_name?: string | null;
+            /** N Events */
+            n_events?: number | null;
+            /** Eligible Stock Days */
+            eligible_stock_days?: number | null;
+            /** Events Per 1000 Days */
+            events_per_1000_days?: number | null;
+            /** Lift Vs All */
+            lift_vs_all?: number | null;
+            /** Median Move Pct */
+            median_move_pct?: number | null;
+            /** Label */
+            label?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2987,6 +3041,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_PreMoveRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_group_studies_api_v2_research_group_studies_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "broad_sector" | "sector" | "broad_industry" | "industry";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_GroupStudyRow_"];
                 };
             };
             /** @description Validation Error */

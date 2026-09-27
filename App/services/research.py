@@ -92,7 +92,9 @@ def analogs(as_of: date | None) -> Result:
 
 
 def _lift_context(con: Any) -> list[dict[str, Any]]:
-    lift = _table_records(con, "big_move_lift", 'WHERE "offset" = 1 ORDER BY lift DESC NULLS LAST')
+    cols = set(db.table_columns(con, "big_move_lift")) if db.table_exists(con, "big_move_lift") else set()
+    where = """WHERE "offset" = 1""" + (" AND subset = 'all'" if "subset" in cols else "")
+    lift = _table_records(con, "big_move_lift", f"{where} ORDER BY stable_oos DESC, lift DESC NULLS LAST")
     prec = {r["rule"]: r for r in _table_records(con, "big_move_precision")}
     out = []
     for r in lift:
@@ -155,7 +157,9 @@ def big_moves(as_of: date | None, min_mcap_cr: float = 1000.0) -> Result:
             where, params = f"{db.quote_ident(mcap_col)} >= ?", [float(min_mcap_cr)]
         rows = _honest_events(_passthrough(con, "big_move_events", ("event_date", "trade_date"), resolved, where, params),
                               resolved)
-        extra = {"min_mcap_cr": min_mcap_cr, "lift": _lift_context(con), "feature_path": _path_context(con),
+        uc_lift = _table_records(con, "big_move_lift", """WHERE "offset" = 1 AND subset = 'upper_circuit' ORDER BY lift DESC NULLS LAST""")             if "subset" in set(db.table_columns(con, "big_move_lift") if db.table_exists(con, "big_move_lift") else []) else []
+        extra = {"min_mcap_cr": min_mcap_cr, "lift": _lift_context(con), "lift_upper_circuit": uc_lift,
+                 "feature_path": _path_context(con),
                  "precision": _table_records(con, "big_move_precision"),
                  "catalyst_stats": _table_records(con, "big_move_catalyst_stats"),
                  "definition": ("Event = upper circuit (high >= prev close x (1 + band) x 0.9995) | +30% within 20 sessions "
