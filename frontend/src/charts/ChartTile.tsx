@@ -4,7 +4,7 @@
  * keys), draws trigger / stop lines for queue sources and shows the stock's
  * return vs the MidSml400 over the chosen window.
  */
-import { Expand, Maximize2, Minimize2 } from 'lucide-react';
+import { BarChart2, Expand, Maximize2, Minimize2, TrendingUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiQuery } from '../api/query';
 import type { StockContextRow } from '../api/types';
@@ -63,6 +63,12 @@ export interface ChartTileProps {
   onOpenBig?: (sym: string) => void;
   /** Cross-tab context (group Health, setups, deals 10s, events). */
   context?: StockContextRow;
+  /** Grid-wide price style; the tile can override it (old Tiles window per-tile toggle). */
+  priceStyle?: 'candles' | 'line';
+  /** Sync pan / zoom across the grid by date. */
+  syncRange?: boolean;
+  /** Remove this symbol from an editable (typed) list. */
+  onRemove?: (sym: string) => void;
 }
 
 export function ChartTile({
@@ -78,7 +84,18 @@ export function ChartTile({
   onToggleExpand,
   onOpenBig,
   context,
+  priceStyle = 'candles',
+  syncRange = false,
+  onRemove,
 }: ChartTileProps) {
+  const [styleOverride, setStyleOverride] = useState<'candles' | 'line' | null>(null);
+  const [lastGridStyle, setLastGridStyle] = useState(priceStyle);
+  if (lastGridStyle !== priceStyle) {
+    // A grid-wide switch resets per-tile overrides (as the old Tiles window did).
+    setLastGridStyle(priceStyle);
+    setStyleOverride(null);
+  }
+  const style = styleOverride ?? priceStyle;
   const [prefs, setPrefs] = useChartPrefs();
   const [ref, inView] = useInView<HTMLDivElement>();
   const sym = item.symbol;
@@ -180,6 +197,15 @@ export function ChartTile({
               Darvas
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setStyleOverride(style === 'line' ? 'candles' : 'line')}
+            aria-label={`${sym}: ${style === 'line' ? 'show candles' : 'show line'}`}
+            title={`Candles / line for this tile (now ${style})`}
+            className={cn('rounded p-0.5', style === 'line' ? 'text-info' : 'text-fg-3 hover:text-fg')}
+          >
+            {style === 'line' ? <TrendingUp className="h-3 w-3" /> : <BarChart2 className="h-3 w-3" />}
+          </button>
           {onOpenBig && (
             <button
               type="button"
@@ -200,6 +226,17 @@ export function ChartTile({
           >
             {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
           </button>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(sym)}
+              aria-label={`Remove ${sym} from this list`}
+              title="Remove from this list"
+              className="rounded p-0.5 text-fg-3 hover:text-down"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </span>
       </div>
       <div className="relative min-h-0 flex-1" onDoubleClick={() => onToggleExpand(sym)}>
@@ -220,6 +257,8 @@ export function ChartTile({
             boxes={boxes}
             volume={volume}
             syncGroup={syncGroup}
+            syncRange={syncRange}
+            priceStyle={style}
             initialBars={INITIAL_BARS[timeframe]}
             showLegend={!!expanded}
             label={`${sym} ${timeframe === 'D' ? 'daily' : timeframe === 'W' ? 'weekly' : 'monthly'} chart`}
