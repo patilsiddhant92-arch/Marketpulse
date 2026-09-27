@@ -1,7 +1,7 @@
 """Groups: board, RRG, drill-down and members (spec §7.4).
 
 Source of truth is `group_daily` (data layer §4.5, built by Scripts/derived/group_daily.py).
-Until that table exists — or for a floor it does not carry (e.g. "watch") — the
+Until that table exists — or for a floor it does not carry (group_daily builds all / 1000cr / watch) — the
 board, RRG and drill-down are **computed live** from `indicators_daily` with the
 same rules as the builder (status "partial", reason says so):
 
@@ -32,6 +32,8 @@ import pandas as pd
 
 from App.services import db, universe
 from App.services.common import STATUS_PARTIAL, Result, no_session, unavailable
+# Floor bands and the corporate-action guard are shared with the nightly group_daily builder.
+from Scripts.derived.group_daily import FLOORS as _GD_FLOORS, SPLIT_DOWN, SPLIT_UP
 
 GROUP_METRICS = [
     "rs_ratio", "rs_momentum", "rrg_quadrant", "group_rank", "group_rank_delta_5", "group_rank_delta_20",
@@ -45,7 +47,6 @@ MEMBER_METRICS = ["rs_percentile", "rs_delta_5", "rs_vs_sector_index_63d", "tren
 MIDSML400, NIFTY50 = "NIFTY MIDSML 400", "Nifty 50"
 LIVE_WINDOW = 260          # sessions of history for the live computation (EMA50 warm-up + 63d rank change)
 HISTORY_SESSIONS = 70      # sessions read from group_daily for sparks / tails
-SPLIT_DOWN, SPLIT_UP = -0.35, 1.0
 RS_FAST, RS_SLOW, RS_MOM_LAG = 10, 50, 10
 MIN_MEMBERS_RANK = 3
 CONCENTRATION_TOP1 = 50.0
@@ -126,13 +127,17 @@ def floor_label(floor: str) -> str:
             "watch": "watch band: market cap ₹300–1,000 Cr"}[str(floor).lower()]
 
 
+_GD_FLOOR_LABEL = {"1000": "1000cr", "all": "all", "watch": "watch"}  # API floor -> group_daily.floor
+
+
 def _floor_mask(mcap: pd.Series, floor: str) -> pd.Series:
-    f = str(floor).lower()
-    if f == "all":
-        return pd.Series(True, index=mcap.index)
-    if f == "watch":
-        return (mcap >= 300.0) & (mcap < 1000.0)
-    return mcap >= 1000.0
+    lo, hi = _GD_FLOORS[_GD_FLOOR_LABEL.get(str(floor).lower(), "1000cr")]
+    mask = pd.Series(True, index=mcap.index)
+    if lo is not None:
+        mask &= mcap >= lo
+    if hi is not None:
+        mask &= mcap < hi
+    return mask
 
 
 # --------------------------------------------------------------------------

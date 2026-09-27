@@ -164,18 +164,21 @@ Connected readings (`CONNECTED_READINGS`): `narrow_rally` (MidSml400 up each of 
 ## group_daily — taxonomy groups (§4.5, §7.4)
 
 One row per `(trade_date, level, floor, group_name)` where the group has ≥ 1 member that session.
+Column names are the ones `App/services/groups.py::_GD_FIELDS` reads first (checked by tests/test_derived_group_daily.py).
+Membership is decided per session here; the live fallback fixes members at as_of — identical on the as_of session
+(verified: board ranks for all / 1000 / watch × 4 levels on 2026-09-25 match the live service, 0 mismatches).
 Indexes: `(trade_date, level, floor)`, `(level, group_name)`.
 
 | Column | Type | Meaning | NULL when |
 | :--- | :--- | :--- | :--- |
 | trade_date | TIMESTAMP | Session | never |
 | level | VARCHAR | `Broad Sector` · `Sector` · `Broad Industry` · `Industry` (stocks_master broad_sector / sector / broad_industry / industry; current mapping) | never |
-| floor | VARCHAR | `all` or `1000cr` (member mcap ≥ ₹1,000 Cr that session) | never |
+| floor | VARCHAR | `all` · `1000cr` (member mcap ≥ ₹1,000 Cr that session) · `watch` (₹300 Cr ≤ mcap < ₹1,000 Cr that session). API floors `all` / `1000` / `watch` read these rows (App/services/groups.py `_gd_floor_values`) | never |
 | group_name | VARCHAR | Group label | never |
 | members | BIGINT | Member stocks that session | never |
 | mcap_total_cr | DOUBLE | Σ member mcap | no member mcap known |
 | mcap_basis | VARCHAR | `reference_asof` (security_reference_daily.market_cap_cr as-of, ≤ 10 days old, for ≥ half the members) or `price_scaled_current` (stocks_master mcap × close_t / close on its market_cap_date — uses today's share count, i.e. **not** point-in-time) | never |
-| ret_ew_1d / 5d / 21d / 63d | DOUBLE | Equal-weight mean of member returns over h sessions (each member's own sessions), % | no member has h sessions of history |
+| ret_ew_1d / 5d / 21d / 63d | DOUBLE | Equal-weight mean of member returns over h sessions (each member's own sessions), %. A member's return is excluded (not filled) when its window contains a 1-day move ≤ −35 % or ≥ +100 % (unadjusted corporate action; `SPLIT_DOWN`/`SPLIT_UP`, shared with the live API) | no member has a clean h-session window |
 | ret_cw_1d / 5d / 21d / 63d | DOUBLE | Cap-weighted return, weights = mcap at the start of the window (mcap_t × close_{t−h}/close_t), % | no member mcap |
 | excess_nifty_21d / 63d | DOUBLE | ret_ew − Nifty 50 return (same horizon, index sessions), pts | either missing |
 | excess_midsml_21d / 63d | DOUBLE | ret_ew − MidSml400 return, pts | either missing |

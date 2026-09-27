@@ -45,11 +45,14 @@ def test_columns_levels_floors_and_total_excluded():
     out = build_group_daily(ind, master, idx)
     assert list(out.columns) == OUTPUT_COLUMNS
     assert set(out["level"]) == {"Broad Sector", "Sector", "Broad Industry", "Industry"}
-    assert set(out["floor"]) == {"all", "1000cr"}
+    assert set(out["floor"]) == {"all", "1000cr", "watch"}
     assert "X" not in set(out["group_name"])
     last = out[(out.trade_date == D[-1]) & (out.level == "Industry")].set_index(["floor", "group_name"])
     assert last.loc[("all", "UpInd"), "members"] == 3
     assert last.loc[("1000cr", "UpInd"), "members"] == 2  # UP2 (500 Cr) below floor
+    # watch band = ₹300–1,000 Cr (same as the API): UP2 (500) in UpInd, DN2 (800) in DnInd.
+    assert last.loc[("watch", "UpInd"), "members"] == 1 and last.loc[("watch", "DnInd"), "members"] == 1
+    assert pd.isna(last.loc[("watch", "UpInd"), "rank"])  # < 3 members: listed, not ranked
     assert (last["mcap_basis"] == "price_scaled_current").all()
 
 
@@ -130,3 +133,28 @@ def test_point_in_time_truncation_invariance():
     a = full[(full.trade_date <= cut) & (full.floor == "all")][cols].sort_values(["level", "group_name", "trade_date"]).reset_index(drop=True)
     b = part[part.floor == "all"][cols].sort_values(["level", "group_name", "trade_date"]).reset_index(drop=True)
     pd.testing.assert_frame_equal(a, b, check_dtype=False)
+
+
+def test_unadjusted_split_excluded_like_live_api():
+    # UP1 halves overnight on D[-10] (unadjusted 1:1 bonus): windows containing that day are excluded, as
+    # App/services/groups.py does, so the group return is not dragged down by a fake -50 %.
+    ind, master, idx = universe()
+    m = (ind.symbol == "UP1") & (ind.trade_date >= D[-10])
+    ind.loc[m, ["close_price", "high_price", "low_price"]] /= 2.0
+    out = build_group_daily(ind, master, idx)
+    row = out[(out.trade_date == D[-1]) & (out.level == "Industry") & (out.floor == "all") & (out.group_name == "UpInd")].iloc[0]
+    expected = np.mean([(1.002 ** 21 - 1) * 100, (1.003 ** 21 - 1) * 100])  # UP2, UP3 only
+    assert row["ret_ew_21d"] == pytest.approx(expected)
+    from App.services import groups as live
+    from Scripts.derived import group_daily as gd
+    assert (live.SPLIT_DOWN, live.SPLIT_UP) == (gd.SPLIT_DOWN, gd.SPLIT_UP)
+
+
+def test_api_reads_the_builder_column_names():
+    # Every field the API reads from group_daily / deal_session_net resolves to its first (SCHEMA.md) name.
+    from App.services import deals, groups
+    from Scripts.derived import deal_session_net as dsn
+
+    assert [k for k, v in groups._GD_FIELDS.items() if v[0] not in OUTPUT_COLUMNS] == []
+    assert [k for k, v in deals._DSN_FIELDS.items() if v[0] not in dsn.OUTPUT_COLUMNS] == []
+    assert set(groups._gd_floor_values("watch")) & {"watch"} and "1000cr" in groups._gd_floor_values("1000")
