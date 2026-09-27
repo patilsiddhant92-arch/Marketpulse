@@ -1,5 +1,6 @@
 import argparse
 import concurrent.futures
+import gc
 import os
 import re
 import time
@@ -31,6 +32,7 @@ from index_history import build_index_features, load_all_index_history
 from price_adjustment import adjust_prices, empty_adjustments_frame, indicator_input, summarize_adjustments
 from true_rs import attach_true_rs_columns, TRUE_RS_COLUMNS
 from sector_index_rs import attach_sector_index_rs, compute_index_bench_rs
+from streaming_build import StagedTable, connect_build_db
 from index_constituents import load_membership_csv, ensure_index_constituents
 from reference_history import asof_reference, load_reference_history
 try:
@@ -290,6 +292,10 @@ def read_bhavcopy(path: Path, universe: set[str] | None = None) -> pd.DataFrame:
     return df.drop(columns=["series_priority"], errors="ignore")
 
 
+# Files read between duplicate-collapsing passes in build_prices.
+BHAV_DEDUPE_BATCH = 100
+
+
 def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
     # Include downloads/ so a session that never made it to archive/daily is still rebuilt.
     downloads = INPUT_DIR / "downloads"
@@ -298,7 +304,19 @@ def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
     if downloads.exists():
         files |= set(downloads.rglob("sec_bhavdata_full_*.csv"))
     files = sorted(files)
-    frames = []
+    # The same session usually exists in several folders (archive, backfill, downloads), so the
+    # raw rows are several times the final table. Collapse duplicates every BHAV_DEDUPE_BATCH
+    # files instead of concatenating everything first: the (symbol, trade_date) row that wins is
+    # still the one from the last file in sorted order (stable sort, keep="last"), but peak
+    # memory is bounded by the de-duplicated table instead of every file's rows at once.
+    batches: list[pd.DataFrame] = []
+    frames: list[pd.DataFrame] = []
+
+    def _collapse(parts: list[pd.DataFrame]) -> pd.DataFrame:
+        out = pd.concat(parts, ignore_index=True)
+        out = out.dropna(subset=["symbol", "trade_date", "close_price"])
+        return out.sort_values(["symbol", "trade_date"], kind="stable").drop_duplicates(["symbol", "trade_date"], keep="last")
+
     for path in files:
         try:
             frame = read_bhavcopy(path, universe)
@@ -306,11 +324,19 @@ def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
                 frames.append(frame)
         except Exception as exc:
             print(f"Skipped {path.name}: {exc}")
-    if not frames:
+        if len(frames) >= BHAV_DEDUPE_BATCH:
+            batches.append(_collapse(frames))
+            frames = []
+            if len(batches) > 1:
+                batches = [_collapse(batches)]
+    if frames:
+        batches.append(_collapse(frames))
+    if not batches:
         raise RuntimeError("No bhavcopy files could be loaded.")
-    prices = pd.concat(frames, ignore_index=True)
+    prices = pd.concat(batches, ignore_index=True)
+    del batches, frames
     prices = prices.dropna(subset=["symbol", "trade_date", "close_price"])
-    prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+    prices = prices.sort_values(["symbol", "trade_date"], kind="stable").drop_duplicates(["symbol", "trade_date"], keep="last")
     if universe is None:
         prices = apply_reference_symbol_changes(prices)
     return prices
@@ -628,21 +654,73 @@ def resampled_timeframe_features(g: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
+    """Every per-symbol indicator column for one symbol's full history (rows by trade_date)."""
+    return _higher_timeframe_features(_daily_symbol_features(group))
+
+
+# Daily columns whose value depends on the symbol's WHOLE history (recursive EMA / Wilder
+# smoothing, a running max, swing points found arbitrarily far back). Every other daily column
+# only looks back a bounded number of rows (at most 252 + 20, see DAILY_LOOKBACK_ROWS).
+UNBOUNDED_DAILY_COLUMNS = (
+    *[f"ema_{w}" for w in EMA_WINDOWS],
+    "rsi_14",
+    "bullish_rsi_divergence",
+    "bearish_rsi_divergence",
+    "atr_14_wilder",
+    "database_high",
+)
+# Rows a bounded daily column needs before a row for its value to equal the full-history value
+# (high/low_252d and return_12m_pct: 252; sma_200_rising: 200 + 20) - with margin.
+DAILY_LOOKBACK_ROWS = 300
+
+
+def _unbounded_daily_series(frame: pd.DataFrame) -> dict[str, pd.Series]:
+    """The UNBOUNDED_DAILY_COLUMNS of one symbol, computed over ``frame`` (sorted by date)."""
+    close = frame["close_price"]
+    high = frame["high_price"]
+    low = frame["low_price"]
+    out: dict[str, pd.Series] = {f"ema_{window}": ema(close, span=window) for window in EMA_WINDOWS}
+    out["rsi_14"] = rsi_wilder(close)
+    out["bullish_rsi_divergence"], out["bearish_rsi_divergence"] = rsi_divergence_flags(close, out["rsi_14"])
+    out["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
+    out["database_high"] = high.cummax()
+    return out
+
+
+def _daily_symbol_features(group: pd.DataFrame, history: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Daily-bar indicator columns of one symbol (first half of the per-symbol pass).
+
+    ``history`` (incremental append) is the symbol's full adjusted OHLC history whose last rows
+    are ``group`` (a trailing window of at least DAILY_LOOKBACK_ROWS rows before the rows that
+    will be kept): the UNBOUNDED_DAILY_COLUMNS are then computed over the full history - same
+    functions, same inputs, so the same values - and every bounded column over the window.
+    """
     g = group.copy().sort_values("trade_date")
     close = g["close_price"]
     high = g["high_price"]
     low = g["low_price"]
     prev_close = close.shift(1)
+    if history is None:
+        unbounded = _unbounded_daily_series(g)
+    else:
+        hist = history.sort_values("trade_date")
+        n = len(g)
+        if len(hist) < n or not np.array_equal(
+            pd.to_datetime(hist["trade_date"].iloc[-n:]).to_numpy("datetime64[us]"),
+            pd.to_datetime(g["trade_date"]).to_numpy("datetime64[us]"),
+        ):
+            raise ValueError("history does not end with the window rows")
+        unbounded = {k: pd.Series(v.iloc[-n:].to_numpy(), index=g.index, name=v.name) for k, v in _unbounded_daily_series(hist).items()}
     for window in EMA_WINDOWS:
-        g[f"ema_{window}"] = ema(close, span=window)
+        g[f"ema_{window}"] = unbounded[f"ema_{window}"]
     g["sma_50"] = sma(close, 50)
     g["sma_150"] = sma(close, 150)
     g["sma_200"] = sma(close, 200)
     g["sma_200_rising"] = g["sma_200"] > g["sma_200"].shift(20)
     for name, window in RETURN_WINDOWS.items():
         g[name] = (close / close.shift(window) - 1) * 100
-    g["rsi_14"] = rsi_wilder(close)
-    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = rsi_divergence_flags(close, g["rsi_14"])
+    g["rsi_14"] = unbounded["rsi_14"]
+    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = unbounded["bullish_rsi_divergence"], unbounded["bearish_rsi_divergence"]
     g["avg_volume_5d"] = g["volume"].rolling(5, min_periods=3).mean()
     g["avg_volume_10d"] = g["volume"].rolling(10, min_periods=3).mean()
     g["avg_volume_20d"] = g["volume"].rolling(20, min_periods=5).mean()
@@ -657,7 +735,7 @@ def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
     g["atr_14"] = atr_sma(high, low, close, period=14)
     g["atr_pct"] = g["atr_14"] / close * 100
     g["adr_20_pct"] = adr_pct(high, low, window=20)
-    g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
+    g["atr_14_wilder"] = unbounded["atr_14_wilder"]
     g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
     # Primary risk volatility uses the standard Wilder smoothing. Keep
     # legacy ``atr_pct`` intact for compatibility with older snapshots.
@@ -679,7 +757,7 @@ def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
         g[f"high_{window}d"] = high.rolling(window, min_periods=3).max()
         g[f"low_{window}d"] = low.rolling(window, min_periods=3).min()
         g[f"range_{window}d_pct"] = (g[f"high_{window}d"] - g[f"low_{window}d"]) / close * 100
-    g["database_high"] = high.cummax()
+    g["database_high"] = unbounded["database_high"]
     g["ema_200_rising"] = g["ema_200"] > g["ema_200"].shift(20)
     g["away_10ema_pct"] = (close / g["ema_10"] - 1) * 100
     g["away_20ema_pct"] = (close / g["ema_20"] - 1) * 100
@@ -710,9 +788,21 @@ def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
     g["confirmed_hammer"] = g["hammer"] & (close < close.shift(5)) & (g["close_location_pct"] >= 60)
     g["confirmed_bullish_engulfing"] = g["bullish_engulfing"] & (close.shift(1) < close.shift(6))
     g["confirmed_shooting_star"] = g["shooting_star"] & (close > close.shift(10)) & (g["away_database_high_pct"] >= -15)
-    g = g.copy()
-    weekly_features = resampled_timeframe_features(g, "W-FRI")
-    monthly_features = resampled_timeframe_features(g, "ME")
+    return g.copy()
+
+
+def _higher_timeframe_features(g: pd.DataFrame, bars: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Weekly / monthly columns for the rows of ``g`` (second half of the per-symbol pass).
+
+    ``bars`` is the symbol's daily history the weekly/monthly bars are resampled from; it
+    defaults to ``g`` itself (full build). The incremental append passes the full slim OHLCV
+    history while ``g`` holds only the recomputed tail rows: every value written onto a row is
+    looked up by that row's own date, so it is the same as a full-history computation.
+    """
+    bars = g if bars is None else bars
+    close = g["close_price"]
+    weekly_features = resampled_timeframe_features(bars, "W-FRI")
+    monthly_features = resampled_timeframe_features(bars, "ME")
     if not weekly_features.empty:
         weekly = weekly_features["close_price"]
         weekly_ema = weekly.ewm(span=10, adjust=False, min_periods=10).mean()
@@ -722,7 +812,7 @@ def _calc_single_symbol_indicators(group: pd.DataFrame) -> pd.DataFrame:
         g["wema_10"] = weekly_ema.reindex(g["trade_date"], method="ffill").to_numpy()
         g["wema_200"] = weekly_ema_200.reindex(g["trade_date"], method="ffill").to_numpy()
         g["wema_10_cross_200"] = weekly_10_cross_200.reindex(g["trade_date"], method="ffill").fillna(False).to_numpy()
-        weekly_completed = weekly_ohlc(g, as_of=g["trade_date"].max())
+        weekly_completed = weekly_ohlc(bars, as_of=bars["trade_date"].max())
         if not weekly_completed.empty:
             w20_close = weekly_completed.set_index(pd.to_datetime(weekly_completed["trade_date"]))["close_price"]
             weekly_ema_20 = w20_close.ewm(span=20, adjust=False, min_periods=20).mean()
@@ -780,17 +870,24 @@ def _calc_symbol_indicators_chunk(groups: list[pd.DataFrame]) -> list[pd.DataFra
     return [_calc_single_symbol_indicators(group) for group in groups]
 
 
-def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFrame:
+def multiprocessing_settings() -> tuple[bool, int]:
+    """(use a process pool?, worker count) - MP_DISABLE_MULTIPROCESSING=1 forces sequential."""
+    disable_mp = os.environ.get("MP_DISABLE_MULTIPROCESSING", "").strip().lower() in {"1", "true", "yes", "on"}
+    num_cores = max(1, min(os.cpu_count() or 4, 10))
+    return (not disable_mp and num_cores > 1), num_cores
+
+
+def per_symbol_indicators(prices: pd.DataFrame) -> pd.DataFrame:
+    """Step 5a: `_calc_single_symbol_indicators` for every symbol, rows in (symbol, trade_date) order."""
     df = prices.sort_values(["symbol", "trade_date"]).copy()
     parts: list[pd.DataFrame] = []
     groups = [group for _, group in df.groupby("symbol", sort=False)]
     total_symbols = len(groups)
     t_start = time.time()
 
-    disable_mp = os.environ.get("MP_DISABLE_MULTIPROCESSING", "").strip().lower() in {"1", "true", "yes", "on"}
-    num_cores = max(1, min(os.cpu_count() or 4, 10))
+    use_mp, num_cores = multiprocessing_settings()
 
-    if not disable_mp and num_cores > 1 and total_symbols > 50:
+    if use_mp and total_symbols > 50:
         chunk_size = max(10, total_symbols // (num_cores * 4))
         chunks = [groups[i : i + chunk_size] for i in range(0, total_symbols, chunk_size)]
         completed_symbols = 0
@@ -823,8 +920,15 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
                 print(f"  5a/8: Calculating stock indicators: {idx:,}/{total_symbols:,} stocks ({pct:.1f}%) [{elapsed:.0f}s elapsed]...", flush=True)
             parts.append(_calc_single_symbol_indicators(group))
 
-    indicators = pd.concat(parts, ignore_index=True)
-    print("  5b/8: Merging historical 52-week & reference snapshots (as-of join)...", flush=True)
+    return pd.concat(parts, ignore_index=True)
+
+
+def attach_52w_reference(indicators: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFrame:
+    """Step 5b: point-in-time NSE 52-week high/low (as-of join) + the row-wise columns built on it.
+
+    Every value is per row (as-of by the row's own symbol and date), so any subset of rows gives
+    the same values as the whole table.
+    """
     # Point-in-time 52W: as-of join when enrichment has effective_date history.
     # Never paint a future 52W onto older rows. If NSE snapshot missing, fall back
     # to rolling 252-session high/low already on the row (leak-free).
@@ -885,43 +989,101 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
     indicators["distance_below_52w"] = distance_below_high(indicators["close_price"], indicators["high_52w"])
     if "high_52w_date" in indicators.columns:
         indicators["is_fresh_52w_high"] = indicators["trade_date"] == indicators["high_52w_date"]
+    return indicators
 
-    print("  5c/8: Computing cross-sectional relative strength percentiles...", flush=True)
-    close_by_symbol = indicators.groupby("symbol", sort=False)["close_price"]
-    rs_latest_q = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
+
+# Cross-sectional RS columns, in table order.
+RANK_COLUMNS = (
+    "rs_percentile_primary",
+    "rs_percentile",
+    "rs_percentile_no_fill",
+    "rs_score_adaptive",
+    "rs_percentile_ipo",
+    "rs_rank_t5",
+    "rs_rank_t15",
+    "rs_rank_t30",
+    "rs_1y_percentile",
+    "rs_3m_percentile",
+)
+RS_LAGS = {"rs_rank_t5": 5, "rs_rank_t15": 15, "rs_rank_t30": 30}
+# Rows of a symbol's own history the RS inputs look back over (252-session quarterly mix).
+RS_LOOKBACK_ROWS = 252
+
+
+def rs_rank_inputs(frame: pd.DataFrame) -> pd.DataFrame:
+    """Per-row raw RS scores from each symbol's own close history (rows in (symbol, trade_date)
+    order): the 40/20/20/20 quarterly mix, the adaptive IPO mix, 252d and 63d returns."""
+    close_by_symbol = frame.groupby("symbol", sort=False)["close_price"]
+    rs_latest_q = (frame["close_price"] / close_by_symbol.shift(63) - 1) * 100
     rs_prior_q2 = (close_by_symbol.shift(63) / close_by_symbol.shift(126) - 1) * 100
     rs_prior_q3 = (close_by_symbol.shift(126) / close_by_symbol.shift(189) - 1) * 100
     rs_prior_q4 = (close_by_symbol.shift(189) / close_by_symbol.shift(252) - 1) * 100
     rs_components = pd.concat([rs_latest_q, rs_prior_q2, rs_prior_q3, rs_prior_q4], axis=1)
     rs_score_no_fill = rs_components.mul([0.40, 0.20, 0.20, 0.20], axis=1).sum(axis=1, min_count=4)
-    indicators["rs_percentile_primary"] = rs_score_no_fill.groupby(indicators["trade_date"]).rank(pct=True) * 100
-    # Production ladder is min_count=4 only. Adaptive IPO scores stay on side columns.
-    indicators["rs_percentile"] = indicators["rs_percentile_primary"]
-    indicators["rs_percentile_no_fill"] = indicators["rs_percentile_primary"]
-    indicators["rs_score_adaptive"] = close_by_symbol.transform(rs_adaptive_mix)
-    indicators["rs_percentile_ipo"] = (
-        indicators["rs_score_adaptive"].groupby(indicators["trade_date"]).rank(pct=True) * 100
+    return pd.DataFrame(
+        {
+            "symbol": frame["symbol"],
+            "trade_date": frame["trade_date"],
+            "rs_score_no_fill": rs_score_no_fill,
+            "rs_score_adaptive": close_by_symbol.transform(rs_adaptive_mix),
+            # rs_1y = pure 252-day return (classic 1-year relative strength); rs_3m = 63-day return.
+            "rs_1y": (frame["close_price"] / close_by_symbol.shift(252) - 1) * 100,
+            "rs_3m": (frame["close_price"] / close_by_symbol.shift(63) - 1) * 100,
+        },
+        index=frame.index,
     )
-    indicators["rs_rank_t5"] = session_lag(indicators["rs_percentile"], indicators["symbol"], 5)
-    indicators["rs_rank_t15"] = session_lag(indicators["rs_percentile"], indicators["symbol"], 15)
-    indicators["rs_rank_t30"] = session_lag(indicators["rs_percentile"], indicators["symbol"], 30)
 
-    # Alternative RS views. The primary percentile requires complete quarterly history.
-    # These help validate / compare. The current method is a weighted multi-quarter momentum rank vs peers on the day.
-    # rs_1y_percentile = pure 252-day return rank percentile (classic 1-year relative strength).
-    rs_1y = (indicators["close_price"] / close_by_symbol.shift(252) - 1) * 100
-    indicators["rs_1y_percentile"] = rs_1y.groupby(indicators["trade_date"]).rank(pct=True) * 100
 
-    # Simple recent strength (63d) percentile for quick views.
-    rs_3m = (indicators["close_price"] / close_by_symbol.shift(63) - 1) * 100
-    indicators["rs_3m_percentile"] = rs_3m.groupby(indicators["trade_date"]).rank(pct=True) * 100
+def rs_percentiles(inputs: pd.DataFrame) -> pd.DataFrame:
+    """Daily cross-sectional ranks (0-100, higher = stronger vs every stock that day) of
+    `rs_rank_inputs`; every symbol trading on a ranked date must be present."""
+    by_date = inputs["trade_date"]
+    out = pd.DataFrame(index=inputs.index)
+    # Production ladder is min_count=4 only. Adaptive IPO scores stay on side columns.
+    out["rs_percentile_primary"] = inputs["rs_score_no_fill"].groupby(by_date).rank(pct=True) * 100
+    out["rs_percentile_ipo"] = inputs["rs_score_adaptive"].groupby(by_date).rank(pct=True) * 100
+    out["rs_1y_percentile"] = inputs["rs_1y"].groupby(by_date).rank(pct=True) * 100
+    out["rs_3m_percentile"] = inputs["rs_3m"].groupby(by_date).rank(pct=True) * 100
+    return out
 
+
+def rs_rank_columns(inputs: pd.DataFrame, percentiles: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Step 5c: every RANK_COLUMNS column for `inputs` (rows in (symbol, trade_date) order).
+
+    NOTE on RS: all are cross-sectional daily ranks (0-100). The rs_rank_t* columns are session
+    lags of rs_percentile within each symbol, so the 30 rows before any row kept must be present.
+    """
+    pct = rs_percentiles(inputs) if percentiles is None else percentiles
+    out = pd.DataFrame(index=inputs.index)
+    out["rs_percentile_primary"] = pct["rs_percentile_primary"]
+    out["rs_percentile"] = out["rs_percentile_primary"]
+    out["rs_percentile_no_fill"] = out["rs_percentile_primary"]
+    out["rs_score_adaptive"] = inputs["rs_score_adaptive"]
+    out["rs_percentile_ipo"] = pct["rs_percentile_ipo"]
+    for col, lag in RS_LAGS.items():
+        out[col] = session_lag(out["rs_percentile"], inputs["symbol"], lag)
+    out["rs_1y_percentile"] = pct["rs_1y_percentile"]
+    out["rs_3m_percentile"] = pct["rs_3m_percentile"]
+    return out[list(RANK_COLUMNS)]
+
+
+def attach_benchmark_rs(
+    indicators: pd.DataFrame,
+    index_raw: pd.DataFrame | None = None,
+    membership: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Steps 5c+/5c++: true RS vs Nifty 50 / MidSml 400 and RS vs the mapped sector index.
+
+    Both are per-row excess returns over each symbol's own history, so symbol batches give the
+    same values as the whole table. `index_raw` / `membership` default to loading from disk.
+    """
     # True RS vs Nifty 50 / MidSml 400 (excess return, fail-closed). Peer rs_percentile stays primary.
-    print("  5c+/8: Computing true RS vs index benches...", flush=True)
     try:
-        index_raw = load_all_index_history(ROOT_DIR)
-        if index_raw is not None and not index_raw.empty:
-            indicators = attach_true_rs_columns(indicators, index_raw)
+        if isinstance(index_raw, BaseException):
+            raise index_raw
+        idx = load_all_index_history(ROOT_DIR) if index_raw is None else index_raw
+        if idx is not None and not idx.empty:
+            indicators = attach_true_rs_columns(indicators, idx)
         else:
             for _col in TRUE_RS_COLUMNS:
                 if _col not in indicators.columns:
@@ -932,18 +1094,58 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
             if _col not in indicators.columns:
                 indicators[_col] = np.nan
 
-
-    print("  5c++/8: Computing stock vs mapped sector-index RS...", flush=True)
     try:
-        _idx = load_all_index_history(ROOT_DIR)
-        _mem = load_membership_csv()
-        _master = master if "master" in dir() else None
-        indicators = attach_sector_index_rs(indicators, _idx, _mem, _master)
+        for failed in (index_raw, membership):
+            if isinstance(failed, BaseException):
+                raise failed
+        _idx = load_all_index_history(ROOT_DIR) if index_raw is None else index_raw
+        _mem = load_membership_csv() if membership is None else membership
+        indicators = attach_sector_index_rs(indicators, _idx, _mem, None)
     except Exception as exc:
         print(f"  Warning: sector-index RS skipped ({exc})", flush=True)
+    return indicators
 
-    # NOTE on RS: All are cross-sectional daily ranks (0-100). Higher = stronger relative performance vs other stocks that day.
-    print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)
+
+def calc_indicators(
+    prices: pd.DataFrame | None,
+    enrichment: pd.DataFrame,
+    *,
+    per_symbol: pd.DataFrame | None = None,
+    rank_columns: pd.DataFrame | None = None,
+    index_raw: pd.DataFrame | None = None,
+    membership: pd.DataFrame | None = None,
+    quiet: bool = False,
+) -> pd.DataFrame:
+    """Every indicators_daily column for `prices` (indicator input, i.e. adjusted OHLCV).
+
+    The streaming full build / incremental append call this per symbol batch with
+    `per_symbol` (step 5a already done), `rank_columns` (the cross-sectional RS columns computed
+    over all symbols, aligned to `per_symbol` rows) and preloaded `index_raw` / `membership`.
+    """
+    indicators = per_symbol_indicators(prices) if per_symbol is None else per_symbol
+    if not quiet:
+        print("  5b/8: Merging historical 52-week & reference snapshots (as-of join)...", flush=True)
+    indicators = attach_52w_reference(indicators, enrichment)
+
+    if not quiet:
+        print("  5c/8: Computing cross-sectional relative strength percentiles...", flush=True)
+    ranks = rs_rank_columns(rs_rank_inputs(indicators)) if rank_columns is None else rank_columns
+    if len(ranks) != len(indicators):
+        raise ValueError(f"rank columns have {len(ranks):,} rows for {len(indicators):,} indicator rows")
+    for col in RANK_COLUMNS:
+        indicators[col] = ranks[col].to_numpy()
+
+    if not quiet:
+        print("  5c+/8: Computing true RS vs index benches and mapped sector-index RS...", flush=True)
+    indicators = attach_benchmark_rs(indicators, index_raw, membership)
+
+    if not quiet:
+        print("  5d/8: Evaluating trend templates, Darvas & VCP scoring...", flush=True)
+    return finalize_indicator_scores(indicators)
+
+
+def finalize_indicator_scores(indicators: pd.DataFrame) -> pd.DataFrame:
+    """Step 5d: trend template, Darvas/VCP scores and setup flags - all row-wise."""
     close = indicators["close_price"]
     sma50 = indicators["sma_50"]
     sma150 = indicators["sma_150"]
@@ -1203,6 +1405,28 @@ def _aggregate_rotation_groups(d: pd.DataFrame, col: str, has_prev_close: bool) 
     return out.reset_index()
 
 
+def leader_symbols_map(d: pd.DataFrame, col: str) -> pd.Series | None:
+    """Top-3 symbols by rs_percentile among members with market_cap_cr >= 1000, per
+    (trade_date, group) of level column ``col``, as "A,B,C"; None when nobody is eligible."""
+    cap = pd.to_numeric(d["market_cap_cr"], errors="coerce").fillna(0.0)
+    eligible = d.loc[cap >= 1000.0, ["trade_date", col, "symbol", "rs_percentile"]].copy()
+    if eligible.empty:
+        return None
+    eligible["rs_percentile"] = pd.to_numeric(eligible["rs_percentile"], errors="coerce")
+    eligible["symbol"] = eligible["symbol"].astype(str)
+    eligible = eligible.sort_values(
+        ["trade_date", col, "rs_percentile", "symbol"],
+        ascending=[True, True, False, True],
+        na_position="last",
+    )
+    top3 = eligible.groupby(["trade_date", col], sort=False).head(3)
+    leader_map = top3.groupby(["trade_date", col], sort=False)["symbol"].agg(
+        lambda s: ",".join(s.tolist())
+    )
+    leader_map.name = "leader_symbols"
+    return leader_map
+
+
 def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
     master_cols = ["symbol", "broad_sector", "sector", "broad_industry", "industry"]
     if "market_cap_cr" in master.columns:
@@ -1254,21 +1478,8 @@ def build_sector_rotation(indicators: pd.DataFrame, master: pd.DataFrame) -> pd.
         )
         grouped["leader_symbols"] = ""
         if "market_cap_cr" in d.columns:
-            cap = pd.to_numeric(d["market_cap_cr"], errors="coerce").fillna(0.0)
-            eligible = d.loc[cap >= 1000.0, ["trade_date", col, "symbol", "rs_percentile"]].copy()
-            if not eligible.empty:
-                eligible["rs_percentile"] = pd.to_numeric(eligible["rs_percentile"], errors="coerce")
-                eligible["symbol"] = eligible["symbol"].astype(str)
-                eligible = eligible.sort_values(
-                    ["trade_date", col, "rs_percentile", "symbol"],
-                    ascending=[True, True, False, True],
-                    na_position="last",
-                )
-                top3 = eligible.groupby(["trade_date", col], sort=False).head(3)
-                leader_map = top3.groupby(["trade_date", col], sort=False)["symbol"].agg(
-                    lambda s: ",".join(s.tolist())
-                )
-                leader_map.name = "leader_symbols"
+            leader_map = leader_symbols_map(d, col)
+            if leader_map is not None:
                 grouped = grouped.drop(columns=["leader_symbols"]).merge(
                     leader_map,
                     left_on=["trade_date", "group_name"],
@@ -1478,24 +1689,43 @@ def build_temp_database(
                 "adv_total_cr", "tech_pass_n", "funda_pass_n", "deal_net_10s_cr", "deal_prop_10s_cr", "rotation_state",
             ]
         )
+    tables = {
+        "prices_daily": prices,
+        "stocks_master": master,
+        "daily_enrichment": enrichment,
+        "indicators_daily": indicators,
+        "deals": deals,
+        "breadth_daily": breadth_daily,
+        "sector_rotation": sector_rotation,
+        "screener_results": screener_results,
+        "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
+        "price_adjustments": price_adjustments,
+    }
+    # Tables the streaming full build already wrote into its staging DuckDB file: that file
+    # becomes the temp DB (moved, not copied) and only the remaining tables are added to it.
+    staged = {name: frame for name, frame in tables.items() if isinstance(frame, StagedTable)}
     temp_db = temp_db_path(db_path)
     for leftover in (temp_db, temp_db.with_name(temp_db.name + ".wal")):
         if leftover.exists():
             leftover.unlink()
-    con = duckdb.connect(str(temp_db))
+    if staged:
+        stage_files = {Path(t.path) for t in staged.values()}
+        if len(stage_files) != 1:
+            raise ValueError(f"staged tables live in more than one file: {sorted(map(str, stage_files))}")
+        stage_file = stage_files.pop()
+        if not stage_file.exists():
+            raise FileNotFoundError(f"staging DB {stage_file} is missing")
+        os.replace(stage_file, temp_db)
+        stage_wal = stage_file.with_name(stage_file.name + ".wal")
+        if stage_wal.exists():
+            os.replace(stage_wal, temp_db.with_name(temp_db.name + ".wal"))
+    con = connect_build_db(temp_db)
     try:
-        for name, frame in {
-            "prices_daily": prices,
-            "stocks_master": master,
-            "daily_enrichment": enrichment,
-            "indicators_daily": indicators,
-            "deals": deals,
-            "breadth_daily": breadth_daily,
-            "sector_rotation": sector_rotation,
-            "screener_results": screener_results,
-            "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
-            "price_adjustments": price_adjustments,
-        }.items():
+        for name, frame in tables.items():
+            if name in staged:
+                if staged[name].table != name:
+                    con.execute(f'ALTER TABLE "{staged[name].table}" RENAME TO "{name}"')
+                continue
             con.register(f"{name}_df", frame)
             con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
             con.unregister(f"{name}_df")
@@ -1650,13 +1880,116 @@ BUILD_FRAME_KEYS = (
 )
 
 
-def compute_full_build(quiet: bool = False) -> dict[str, pd.DataFrame]:
-    """Every table of a FULL rebuild, computed in memory (nothing is written).
+def load_benchmark_inputs() -> tuple[object, object]:
+    """(index history, sector-index membership) for the RS steps, loaded once per build.
+
+    A load failure is returned as the exception object; `attach_benchmark_rs` re-raises it
+    inside its own try blocks, so a batch behaves exactly like the in-memory build did when the
+    load failed there (warning + NaN true RS, sector-index RS skipped).
+    """
+    try:
+        index_raw = load_all_index_history(ROOT_DIR)
+    except Exception as exc:  # noqa: BLE001 - handed to attach_benchmark_rs
+        index_raw = exc
+    try:
+        membership = load_membership_csv()
+    except Exception as exc:  # noqa: BLE001
+        membership = exc
+    return index_raw, membership
+
+
+def enrich_deals_from_db(con, deals_raw: pd.DataFrame, master: pd.DataFrame, date_dtype=None) -> pd.DataFrame:
+    """`enrich_deals` with the prices / indicators rows it joins read from DuckDB - only the
+    (symbol, trade_date) keys that have a deal, only the columns it uses."""
+    from streaming_build import DEAL_INDICATOR_COLUMNS, DEAL_PRICE_COLUMNS, read_slim
+
+    if deals_raw.empty:
+        return enrich_deals(deals_raw, pd.DataFrame(), pd.DataFrame(), master)
+    keys = deals_raw[["symbol", "trade_date"]].drop_duplicates().reset_index(drop=True)
+    con.register("_deal_keys", keys)
+    try:
+        def has_deal(table: str) -> str:
+            return f"EXISTS (SELECT 1 FROM _deal_keys k WHERE k.symbol = {table}.symbol AND k.trade_date = {table}.trade_date)"
+
+        price_rows = read_slim(con, "prices_daily", DEAL_PRICE_COLUMNS, where=has_deal("prices_daily"), date_dtype=date_dtype)
+        indicator_rows = read_slim(con, "indicators_daily", DEAL_INDICATOR_COLUMNS, where=has_deal("indicators_daily"), date_dtype=date_dtype)
+    finally:
+        con.unregister("_deal_keys")
+    return enrich_deals(deals_raw, price_rows, indicator_rows, master)
+
+
+def derived_tables_from_db(
+    con,
+    *,
+    master: pd.DataFrame,
+    deals: pd.DataFrame,
+    reference_history: pd.DataFrame,
+    date_dtype=None,
+    quiet: bool = False,
+) -> dict[str, pd.DataFrame]:
+    """breadth_daily, sector_rotation, sector_metrics_daily and screener_results from the
+    indicators_daily table in ``con``, each builder fed only the columns it reads."""
+    from streaming_build import BREADTH_COLUMNS, METRICS_COLUMNS, ROTATION_COLUMNS, read_slim, table_columns
+
+    if not quiet:
+        print("  7a/8: Calculating market breadth...")
+    breadth_daily = build_breadth_daily(read_slim(con, "indicators_daily", BREADTH_COLUMNS, date_dtype=date_dtype))
+    if not quiet:
+        print("  7b/8: Calculating sector rotation...")
+    sector_rotation = build_sector_rotation(read_slim(con, "indicators_daily", ROTATION_COLUMNS, date_dtype=date_dtype), master)
+    gc.collect()
+    try:
+        if not quiet:
+            print("  7c/8: Loading market-index history...")
+        index_raw = load_all_index_history(ROOT_DIR)
+        index_features = build_index_features(index_raw)
+    except Exception:
+        index_features = pd.DataFrame()
+    metric_reference = reference_history
+    if metric_reference.empty and {"symbol", "latest_price_date", "market_cap_cr"}.issubset(master.columns):
+        metric_reference = master[["symbol", "latest_price_date", "market_cap_cr"]].rename(
+            columns={"latest_price_date": "effective_date"}
+        )
+    if not quiet:
+        print("  7d/8: Computing taxonomy metrics...")
+    sector_metrics_daily = compute_sector_metrics(
+        read_slim(con, "indicators_daily", METRICS_COLUMNS, date_dtype=date_dtype), master, metric_reference, index_features, deals
+    )
+    gc.collect()
+    if not quiet:
+        print(f"  7d/8: Taxonomy metrics ready ({len(sector_metrics_daily):,} rows).")
+        print("  7e/8: Building screener results...")
+    latest = read_slim(
+        con,
+        "indicators_daily",
+        table_columns(con, "indicators_daily"),
+        where="trade_date = (SELECT max(trade_date) FROM indicators_daily)",
+        date_dtype=date_dtype,
+    )
+    screener_results = make_screener_results(latest, master, deals, sector_rotation)
+    return {
+        "breadth_daily": breadth_daily,
+        "sector_rotation": sector_rotation,
+        "sector_metrics_daily": sector_metrics_daily,
+        "screener_results": screener_results,
+    }
+
+
+def compute_full_build(quiet: bool = False, *, db_path: Path | None = None, streaming: bool = True) -> dict:
+    """Every table of a FULL rebuild. Returns keyword arguments for ``write_database`` /
+    ``build_temp_database``.
 
     The universe is the bhavcopies themselves (series EQ/BE/BZ, symbol changes applied), not
     today's EQUITY_L, so delisted history stays and renamed symbols stay continuous.
-    Returns keyword arguments for ``write_database`` / ``build_temp_database``.
+
+    ``streaming=True`` (default) keeps memory bounded for multi-year history: prices_daily and
+    indicators_daily are written into ``<db>.stage.duckdb`` (indicators in symbol batches, see
+    streaming_build) and returned as ``StagedTable`` handles, which ``build_temp_database``
+    adopts as its temp DB; the other tables are built from slim column reads. The values are
+    the same as ``streaming=False``, which computes everything in pandas like before.
     """
+    from streaming_build import connect_build_db, remove_db_file, stage_db_path, stream_full_indicators
+
     ensure_folders()
     if not quiet:
         print("1/8: Loading equity list and sector mapping...")
@@ -1677,9 +2010,75 @@ def compute_full_build(quiet: bool = False) -> dict[str, pd.DataFrame]:
         print("4/8: Building enrichment tables and stock master list...")
     enrichment = build_enrichment(mcap, bands, pe, high52, pd.DataFrame(), pd.DataFrame())
     master = build_master(equity, sector, prices, mcap, bands, pe)
+    reference_history = load_reference_history(ROOT_DIR)
+    if not streaming:
+        return _compute_full_build_in_memory(
+            prices, price_adjustments, master, enrichment, reference_history, mcap, bands, pe, high52, quiet=quiet
+        )
+
+    stage_path = stage_db_path(Path(db_path) if db_path else DB_PATH)
+    remove_db_file(stage_path)
+    date_dtype = prices["trade_date"].dtype
+    price_info = {
+        "min_date": prices["trade_date"].min(),
+        "max_date": prices["trade_date"].max(),
+    }
+    n_prices = len(prices)
+    con = connect_build_db(stage_path)
+    try:
+        if not quiet:
+            print(f"  Staging prices_daily ({n_prices:,} rows) in {stage_path.name}...")
+        con.register("prices_daily_df", prices)
+        con.execute("CREATE TABLE prices_daily AS SELECT * FROM prices_daily_df")
+        con.unregister("prices_daily_df")
+        del prices
+        gc.collect()
+        if not quiet:
+            print("5/8: Calculating indicators (symbol batches, streamed to DuckDB)...")
+        index_raw, membership = load_benchmark_inputs()
+        n_indicators = stream_full_indicators(
+            con,
+            reference=reference_history if not reference_history.empty else None,
+            enrichment=enrichment,
+            index_raw=index_raw,
+            membership=membership,
+            date_dtype=date_dtype,
+        )
+        if not quiet:
+            print("6/8: Reading and enriching deal flow...")
+        deals = enrich_deals_from_db(con, read_all_deals(), master, date_dtype)
+        latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
+        if not quiet:
+            print("7/8: Building breadth and sector rotation metrics...")
+        enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
+        derived = derived_tables_from_db(
+            con, master=master, deals=deals, reference_history=reference_history, date_dtype=date_dtype, quiet=quiet
+        )
+        con.execute("CHECKPOINT")
+    except BaseException:
+        con.close()
+        remove_db_file(stage_path)
+        raise
+    con.close()
+    return {
+        "prices": StagedTable(stage_path, "prices_daily", n_prices, price_info),
+        "master": master,
+        "enrichment": enrichment,
+        "indicators": StagedTable(stage_path, "indicators_daily", n_indicators),
+        "deals": deals,
+        **derived,
+        "reference_history": reference_history,
+        "price_adjustments": price_adjustments,
+    }
+
+
+def _compute_full_build_in_memory(
+    prices, price_adjustments, master, enrichment, reference_history, mcap, bands, pe, high52, *, quiet: bool = False
+) -> dict[str, pd.DataFrame]:
+    """The pre-streaming full build: every table computed in pandas (needs RAM for the whole
+    indicators frame; kept for small DBs and as the reference implementation)."""
     if not quiet:
         print("5/8: Calculating indicators...")
-    reference_history = load_reference_history(ROOT_DIR)
     indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
     if not quiet:
         print("6/8: Reading and enriching deal flow...")
@@ -1729,24 +2128,42 @@ def compute_full_build(quiet: bool = False) -> dict[str, pd.DataFrame]:
     }
 
 
+def discard_staged(frames: dict) -> None:
+    """Remove the staging DB behind any StagedTable in ``frames`` (e.g. a build that is not
+    going to be installed)."""
+    from streaming_build import remove_db_file
+
+    for frame in frames.values():
+        if isinstance(frame, StagedTable):
+            remove_db_file(frame.path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the MarketPulse DuckDB database. This ALWAYS performs a FULL rebuild from ALL available price history (archive + daily). Use this directly for catch-up after missed daily uploads: drop any missed bhavcopy / deal / reference files into Input/daily/ (even older dated ones) then run this script. The normal daily_update.bat is stricter for day-to-day use. For a validated rebuild with a dry-run option use Scripts/safe_rebuild.py.")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
     if not args.quiet:
         print("Starting full database rebuild. This may take 5-10 minutes depending on archive size.")
-    frames = compute_full_build(quiet=args.quiet)
+    frames = compute_full_build(quiet=args.quiet, db_path=DB_PATH)
     if not args.quiet:
         print("8/8: Writing database file...")
-    write_database(**frames)
+    try:
+        write_database(**frames)
+    except BaseException:
+        discard_staged(frames)
+        raise
     if not args.quiet:
         prices, master, deals = frames["prices"], frames["master"], frames["deals"]
+        if isinstance(prices, StagedTable):
+            lo, hi = prices.info.get("min_date"), prices.info.get("max_date")
+        else:
+            lo, hi = prices["trade_date"].min(), prices["trade_date"].max()
         print("MarketPulse database built successfully (FULL history rebuild).")
         print(f"Database: {DB_PATH}")
         print(f"Stocks in master list: {len(master):,} ({int(master['is_active'].sum()):,} active in latest session)")
         print(f"Price rows: {len(prices):,}")
         print(f"Deal rows: {len(deals):,}")
-        print(f"Date range: {prices['trade_date'].min().date()} to {prices['trade_date'].max().date()}")
+        print(f"Date range: {pd.Timestamp(lo).date()} to {pd.Timestamp(hi).date()}")
         print("Tip: For normal daily use prefer Update_MarketPulse.bat. For catch-up after missed uploads, place missed files in Input/daily/ and run this script (or python -m Scripts.build_database).")
 
 if __name__ == "__main__":

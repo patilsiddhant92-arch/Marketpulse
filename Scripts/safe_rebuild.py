@@ -38,6 +38,7 @@ from build_database import (  # noqa: E402
     PreservationError,
     build_temp_database,
     compute_full_build,
+    discard_staged,
     install_database,
     temp_db_path,
 )
@@ -135,38 +136,47 @@ def run(db_path: Path, *, dry_run: bool = False, keep_temp: bool = False, quiet:
     db_path = Path(db_path)
     started = time.perf_counter()
     print(f"Safe rebuild -> {db_path}{' (DRY RUN: no swap)' if dry_run else ''}")
-    frames = compute_full_build(quiet=quiet)
-    with writer_lock(db_path, owner="safe_rebuild"):
-        try:
-            temp = build_temp_database(**frames, db_path=db_path)
-        except PreservationError as exc:
-            print(f"ABORTED: {exc}. Target DB untouched.")
-            return 2
-        live_counts = _counts(db_path)
-        _print_summary(f"Rebuilt DB ({temp.name})", table_summary(temp), live_counts)
-        problems = validate_temp(temp, db_path)
-        if problems:
-            print("\nVALIDATION FAILED - not swapping:")
-            for p in problems:
-                print(f"  - {p}")
-            print(f"Target DB untouched. Rebuilt DB kept for inspection at {temp}")
-            return 2
-        print("\nValidation passed.")
-        if dry_run:
-            if keep_temp:
-                print(f"Dry run: rebuilt DB kept at {temp}; target not swapped.")
-            else:
-                temp.unlink(missing_ok=True)
-                print("Dry run: temp DB removed; target not swapped.")
-            print(f"Done in {time.perf_counter() - started:.0f}s.")
-            return 0
-        try:
-            backup = install_database(temp, db_path)
-        except DatabaseSwapError as exc:
-            print(f"SWAP FAILED: {exc}")
-            return 3
-        print(f"Swapped. Backup of the previous DB: {backup or 'none (no previous DB)'}")
-        _materialize(db_path)
+    # Streaming build: prices_daily / indicators_daily are staged in <db>.stage.duckdb (beside
+    # the target) and adopted as the temp DB by build_temp_database - no second full copy.
+    frames = compute_full_build(quiet=quiet, db_path=db_path)
+    try:
+        with writer_lock(db_path, owner="safe_rebuild"):
+            try:
+                temp = build_temp_database(**frames, db_path=db_path)
+            except PreservationError as exc:
+                print(f"ABORTED: {exc}. Target DB untouched.")
+                return 2
+            return _validate_and_install(temp, db_path, dry_run=dry_run, keep_temp=keep_temp, started=started)
+    finally:
+        discard_staged(frames)  # no-op once build_temp_database has adopted the staging file
+
+
+def _validate_and_install(temp: Path, db_path: Path, *, dry_run: bool, keep_temp: bool, started: float) -> int:
+    live_counts = _counts(db_path)
+    _print_summary(f"Rebuilt DB ({temp.name})", table_summary(temp), live_counts)
+    problems = validate_temp(temp, db_path)
+    if problems:
+        print("\nVALIDATION FAILED - not swapping:")
+        for p in problems:
+            print(f"  - {p}")
+        print(f"Target DB untouched. Rebuilt DB kept for inspection at {temp}")
+        return 2
+    print("\nValidation passed.")
+    if dry_run:
+        if keep_temp:
+            print(f"Dry run: rebuilt DB kept at {temp}; target not swapped.")
+        else:
+            temp.unlink(missing_ok=True)
+            print("Dry run: temp DB removed; target not swapped.")
+        print(f"Done in {time.perf_counter() - started:.0f}s.")
+        return 0
+    try:
+        backup = install_database(temp, db_path)
+    except DatabaseSwapError as exc:
+        print(f"SWAP FAILED: {exc}")
+        return 3
+    print(f"Swapped. Backup of the previous DB: {backup or 'none (no previous DB)'}")
+    _materialize(db_path)
     _print_summary(f"Installed DB ({db_path.name})", table_summary(db_path))
     print(f"Done in {time.perf_counter() - started:.0f}s.")
     return 0

@@ -51,7 +51,7 @@ def _digest(p):
 def test_rebuild_swaps_after_validation(tmp_path, monkeypatch, capsys):
     db = tmp_path / "marketpulse.duckdb"
     _live(db)
-    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False: _frames())
+    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False, **kw: _frames())
     assert sr.main(["--db", str(db)]) == 0
     with duckdb.connect(str(db), read_only=True) as con:
         assert con.execute("SELECT max(trade_date) FROM prices_daily").fetchone()[0].isoformat()[:10] == "2026-09-25"
@@ -67,7 +67,7 @@ def test_dry_run_never_touches_target(tmp_path, monkeypatch, capsys):
     db = tmp_path / "marketpulse.duckdb"
     _live(db)
     before = _digest(db)
-    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False: _frames())
+    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False, **kw: _frames())
     assert sr.main(["--db", str(db), "--dry-run"]) == 0
     assert _digest(db) == before
     assert not bd.temp_db_path(db).exists()
@@ -78,7 +78,7 @@ def test_dry_run_never_touches_target(tmp_path, monkeypatch, capsys):
 def test_dry_run_keep_temp(tmp_path, monkeypatch):
     db = tmp_path / "marketpulse.duckdb"
     _live(db)
-    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False: _frames())
+    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False, **kw: _frames())
     assert sr.main(["--db", str(db), "--dry-run", "--keep-temp"]) == 0
     assert bd.temp_db_path(db).exists()
 
@@ -87,7 +87,7 @@ def test_validation_failure_blocks_swap(tmp_path, monkeypatch, capsys):
     db = tmp_path / "marketpulse.duckdb"
     _live(db, last_day="2026-09-30")  # live is AHEAD of the rebuild
     before = _digest(db)
-    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False: _frames("2026-09-25"))
+    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False, **kw: _frames("2026-09-25"))
     assert sr.main(["--db", str(db)]) == 2
     assert _digest(db) == before
     out = capsys.readouterr().out
@@ -113,7 +113,7 @@ def test_validate_checks_empty_prices_and_preserved_counts(tmp_path):
 def test_fresh_target_without_live_db(tmp_path, monkeypatch):
     db = tmp_path / "new" / "marketpulse.duckdb"
     db.parent.mkdir()
-    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False: _frames())
+    monkeypatch.setattr(sr, "compute_full_build", lambda quiet=False, **kw: _frames())
     assert sr.main(["--db", str(db)]) == 0
     assert db.exists()
 
