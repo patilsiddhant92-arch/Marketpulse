@@ -18,11 +18,11 @@ export function EmptyState({ title, detail, action, icon, compact, className }: 
   return (
     <div
       role="status"
-      className={cn('flex flex-col items-center justify-center gap-1.5 text-center text-fg-3', compact ? 'p-3' : 'p-8', className)}
+      className={cn('mp-fade-in flex flex-col items-center justify-center gap-1.5 text-center text-fg-3', compact ? 'p-3' : 'p-10', className)}
     >
-      {icon && <div className="text-fg-3">{icon}</div>}
+      {icon && <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface-2 text-fg-3 [&>svg]:h-4 [&>svg]:w-4">{icon}</div>}
       <div className="text-sm font-medium text-fg-2">{title}</div>
-      {detail && <div className="max-w-md text-xs">{detail}</div>}
+      {detail && <div className="max-w-md text-xs leading-relaxed">{detail}</div>}
       {action && <div className="mt-1">{action}</div>}
     </div>
   );

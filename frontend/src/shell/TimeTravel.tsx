@@ -13,8 +13,8 @@ export function TimeTravel({ latestSession }: { latestSession: string | null }) 
   return (
     <div
       className={cn(
-        'flex h-7 items-center gap-1 rounded border px-1.5',
-        asOf ? 'border-violet/60 bg-violet/10' : 'border-line bg-surface-2',
+        'flex h-7 items-center gap-1 rounded border px-1.5 transition-colors duration-fast',
+        asOf ? 'border-violet/60 bg-violet/10' : 'border-line bg-surface-2 hover:border-line-strong',
       )}
     >
       <History className={cn('h-3.5 w-3.5', asOf ? 'text-violet' : 'text-fg-3')} aria-hidden />

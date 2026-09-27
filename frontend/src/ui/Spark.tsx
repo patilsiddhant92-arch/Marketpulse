@@ -11,6 +11,8 @@ export interface SparkProps {
   /** Horizontal reference line value (e.g. 0 or 50). */
   baseline?: number;
   showLastDot?: boolean;
+  /** Soft filled area under the line (KPI tiles). */
+  area?: boolean;
   /** Accessible description, e.g. "Strength rank, 60 sessions". */
   label: string;
   className?: string;
@@ -25,7 +27,7 @@ const STROKE = {
 const FILL = { up: 'fill-up', down: 'fill-down', neutral: 'fill-fg-3', accent: 'fill-accent' } as const;
 
 /** Tiny inline SVG line chart for tables and cards. */
-export function Spark({ values, width = 72, height = 20, tone = 'auto', baseline, showLastDot = true, label, className }: SparkProps) {
+export function Spark({ values, width = 72, height = 20, tone = 'auto', baseline, showLastDot = true, area = false, label, className }: SparkProps) {
   const geo = useMemo(() => {
     const nums = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
     if (nums.length < 2) return null;
@@ -50,12 +52,21 @@ export function Spark({ values, width = 72, height = 20, tone = 'auto', baseline
       cur += `${cur ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
     });
     if (cur) segments.push(cur);
+    const areaD = segments
+      .map((seg) => {
+        const pts = seg.slice(1).split('L');
+        const x0 = pts[0].split(',')[0];
+        const x1 = pts[pts.length - 1].split(',')[0];
+        return `${seg}L${x1},${height}L${x0},${height}Z`;
+      })
+      .join(' ');
     let lastIdx = values.length - 1;
     while (lastIdx >= 0 && (typeof values[lastIdx] !== 'number' || !Number.isFinite(values[lastIdx] as number))) lastIdx--;
     const first = nums[0];
     const last = nums[nums.length - 1];
     return {
       d: segments.join(' '),
+      areaD,
       last: lastIdx >= 0 ? { cx: x(lastIdx), cy: y(values[lastIdx] as number) } : null,
       base: baseline !== undefined ? y(baseline) : null,
       rising: last >= first,
@@ -73,6 +84,7 @@ export function Spark({ values, width = 72, height = 20, tone = 'auto', baseline
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label} className={className}>
       {geo.base !== null && <line x1={0} x2={width} y1={geo.base} y2={geo.base} className="stroke-line-strong" strokeDasharray="2 2" />}
+      {area && <path d={geo.areaD} className={FILL[t]} fillOpacity={0.12} stroke="none" />}
       <path d={geo.d} fill="none" strokeWidth={1.25} className={STROKE[t]} strokeLinejoin="round" strokeLinecap="round" />
       {showLastDot && geo.last && <circle cx={geo.last.cx} cy={geo.last.cy} r={1.75} className={FILL[t]} />}
     </svg>

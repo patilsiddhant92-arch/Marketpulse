@@ -75,19 +75,33 @@ const TONE: Record<ErrorDescription['tone'], string> = {
   warn: 'text-warn',
   muted: 'text-fg-3',
 };
+const DISC: Record<ErrorDescription['tone'], string> = {
+  down: 'border-down/30 bg-down/10',
+  warn: 'border-warn/30 bg-warn/10',
+  muted: 'border-line bg-surface-2',
+};
 
 export function ErrorState({ error, onRetry, title, compact, className }: ErrorStateProps) {
   const d = describeError(error);
   return (
-    <div role="alert" className={cn('flex flex-col items-center justify-center gap-1.5 text-center', compact ? 'p-3' : 'p-8', className)}>
-      <div className={TONE[d.tone]}>{d.icon}</div>
+    <div role="alert" className={cn('mp-fade-in flex flex-col items-center justify-center gap-1.5 text-center', compact ? 'p-3' : 'p-10', className)}>
+      <div
+        className={cn(
+          'flex items-center justify-center rounded-full border [&>svg]:h-4 [&>svg]:w-4',
+          compact ? 'h-7 w-7' : 'mb-1 h-9 w-9',
+          TONE[d.tone],
+          DISC[d.tone],
+        )}
+      >
+        {d.icon}
+      </div>
       <div className={cn('text-sm font-medium', TONE[d.tone])}>{title ?? d.title}</div>
-      <div className="max-w-md text-xs text-fg-3">{d.detail}</div>
+      <div className="max-w-md text-xs leading-relaxed text-fg-3">{d.detail}</div>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 rounded border border-line bg-surface-2 px-2 py-1 text-xs text-fg-2 hover:bg-surface-3 hover:text-fg"
+          className="mt-2 rounded border border-line-strong bg-surface-2 px-3 py-1 text-xs font-medium text-fg-2 transition-colors duration-fast hover:bg-surface-3 hover:text-fg"
         >
           Retry
         </button>

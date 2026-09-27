@@ -42,11 +42,13 @@ export function FreshnessChip({ info }: { info: FreshnessInfo }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="flex h-7 items-center gap-1.5 rounded border border-line bg-surface-2 px-2 text-xs hover:border-line-strong"
+        className="flex h-7 items-center gap-1.5 rounded border border-line bg-surface-2 px-2 text-xs transition-colors duration-fast hover:border-line-strong"
         title="Data health"
       >
-        <span className={cn('h-2 w-2 rounded-full', s.dot)} aria-hidden />
-        <span className="text-fg-3">Data</span>
+        <span className={cn('relative flex h-2 w-2 rounded-full', s.dot)} aria-hidden>
+          {info.status === 'fresh' && <span className={cn('absolute inset-0 animate-ping rounded-full opacity-40 [animation-iteration-count:3]', s.dot)} />}
+        </span>
+        <span className="mp-label hidden xl:inline">Data</span>
         <span className="num text-fg">{info.latestSession ? fmtDateWithDay(info.latestSession) : '—'}</span>
         <span className="sr-only">{s.label}</span>
       </button>
@@ -54,7 +56,7 @@ export function FreshnessChip({ info }: { info: FreshnessInfo }) {
         <div
           role="dialog"
           aria-label="Data health"
-          className="absolute left-0 top-9 z-40 w-80 rounded border border-line-strong bg-surface-2 p-3 text-xs shadow-xl"
+          className="mp-fade-in absolute right-0 top-9 z-40 w-80 rounded-card border border-line-strong bg-surface-2 p-3 text-xs shadow-pop"
         >
           <div className="mb-2 flex items-center gap-2">
             <span className={cn('h-2 w-2 rounded-full', s.dot)} aria-hidden />

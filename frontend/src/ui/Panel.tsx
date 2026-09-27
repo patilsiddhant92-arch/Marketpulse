@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn';
+import { Card, SectionHeader } from './Card';
 
 export interface PanelProps {
   title: ReactNode;
@@ -12,21 +13,18 @@ export interface PanelProps {
   bodyClassName?: string;
   /** aria-label when the title is not plain text. */
   label?: string;
+  icon?: ReactNode;
 }
 
-/** A titled card section used by Desk and Stock 360. */
-export function Panel({ title, meta, actions, children, className, bodyClassName, label }: PanelProps) {
+/** A titled card section used by Desk, Groups, Research and Stock 360. */
+export function Panel({ title, meta, actions, children, className, bodyClassName, label, icon }: PanelProps) {
   return (
-    <section
+    <Card
       aria-label={label ?? (typeof title === 'string' ? title : undefined)}
-      className={cn('flex min-h-0 flex-col overflow-hidden rounded border border-line bg-surface', className)}
+      className={cn('flex min-h-0 flex-col overflow-hidden', className)}
     >
-      <header className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-3">
-        <h2 className="text-2xs font-semibold uppercase tracking-wide text-fg-2">{title}</h2>
-        {meta && <span className="min-w-0 truncate text-2xs text-fg-3">{meta}</span>}
-        {actions && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
-      </header>
+      <SectionHeader title={title} meta={meta} actions={actions} icon={icon} />
       <div className={cn('min-h-0 flex-1', bodyClassName)}>{children}</div>
-    </section>
+    </Card>
   );
 }

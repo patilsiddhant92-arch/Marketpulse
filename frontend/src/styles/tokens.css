@@ -12,41 +12,50 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces (darkest -> raised) */
-  --c-bg: 10 13 19;
-  --c-surface: 16 20 28;
-  --c-surface-2: 22 27 37;
-  --c-surface-3: 30 36 48;
-  --c-line: 40 48 63;
-  --c-line-strong: 58 69 89;
+  /* Surfaces (darkest -> raised). Cool blue-black, each step ~+5 L. */
+  --c-bg: 8 10 15;
+  --c-surface: 14 17 24;
+  --c-surface-2: 20 24 33;
+  --c-surface-3: 28 33 44;
+  --c-line: 33 39 52;
+  --c-line-strong: 52 61 79;
 
-  /* Text */
-  --c-fg: 230 235 242;
-  --c-fg-2: 176 187 202;
-  --c-fg-3: 138 151 171;
+  /* Text — three steps: primary / secondary / muted (all AA on every surface). */
+  --c-fg: 233 237 244;
+  --c-fg-2: 172 183 199;
+  --c-fg-3: 136 149 170;
 
   /* Semantic */
-  --c-accent: 229 184 76;
-  --c-up: 58 204 145;
-  --c-down: 244 108 120;
-  --c-warn: 234 165 72;
-  --c-info: 104 172 242;
-  --c-violet: 172 146 250;
-  --c-focus: 104 172 242;
+  --c-accent: 232 186 82;
+  --c-up: 56 204 146;
+  --c-down: 245 110 122;
+  --c-warn: 236 166 74;
+  --c-info: 108 176 245;
+  --c-violet: 174 150 250;
+  --c-focus: 108 176 245;
 
   /* Environment verdict scale (spec 6.1.1) */
-  --c-v-favourable: 58 204 145;
-  --c-v-constructive: 140 212 112;
-  --c-v-mixed: 229 184 76;
+  --c-v-favourable: 56 204 146;
+  --c-v-constructive: 142 212 114;
+  --c-v-mixed: 232 186 82;
   --c-v-weak: 238 140 80;
-  --c-v-danger: 244 108 120;
+  --c-v-danger: 245 110 122;
 
   /* Chart-only */
-  --c-chart-grid: 28 34 45;
-  --c-ema-10: 104 172 242;
-  --c-ema-20: 229 184 76;
-  --c-ema-50: 172 146 250;
-  --c-ema-200: 176 187 202;
+  --c-chart-grid: 26 31 42;
+  --c-ema-10: 108 176 245;
+  --c-ema-20: 232 186 82;
+  --c-ema-50: 174 150 250;
+  --c-ema-200: 172 183 199;
+
+  /* Elevation — cards sit on bg with a hairline + soft drop; popovers lift further. */
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 6px 0 rgb(0 0 0 / 0.4);
+
+  /* Motion — short and calm; zeroed under prefers-reduced-motion below. */
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -57,10 +66,11 @@
   --row-h: 28px;
 
   /* Layout */
-  --topbar-h: 44px;
+  --topbar-h: 48px;
   --envstrip-h: 30px;
   --sidecar-w: 440px;
   --radius: 4px;
+  --radius-card: 6px;
 }
 
 html,
@@ -115,6 +125,77 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- Motion primitives ---------- */
+@keyframes mp-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes mp-shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+.mp-fade-in {
+  animation: mp-fade-in var(--dur-base) var(--ease-out) both;
+}
+.mp-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--c-surface-3)) 0%,
+    rgb(var(--c-line-strong) / 0.55) 50%,
+    rgb(var(--c-surface-3)) 100%
+  );
+  background-size: 200% 100%;
+  animation: mp-shimmer 1.4s linear infinite;
+}
+
+/* Label type: small caps-style section / KPI labels. */
+.mp-label {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--c-fg-3));
+}
+
+/* ---------- DataTable rows ----------
+ * Opaque layered backgrounds so sticky cells (background: inherit) match the
+ * zebra / hover / active state of their row exactly. */
+.mp-tr {
+  background: rgb(var(--c-surface));
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.mp-tr[data-odd] {
+  background:
+    linear-gradient(rgb(var(--c-surface-2) / 0.8), rgb(var(--c-surface-2) / 0.8)),
+    rgb(var(--c-surface));
+}
+.mp-tr:hover {
+  background:
+    linear-gradient(rgb(var(--c-surface-3) / 0.85), rgb(var(--c-surface-3) / 0.85)),
+    rgb(var(--c-surface));
+}
+.mp-tr[data-active] {
+  background:
+    linear-gradient(rgb(var(--c-accent) / 0.11), rgb(var(--c-accent) / 0.11)),
+    rgb(var(--c-surface));
+  box-shadow: inset 2px 0 0 0 rgb(var(--c-accent));
+}
+.mp-td-sticky {
+  background: inherit;
 }

@@ -66,6 +66,13 @@ export interface DataTableColumn<T extends RowData> {
   sortDescFirst?: boolean;
   /** Pin to the left while scrolling horizontally. */
   sticky?: boolean;
+  /** Column-group label: adjacent columns with the same group share a header above theirs. */
+  group?: string;
+  /**
+   * Heat tint: return -1..1 (NULL = none). Positive tints the cell with the up
+   * colour, negative with down, strength by magnitude.
+   */
+  heat?: (value: unknown, row: T) => number | null | undefined;
 }
 
 export interface DataTableProps<T extends RowData> {
@@ -126,6 +133,26 @@ export function compareValues(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') return a - b;
   if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : a ? 1 : -1;
   return String(a).localeCompare(String(b), 'en-IN', { numeric: true, sensitivity: 'base' });
+}
+
+/** Background tint for a heat value in -1..1 (tokens only). */
+export function heatStyle(h: number | null | undefined): { backgroundColor: string } | undefined {
+  if (h === null || h === undefined || !Number.isFinite(h) || h === 0) return undefined;
+  const a = Math.min(1, Math.abs(h));
+  return { backgroundColor: `rgb(var(--c-${h > 0 ? 'up' : 'down'}) / ${(0.05 + 0.2 * a).toFixed(3)})` };
+}
+
+/** Runs of adjacent columns sharing a `group`; null when no column is grouped. */
+export function columnGroupRuns<T extends RowData>(cols: DataTableColumn<T>[]): { key: string; label: string | null; cols: DataTableColumn<T>[] }[] | null {
+  if (!cols.some((c) => c.group)) return null;
+  const runs: { key: string; label: string | null; cols: DataTableColumn<T>[] }[] = [];
+  for (const c of cols) {
+    const g = c.group ?? null;
+    const last = runs[runs.length - 1];
+    if (last && last.label === g) last.cols.push(c);
+    else runs.push({ key: `${g ?? '_'}-${c.id}`, label: g, cols: [c] });
+  }
+  return runs;
 }
 
 function getValue<T extends RowData>(col: DataTableColumn<T>, row: T): unknown {
@@ -286,6 +313,10 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
     .map((c) => colById.get(c.id)!)
     .filter(Boolean);
 
+  /** Runs of adjacent visible columns sharing a `group` (null = ungrouped spacer). */
+  const groupRuns = columnGroupRuns(visibleCols);
+  const headRows = groupRuns ? 2 : 1;
+
   const { onSortedRowsChange } = props;
   useEffect(() => {
     onSortedRowsChange?.(modelRows.map((r) => r.original));
@@ -402,7 +433,7 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
   return (
     <div className={cn('flex min-h-0 flex-col', className)}>
       {!hideToolbar && (
-        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-2 text-2xs text-fg-3">
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/80 px-3 text-2xs text-fg-3">
           <span className="num" aria-live="polite">
             {countText}
             {total !== undefined && total !== null && total > returned && (
@@ -425,19 +456,43 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
         aria-label={label}
         aria-describedby={tableId}
         onKeyDown={onKeyDown}
-        className="relative min-h-0 flex-1 overflow-auto outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus"
+        className="relative min-h-0 flex-1 overflow-auto bg-surface outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus"
       >
         <table
           id={tableId}
           role="grid"
           aria-label={label}
-          aria-rowcount={modelRows.length + 1}
+          aria-rowcount={modelRows.length + headRows}
           aria-colcount={visibleCols.length}
           className="grid text-table"
           style={{ minWidth: totalWidth }}
         >
           <thead className="sticky top-0 z-10 grid bg-surface-2">
-            <tr className="flex w-full border-b border-line-strong" aria-rowindex={1}>
+            {groupRuns && (
+              <tr className="flex w-full border-b border-line/70" aria-rowindex={1}>
+                {groupRuns.map((run) => {
+                  const w = run.cols.reduce((sum, c) => sum + widthOf(c), 0);
+                  const grow = run.cols.some((c) => c.grow);
+                  const sticky = run.cols.length === 1 && run.cols[0].sticky;
+                  return (
+                    <th
+                      key={run.key}
+                      scope="colgroup"
+                      colSpan={run.cols.length}
+                      className={cn(
+                        'flex h-6 items-end px-2 pb-1',
+                        run.label && 'mx-1 justify-center border-b border-line-strong/80 px-1',
+                        sticky && 'sticky left-0 z-20 bg-surface-2',
+                      )}
+                      style={{ width: run.label ? w - 8 : w, minWidth: run.label ? w - 8 : w, flex: grow ? '1 0 auto' : '0 0 auto' }}
+                    >
+                      {run.label && <span className="mp-label truncate !text-[10.5px] !tracking-[0.08em]">{run.label}</span>}
+                    </th>
+                  );
+                })}
+              </tr>
+            )}
+            <tr className="flex w-full border-b border-line-strong" aria-rowindex={headRows}>
               {table.getVisibleLeafColumns().map((tc, ci) => {
                 const c = colById.get(tc.id);
                 if (!c) return null;
@@ -451,7 +506,7 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                     aria-sort={ariaSort}
                     aria-colindex={ci + 1}
                     className={cn(
-                      'flex h-8 items-center px-2 text-2xs font-semibold uppercase tracking-wide text-fg-3',
+                      'flex h-8 items-center px-2 text-2xs font-semibold uppercase tracking-[0.05em] text-fg-3',
                       alignCls(c),
                       c.sticky && 'sticky left-0 z-20 bg-surface-2',
                     )}
@@ -461,7 +516,7 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                       <button
                         type="button"
                         onClick={tc.getToggleSortingHandler()}
-                        className={cn('flex min-w-0 items-center gap-1 hover:text-fg', sorted && 'text-fg')}
+                        className={cn('flex min-w-0 items-center gap-1 transition-colors duration-fast hover:text-fg', sorted && 'text-accent')}
                       >
                         {alignOf(c) === 'right' && <SortIcon dir={sorted} />}
                         <HeaderLabel col={c} />
@@ -484,7 +539,7 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                   <tr
                     key={r.id}
                     data-index={vi.index}
-                    aria-rowindex={vi.index + 2}
+                    aria-rowindex={vi.index + 1 + headRows}
                     aria-selected={isActive}
                     data-row-id={r.id}
                     onClick={() => {
@@ -495,17 +550,15 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                       registerNavList();
                       props.onRowActivate?.(r.original);
                     }}
-                    className={cn(
-                      'absolute left-0 top-0 flex w-full cursor-default border-b border-line/60',
-                      vi.index % 2 === 1 ? 'bg-surface/40' : 'bg-transparent',
-                      'hover:bg-surface-3/60',
-                      isActive && 'bg-accent/10 shadow-[inset_2px_0_0_0_rgb(var(--c-accent))] hover:bg-accent/15',
-                    )}
+                    data-odd={vi.index % 2 === 1 || undefined}
+                    data-active={isActive || undefined}
+                    className="mp-tr absolute left-0 top-0 flex w-full cursor-default border-b border-line/40"
                     style={{ transform: `translateY(${vi.start}px)`, height: rowHeight }}
                   >
                     {visibleCols.map((c, ci) => {
                       const raw = getValue(c, r.original);
                       const v = normalizeCellValue(raw);
+                      const heat = c.heat && v !== undefined ? heatStyle(c.heat(v, r.original)) : undefined;
                       let content: ReactNode;
                       if (v === undefined && !c.renderNull) content = <span className="text-fg-3">{DASH}</span>;
                       else if (c.cell) content = c.cell(v ?? null, r.original);
@@ -518,9 +571,9 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                             'flex items-center overflow-hidden whitespace-nowrap px-2',
                             alignCls(c),
                             isNumericKind(c.format) ? 'num text-fg' : 'text-fg-2',
-                            c.sticky && 'sticky left-0 z-[1] bg-surface',
+                            c.sticky && 'mp-td-sticky sticky left-0 z-[1]',
                           )}
-                          style={cellStyle(c)}
+                          style={heat ? { ...cellStyle(c), ...heat } : cellStyle(c)}
                         >
                           {content}
                         </td>
