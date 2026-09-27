@@ -50,7 +50,8 @@ import numpy as np
 import pandas as pd
 
 import build_database as bd
-from price_adjustment import adjust_prices, apply_adjustments, indicator_input, summarize_adjustments
+from price_adjustment import (PRE_BREAK_COL, adjust_prices, apply_adjustments, indicator_input, series_breaks,
+                              summarize_adjustments)
 from streaming_build import (
     BREADTH_COLUMNS,
     DUCKDB_MEMORY_LIMIT,
@@ -58,6 +59,7 @@ from streaming_build import (
     ROTATION_COLUMNS,
     compute_indicator_batch,
     indicator_input_select,
+    indicator_input_where,
     match_datetime_units,
     read_slim,
     reference_by_symbol,
@@ -153,6 +155,23 @@ def _require_current_schema(con) -> None:
             raise FullRecomputeRequired(f"indicators_daily has no {col} column (built by older code)")
     if "sector_metrics_daily" not in tables:
         raise FullRecomputeRequired("sector_metrics_daily is missing")
+
+
+def _require_same_series_breaks(con, adjustments: pd.DataFrame) -> None:
+    """A series break (`kind: break` override) rewrites which history feeds a symbol's indicators,
+    so adding, moving or removing one needs a full recompute; so does a DB whose prices_daily
+    predates the `pre_break` flag while breaks exist."""
+    new = series_breaks(adjustments)
+    stored = pd.Series(dtype="datetime64[ns]")
+    tables = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+    if "price_adjustments" in tables and "kind" in set(table_columns(con, "price_adjustments")):
+        stored = series_breaks(con.execute(
+            "SELECT symbol, ex_date, kind FROM price_adjustments WHERE kind = 'break'").fetchdf())
+    as_dict = lambda s: {str(k): pd.Timestamp(v).normalize() for k, v in s.items()}  # noqa: E731
+    if as_dict(new) != as_dict(stored):
+        raise FullRecomputeRequired("series breaks (kind: break overrides) changed")
+    if not new.empty and PRE_BREAK_COL not in set(table_columns(con, "prices_daily")):
+        raise FullRecomputeRequired("prices_daily has no pre_break column but series breaks exist")
 
 
 def _apply_symbol_changes_to_new(con, new_prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -446,6 +465,7 @@ def _plan(con, new_prices: pd.DataFrame, *, root: Path, equity: pd.DataFrame, qu
         extra = None
     adjusted, adjustments = adjust_prices(slim[["symbol", "trade_date", "close_price", "prev_close"]], root, extra_actions=extra)
     print(summarize_adjustments(adjustments))
+    _require_same_series_breaks(con, adjustments)
     sw("price adjustments over all rows")
     new_factor = adjusted["price_factor"].to_numpy(dtype="float64")
     factor_changed, change_points = _first_change_points(slim, stored_mask, new_factor)
@@ -625,9 +645,9 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
     is_full = adjusted["symbol"].isin(full).to_numpy()
     prices_to_write = adjusted[is_new | is_full].reset_index(drop=True)
 
-    ind_window = indicator_input(adjusted)
+    ind_window = indicator_input(adjusted)  # drops pre_break rows, so not positional with `adjusted`
     # indicator input of the rows that are not (or no longer correctly) in prices_daily
-    ind_fresh = ind_window[is_new | is_full].reset_index(drop=True)
+    ind_fresh = indicator_input(adjusted[is_new | is_full].reset_index(drop=True))
     del adjusted
     gc.collect()
 
@@ -657,6 +677,7 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
     fresh_by_symbol = {s: g for s, g in ind_fresh.groupby("symbol", sort=False)}
     rank_by_symbol = {s: g for s, g in ranks.groupby("symbol", sort=False)}
     select_input = indicator_input_select(price_cols)
+    keep_rows = indicator_input_where(price_cols)
 
     def tasks():
         for symbols in batches:
@@ -666,7 +687,8 @@ def _compute(con, plan: AppendPlan, ctx: dict, *, quiet: bool) -> dict:
                 con.register("_batch_syms", pd.DataFrame({"symbol": stored_syms}))
                 try:
                     stored = con.execute(
-                        f"SELECT {select_input} FROM prices_daily WHERE symbol IN (SELECT symbol FROM _batch_syms) ORDER BY symbol, trade_date"
+                        f"SELECT {select_input} FROM prices_daily WHERE symbol IN (SELECT symbol FROM _batch_syms) AND {keep_rows} "
+                        "ORDER BY symbol, trade_date"
                     ).fetchdf()
                 finally:
                     con.unregister("_batch_syms")

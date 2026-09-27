@@ -115,7 +115,7 @@ def _q(text: str) -> str:
 
 
 def yaml_stub(report: pd.DataFrame) -> str:
-    """Commented-out override lines, three alternatives per gap. Nothing is a recommendation:
+    """Commented-out override lines, four alternatives per gap (factor / ignore / demerger / break). Nothing is a recommendation:
     the analyst checks the gap and uncomments at most one line."""
     lines = [
         "# --- adjustments_override.yaml stub (all commented out; uncomment ONE line per gap after review) ---",
@@ -131,6 +131,7 @@ def yaml_stub(report: pd.DataFrame) -> str:
         lines.append(f"# - {{symbol: {r['symbol']}, ex_date: {day}, factor: {ratio}, note: {_q('TODO verify: ' + ctx)}}}")
         lines.append(f"# - {{symbol: {r['symbol']}, ex_date: {day}, kind: ignore, note: {_q('reviewed: genuine move; ' + ctx)}}}")
         lines.append(f"# - {{symbol: {r['symbol']}, ex_date: {day}, kind: demerger, note: {_q('demerger; ' + ctx)}}}")
+        lines.append(f"# - {{symbol: {r['symbol']}, ex_date: {day}, kind: break, note: {_q('series break (relisting); ' + ctx)}}}")
     return "\n".join(lines)
 
 
