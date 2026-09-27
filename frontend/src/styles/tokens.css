@@ -1,0 +1,120 @@
+/*
+ * MarketPulse design tokens — refined dark terminal.
+ *
+ * The ONLY place raw colour values live. Colours are stored as space-separated
+ * RGB triples so Tailwind can apply alpha (`bg-up/15`). Components use the
+ * Tailwind names mapped in tailwind.config.js (bg-surface, text-fg-2, text-up,
+ * ...) or `rgb(var(--c-x))` in CSS. ESLint bans raw hex in components.
+ *
+ * Contrast is checked by src/styles/tokens.test.ts (WCAG AA >= 4.5:1 for all
+ * text tokens against every surface they are used on).
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces (darkest -> raised) */
+  --c-bg: 10 13 19;
+  --c-surface: 16 20 28;
+  --c-surface-2: 22 27 37;
+  --c-surface-3: 30 36 48;
+  --c-line: 40 48 63;
+  --c-line-strong: 58 69 89;
+
+  /* Text */
+  --c-fg: 230 235 242;
+  --c-fg-2: 176 187 202;
+  --c-fg-3: 138 151 171;
+
+  /* Semantic */
+  --c-accent: 229 184 76;
+  --c-up: 58 204 145;
+  --c-down: 244 108 120;
+  --c-warn: 234 165 72;
+  --c-info: 104 172 242;
+  --c-violet: 172 146 250;
+  --c-focus: 104 172 242;
+
+  /* Environment verdict scale (spec 6.1.1) */
+  --c-v-favourable: 58 204 145;
+  --c-v-constructive: 140 212 112;
+  --c-v-mixed: 229 184 76;
+  --c-v-weak: 238 140 80;
+  --c-v-danger: 244 108 120;
+
+  /* Chart-only */
+  --c-chart-grid: 28 34 45;
+  --c-ema-10: 104 172 242;
+  --c-ema-20: 229 184 76;
+  --c-ema-50: 172 146 250;
+  --c-ema-200: 176 187 202;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --fs-min: 11px;
+  --fs-table: 12.5px;
+  --fs-body: 13px;
+  --row-h: 28px;
+
+  /* Layout */
+  --topbar-h: 44px;
+  --envstrip-h: 30px;
+  --sidecar-w: 440px;
+  --radius: 4px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-fg));
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Mono tabular numerals for every number on screen. */
+.num,
+.font-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings:
+    'tnum' 1,
+    'zero' 1;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--c-focus));
+  outline-offset: 1px;
+}
+
+::selection {
+  background: rgb(var(--c-accent) / 0.35);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--c-bg));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-line));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--c-line-strong));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
