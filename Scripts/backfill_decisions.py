@@ -2,6 +2,10 @@
 
 Does not expect multi-day candidate_daily partitions — re-scores each as_of
 from indicator/history tables so first_seen identity can accumulate.
+
+Trigger/invalidation prices come from the (already split/bonus-adjusted) indicators, so each
+ledger row is stamped with signal_ledger.price_scale_factor (the price_factor of its
+last_seen_date at write time); outcomes divides it out instead of rescaling a second time.
 """
 
 from __future__ import annotations
