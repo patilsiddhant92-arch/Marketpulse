@@ -23,6 +23,7 @@ import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
 import { Spark } from '../ui/Spark';
 import { Tooltip } from '../ui/Tooltip';
+import { TodayGroups } from '../today/TodayGroups';
 import { GroupDrill } from './groups/GroupDrill';
 import {
   asFloor,
@@ -238,7 +239,7 @@ export default function GroupsRoute() {
   const [quadParam, setQuad] = useUrlParam('quad');
   const [rrgAll, setRrgAll] = useUrlParam('rrg');
   const [viewParam, setView] = useUrlParam('view');
-  const view = viewParam === 'map' ? 'map' : 'board';
+  const view = viewParam === 'map' ? 'map' : viewParam === 'today' ? 'today' : 'board';
   const [asOf] = useAsOf();
   const sidecarOpen = !!useShell().symbol;
   const [text, setText] = useState('');
@@ -291,6 +292,7 @@ export default function GroupsRoute() {
           options={[
             { value: 'board', label: 'Board', title: 'Board with RRG and money flow' },
             { value: 'map', label: 'Map', title: 'Taxonomy heatmap: Broad Sector › … sized by turnover, coloured by Health or 21d return' },
+            { value: 'today', label: 'Today', title: 'What moved today and why: 1D return, breadth, contributors, turnover and delivery vs 20 days, deals, catalysts' },
           ]}
           value={view}
           onChange={(v) => setView(v === 'board' ? null : v)}
@@ -337,7 +339,11 @@ export default function GroupsRoute() {
         </span>
         {board.data?.as_of && <span className="ml-auto">As of {fmtDate(board.data.as_of)}</span>}
       </div>
-      {view === 'map' ? (
+      {view === 'today' ? (
+        <div className="min-h-0 flex-1">
+          <TodayGroups level={level} floor={floor} text={text} onDrill={(id) => setGroup(id)} />
+        </div>
+      ) : view === 'map' ? (
         <div className="min-h-0 flex-1">
           <GroupsTreemap floor={floor} onDrill={(id) => setGroup(id)} />
         </div>

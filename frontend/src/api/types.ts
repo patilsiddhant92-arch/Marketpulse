@@ -82,6 +82,15 @@ export type WatchlistItem = Schemas['WatchlistItem'];
 export type WatchlistPut = Schemas['WatchlistPut'];
 export type Note = Schemas['Note'];
 export type NotePut = Schemas['NotePut'];
+export type TodayMarketRow = Schemas['TodayMarketRow'];
+export type TodayIndex = Schemas['TodayIndex'];
+/** Columns shared by movers and breakouts. */
+export type TodayStockRow = Omit<Schemas['TodayMoverRow'], 'side' | 'rank'>;
+export type TodayMoverRow = Schemas['TodayMoverRow'];
+export type TodayBreakoutRow = Schemas['TodayBreakoutRow'];
+export type TodayGroupRow = Schemas['TodayGroupRow'];
+export type TodayContributor = Schemas['TodayContributor'];
+export type TodayEvent = Schemas['TodayEvent'];
 
 /** Verdict words (spec 6.1.1). The schema types verdict as string; UI narrows. */
 export type Verdict = 'Favourable' | 'Constructive' | 'Mixed' | 'Weak' | 'Danger';

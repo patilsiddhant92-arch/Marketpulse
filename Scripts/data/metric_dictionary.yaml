@@ -1279,3 +1279,159 @@ metrics:
     read_with_why: "High lift on a tiny sample is often noise; check n and whether it held out of sample."
     caveats: "Reported out of sample with purged train/test splits."
     definition_sql_ref: "App/services/research.py:lift"
+
+  # ---------------------------------------------------------------------------
+  # Today (Desk "Today" + Groups "Today" mode) — App/services/today.py
+  # ---------------------------------------------------------------------------
+  - key: move_quality
+    plain_name: Quality of move
+    unit: state
+    measures: "A label for how today's move was made, from volume (RVOL), delivered shares versus normal (delivery x) and size. Rules are evaluated in order and the first match wins; a missing input never matches."
+    zones:
+      - {range: Real, label: Real, tone: good, why: "RVOL >= 1.5 and delivery x >= 1.2 (delivered shares at least 1.2x their prior 20-session average): heavy volume with more shares taken home than usual. Real buyers (or real sellers on a down day) are behind it. The evidence engine found delivery spikes and RVOL >= 1.5 the strongest traits before upper-circuit moves."}
+      - {range: Churn, label: Churn, tone: caution, why: "RVOL >= 1.5 but delivered shares below 1.2x normal: lots of trading, few investors taking shares home. Often intraday or operator activity; wait for delivery to confirm."}
+      - {range: Thin, label: Thin, tone: caution, why: "RVOL < 1: below-average volume. Few participants; thin moves reverse easily."}
+      - {range: Normal, label: Normal, tone: neutral, why: "Ordinary volume (RVOL 1-1.5, or delivery unknown). No strong participation signal either way."}
+      - {range: Operator-ish, label: Operator-ish, tone: bad, why: "Market cap under ₹500 Cr AND closing at its price band. Easy to push and often reverses; treat as a trap unless volume and delivery keep confirming."}
+    read_with: [rvol, delivery_qty_vs_20d, delivery_spike]
+    read_with_why: "The label is only a summary of RVOL and delivery x; open them to see how far above the thresholds the stock is."
+    caveats: "A description of today's session, not a forecast. Thresholds are starting points, to be calibrated against the evidence engine."
+    definition_sql_ref: "App/services/today.py:QUALITY_RULES"
+
+  - key: delivery_spike
+    plain_name: Delivery spike
+    unit: state
+    measures: "Today's delivered shares were more than twice their 20-day average. The strongest single trait the evidence engine found in the session before upper-circuit moves (lift about 2x versus matched controls)."
+    zones:
+      - {range: "Yes", label: Spike, tone: good, why: "Unusual delivery: someone is taking shares home in size. On an up day this is an accumulation footprint; on a down day, holders delivering out."}
+      - {range: "No", label: No spike, tone: neutral, why: "Delivery within its normal range."}
+    read_with: [delivery_vs_20d, rvol]
+    read_with_why: "A spike with RVOL >= 1.5 on an up day is the classic accumulation footprint."
+    caveats: "Quantity based (shares), unlike delivery x which compares delivery %."
+    definition_sql_ref: "indicators_daily.delivery_spike"
+
+  - key: delivery_qty_vs_20d
+    plain_name: Delivery x (delivered shares vs normal)
+    unit: x
+    measures: "Shares taken into delivery today divided by the average delivered shares of the prior 20 sessions. 3.0x means three times the usual number of shares went home with buyers. Unlike 'delivery vs 20d' (a ratio of delivery percentages), it does not fall just because intraday traders piled in on a busy day."
+    zones:
+      - {range: ">= 2", label: Heavy, tone: good, why: "Far more shares than usual changed owners for real. On an up day this is an accumulation footprint; on a down day, holders delivering out."}
+      - {range: "1.2-2", label: Above normal, tone: good, why: "More delivery than usual: participation is real, not just trading."}
+      - {range: "0.8-1.2", label: Normal, tone: neutral, why: "Usual delivery."}
+      - {range: "< 0.8", label: Low, tone: caution, why: "Fewer shares delivered than usual; any price move is mostly trading."}
+    read_with: [rvol, delivery_vs_20d]
+    read_with_why: "Heavy volume with delivery x below 1.2 is churn; with delivery x above 1.2 it is real participation. If delivery % (delivery vs 20d) also rose, the footprint is stronger still."
+    definition_sql_ref: "App/services/today.py: delivery_qty / previous session's avg_delivery_qty_20d"
+
+  - key: turnover_vs_20d
+    plain_name: Turnover vs normal
+    unit: x
+    measures: "Today's traded value divided by the stock's average traded value over the prior 20 sessions. 2.0x means twice the usual rupee volume."
+    zones:
+      - {range: ">= 2", label: Heavy, tone: good, why: "Much more money than usual changed hands; the move has attention."}
+      - {range: "1.2-2", label: Above normal, tone: neutral, why: "Busier than usual."}
+      - {range: "< 1.2", label: Normal or light, tone: neutral, why: "No unusual money flow."}
+    read_with: [rvol, delivery_vs_20d]
+    read_with_why: "Heavy turnover with delivery x below 1 is mostly trading churn; with delivery x above 1.2 it is real participation."
+    definition_sql_ref: "App/services/today.py: turnover_cr / previous session's avg_traded_value_cr_20d"
+
+  - key: market_turnover_vs_20d
+    plain_name: Market turnover vs 20-day average
+    unit: x
+    measures: "Sum of every stock's traded value today divided by the average of the prior 20 sessions."
+    zones:
+      - {range: ">= 1.2", label: Busy, tone: good, why: "More money than usual in the market; moves today carry more weight."}
+      - {range: "0.8-1.2", label: Normal, tone: neutral, why: "An ordinary session by volume."}
+      - {range: "< 0.8", label: Quiet, tone: caution, why: "Light participation; index moves on quiet days are less reliable."}
+    read_with: [market_delivery_vs_20d, advance_pct]
+    read_with_why: "A busy up day with broad advances is a strong session; a busy down day with many decliners is distribution."
+    definition_sql_ref: "App/services/today.py:market"
+
+  - key: market_delivery_vs_20d
+    plain_name: Market delivery % vs 20-day average
+    unit: x
+    measures: "Delivered value divided by traded value across stocks that report delivery (EQ series), today versus its average over the prior 20 sessions."
+    zones:
+      - {range: ">= 1.1", label: Investors active, tone: good, why: "A larger share of trading is being taken into delivery than usual: investment buying or selling rather than intraday churn."}
+      - {range: "0.9-1.1", label: Normal, tone: neutral, why: "Usual mix of delivery and intraday trading."}
+      - {range: "< 0.9", label: Trading-led, tone: caution, why: "More intraday churn than usual; today's moves are less committed."}
+    read_with: [market_turnover_vs_20d, advance_pct]
+    read_with_why: "Delivery up with turnover up on a broad advance is the healthiest combination."
+    definition_sql_ref: "App/services/today.py:market"
+
+  - key: group_return_1d
+    plain_name: Group return today (equal weight)
+    unit: pct
+    measures: "Average of the members' close-to-close change today, each stock weighted equally. A 1-day move <= -35% or >= +100% is treated as an unadjusted corporate action and left out."
+    zones:
+      - {range: ">= 2", label: Strong day, tone: good, why: "A big day for the whole group; check breadth and contributors to see whether it is broad or one stock."}
+      - {range: "-2-2", label: Ordinary, tone: neutral, why: "Normal day-to-day noise for most groups."}
+      - {range: "< -2", label: Weak day, tone: bad, why: "A heavy down day; check whether delivery confirms the selling."}
+    read_with: [group_pct_up_today, move_concentration, group_move_persistence]
+    read_with_why: "One day means little on its own: breadth says how many joined, concentration whether one stock did it, persistence whether it continues a trend."
+    definition_sql_ref: "App/services/today.py:group_rows"
+
+  - key: group_pct_up_today
+    plain_name: Members up today
+    unit: pct
+    measures: "Share of the group's members that closed higher than yesterday."
+    zones:
+      - {range: ">= 60", label: Broad, tone: good, why: "Most members joined the move: a group-wide event (sector news, flows), not a single stock."}
+      - {range: "40-60", label: Mixed, tone: neutral, why: "About half the members moved each way."}
+      - {range: "< 40", label: Narrow, tone: caution, why: "Few members are up; a positive group return is probably one or two stocks."}
+    read_with: [move_concentration, group_return_1d]
+    read_with_why: "A strong group return with under 40% of members up is almost always concentrated in one stock."
+    definition_sql_ref: "App/services/today.py:group_rows"
+
+  - key: group_turnover_vs_20d
+    plain_name: Group turnover vs normal
+    unit: x
+    measures: "The members' combined turnover today divided by their combined average traded value over the prior 20 sessions."
+    zones:
+      - {range: ">= 1.3", label: Heavy, tone: good, why: "Money is flowing into (or out of) the group today."}
+      - {range: "0.8-1.3", label: Normal, tone: neutral, why: "Usual activity."}
+      - {range: "< 0.8", label: Light, tone: caution, why: "The move happened on light volume; less convincing."}
+    read_with: [group_delivery_vs_20d, group_return_1d]
+    read_with_why: "Heavy turnover with delivery x >= 1.2 is real participation; with delivery x < 1 it is trading churn."
+    definition_sql_ref: "App/services/today.py:group_rows"
+
+  - key: group_delivery_vs_20d
+    plain_name: Group delivery vs normal
+    unit: x
+    measures: "Shares delivered today by the group's members divided by their average delivered shares over the prior 20 sessions."
+    zones:
+      - {range: ">= 1.2", label: Above normal, tone: good, why: "Investors took more shares home than usual: the move has real participation behind it."}
+      - {range: "0.8-1.2", label: Normal, tone: neutral, why: "Usual delivery."}
+      - {range: "< 0.8", label: Low, tone: caution, why: "Little delivery: the move is mostly intraday trading."}
+    read_with: [group_turnover_vs_20d, group_return_1d]
+    read_with_why: "Delivery rising together with turnover is what separates real participation from churn."
+    definition_sql_ref: "App/services/today.py:group_rows"
+
+  - key: move_concentration
+    plain_name: Top contributor's share of the move
+    unit: pct
+    measures: "The largest contributor's share of today's equal-weight group return. Contribution = member change divided by the number of members."
+    zones:
+      - {range: ">= 50", label: One-stock move, tone: caution, why: "Half or more of the group's move came from a single stock: it is that stock's news, not a sector trend."}
+      - {range: "25-50", label: Led, tone: neutral, why: "A few names did most of the work."}
+      - {range: "< 25", label: Spread out, tone: good, why: "Many members contributed: a genuine group move."}
+    read_with: [group_pct_up_today, group_return_1d]
+    read_with_why: "Check the members-up share too: a spread-out move with 70% of members up is the broadest kind."
+    caveats: "Small groups (under 3 members) are marked thin; their concentration is naturally high."
+    definition_sql_ref: "App/services/today.py:group_rows"
+
+  - key: group_move_persistence
+    plain_name: One-day pop or trend?
+    unit: state
+    measures: "Today's group return read against its 5-day and 21-day equal-weight returns (group_daily), to tell a one-day pop from a trend."
+    zones:
+      - {range: Flat day, label: Flat day, tone: neutral, why: "The group moved less than 0.25% either way today: nothing to read into the day itself; the 5d / 21d numbers carry the trend."}
+      - {range: Trend, label: Trend, tone: good, why: "Up today, up over 5 days and over 21 days: today continues an existing up-trend."}
+      - {range: Dip bought, label: Dip bought, tone: good, why: "Up today after a down week inside a rising month: buyers stepped in on the pullback."}
+      - {range: One-day pop, label: One-day pop, tone: caution, why: "Up today but down over 21 days: a bounce inside a falling month until it repeats."}
+      - {range: Pullback, label: Pullback, tone: neutral, why: "Down today inside a rising month: a normal pause unless it deepens."}
+      - {range: One-day drop, label: One-day drop, tone: neutral, why: "Down today after a positive week inside a falling month."}
+      - {range: Down-trend, label: Down-trend, tone: bad, why: "Down today, over 5 days and over 21 days."}
+    read_with: [group_return_1d, group_rank]
+    read_with_why: "A one-day pop that climbs the rank for several sessions turns into a trend; watch the rank change."
+    definition_sql_ref: "App/services/today.py:PERSISTENCE_RULES"

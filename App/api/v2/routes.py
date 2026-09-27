@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from App.api.v2 import models as m
-from App.services import common, db, deals, desk, evidence, groups, market, metrics, research, screener, stock, user
+from App.services import common, db, deals, desk, evidence, groups, market, metrics, research, screener, stock, today, user
 from App.services.common import Result
 
 API_VERSION = "2.0.0"
@@ -312,6 +312,40 @@ def groups_members(group_id: str = Path(..., max_length=160), as_of: Optional[da
 def groups_detail(group_id: str = Path(..., max_length=160), as_of: Optional[date] = AsOf, floor: Floor = "1000",
                   days: int = Query(60, ge=5, le=600), offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
     return envelope(_call(groups.detail, as_of, group_id, floor, days), offset, limit)
+
+
+# --------------------------------------------------------------------------
+# Today (Desk "Today" + Groups "Today" mode)
+# --------------------------------------------------------------------------
+@router.get("/today/market", response_model=m.Envelope[m.TodayMarketRow],
+            description="Market today strip: index moves, advancers/decliners, 52W highs/lows vs 5-day avg, "
+                        "turnover and delivery vs 20-day avg, VIX.")
+def today_market(as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    return envelope(_call(today.market, as_of))
+
+
+@router.get("/today/movers", response_model=m.Envelope[m.TodayMoverRow],
+            description="Top gainers and losers (side) with RVOL, delivery, turnover, queues, deals, catalysts and "
+                        "the quality-of-move label (rules in meta.context.quality_rules).")
+def today_movers(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(1000.0, ge=0),
+                 n: int = Query(30, ge=1, le=200, description="Rows per side")) -> dict[str, Any]:
+    return envelope(_call(today.movers, as_of, min_mcap_cr, n))
+
+
+@router.get("/today/breakouts", response_model=m.Envelope[m.TodayBreakoutRow],
+            description="Breakouts today (52W highs, setup triggers, 20-day highs on RVOL, gap-ups) and delivery "
+                        "footprints (accumulation / distribution). Rule ids in meta.context.rules.")
+def today_breakouts(as_of: Optional[date] = AsOf, min_mcap_cr: float = Query(1000.0, ge=0),
+                    offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(today.breakouts, as_of, min_mcap_cr), offset, limit)
+
+
+@router.get("/today/groups", response_model=m.Envelope[m.TodayGroupRow],
+            description="Every group at a level today: 1D EW return, breadth, turnover/delivery vs 20d, contributors, "
+                        "concentration, deals, catalysts, 5d/21d persistence and a fact-only 'why' sentence.")
+def today_groups(as_of: Optional[date] = AsOf, level: Level = "industry", floor: Floor = "1000",
+                 offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_call(today.groups_today, as_of, level, floor), offset, limit)
 
 
 # --------------------------------------------------------------------------
