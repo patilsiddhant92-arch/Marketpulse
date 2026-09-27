@@ -2,7 +2,6 @@ import argparse
 import concurrent.futures
 import os
 import re
-import shutil
 import time
 import warnings
 from datetime import datetime
@@ -225,12 +224,29 @@ def build_prices(universe: set[str] | None = None) -> pd.DataFrame:
     prices = prices.dropna(subset=["symbol", "trade_date", "close_price"])
     prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
     if universe is None:
-        changes_path = INPUT_DIR / "reference" / "symbolchange.csv"
-        if changes_path.exists():
-            from symbol_changes import parse_symbol_changes
-            from universe import apply_symbol_changes
-            prices = apply_symbol_changes(prices, parse_symbol_changes(changes_path))
+        prices = apply_reference_symbol_changes(prices)
     return prices
+
+
+def load_symbol_changes() -> pd.DataFrame | None:
+    """Parsed Input/reference/symbolchange.csv, or None when the file is absent."""
+    changes_path = INPUT_DIR / "reference" / "symbolchange.csv"
+    if not changes_path.exists() or changes_path.stat().st_size == 0:
+        return None
+    from symbol_changes import parse_symbol_changes
+
+    return parse_symbol_changes(changes_path)
+
+
+def apply_reference_symbol_changes(prices: pd.DataFrame) -> pd.DataFrame:
+    """Move every old-symbol row dated before its change onto the new symbol (HEG -> HEGAM),
+    so a renamed security is one continuous series. Shared by the full build and the append."""
+    changes = load_symbol_changes()
+    if changes is None or changes.empty:
+        return prices
+    from universe import apply_symbol_changes
+
+    return apply_symbol_changes(prices, changes)
 
 
 MCAP_COLUMNS = ["symbol", "security_name", "market_cap_cr", "market_cap_date", "issue_size"]
@@ -913,7 +929,15 @@ def calc_indicators(prices: pd.DataFrame, enrichment: pd.DataFrame) -> pd.DataFr
 
 
 def build_master(equity: pd.DataFrame, sector: pd.DataFrame, prices: pd.DataFrame, mcap: pd.DataFrame, bands: pd.DataFrame, pe: pd.DataFrame) -> pd.DataFrame:
+    """One row per EQUITY_L symbol plus every symbol that traded in the latest session (renamed
+    or BE/BZ-only listings EQUITY_L may lack). ``is_active`` marks symbols present in the latest
+    session; delisted symbols that exist only in price history are not added."""
     latest_price = prices.sort_values("trade_date").drop_duplicates("symbol", keep="last")
+    latest_date = latest_price["trade_date"].max() if not latest_price.empty else None
+    active = set(latest_price.loc[latest_price["trade_date"] == latest_date, "symbol"]) if latest_date is not None else set()
+    missing = sorted(active - set(equity["symbol"]))
+    if missing:
+        equity = pd.concat([equity, pd.DataFrame({"symbol": missing})], ignore_index=True)
     master = equity.merge(sector, on="symbol", how="left")
     master = master.merge(latest_price[["symbol", "series", "trade_date", "close_price"]], on="symbol", how="left")
     master = master.rename(columns={"series": "latest_series", "trade_date": "latest_price_date", "close_price": "latest_close"})
@@ -932,6 +956,12 @@ def build_master(equity: pd.DataFrame, sector: pd.DataFrame, prices: pd.DataFram
         elif right is not None:
             master["security_name"] = right
         master = master.drop(columns=[c for c in ("security_name_x", "security_name_y") if c in master.columns])
+    if missing and "security_name" in mcap.columns:
+        names = mcap.dropna(subset=["security_name"]).drop_duplicates("symbol", keep="last").set_index("symbol")["security_name"]
+        if "security_name" not in master.columns:
+            master["security_name"] = pd.NA
+        master["security_name"] = master["security_name"].fillna(master["symbol"].map(names))
+    master["is_active"] = master["symbol"].isin(active)
     if "listing_date" in master.columns and "latest_price_date" in master.columns:
         l_dt = pd.to_datetime(master["listing_date"], errors="coerce")
         p_dt = pd.to_datetime(master["latest_price_date"], errors="coerce")
@@ -1245,6 +1275,247 @@ def make_screener_results(indicators: pd.DataFrame, master: pd.DataFrame, deals:
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["screener_name", *cols])
 
 
+# User-owned and auxiliary tables: must survive append / deals refresh / rebuild.
+PRESERVED_TABLES = (
+    "trade_journal",
+    "watchlist_candidates",
+    "security_events",
+    "corporate_actions",
+    "security_risk_daily",
+    "top_value_daily",
+    "security_reference_daily",
+    "ingested_reports",
+    "ingestion_batches",
+    "candidate_daily",
+    "signal_ledger",
+    "signal_outcomes",
+    "schema_migrations",
+)
+
+# os.replace onto a DB file another process (the app) has open fails on Windows; retry a few
+# times before giving up with the live DB intact and the new DB kept for a manual swap.
+SWAP_RETRIES = 5
+SWAP_RETRY_WAIT_S = 3.0
+_os_replace = os.replace  # indirection so tests can simulate a locked live DB
+
+
+class PreservationError(RuntimeError):
+    """A preserved table could not be carried over from the live DB; the swap is aborted."""
+
+
+class DatabaseSwapError(RuntimeError):
+    """The new DB could not be installed over the live DB; the live DB is untouched."""
+
+
+def temp_db_path(db_path: Path) -> Path:
+    return Path(db_path).with_suffix(".tmp.duckdb")
+
+
+def _copy_preserved_table(con, old_con, table: str, reference_history: pd.DataFrame | None) -> int:
+    """Copy one preserved table from the live DB into the temp DB; returns the expected row count."""
+    user_rows = old_con.execute(f'SELECT * FROM "{table}"').fetchdf()
+    if table == "security_reference_daily" and reference_history is not None and not reference_history.empty:
+        if not user_rows.empty:
+            user_rows = pd.concat([user_rows, reference_history], ignore_index=True)
+            if "symbol" in user_rows.columns and "effective_date" in user_rows.columns:
+                user_rows = user_rows.drop_duplicates(subset=["symbol", "effective_date"], keep="last")
+        else:
+            user_rows = reference_history
+    con.register(f"{table}_df", user_rows)
+    con.execute(f'CREATE TABLE "{table}" AS SELECT * FROM "{table}_df"')
+    con.unregister(f"{table}_df")
+    if table == "security_reference_daily":
+        con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
+    return len(user_rows)
+
+
+def _preserve_tables(con, live_db: Path, reference_history: pd.DataFrame | None) -> dict[str, int]:
+    """Carry every PRESERVED_TABLES table from the live DB into ``con``.
+
+    Any failure (read, write, or a row-count mismatch) raises PreservationError naming the
+    table; the live DB handle is always closed.
+    """
+    preserved: dict[str, int] = {}
+    if not live_db.exists():
+        return preserved
+    try:
+        old_con = duckdb.connect(str(live_db), read_only=True)
+    except Exception as exc:
+        raise PreservationError(f"could not open live DB {live_db} to preserve tables: {exc}") from exc
+    try:
+        existing = {row[0] for row in old_con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+        for table in PRESERVED_TABLES:
+            if table not in existing:
+                continue
+            try:
+                expected = _copy_preserved_table(con, old_con, table, reference_history)
+                got = con.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
+            except Exception as exc:
+                raise PreservationError(f"could not preserve table {table}: {exc}") from exc
+            if got != expected:
+                raise PreservationError(f"could not preserve table {table}: wrote {got:,} rows, expected {expected:,}")
+            preserved[table] = int(got)
+            print(f"Preserved table {table}: {got:,} rows")
+    finally:
+        old_con.close()
+    return preserved
+
+
+def build_temp_database(
+    prices: pd.DataFrame,
+    master: pd.DataFrame,
+    enrichment: pd.DataFrame,
+    indicators: pd.DataFrame,
+    deals: pd.DataFrame,
+    breadth_daily: pd.DataFrame,
+    sector_rotation: pd.DataFrame,
+    screener_results: pd.DataFrame,
+    sector_metrics_daily: pd.DataFrame | None = None,
+    reference_history: pd.DataFrame | None = None,
+    price_adjustments: pd.DataFrame | None = None,
+    *,
+    db_path: Path | None = None,
+) -> Path:
+    """Write every table into ``<db>.tmp.duckdb`` (preserving user tables from the live DB),
+    CHECKPOINT and close it. On any failure the temp file is removed and the error re-raised;
+    the live DB is never touched here."""
+    db_path = Path(db_path) if db_path else DB_PATH
+    if price_adjustments is None:
+        price_adjustments = empty_adjustments_frame()
+    if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
+        sector_metrics_daily = pd.DataFrame(
+            columns=[
+                "trade_date", "level", "group_name", "stock_count", "rs_vs_nifty_21d", "rs_vs_nifty_63d",
+                "breadth_50", "breadth_200", "adv_concentration_top3", "near_52w_pct",
+                "adv_total_cr", "tech_pass_n", "funda_pass_n", "deal_net_10s_cr", "deal_prop_10s_cr", "rotation_state",
+            ]
+        )
+    temp_db = temp_db_path(db_path)
+    for leftover in (temp_db, temp_db.with_name(temp_db.name + ".wal")):
+        if leftover.exists():
+            leftover.unlink()
+    con = duckdb.connect(str(temp_db))
+    try:
+        for name, frame in {
+            "prices_daily": prices,
+            "stocks_master": master,
+            "daily_enrichment": enrichment,
+            "indicators_daily": indicators,
+            "deals": deals,
+            "breadth_daily": breadth_daily,
+            "sector_rotation": sector_rotation,
+            "screener_results": screener_results,
+            "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
+            "price_adjustments": price_adjustments,
+        }.items():
+            con.register(f"{name}_df", frame)
+            con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
+            con.unregister(f"{name}_df")
+        con.execute("CREATE INDEX idx_prices_symbol_date ON prices_daily(symbol, trade_date)")
+        con.execute("CREATE INDEX idx_indicators_symbol_date ON indicators_daily(symbol, trade_date)")
+        con.execute("CREATE INDEX idx_indicators_date_symbol ON indicators_daily(trade_date, symbol)")
+        con.execute("CREATE INDEX idx_deals_symbol_date ON deals(symbol, trade_date)")
+        con.execute("CREATE INDEX idx_breadth_date ON breadth_daily(trade_date)")
+        con.execute("CREATE INDEX idx_sector_rotation ON sector_rotation(level, group_name, trade_date)")
+        con.execute("CREATE INDEX idx_sector_metrics ON sector_metrics_daily(level, group_name, trade_date)")
+        con.execute("CREATE INDEX idx_screener_name ON screener_results(screener_name)")
+
+        # 1. Ingest index_daily from all MA files
+        try:
+            index_raw = load_all_index_history(ROOT_DIR)
+            if not index_raw.empty:
+                index_features = build_index_features(index_raw)
+                con.register("index_daily_df", index_features)
+                con.execute("CREATE TABLE index_daily AS SELECT * FROM index_daily_df")
+                con.execute("CREATE INDEX idx_index_daily_date_name ON index_daily(trade_date, index_name)")
+                print(f"Ingested index_daily (ind_close_all + MA fallback): {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
+        except Exception as exc:
+            print(f"Warning: index_daily ingestion skipped ({exc})")
+
+        _preserve_tables(con, db_path, reference_history)
+
+        # If security_reference_daily wasn't preserved, create directly from reference_history
+        has_ref = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'security_reference_daily'").fetchone()[0]
+        if not has_ref:
+            if reference_history is None or reference_history.empty:
+                try:
+                    reference_history = load_reference_history(ROOT_DIR)
+                except Exception:
+                    reference_history = pd.DataFrame()
+            if reference_history is not None and not reference_history.empty:
+                con.register("security_reference_daily_df", reference_history)
+                con.execute("CREATE TABLE security_reference_daily AS SELECT * FROM security_reference_daily_df")
+                con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
+                print(f"Created table security_reference_daily: {len(reference_history):,} rows")
+
+        from migrations import _apply_always_on_repairs
+
+        _apply_always_on_repairs(con)
+        con.execute("CHECKPOINT")
+    except BaseException:
+        con.close()
+        for leftover in (temp_db, temp_db.with_name(temp_db.name + ".wal")):
+            try:
+                leftover.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                print(f"Warning: could not remove temp DB {leftover}: {exc}")
+        raise
+    con.close()
+    return temp_db
+
+
+def install_database(temp_db: Path, db_path: Path | None = None, *, backup: bool = True) -> Path | None:
+    """Swap ``temp_db`` over ``db_path`` with os.replace after a dated backup of the live DB.
+
+    Returns the backup path (None when there was no live DB or ``backup`` is False). If the
+    backup cannot be taken, or the live DB stays locked by a reader after SWAP_RETRIES tries,
+    raises DatabaseSwapError with the live DB untouched and ``temp_db`` kept for a manual swap.
+    """
+    temp_db = Path(temp_db)
+    db_path = Path(db_path) if db_path else DB_PATH
+    backup_path = None
+    if backup and db_path.exists():
+        import db_backup
+
+        try:
+            backup_path = db_backup.backup_database(db_path)
+        except Exception as exc:
+            raise DatabaseSwapError(
+                f"Could not back up live DB {db_path} before swap ({exc}); live DB untouched. "
+                f"New DB kept at {temp_db}."
+            ) from exc
+    # A WAL left beside the live DB would be replayed onto the NEW file; park it until the swap lands.
+    live_wal = db_path.with_name(db_path.name + ".wal")
+    parked_wal = live_wal.with_name(live_wal.name + ".pre-swap")
+    if live_wal.exists():
+        os.replace(live_wal, parked_wal)
+    last_exc: Exception | None = None
+    for attempt in range(1, SWAP_RETRIES + 1):
+        try:
+            _os_replace(temp_db, db_path)
+            last_exc = None
+            break
+        except OSError as exc:
+            last_exc = exc
+            if attempt < SWAP_RETRIES:
+                print(f"Live DB busy (attempt {attempt}/{SWAP_RETRIES}): {exc}; retrying in {SWAP_RETRY_WAIT_S:g}s...")
+                time.sleep(SWAP_RETRY_WAIT_S)
+    if last_exc is not None:
+        if parked_wal.exists() and not live_wal.exists():
+            os.replace(parked_wal, live_wal)
+        msg = (
+            f"Could not replace live DB {db_path} after {SWAP_RETRIES} attempts ({last_exc}). "
+            f"It is probably open in the MarketPulse app. Live DB left intact. New DB kept at {temp_db} - "
+            f"close the app and move it over {db_path} to finish the swap."
+        )
+        print(msg)
+        raise DatabaseSwapError(msg) from last_exc
+    parked_wal.unlink(missing_ok=True)
+    return backup_path
+
+
 def write_database(
     prices: pd.DataFrame,
     master: pd.DataFrame,
@@ -1257,180 +1528,87 @@ def write_database(
     sector_metrics_daily: pd.DataFrame | None = None,
     reference_history: pd.DataFrame | None = None,
     price_adjustments: pd.DataFrame | None = None,
-) -> None:
-    if price_adjustments is None:
-        price_adjustments = empty_adjustments_frame()
-    if sector_metrics_daily is None or sector_metrics_daily.empty and len(sector_metrics_daily.columns) == 0:
-        sector_metrics_daily = pd.DataFrame(
-            columns=[
-                "trade_date", "level", "group_name", "stock_count", "rs_vs_nifty_21d", "rs_vs_nifty_63d",
-                "breadth_50", "breadth_200", "adv_concentration_top3", "near_52w_pct",
-                "adv_total_cr", "tech_pass_n", "funda_pass_n", "deal_net_10s_cr", "deal_prop_10s_cr", "rotation_state",
-            ]
+    *,
+    db_path: Path | None = None,
+    materialize: bool = True,
+) -> Path | None:
+    """Build a temp DB, then back up and atomically swap it over the live DB, under the writer
+    lock. Returns the dated backup path (None for a first build)."""
+    from db_lock import writer_lock
+
+    db_path = Path(db_path) if db_path else DB_PATH
+    with writer_lock(db_path, owner="write_database"):
+        temp_db = build_temp_database(
+            prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results,
+            sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments,
+            db_path=db_path,
         )
-    temp_db = DB_PATH.with_suffix(".tmp.duckdb")
-    if temp_db.exists():
-        temp_db.unlink()
-    con = duckdb.connect(str(temp_db))
-    for name, frame in {
-        "prices_daily": prices,
-        "stocks_master": master,
-        "daily_enrichment": enrichment,
-        "indicators_daily": indicators,
-        "deals": deals,
-        "breadth_daily": breadth_daily,
-        "sector_rotation": sector_rotation,
-        "screener_results": screener_results,
-        "sector_metrics_daily": sector_metrics_daily if sector_metrics_daily is not None else pd.DataFrame(),
-        "price_adjustments": price_adjustments,
-    }.items():
-        con.register(f"{name}_df", frame)
-        con.execute(f"CREATE TABLE {name} AS SELECT * FROM {name}_df")
-    con.execute("CREATE INDEX idx_prices_symbol_date ON prices_daily(symbol, trade_date)")
-    con.execute("CREATE INDEX idx_indicators_symbol_date ON indicators_daily(symbol, trade_date)")
-    con.execute("CREATE INDEX idx_indicators_date_symbol ON indicators_daily(trade_date, symbol)")
-    con.execute("CREATE INDEX idx_deals_symbol_date ON deals(symbol, trade_date)")
-    con.execute("CREATE INDEX idx_breadth_date ON breadth_daily(trade_date)")
-    con.execute("CREATE INDEX idx_sector_rotation ON sector_rotation(level, group_name, trade_date)")
-    con.execute("CREATE INDEX idx_sector_metrics ON sector_metrics_daily(level, group_name, trade_date)")
-    con.execute("CREATE INDEX idx_screener_name ON screener_results(screener_name)")
-
-    # 1. Ingest index_daily from all MA files
-    try:
-        index_raw = load_all_index_history(ROOT_DIR)
-        if not index_raw.empty:
-            index_features = build_index_features(index_raw)
-            con.register("index_daily_df", index_features)
-            con.execute("CREATE TABLE index_daily AS SELECT * FROM index_daily_df")
-            con.execute("CREATE INDEX idx_index_daily_date_name ON index_daily(trade_date, index_name)")
-            print(f"Ingested index_daily (ind_close_all + MA fallback): {len(index_features):,} rows across {index_features['index_name'].nunique()} indices")
-    except Exception as exc:
-        print(f"Warning: index_daily ingestion skipped ({exc})")
-
-    # User-owned and auxiliary tables: must survive append / deals refresh / rebuild.
-    PRESERVED_TABLES = (
-        "trade_journal",
-        "watchlist_candidates",
-        "security_events",
-        "corporate_actions",
-        "security_risk_daily",
-        "top_value_daily",
-        "security_reference_daily",
-        "ingested_reports",
-        "ingestion_batches",
-        "candidate_daily",
-        "signal_ledger",
-        "signal_outcomes",
-        "schema_migrations",
-    )
-    if DB_PATH.exists():
-        try:
-            old_con = duckdb.connect(str(DB_PATH), read_only=True)
-            for user_table in PRESERVED_TABLES:
-                exists = old_con.execute(
-                    "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
-                    [user_table],
-                ).fetchone()[0]
-                if not exists:
-                    continue
-                user_rows = old_con.execute(f"SELECT * FROM {user_table}").fetchdf()
-                if user_table == "security_reference_daily" and reference_history is not None and not reference_history.empty:
-                    if not user_rows.empty:
-                        user_rows = pd.concat([user_rows, reference_history], ignore_index=True)
-                        if "symbol" in user_rows.columns and "effective_date" in user_rows.columns:
-                            user_rows = user_rows.drop_duplicates(subset=["symbol", "effective_date"], keep="last")
-                    else:
-                        user_rows = reference_history
-                con.register(f"{user_table}_df", user_rows)
-                con.execute(f"CREATE TABLE {user_table} AS SELECT * FROM {user_table}_df")
-                if user_table == "security_reference_daily":
-                    con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
-                print(f"Preserved table {user_table}: {len(user_rows):,} rows")
-            old_con.close()
-        except Exception as exc:
-            print(f"Warning: could not preserve tables ({PRESERVED_TABLES}): {exc}")
-
-    # If security_reference_daily wasn't preserved, create directly from reference_history
-    has_ref = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'security_reference_daily'").fetchone()[0]
-    if not has_ref:
-        if reference_history is None or reference_history.empty:
+        backup_path = install_database(temp_db, db_path)
+        if materialize:
+            # Decision tables are explicit runtime migrations and materialized only after
+            # the accepted replacement database has been atomically installed.
             try:
-                reference_history = load_reference_history(ROOT_DIR)
-            except Exception:
-                reference_history = pd.DataFrame()
-        if reference_history is not None and not reference_history.empty:
-            con.register("security_reference_daily_df", reference_history)
-            con.execute("CREATE TABLE security_reference_daily AS SELECT * FROM security_reference_daily_df")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_reference_symbol_date ON security_reference_daily(symbol, effective_date)")
-            print(f"Created table security_reference_daily: {len(reference_history):,} rows")
+                from materialize_decision_tables import materialize_decision_tables
 
-    from migrations import _apply_always_on_repairs
-
-    _apply_always_on_repairs(con)
-
-    con.close()
-    if DB_PATH.exists():
-        backup = DB_PATH.with_suffix(".backup.duckdb")
-        shutil.copy2(DB_PATH, backup)
-        DB_PATH.unlink()
-    temp_db.rename(DB_PATH)
-    # Decision tables are explicit runtime migrations and materialized only after
-    # the accepted replacement database has been atomically installed.
-    try:
-        from materialize_decision_tables import materialize_decision_tables
-
-        materialize_decision_tables(DB_PATH)
-    except Exception as exc:
-        print(f"Warning: decision tables were not materialized: {exc}")
+                materialize_decision_tables(db_path)
+            except Exception as exc:
+                print(f"Warning: decision tables were not materialized: {exc}")
+    return backup_path
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the MarketPulse DuckDB database. This ALWAYS performs a FULL rebuild from ALL available price history (archive + daily). Use this directly for catch-up after missed daily uploads: drop any missed bhavcopy / deal / reference files into Input/daily/ (even older dated ones) then run this script. The normal daily_update.bat is stricter for day-to-day use.")
-    parser.add_argument("--quiet", action="store_true")
-    args = parser.parse_args()
-    if not args.quiet:
-        print("Starting full database rebuild. This may take 5-10 minutes depending on archive size.")
+BUILD_FRAME_KEYS = (
+    "prices", "master", "enrichment", "indicators", "deals", "breadth_daily", "sector_rotation",
+    "screener_results", "sector_metrics_daily", "reference_history", "price_adjustments",
+)
+
+
+def compute_full_build(quiet: bool = False) -> dict[str, pd.DataFrame]:
+    """Every table of a FULL rebuild, computed in memory (nothing is written).
+
+    The universe is the bhavcopies themselves (series EQ/BE/BZ, symbol changes applied), not
+    today's EQUITY_L, so delisted history stays and renamed symbols stay continuous.
+    Returns keyword arguments for ``write_database`` / ``build_temp_database``.
+    """
     ensure_folders()
-    if not args.quiet:
-        print("1/8: Loading equity universe and sector mapping...")
+    if not quiet:
+        print("1/8: Loading equity list and sector mapping...")
     equity = read_equity_symbols()
-    universe = set(equity["symbol"])
     sector = read_sector()
-    if not args.quiet:
+    if not quiet:
         print("2/8: Reading historical price files (archive + daily)...")
-    prices = build_prices(universe)
+    prices = build_prices(None)
     prices, price_adjustments = adjust_prices(prices, ROOT_DIR)
     print(summarize_adjustments(price_adjustments))
-    if not args.quiet:
+    if not quiet:
         print("3/8: Reading market cap, price band, PE, and 52-week reference files...")
     mcap = read_market_cap()
     bands = read_price_band()
     pe = read_pe()
     high52 = read_52_week()
-    if not args.quiet:
+    if not quiet:
         print("4/8: Building enrichment tables and stock master list...")
     enrichment = build_enrichment(mcap, bands, pe, high52, pd.DataFrame(), pd.DataFrame())
     master = build_master(equity, sector, prices, mcap, bands, pe)
-    if not args.quiet:
+    if not quiet:
         print("5/8: Calculating indicators...")
     reference_history = load_reference_history(ROOT_DIR)
     indicators = calc_indicators(indicator_input(prices), reference_history if not reference_history.empty else enrichment)
-    if not args.quiet:
+    if not quiet:
         print("6/8: Reading and enriching deal flow...")
     deals_raw = read_all_deals()
     deals = enrich_deals(deals_raw, prices, indicators, master)
     latest_deals = deals[deals["trade_date"] == deals["trade_date"].max()] if not deals.empty else deals
-    if not args.quiet:
+    if not quiet:
         print("7/8: Building breadth and sector rotation metrics...")
     enrichment = build_enrichment(mcap, bands, pe, high52, latest_deals, pd.DataFrame())
-    if not args.quiet:
+    if not quiet:
         print("  7a/8: Calculating market breadth...")
     breadth_daily = build_breadth_daily(indicators)
-    if not args.quiet:
+    if not quiet:
         print("  7b/8: Calculating sector rotation...")
     sector_rotation = build_sector_rotation(indicators, master)
     try:
-        if not args.quiet:
+        if not quiet:
             print("  7c/8: Loading market-index history...")
         index_raw = load_all_index_history(ROOT_DIR)
         index_features = build_index_features(index_raw)
@@ -1441,20 +1619,43 @@ def main() -> None:
         metric_reference = master[["symbol", "latest_price_date", "market_cap_cr"]].rename(
             columns={"latest_price_date": "effective_date"}
         )
-    if not args.quiet:
+    if not quiet:
         print("  7d/8: Computing taxonomy metrics...")
     sector_metrics_daily = compute_sector_metrics(indicators, master, metric_reference, index_features, deals)
-    if not args.quiet:
+    if not quiet:
         print(f"  7d/8: Taxonomy metrics ready ({len(sector_metrics_daily):,} rows).")
         print("  7e/8: Building screener results...")
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
+    return {
+        "prices": prices,
+        "master": master,
+        "enrichment": enrichment,
+        "indicators": indicators,
+        "deals": deals,
+        "breadth_daily": breadth_daily,
+        "sector_rotation": sector_rotation,
+        "screener_results": screener_results,
+        "sector_metrics_daily": sector_metrics_daily,
+        "reference_history": reference_history,
+        "price_adjustments": price_adjustments,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the MarketPulse DuckDB database. This ALWAYS performs a FULL rebuild from ALL available price history (archive + daily). Use this directly for catch-up after missed daily uploads: drop any missed bhavcopy / deal / reference files into Input/daily/ (even older dated ones) then run this script. The normal daily_update.bat is stricter for day-to-day use. For a validated rebuild with a dry-run option use Scripts/safe_rebuild.py.")
+    parser.add_argument("--quiet", action="store_true")
+    args = parser.parse_args()
+    if not args.quiet:
+        print("Starting full database rebuild. This may take 5-10 minutes depending on archive size.")
+    frames = compute_full_build(quiet=args.quiet)
     if not args.quiet:
         print("8/8: Writing database file...")
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
+    write_database(**frames)
     if not args.quiet:
+        prices, master, deals = frames["prices"], frames["master"], frames["deals"]
         print("MarketPulse database built successfully (FULL history rebuild).")
         print(f"Database: {DB_PATH}")
-        print(f"Stocks in master list: {len(master):,}")
+        print(f"Stocks in master list: {len(master):,} ({int(master['is_active'].sum()):,} active in latest session)")
         print(f"Price rows: {len(prices):,}")
         print(f"Deal rows: {len(deals):,}")
         print(f"Date range: {prices['trade_date'].min().date()} to {prices['trade_date'].max().date()}")

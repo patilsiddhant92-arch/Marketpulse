@@ -14,16 +14,13 @@ def apply_symbol_changes(prices: pd.DataFrame, changes: pd.DataFrame) -> pd.Data
     symbol. Changes are applied in chronological order so chains (A->B, B->C) resolve
     correctly regardless of row order in ``changes``.
     """
-    if changes.empty or prices.empty:
+    if changes is None or changes.empty or prices.empty:
         return prices
-    out = prices.copy()
-    ordered = changes.sort_values("change_date", na_position="last")
-    for _, row in ordered.iterrows():
-        old, new, change_date = row["old_symbol"], row["new_symbol"], row["change_date"]
-        mask = out["symbol"] == old
-        if pd.notna(change_date):
-            mask &= out["trade_date"] < change_date
-        out.loc[mask, "symbol"] = new
+    # Vectorised rename (same sequential, date-aware semantics) shared with price_adjustment:
+    # one full-frame comparison per change is far too slow on the full price history.
+    from price_adjustment import _rename_symbols
+
+    out = _rename_symbols(prices, changes, "trade_date")
     out["_pri"] = (out.get("series", pd.Series("EQ", index=out.index)) != "EQ").astype(int)
     out = out.sort_values(["symbol", "trade_date", "_pri"]).drop_duplicates(["symbol", "trade_date"], keep="first")
     return out.drop(columns="_pri").reset_index(drop=True)

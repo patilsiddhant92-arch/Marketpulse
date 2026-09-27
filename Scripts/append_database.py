@@ -6,7 +6,6 @@ Single implementation used by CLI and `daily_pipeline` (PR-APPEND).
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import time
 from dataclasses import dataclass
@@ -17,6 +16,7 @@ import duckdb
 import pandas as pd
 
 from build_database import (
+    apply_reference_symbol_changes,
     build_breadth_daily,
     build_enrichment,
     build_master,
@@ -80,8 +80,11 @@ def _load_extra_actions() -> pd.DataFrame | None:
         return None
 
 
-def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataFrame:
+def _new_daily_prices(universe: set[str] | None, latest_date: pd.Timestamp) -> pd.DataFrame:
     """Any bhavcopy in daily, archive, or downloads newer than DB max is appended.
+
+    ``universe=None`` (what the append uses) keeps every EQ/BE/BZ row, exactly like the full
+    build, so a renamed symbol absent from EQUITY_L (HEG -> HEGAM) is not dropped.
 
     Files whose filename date is well before the DB max are skipped unparsed: NSE's DATE1
     session is never later than the filename date (holiday duplicates and the Muhurat file
@@ -113,6 +116,17 @@ def _new_daily_prices(universe: set[str], latest_date: pd.Timestamp) -> pd.DataF
     return out.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
 
 
+def merge_new_prices(existing_prices: pd.DataFrame, new_prices: pd.DataFrame) -> pd.DataFrame:
+    """Existing DB prices + newly parsed sessions, with symbol changes applied the same way as
+    the full build: when a rename takes effect, the old symbol's history moves under the new
+    symbol so the series is continuous (HEG history + HEGAM rows form one series)."""
+    prices = pd.concat([existing_prices, new_prices], ignore_index=True)
+    prices["trade_date"] = pd.to_datetime(prices["trade_date"])
+    prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
+    prices = drop_stale_adjustment_columns(prices)
+    return apply_reference_symbol_changes(prices)
+
+
 def load_index_for_metrics(root_dir: Path, table_loader: Callable[[str], pd.DataFrame]) -> pd.DataFrame:
     """Index features for sector metrics, including the session being appended.
 
@@ -132,7 +146,18 @@ def load_index_for_metrics(root_dir: Path, table_loader: Callable[[str], pd.Data
 
 
 def append_session(*, force_full: bool = False, notify_telegram: bool = True) -> AppendResult:
-    """Run one append (or full rebuild). Sole implementation for pipeline + CLI."""
+    """Run one append (or full rebuild). Sole implementation for pipeline + CLI.
+
+    Holds the DB writer lock for the whole read-merge-write cycle so no other writer can
+    change the DB between reading prices_daily and swapping in the new file.
+    """
+    from db_lock import writer_lock
+
+    with writer_lock(DB_PATH, owner="append_session"):
+        return _append_session_locked(force_full=force_full, notify_telegram=notify_telegram)
+
+
+def _append_session_locked(*, force_full: bool, notify_telegram: bool) -> AppendResult:
     started = time.perf_counter()
 
     if force_full or not DB_PATH.exists():
@@ -161,10 +186,9 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
         )
 
     equity = read_equity_symbols()
-    universe = set(equity["symbol"])
     existing_prices = _load_table("prices_daily")
     latest_date = pd.to_datetime(existing_prices["trade_date"]).max()
-    new_prices = _new_daily_prices(universe, latest_date)
+    new_prices = _new_daily_prices(None, latest_date)
     if new_prices.empty:
         msg = f"No new bhavcopy rows found after {latest_date.date()}. Database unchanged."
         print(msg)
@@ -179,10 +203,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
         f"Appending {len(new_prices):,} price rows "
         f"from {new_prices['trade_date'].min().date()} to {new_prices['trade_date'].max().date()}."
     )
-    prices = pd.concat([existing_prices, new_prices], ignore_index=True)
-    prices["trade_date"] = pd.to_datetime(prices["trade_date"])
-    prices = prices.sort_values(["symbol", "trade_date"]).drop_duplicates(["symbol", "trade_date"], keep="last")
-    prices = drop_stale_adjustment_columns(prices)
+    prices = merge_new_prices(existing_prices, new_prices)
 
     extra_actions = _load_extra_actions()
     prices, price_adjustments = adjust_prices(prices, ROOT_DIR, extra_actions=extra_actions)
@@ -217,11 +238,10 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
     sector_metrics_daily = compute_sector_metrics(indicators, master, reference_for_metrics, index_for_metrics, deals)
     screener_results = make_screener_results(indicators, master, deals, sector_rotation)
 
-    backup = DB_PATH.with_suffix(".preappend.backup.duckdb")
-    shutil.copy2(DB_PATH, backup)
-    write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
+    # write_database takes the dated backup (Database/backups/) before its atomic swap.
+    backup = write_database(prices, master, enrichment, indicators, deals, breadth_daily, sector_rotation, screener_results, sector_metrics_daily, reference_history=reference_history, price_adjustments=price_adjustments)
     new_max = pd.to_datetime(prices["trade_date"]).max().date().isoformat()
-    msg = f"Append update complete through {new_max}. Backup: {backup.name}"
+    msg = f"Append update complete through {new_max}. Backup: {backup.name if backup else 'none'}"
     print(msg)
 
     if notify_telegram:
@@ -237,7 +257,7 @@ def append_session(*, force_full: bool = False, notify_telegram: bool = True) ->
         message=msg,
         db_date=new_max,
         new_rows=int(len(new_prices)),
-        backup=str(backup),
+        backup=str(backup) if backup else None,
         duration_ms=int((time.perf_counter() - started) * 1000),
     )
 
