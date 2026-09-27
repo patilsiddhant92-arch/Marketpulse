@@ -41,9 +41,18 @@ export function parseGroupId(id: string | null | undefined): { level: Level; nam
   return { level: level as Level, name };
 }
 
-export function quadrantCounts(rows: readonly Pick<GroupRow, 'rrg_quadrant'>[]): Record<Quadrant, number> & { none: number } {
+/** Groups with fewer members than this are "thin": listed on request, never ranked or counted. */
+export const MIN_MEMBERS = 3;
+export const isThinGroup = (r: { stocks?: number | null }): boolean => (r.stocks ?? 0) < MIN_MEMBERS;
+
+/** Quadrant counts over ranked groups only (≥ MIN_MEMBERS members), matching the header / glance line. */
+export function quadrantCounts(
+  rows: readonly Pick<GroupRow, 'rrg_quadrant' | 'stocks'>[],
+  minMembers = MIN_MEMBERS,
+): Record<Quadrant, number> & { none: number } {
   const out = { Leading: 0, Improving: 0, Weakening: 0, Lagging: 0, none: 0 };
   for (const r of rows) {
+    if ((r.stocks ?? 0) < minMembers) continue;
     if (isQuadrant(r.rrg_quadrant)) out[r.rrg_quadrant] += 1;
     else out.none += 1;
   }

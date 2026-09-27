@@ -33,6 +33,7 @@ import {
   filterGroups,
   FLOORS,
   flowLeaders,
+  isThinGroup,
   LEVELS,
   levelLabel,
   marketContextLine,
@@ -252,8 +253,12 @@ export default function GroupsRoute() {
   const board = useApiQuery('groups/board', { query: { level, floor, limit: 5000 } });
   const rrg = useApiQuery('groups/rrg', { query: { level, floor, tail_weeks: 6 } });
 
+  const [thinParam, setThin] = useUrlParam('thin');
+  const showThin = thinParam === '1';
   const rows = board.data?.rows ?? EMPTY;
-  const filtered = useMemo(() => filterGroups(rows, text, quadSet), [rows, text, quadSet]);
+  const thinCount = useMemo(() => rows.filter(isThinGroup).length, [rows]);
+  const boardRows = useMemo(() => (showThin ? rows : rows.filter((r) => !isThinGroup(r))), [rows, showThin]);
+  const filtered = useMemo(() => filterGroups(boardRows, text, quadSet), [boardRows, text, quadSet]);
   const counts = useMemo(() => quadrantCounts(rows), [rows]);
   const flow = useMemo(() => flowLeaders(rows), [rows]);
   const allowed = useMemo(() => (text || quadSet.size ? new Set(filtered.map((r) => r.id)) : null), [filtered, text, quadSet]);
@@ -327,6 +332,13 @@ export default function GroupsRoute() {
             </Chip>
           ))}
         </div>
+        <Chip
+          selected={showThin}
+          onClick={() => setThin(showThin ? null : '1')}
+          title="Groups with fewer than 3 members are hidden, not ranked and not counted in the quadrant chips. Click to list them."
+        >
+          {showThin ? 'Hide thin' : 'Show thin'} <span className="num">{thinCount}</span>
+        </Chip>
         <div className="ml-auto flex items-center gap-2">
           <SourceNote meta={board.data?.meta} />
           <Tooltip content={HOW_TO}>
@@ -338,7 +350,7 @@ export default function GroupsRoute() {
       </div>
       {view === 'today' ? (
         <div className="min-h-0 flex-1">
-          <TodayGroups level={level} floor={floor} text={text} onDrill={(id) => setGroup(id)} />
+          <TodayGroups level={level} floor={floor} text={text} showThin={showThin} onDrill={(id) => setGroup(id)} />
         </div>
       ) : view === 'map' ? (
         <div className="min-h-0 flex-1">

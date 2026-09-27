@@ -20,7 +20,7 @@ import { Chip } from '../ui/Chip';
 import { DataTable, type DataTableColumn } from '../ui/DataTable';
 import { EmptyState } from '../ui/EmptyState';
 import { ChangeCell } from './parts';
-import { BREADTH_TONE, PARTICIPATION_TONE, PERSISTENCE_TONE, clauseText, filterGroupsText, type RuleClause } from './todayModel';
+import { BREADTH_TONE, PARTICIPATION_TONE, PERSISTENCE_TONE, broadMoveScore, clauseText, filterGroupsText, withoutThinGroups, type RuleClause } from './todayModel';
 
 const EMPTY: TodayGroupRow[] = [];
 
@@ -49,6 +49,15 @@ function columns(onDrill: (id: string) => void): DataTableColumn<TodayGroupRow>[
           {r.breadth_label && r.breadth_label !== 'mixed' && <Chip tone={BREADTH_TONE[r.breadth_label] ?? 'neutral'}>{r.breadth_label}</Chip>}
         </span>
       ),
+    },
+    {
+      id: 'broad',
+      header: 'Broad',
+      accessor: (r) => broadMoveScore(r),
+      format: 'num',
+      digits: 2,
+      width: 56,
+      headerTitle: "Default order: |1D| × share of members that moved the group's way. Broad moves rank above one-stock pops.",
     },
     { id: 'ret', header: '1D', accessor: 'return_1d', format: 'signedPct', width: 62, metricKey: 'group_return_1d', cell: (v) => <ChangeCell v={v as number} /> },
     {
@@ -290,10 +299,24 @@ function Detail({ g, ctx, onDrill }: { g: TodayGroupRow; ctx: RulesCtx | undefin
   );
 }
 
-export function TodayGroups({ level, floor, text, onDrill }: { level: Level; floor: Floor; text: string; onDrill: (id: string) => void }) {
+export function TodayGroups({
+  level,
+  floor,
+  text,
+  onDrill,
+  showThin = false,
+}: {
+  level: Level;
+  floor: Floor;
+  text: string;
+  onDrill: (id: string) => void;
+  showThin?: boolean;
+}) {
   const sidecarOpen = !!useShell().symbol;
   const q = useApiQuery('today/groups', { query: { level, floor, limit: 5000 } });
-  const rows = useMemo(() => filterGroupsText(q.data?.rows ?? EMPTY, text), [q.data, text]);
+  const all = q.data?.rows ?? EMPTY;
+  const rows = useMemo(() => filterGroupsText(withoutThinGroups(all, showThin), text), [all, showThin, text]);
+  const thinHidden = showThin ? 0 : all.length - withoutThinGroups(all, false).length;
   const [picked, setSelected] = useState<string | null>(null);
   // The picked group, or the first row when nothing (or a filtered-out group) is picked.
   const selected = picked && rows.some((r) => r.id === picked) ? picked : (rows[0]?.id ?? null);
@@ -304,7 +327,8 @@ export function TodayGroups({ level, floor, text, onDrill }: { level: Level; flo
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-6 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 py-0.5 text-2xs text-fg-3">
         <span>
-          What moved today and why · <span className="num text-fg-2">{rows.length}</span> groups · click a row for the why, Enter / name to drill
+          What moved today and why · <span className="num text-fg-2">{rows.length}</span> groups
+          {thinHidden > 0 && <> ({thinHidden} thin hidden)</>} · broad moves first · click a row for the why, Enter / name to drill
         </span>
         <SourceNote meta={q.data?.meta} />
         {q.data?.as_of && <span className="ml-auto">As of {fmtDate(q.data.as_of)}</span>}
@@ -320,7 +344,7 @@ export function TodayGroups({ level, floor, text, onDrill }: { level: Level; flo
             loading={q.isLoading}
             error={q.error}
             onRetry={() => void q.refetch()}
-            initialSort={[{ id: 'ret', desc: true }]}
+            initialSort={[{ id: 'broad', desc: true }]}
             activeRowId={selected}
             onActiveRowChange={(r) => setSelected(r.id)}
             onRowClick={(r) => setSelected(r.id)}
