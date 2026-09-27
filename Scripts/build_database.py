@@ -151,8 +151,96 @@ def read_sector() -> pd.DataFrame:
     return df.drop_duplicates("symbol", keep="last")
 
 
+_XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_EXCEL_EPOCH = pd.Timestamp("1899-12-30")
+
+
+def _xlsx_col_index(ref: str) -> int:
+    idx = 0
+    for ch in ref:
+        if not ch.isalpha():
+            break
+        idx = idx * 26 + (ord(ch.upper()) - 64)
+    return idx - 1
+
+
+def _xlsx_text(elem) -> str:
+    """Concatenated text of all <t> descendants (handles rich-text runs)."""
+    return "".join(t.text or "" for t in elem.iter(f"{_XLSX_NS}t"))
+
+
+def read_xlsx_first_sheet(path: Path) -> pd.DataFrame:
+    """First worksheet of an .xlsx as an all-string frame (row 1 = header), stdlib only.
+
+    NSE occasionally serves a bhavcopy as an Excel workbook under a ``.csv`` name; openpyxl is
+    not a dependency, so the sharedStrings + sheet XML is read directly with zipfile/ElementTree.
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in names:
+            with zf.open("xl/sharedStrings.xml") as fh:
+                for _, elem in ET.iterparse(fh):
+                    if elem.tag == f"{_XLSX_NS}si":
+                        shared.append(_xlsx_text(elem))
+                        elem.clear()
+        sheets = sorted(n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
+        if not sheets:
+            raise ValueError(f"{Path(path).name}: workbook has no worksheets")
+        sheet = "xl/worksheets/sheet1.xml" if "xl/worksheets/sheet1.xml" in sheets else sheets[0]
+        rows: list[dict[int, str]] = []
+        with zf.open(sheet) as fh:
+            for _, elem in ET.iterparse(fh):
+                if elem.tag != f"{_XLSX_NS}row":
+                    continue
+                cells: dict[int, str] = {}
+                for pos, c in enumerate(elem.iter(f"{_XLSX_NS}c")):
+                    ref = c.get("r")
+                    col = _xlsx_col_index(ref) if ref else pos
+                    kind = c.get("t")
+                    if kind == "inlineStr":
+                        value = _xlsx_text(c)
+                    else:
+                        v = c.find(f"{_XLSX_NS}v")
+                        value = v.text if v is not None and v.text is not None else ""
+                        if kind == "s" and value != "":
+                            value = shared[int(value)]
+                    cells[col] = value
+                rows.append(cells)
+                elem.clear()
+    if not rows:
+        return pd.DataFrame()
+    width = max((max(r) + 1 for r in rows if r), default=0)
+    header = [str(rows[0].get(i, "")).strip() or f"col_{i}" for i in range(width)]
+    body = [[r.get(i) for i in range(width)] for r in rows[1:] if r]
+    return pd.DataFrame(body, columns=header, dtype=object)
+
+
+def _read_bhav_raw(path: Path) -> pd.DataFrame:
+    """Raw all-string bhavcopy frame from a CSV, or from an XLSX saved under a .csv name."""
+    with open(path, "rb") as fh:
+        magic = fh.read(2)
+    if magic != b"PK":
+        return pd.read_csv(path, dtype=str, skipinitialspace=True)
+    df = read_xlsx_first_sheet(path)
+    for col in df.columns:
+        df[col] = df[col].map(lambda v: v.lstrip() if isinstance(v, str) else v)
+    # Excel may store DATE1 as a serial number instead of text.
+    date_col = next((c for c in df.columns if str(c).strip().upper() == "DATE1"), None)
+    if date_col is not None:
+        serial = pd.to_numeric(df[date_col], errors="coerce")
+        is_serial = serial.notna()
+        if is_serial.any():
+            converted = (_EXCEL_EPOCH + pd.to_timedelta(serial[is_serial], unit="D")).dt.strftime("%d-%b-%Y")
+            df[date_col] = df[date_col].where(~is_serial, converted)
+    return df
+
+
 def read_bhavcopy(path: Path, universe: set[str] | None = None) -> pd.DataFrame:
-    df = pd.read_csv(path, dtype=str, skipinitialspace=True)
+    df = _read_bhav_raw(path)
     df = clean_columns(df)
     rename = {
         "date1": "trade_date",
