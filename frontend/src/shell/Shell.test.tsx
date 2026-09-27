@@ -23,6 +23,8 @@ vi.mock('../components/InspectorSidecar', () => ({
 }));
 vi.mock('../components/MultiChartModal', () => ({ MultiChartModal: () => <div>legacy charts</div> }));
 vi.mock('../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
+// lightweight-charts needs a canvas; Stock 360 renders the chart.
+vi.mock('../ui/Chart', () => ({ Chart: ({ label }: { label: string }) => <div role="img" aria-label={label} /> }));
 
 const FRESH = { status: 'fresh', latest_session: '2026-09-25', expected_session: '2026-09-25', sessions_behind: 0, history_mode: false };
 
@@ -145,13 +147,14 @@ describe('Shell', () => {
         .getAllByRole('link')
         .map((a) => a.textContent?.replace(/^\d/, '')),
     ).toEqual(['Desk', 'Screener', 'Groups', 'Deals', 'Charts', 'Research']);
-    expect(await screen.findByText('legacy cockpit')).toBeInTheDocument();
-    expect(await screen.findByText('Constructive')).toBeInTheDocument();
-    expect(screen.getByText('improved from Mixed on Mon · 4th day')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
+    // Verdict shows in the strip and in the Desk environment panel.
+    expect((await screen.findAllByText('Constructive')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('improved from Mixed on Mon · 4th day').length).toBeGreaterThan(0);
     expect(await screen.findByText('Fri 25 Sep')).toBeInTheDocument();
 
     // Drawer: pillars + dictionary-labelled reading.
-    fireEvent.click(screen.getByRole('button', { name: /market environment details/i }));
+    fireEvent.click(screen.getAllByRole('button', { name: /market environment details/i })[0]);
     const dialog = await screen.findByRole('dialog', { name: 'Market environment' });
     expect(within(dialog).getByText(/rule R2/)).toBeInTheDocument();
     expect(within(dialog).getByRole('region', { name: 'Participation pillar' })).toHaveTextContent('Are most stocks joining?');
@@ -175,7 +178,8 @@ describe('Shell', () => {
     renderApp('/desk');
     expect(await screen.findByText(/not available yet \(API v2 pending\)/)).toBeInTheDocument();
     expect(await screen.findByText('Thu 24 Sep')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // No API-down banner (panels may show their own "not available yet" states).
+    expect(screen.queryByText('API unreachable')).not.toBeInTheDocument();
   });
 
   it('shows "unavailable" when meta.status says so, and an API-down banner when the server is unreachable', async () => {
@@ -187,7 +191,7 @@ describe('Shell', () => {
     });
     renderApp('/desk');
     expect(await screen.findByText(/Market environment unavailable/)).toBeInTheDocument();
-    expect(screen.getByText(/regime_daily not built yet/)).toBeInTheDocument();
+    expect(screen.getAllByText(/regime_daily not built yet/).length).toBeGreaterThan(0);
     expect(await screen.findByText('API unreachable')).toBeInTheDocument();
   });
 
@@ -207,19 +211,19 @@ describe('Shell', () => {
   it('switches tabs with number keys and keeps visited tabs mounted', async () => {
     mockFetch(() => undefined);
     const router = renderApp('/desk');
-    expect(await screen.findByText('legacy cockpit')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
     act(() => {
       fireEvent.keyDown(window, { key: '4' });
     });
     await waitFor(() => expect(router.state.location.pathname).toBe('/deals'));
     expect(await screen.findByText('legacy deals')).toBeVisible();
-    expect(screen.getByText('legacy cockpit')).not.toBeVisible();
+    expect(screen.getByRole('region', { name: 'Desk queues', hidden: true })).not.toBeVisible();
   });
 
   it('opens the command palette with Ctrl+K and opens a typed symbol in the sidecar', async () => {
     mockFetch(() => undefined);
     const router = renderApp('/desk');
-    await screen.findByText('legacy cockpit');
+    await screen.findByRole('region', { name: 'Desk queues' });
     act(() => {
       fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     });
@@ -227,7 +231,7 @@ describe('Shell', () => {
     fireEvent.change(input, { target: { value: 'hal' } });
     fireEvent.click(await screen.findByText(/in Stock 360 sidecar/));
     await waitFor(() => expect(router.state.location.search).toContain('sym=HAL'));
-    expect(await screen.findByText('legacy inspector HAL')).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: 'Stock 360: HAL' })).toBeInTheDocument();
   });
 
   it('lazy-loads Research', async () => {
