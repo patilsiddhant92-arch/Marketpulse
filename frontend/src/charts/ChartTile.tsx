@@ -15,7 +15,7 @@ import { fmtCr, fmtNum, fmtSignedPct } from '../lib/fmt';
 import { ZoneNum, SignedNum } from '../screener/cells';
 import { Chart, type ChartOverlay, type Timeframe } from '../ui/Chart';
 import { Chip } from '../ui/Chip';
-import { toChartBoxes } from '../ui/darvasModel';
+import { toDarvasLines } from '../ui/darvasModel';
 import { DataWarningChip } from '../ui/DataWarningChip';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
@@ -101,7 +101,8 @@ export function ChartTile({
   const sym = item.symbol;
   const bars = useApiQuery('stock/{sym}/bars', { params: { sym }, query: { tf: timeframe } }, { enabled: inView });
   const rs = useApiQuery('stock/{sym}/rs', { params: { sym } }, { enabled: inView });
-  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym }, query: { tf: timeframe } }, { enabled: inView && prefs.darvas });
+  // Also carries the EMA10 projection, so it loads even with the Darvas lines off.
+  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym }, query: { tf: timeframe } }, { enabled: inView });
 
   const chartBars = useMemo(() => barsToOHLC(bars.data?.rows ?? []), [bars.data]);
   const last = chartBars[chartBars.length - 1];
@@ -127,8 +128,8 @@ export function ChartTile({
     return [...line('trigger', 'Trigger', item.trigger_price, 'accent'), ...line('stop', 'Stop', item.stop_price, 'down', true)];
   }, [chartBars, item.trigger_price, item.stop_price, timeframe]);
 
-  const boxes = useMemo(
-    () => (prefs.darvas ? toChartBoxes(darvas.data?.rows, chartBars.map((b) => b.time)) : []),
+  const darvasLines = useMemo(
+    () => toDarvasLines(darvas.data?.rows, chartBars.map((b) => b.time), { boxes: prefs.darvas }),
     [prefs.darvas, darvas.data, chartBars],
   );
 
@@ -254,7 +255,7 @@ export function ChartTile({
             timeframe={timeframe}
             resample={false}
             overlays={overlays}
-            boxes={boxes}
+            darvas={darvasLines}
             volume={volume}
             syncGroup={syncGroup}
             syncRange={syncRange}

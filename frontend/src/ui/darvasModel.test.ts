@@ -1,63 +1,61 @@
 import { describe, expect, it } from 'vitest';
-import type { DarvasBoxRow } from '../api/types';
+import type { DarvasRow } from '../api/types';
 import { getNavList, setNavList, stepSymbol } from '../lib/navList';
-import { boxBreakMarkers, boxRects, toChartBoxes } from './darvasModel';
+import { EMPTY_DARVAS, toDarvasLines } from './darvasModel';
 
-const times = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10'];
+const times = ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25'];
 
-const row = (p: Partial<DarvasBoxRow>): DarvasBoxRow =>
-  ({ start_date: null, formed_date: null, end_date: null, top: null, bottom: null, status: 'active', break_date: null, break_close: null, bars: null, ...p }) as DarvasBoxRow;
+const row = (p: Partial<DarvasRow>): DarvasRow =>
+  ({ trade_date: null, top: null, bottom: null, projected: false, top_extension: null, ema_10_projection: null, ...p }) as DarvasRow;
 
-describe('toChartBoxes', () => {
-  it('snaps served boxes onto bars, extends the active box to the last bar, keeps breaks', () => {
-    const boxes = toChartBoxes(
-      [
-        row({ start_date: '2026-09-01', formed_date: '2026-09-03', end_date: '2026-09-04', top: 110, bottom: 99, status: 'broken_up', break_date: '2026-09-04' }),
-        row({ start_date: '2026-09-04', formed_date: '2026-09-08', end_date: '2026-09-09', top: 113, bottom: 102, status: 'active' }),
-      ],
-      times,
-    );
-    expect(boxes.map((b) => [b.from, b.to, b.status, b.active, b.breakTime])).toEqual([
-      ['2026-09-01', '2026-09-04', 'broken_up', false, '2026-09-04'],
-      ['2026-09-04', '2026-09-10', 'active', true, null], // extended past its served end to the last bar
+// Payload as GET /stock/{sym}/darvas serves it: per-bar Pine TopBox / BottomBox, then 5 projected rows.
+const payload: DarvasRow[] = [
+  row({ trade_date: '2026-09-21' }),
+  row({ trade_date: '2026-09-22', top: 494.4, bottom: 431.5 }),
+  row({ trade_date: '2026-09-23', top: 539, bottom: 465.05 }),
+  row({ trade_date: '2026-09-24', top: 539, bottom: 465.05 }),
+  row({ trade_date: '2026-09-25', top: 552, bottom: 515, top_extension: 552, ema_10_projection: 521.45 }),
+  ...['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-05'].map((d, k) =>
+    row({ trade_date: d, projected: true, top_extension: 552, ema_10_projection: 521.45 + 0.12 * (k + 1) }),
+  ),
+];
+
+describe('toDarvasLines', () => {
+  it('builds the two step series from per-bar values (NULL before the first box is skipped)', () => {
+    const l = toDarvasLines(payload, times);
+    expect(l.top).toEqual([
+      { time: '2026-09-22', value: 494.4 },
+      { time: '2026-09-23', value: 539 },
+      { time: '2026-09-24', value: 539 },
+      { time: '2026-09-25', value: 552 },
     ]);
-    expect(boxBreakMarkers(boxes)).toEqual([{ time: '2026-09-04', kind: 'darvas_up' }]);
+    expect(l.bottom.map((p) => p.value)).toEqual([431.5, 465.05, 465.05, 515]);
+    expect(l.last).toEqual({ top: 552, bottom: 515 });
   });
 
-  it('snaps daily dates onto weekly bars (week = last session time)', () => {
-    const weeks = ['2026-09-04', '2026-09-11'];
-    const [b] = toChartBoxes([row({ start_date: '2026-09-02', end_date: '2026-09-09', top: 5, bottom: 4, status: 'broken_down', break_date: '2026-09-09' })], weeks);
-    expect([b.from, b.to, b.breakTime]).toEqual(['2026-09-04', '2026-09-04', '2026-09-11']);
-    expect(boxBreakMarkers([b])).toEqual([{ time: '2026-09-11', kind: 'darvas_down' }]);
+  it('builds the dotted projections from the last bar to 5 future points (no candles)', () => {
+    const l = toDarvasLines(payload, times);
+    expect(l.topExtension.map((p) => p.time)).toEqual(['2026-09-25', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-05']);
+    expect(l.topExtension.every((p) => p.value === 552)).toBe(true);
+    expect(l.emaProjection[0]).toEqual({ time: '2026-09-25', value: 521.45 });
+    expect(l.emaProjection).toHaveLength(6);
+    expect(l.emaProjection[5].value).toBeCloseTo(522.05, 6);
   });
 
-  it('drops rows with missing values, inverted ranges or no overlap; never fills', () => {
-    expect(
-      toChartBoxes(
-        [
-          row({ start_date: '2026-09-01', end_date: '2026-09-02', top: null, bottom: 1 }),
-          row({ start_date: '2026-09-01', end_date: '2026-09-02', top: 1, bottom: 2 }),
-          row({ start_date: '2026-10-01', end_date: '2026-10-02', top: 2, bottom: 1, status: 'superseded' }),
-          row({ start_date: '2026-08-01', end_date: '2026-08-10', top: 2, bottom: 1, status: 'superseded' }),
-        ],
-        times,
-      ),
-    ).toEqual([]);
-    expect(toChartBoxes(undefined, times)).toEqual([]);
-    expect(toChartBoxes([row({ start_date: '2026-09-01', end_date: '2026-09-02', top: 2, bottom: 1 })], [])).toEqual([]);
+  it('boxes off keeps only the EMA10 projection', () => {
+    const l = toDarvasLines(payload, times, { boxes: false });
+    expect([l.top, l.bottom, l.topExtension, l.last]).toEqual([[], [], [], null]);
+    expect(l.emaProjection).toHaveLength(6);
   });
-});
 
-describe('boxRects', () => {
-  const [box] = toChartBoxes([row({ start_date: '2026-09-02', end_date: '2026-09-03', top: 110, bottom: 100, status: 'superseded' })], times);
-  const timeToX = (t: string) => times.indexOf(t) * 10;
-  const priceToY = (p: number) => 1000 - p * 5;
-  it('pads half a bar each side and spans top..bottom', () => {
-    expect(boxRects([box], timeToX, priceToY, 10, 500)).toEqual([{ box, x: 5, y: 450, w: 20, h: 50 }]);
-  });
-  it('skips unmappable or fully off-screen boxes', () => {
-    expect(boxRects([box], () => null, priceToY, 10, 500)).toEqual([]);
-    expect(boxRects([box], (t) => timeToX(t) + 1000, priceToY, 10, 500)).toEqual([]);
+  it('ignores rows off the displayed bars, stale projections and empty input', () => {
+    // Bars end earlier than the payload: 09-25 is not displayed, so its values and the projection anchor are dropped.
+    const l = toDarvasLines(payload, times.slice(0, 4));
+    expect(l.top.map((p) => p.time)).toEqual(['2026-09-22', '2026-09-23', '2026-09-24']);
+    expect(l.topExtension).toEqual([]);
+    expect(l.emaProjection).toEqual([]);
+    expect(toDarvasLines(undefined, times)).toBe(EMPTY_DARVAS);
+    expect(toDarvasLines(payload, [])).toBe(EMPTY_DARVAS);
   });
 });
 

@@ -708,7 +708,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Stock Darvas */
+        /**
+         * Stock Darvas
+         * @description Per-bar Pine Darvas TopBox / BottomBox for tf, then 5 projected rows (top extension, EMA10 projection).
+         */
         get: operations["stock_darvas_api_v2_stock__sym__darvas_get"];
         put?: never;
         post?: never;
@@ -1193,30 +1196,38 @@ export interface components {
             /** Volume Ratio */
             volume_ratio?: number | null;
         };
-        /** DarvasBoxRow */
-        DarvasBoxRow: {
-            /** Start Date */
-            start_date?: string | null;
-            /** Formed Date */
-            formed_date?: string | null;
-            /** End Date */
-            end_date?: string | null;
-            /** Top */
+        /**
+         * DarvasRow
+         * @description One bar of the Pine Darvas indicator; `projected` rows are future calendar periods (no candle).
+         */
+        DarvasRow: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /**
+             * Top
+             * @description Pine TopBox (green step line); NULL before the first box
+             */
             top?: number | null;
-            /** Bottom */
+            /**
+             * Bottom
+             * @description Pine BottomBox (red step line); NULL before the first box
+             */
             bottom?: number | null;
             /**
-             * Status
-             * @default active
-             * @enum {string}
+             * Projected
+             * @default false
              */
-            status: "active" | "broken_up" | "broken_down" | "superseded";
-            /** Break Date */
-            break_date?: string | null;
-            /** Break Close */
-            break_close?: number | null;
-            /** Bars */
-            bars?: number | null;
+            projected: boolean;
+            /**
+             * Top Extension
+             * @description Dotted top box extension (last TopBox) on the last bar + projected rows
+             */
+            top_extension?: number | null;
+            /**
+             * Ema 10 Projection
+             * @description Dotted EMA10 projection: ema10 + slope * k on the last bar (k=0) + projected rows
+             */
+            ema_10_projection?: number | null;
         };
         /** DealHolding */
         DealHolding: {
@@ -1765,8 +1776,8 @@ export interface components {
             rows: components["schemas"]["CompareRow"][];
             meta: components["schemas"]["Meta"];
         };
-        /** Envelope[DarvasBoxRow] */
-        Envelope_DarvasBoxRow_: {
+        /** Envelope[DarvasRow] */
+        Envelope_DarvasRow_: {
             /** As Of */
             as_of?: string | null;
             freshness: components["schemas"]["Freshness"];
@@ -1775,7 +1786,7 @@ export interface components {
             /** Returned */
             returned: number;
             /** Rows */
-            rows: components["schemas"]["DarvasBoxRow"][];
+            rows: components["schemas"]["DarvasRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DealLeaderRow] */
@@ -5992,7 +6003,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Envelope_DarvasBoxRow_"];
+                    "application/json": components["schemas"]["Envelope_DarvasRow_"];
                 };
             };
             /** @description Validation Error */

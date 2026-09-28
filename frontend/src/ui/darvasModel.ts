@@ -1,137 +1,69 @@
 /**
- * Darvas box overlay model (pure; no chart imports). Served boxes
- * (GET /stock/{sym}/darvas) -> shapes snapped onto the displayed bar times,
- * plus breakout / breakdown markers and screen-space rectangles.
+ * Darvas overlay model (pure; no chart imports). Mirrors the user's Pine
+ * "SUCCESS" indicator: GET /stock/{sym}/darvas serves per-bar TopBox /
+ * BottomBox (drawn as two step lines) plus projected rows for the next 5
+ * sessions / periods (dotted top box extension and EMA10 projection).
+ * Projected rows are future time points only; never candles.
  */
-import type { DarvasBoxRow } from '../api/types';
+import type { DarvasRow } from '../api/types';
 
-export type DarvasStatus = 'active' | 'broken_up' | 'broken_down' | 'superseded';
-
-export interface ChartBox {
-  id: string;
-  /** First / last displayed bar time the box spans (YYYY-MM-DD). */
-  from: string;
-  to: string;
-  top: number;
-  bottom: number;
-  status: DarvasStatus;
-  /** The latest box still open: extended to the last bar and highlighted. */
-  active: boolean;
-  /** Displayed bar of the breakout / breakdown close, if any. */
-  breakTime: string | null;
-}
-
-/** First index whose time >= iso (sorted), -1 if none. */
-function firstAtOrAfter(times: readonly string[], iso: string): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  let ans = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid] >= iso) {
-      ans = mid;
-      hi = mid - 1;
-    } else lo = mid + 1;
-  }
-  return ans;
-}
-
-/** Last index whose time <= iso (sorted), -1 if none. */
-function lastAtOrBefore(times: readonly string[], iso: string): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  let ans = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid] <= iso) {
-      ans = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return ans;
-}
-
-/**
- * Served boxes -> chart boxes on `barTimes` (sorted). Rows missing a date or a
- * price are dropped (never filled). An `active` box is extended to the last
- * displayed bar; boxes entirely outside the displayed bars are dropped.
- */
-export function toChartBoxes(rows: readonly DarvasBoxRow[] | null | undefined, barTimes: readonly string[]): ChartBox[] {
-  if (!rows?.length || barTimes.length === 0) return [];
-  const lastTime = barTimes[barTimes.length - 1];
-  const out: ChartBox[] = [];
-  rows.forEach((r, k) => {
-    if (!r.start_date || !r.end_date || r.top == null || r.bottom == null || !(r.top >= r.bottom)) return;
-    const status = (r.status ?? 'active') as DarvasStatus;
-    const active = status === 'active';
-    const i0 = firstAtOrAfter(barTimes, r.start_date);
-    if (i0 < 0) return;
-    const i1 = active ? barTimes.length - 1 : lastAtOrBefore(barTimes, r.end_date);
-    if (i1 < i0) return;
-    const bi = r.break_date ? firstAtOrAfter(barTimes, r.break_date) : -1;
-    out.push({
-      id: `${r.start_date}:${r.formed_date ?? ''}:${k}`,
-      from: barTimes[i0],
-      to: active ? lastTime : barTimes[i1],
-      top: r.top,
-      bottom: r.bottom,
-      status,
-      active,
-      breakTime: bi >= 0 ? barTimes[bi] : null,
-    });
-  });
-  return out;
-}
-
-export interface BoxMarker {
+export interface DarvasPoint {
   time: string;
-  kind: 'darvas_up' | 'darvas_down';
+  value: number;
 }
 
-/** One marker per breakout (above top) / breakdown (below bottom). */
-export function boxBreakMarkers(boxes: readonly ChartBox[]): BoxMarker[] {
-  const out: BoxMarker[] = [];
-  for (const b of boxes) {
-    if (!b.breakTime) continue;
-    if (b.status === 'broken_up') out.push({ time: b.breakTime, kind: 'darvas_up' });
-    else if (b.status === 'broken_down') out.push({ time: b.breakTime, kind: 'darvas_down' });
-  }
-  return out;
+export interface DarvasLines {
+  /** TopBox per displayed bar (green step line); bars before the first box are absent. */
+  top: DarvasPoint[];
+  /** BottomBox per displayed bar (red step line). */
+  bottom: DarvasPoint[];
+  /** Dotted top box extension: last bar -> 5 bars ahead at the last TopBox. */
+  topExtension: DarvasPoint[];
+  /** Dotted EMA10 projection: last bar's EMA10 -> ema10 + slope * 5. */
+  emaProjection: DarvasPoint[];
+  /** Latest served TopBox / BottomBox (W: the last completed week), if any. */
+  last: { top: number; bottom: number } | null;
 }
 
-export interface BoxRect {
-  box: ChartBox;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+export const EMPTY_DARVAS: DarvasLines = { top: [], bottom: [], topExtension: [], emaProjection: [], last: null };
 
 /**
- * Screen rectangles (media px) for boxes; half a bar of padding on each side so
- * the box covers its first and last candles. Boxes whose time or price cannot
- * be mapped, or that lie fully off-screen, are skipped.
+ * Served rows -> chart lines on `barTimes` (sorted YYYY-MM-DD). Real rows must
+ * sit on a displayed bar; projected rows must lie after the last bar. NULLs are
+ * dropped, never filled. `boxes: false` keeps only the EMA10 projection.
  */
-export function boxRects(
-  boxes: readonly ChartBox[],
-  timeToX: (time: string) => number | null,
-  priceToY: (price: number) => number | null,
-  barSpacing: number,
-  width: number,
-): BoxRect[] {
-  const pad = Math.max(1, barSpacing / 2);
-  const out: BoxRect[] = [];
-  for (const box of boxes) {
-    const x0 = timeToX(box.from);
-    const x1 = timeToX(box.to);
-    const yTop = priceToY(box.top);
-    const yBot = priceToY(box.bottom);
-    if (x0 == null || x1 == null || yTop == null || yBot == null) continue;
-    const left = Math.min(x0, x1) - pad;
-    const right = Math.max(x0, x1) + pad;
-    if (right < 0 || left > width) continue;
-    const y = Math.min(yTop, yBot);
-    out.push({ box, x: left, y, w: right - left, h: Math.max(1, Math.abs(yBot - yTop)) });
+export function toDarvasLines(
+  rows: readonly DarvasRow[] | null | undefined,
+  barTimes: readonly string[],
+  opts: { boxes?: boolean } = {},
+): DarvasLines {
+  if (!rows?.length || barTimes.length === 0) return EMPTY_DARVAS;
+  const boxes = opts.boxes ?? true;
+  const onBar = new Set(barTimes);
+  const lastTime = barTimes[barTimes.length - 1];
+  const out: DarvasLines = { top: [], bottom: [], topExtension: [], emaProjection: [], last: null };
+  for (const r of rows) {
+    const t = r.trade_date;
+    if (!t) continue;
+    if (r.projected ? t <= lastTime : !onBar.has(t)) continue;
+    if (!r.projected) {
+      if (r.top != null) out.top.push({ time: t, value: r.top });
+      if (r.bottom != null) out.bottom.push({ time: t, value: r.bottom });
+    }
+    // Projection lines start on the last displayed bar and run into the future points.
+    if (r.projected || t === lastTime) {
+      if (r.top_extension != null) out.topExtension.push({ time: t, value: r.top_extension });
+      if (r.ema_10_projection != null) out.emaProjection.push({ time: t, value: r.ema_10_projection });
+    }
   }
+  const byTime = (a: DarvasPoint, b: DarvasPoint) => a.time.localeCompare(b.time);
+  for (const k of ['top', 'bottom', 'topExtension', 'emaProjection'] as const) out[k].sort(byTime);
+  const lt = out.top[out.top.length - 1];
+  const lb = out.bottom[out.bottom.length - 1];
+  out.last = lt && lb ? { top: lt.value, bottom: lb.value } : null;
+  // A projection needs its anchor on the last bar plus at least one future point.
+  if (out.topExtension.length < 2 || out.topExtension[0].time !== lastTime) out.topExtension = [];
+  if (out.emaProjection.length < 2 || out.emaProjection[0].time !== lastTime) out.emaProjection = [];
+  if (!boxes) return { ...EMPTY_DARVAS, emaProjection: out.emaProjection };
   return out;
 }
