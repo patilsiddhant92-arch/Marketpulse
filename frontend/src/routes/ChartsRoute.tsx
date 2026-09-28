@@ -200,7 +200,7 @@ export default function ChartsRoute() {
           type="button"
           aria-pressed={prefs.darvas}
           onClick={() => setPrefs({ darvas: !prefs.darvas })}
-          title="Shade historical Darvas boxes (same box as the Darvas Squeeze queue) with breakout / breakdown markers"
+          title="Darvas boxes as the Pine SUCCESS indicator (same box as the Darvas Squeeze queue): green TopBox / red BottomBox step lines + dotted top box extension 5 bars ahead"
           className={cn(
             'rounded border border-line px-2 py-1 text-xs',
             prefs.darvas ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg',

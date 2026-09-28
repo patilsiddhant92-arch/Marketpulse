@@ -5,7 +5,7 @@ import type { QueueRow } from '../api/types';
 import { useChartPrefs } from '../lib/chartPrefs';
 import { cn } from '../lib/cn';
 import { Chart, type ChartMarker, type Timeframe } from '../ui/Chart';
-import { toChartBoxes } from '../ui/darvasModel';
+import { toDarvasLines } from '../ui/darvasModel';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
@@ -65,11 +65,8 @@ export function StockChartPanel({
   const [prefs, setPrefs] = useChartPrefs();
   const { bm, levels, darvas: showBoxes } = prefs;
   const { bars, rs, events, deals, header } = data;
-  const darvas = useApiQuery(
-    'stock/{sym}/darvas',
-    { params: { sym: symbol }, query: { tf, limit: FULL_HISTORY } },
-    { enabled: showBoxes },
-  );
+  // Always fetched: the EMA10 projection rides on it even with the Darvas lines off.
+  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym: symbol }, query: { tf, limit: FULL_HISTORY } });
 
   const daily = useMemo(() => toOHLC(bars.data?.rows ?? []), [bars.data]);
   const shown = useMemo(() => barsFor(daily, tf), [daily, tf]);
@@ -97,8 +94,8 @@ export function StockChartPanel({
     return tf === 'D' ? o : snapOverlays(o, times);
   }, [levels, setups, daily, tf, times, showBoxes]);
 
-  const boxes = useMemo(() => (showBoxes ? toChartBoxes(darvas.data?.rows, times) : []), [showBoxes, darvas.data, times]);
-  const activeBox = boxes.length > 0 && boxes[boxes.length - 1].active ? boxes[boxes.length - 1] : null;
+  const darvasLines = useMemo(() => toDarvasLines(darvas.data?.rows, times, { boxes: showBoxes }), [showBoxes, darvas.data, times]);
+  const activeBox = darvasLines.last;
 
   const hasLevels = !!setups && Object.values(setups).some(Boolean);
 
@@ -123,7 +120,7 @@ export function StockChartPanel({
         type="button"
         aria-pressed={showBoxes}
         onClick={() => setPrefs({ darvas: !showBoxes })}
-        title="Historical Darvas boxes (same box as the Darvas Squeeze queue): green top, red bottom, open box highlighted; BO / BD = breakout / breakdown close"
+        title="Darvas boxes (B), as the Pine SUCCESS indicator / Darvas Squeeze queue: green TopBox and red BottomBox step lines, dotted top box extension 5 bars ahead"
         className={cn('shrink-0 rounded border border-line', seg(showBoxes))}
       >
         Darvas boxes
@@ -150,15 +147,15 @@ export function StockChartPanel({
         </button>
       )}
       {activeBox && (
-        <span className="num min-w-0 truncate text-fg-2" title="Open Darvas box (top / bottom)">
+        <span className="num min-w-0 truncate text-fg-2" title="Current Darvas TopBox / BottomBox">
           box {activeBox.top.toFixed(2)} / {activeBox.bottom.toFixed(2)}
         </span>
       )}
       <span
         className="ml-auto min-w-0 truncate"
-        title="Markers: BO/BD Darvas breakout/breakdown · R results · B/S bonus/split · X ex-date · ▲▼ institutional deals · dots on RS = new RS high"
+        title="Markers: R results · B/S bonus/split · X ex-date · ▲▼ institutional deals · dots on RS = new RS high · dotted lines = 5-bar projections (top box extension, EMA10)"
       >
-        BO/BD box break · R results · ▲▼ inst. deals · ● RS high
+        R results · ▲▼ inst. deals · ● RS high · ┈ projections
       </span>
     </div>
   );
@@ -175,7 +172,7 @@ export function StockChartPanel({
         resample={false}
         timeframe={tf}
         overlays={overlays}
-        boxes={boxes}
+        darvas={darvasLines}
         rs={rsLine}
         markers={markers}
         logScale={logScale}
