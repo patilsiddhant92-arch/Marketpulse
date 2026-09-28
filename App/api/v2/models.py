@@ -772,16 +772,14 @@ class BarRow(BaseModel):
     partial: bool = False
 
 
-class DarvasBoxRow(BaseModel):
-    start_date: Optional[date] = None
-    formed_date: Optional[date] = None
-    end_date: Optional[date] = None
-    top: Optional[float] = None
-    bottom: Optional[float] = None
-    status: Literal["active", "broken_up", "broken_down", "superseded"] = "active"
-    break_date: Optional[date] = None
-    break_close: Optional[float] = None
-    bars: Optional[int] = None
+class DarvasRow(BaseModel):
+    """One bar of the Pine Darvas indicator; `projected` rows are future calendar periods (no candle)."""
+    trade_date: Optional[date] = None
+    top: Optional[float] = Field(None, description="Pine TopBox (green step line); NULL before the first box")
+    bottom: Optional[float] = Field(None, description="Pine BottomBox (red step line); NULL before the first box")
+    projected: bool = False
+    top_extension: Optional[float] = Field(None, description="Dotted top box extension (last TopBox) on the last bar + projected rows")
+    ema_10_projection: Optional[float] = Field(None, description="Dotted EMA10 projection: ema10 + slope * k on the last bar (k=0) + projected rows")
 
 
 class RsRow(BaseModel):

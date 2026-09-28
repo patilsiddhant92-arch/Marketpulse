@@ -3831,6 +3831,7 @@
     "/api/v2/stock/{sym}/darvas": {
       "get": {
         "summary": "Stock Darvas",
+        "description": "Per-bar Pine Darvas TopBox / BottomBox for tf, then 5 projected rows (top extension, EMA10 projection).",
         "operationId": "stock_darvas_api_v2_stock__sym__darvas_get",
         "parameters": [
           {
@@ -3895,7 +3896,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_DarvasBoxRow_"
+                  "$ref": "#/components/schemas/Envelope_DarvasRow_"
                 }
               }
             }
@@ -5894,9 +5895,9 @@
         ],
         "title": "Contraction"
       },
-      "DarvasBoxRow": {
+      "DarvasRow": {
         "properties": {
-          "start_date": {
+          "trade_date": {
             "anyOf": [
               {
                 "type": "string",
@@ -5906,31 +5907,7 @@
                 "type": "null"
               }
             ],
-            "title": "Start Date"
-          },
-          "formed_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Formed Date"
-          },
-          "end_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End Date"
+            "title": "Trade Date"
           },
           "top": {
             "anyOf": [
@@ -5941,7 +5918,8 @@
                 "type": "null"
               }
             ],
-            "title": "Top"
+            "title": "Top",
+            "description": "Pine TopBox (green step line); NULL before the first box"
           },
           "bottom": {
             "anyOf": [
@@ -5952,32 +5930,15 @@
                 "type": "null"
               }
             ],
-            "title": "Bottom"
+            "title": "Bottom",
+            "description": "Pine BottomBox (red step line); NULL before the first box"
           },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "broken_up",
-              "broken_down",
-              "superseded"
-            ],
-            "title": "Status",
-            "default": "active"
+          "projected": {
+            "type": "boolean",
+            "title": "Projected",
+            "default": false
           },
-          "break_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Break Date"
-          },
-          "break_close": {
+          "top_extension": {
             "anyOf": [
               {
                 "type": "number"
@@ -5986,22 +5947,25 @@
                 "type": "null"
               }
             ],
-            "title": "Break Close"
+            "title": "Top Extension",
+            "description": "Dotted top box extension (last TopBox) on the last bar + projected rows"
           },
-          "bars": {
+          "ema_10_projection": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Bars"
+            "title": "Ema 10 Projection",
+            "description": "Dotted EMA10 projection: ema10 + slope * k on the last bar (k=0) + projected rows"
           }
         },
         "type": "object",
-        "title": "DarvasBoxRow"
+        "title": "DarvasRow",
+        "description": "One bar of the Pine Darvas indicator; `projected` rows are future calendar periods (no candle)."
       },
       "DealHolding": {
         "properties": {
@@ -8252,7 +8216,7 @@
         ],
         "title": "Envelope[CompareRow]"
       },
-      "Envelope_DarvasBoxRow_": {
+      "Envelope_DarvasRow_": {
         "properties": {
           "as_of": {
             "anyOf": [
@@ -8279,7 +8243,7 @@
           },
           "rows": {
             "items": {
-              "$ref": "#/components/schemas/DarvasBoxRow"
+              "$ref": "#/components/schemas/DarvasRow"
             },
             "type": "array",
             "title": "Rows"
@@ -8296,7 +8260,7 @@
           "rows",
           "meta"
         ],
-        "title": "Envelope[DarvasBoxRow]"
+        "title": "Envelope[DarvasRow]"
       },
       "Envelope_DealLeaderRow_": {
         "properties": {

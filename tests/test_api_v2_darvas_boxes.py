@@ -1,7 +1,9 @@
-"""GET /api/v2/stock/{sym}/darvas — historical Darvas boxes (same definition as the queues)."""
+"""GET /api/v2/stock/{sym}/darvas: per-bar Pine TopBox / BottomBox (same series as the queues) + 5-bar projections."""
 from __future__ import annotations
 
 from datetime import date
+
+import json
 
 import duckdb
 import numpy as np
@@ -10,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from Scripts.darvas_squeeze import calculate_darvas_box, darvas_box_segments
+from App.services.stock import ema_projection, future_periods
 from test_api_v2_helpers import LAST, build_market_db, sessions
 
 # Synthetic BOXY series (30 sessions). Hand-traced against the Pine definition (boxp 5):
@@ -79,10 +82,12 @@ def client(tmp_path, monkeypatch):
     con.execute("INSERT INTO indicators_daily BY NAME SELECT symbol, series, trade_date, open_price, high_price, "
                 "low_price, close_price, volume FROM _gappy")
     con.close()
+    holidays = tmp_path / "holidays.json"
+    holidays.write_text(json.dumps({"CM": [{"tradingDate": "02-Oct-2026"}]}), encoding="utf-8")
     monkeypatch.setenv("MP_DB_PATH", str(market))
     monkeypatch.setenv("MP_USER_DB_PATH", str(tmp_path / "user.duckdb"))
     monkeypatch.setenv("MP_STATUS_PATH", str(tmp_path / "status.json"))
-    monkeypatch.setenv("MP_HOLIDAYS_PATH", str(tmp_path / "no_holidays.json"))
+    monkeypatch.setenv("MP_HOLIDAYS_PATH", str(holidays))
     from App.services import common, db
 
     db.clear_cache()
@@ -93,47 +98,79 @@ def client(tmp_path, monkeypatch):
     db.clear_cache()
 
 
-def test_endpoint_returns_known_boxes(client):
+def _series(v):
+    return [None if not np.isfinite(x) else round(float(x), 2) for x in v]
+
+
+def test_future_periods_skip_weekends_and_holidays():
+    fri = date(2026, 9, 25)
+    hol = {date(2026, 10, 2)}
+    assert future_periods(fri, "D", hol) == [date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30),
+                                             date(2026, 10, 1), date(2026, 10, 5)]
+    # W: the last session of each following week (week of 2 Oct ends Thu 1 Oct: Fri is a holiday).
+    assert future_periods(fri, "W", hol) == [date(2026, 10, 1), date(2026, 10, 9), date(2026, 10, 16),
+                                             date(2026, 10, 23), date(2026, 10, 30)]
+    # M: last session of the next months (31 Oct 2026 is a Saturday).
+    assert future_periods(date(2026, 9, 30), "M", set()) == [date(2026, 10, 30), date(2026, 11, 30), date(2026, 12, 31),
+                                                            date(2027, 1, 29), date(2027, 2, 26)]
+
+
+def test_ema_projection_arithmetic():
+    assert ema_projection([np.nan, 100.0, 102.5]) == [105.0, 107.5, 110.0, 112.5, 115.0]
+    assert ema_projection([10.0, 9.0], n=2) == [8.0, 7.0]
+    assert ema_projection([np.nan, 5.0]) is None and ema_projection([5.0]) is None
+
+
+def test_endpoint_rows_equal_the_queue_box_series(client):
     c, days = client
     body = c.get("/api/v2/stock/BOXY/darvas").json()
     assert body["meta"]["status"] == "ok"
     rows = body["rows"]
-    assert len(rows) == 2
-    b1, b2 = rows
-    assert (b1["top"], b1["bottom"], b1["status"]) == (110.0, 99.0, "broken_up")
-    assert b1["start_date"] == days[10].isoformat() and b1["formed_date"] == days[13].isoformat()
-    assert b1["end_date"] == b1["break_date"] == days[16].isoformat() and b1["break_close"] == 112.0
-    assert (b2["top"], b2["bottom"], b2["status"], b2["break_date"]) == (113.0, 102.0, "broken_down", days[24].isoformat())
+    real = [r for r in rows if not r["projected"]]
+    assert [r["trade_date"] for r in real] == [d.isoformat() for d in days]
+    top, bottom = calculate_darvas_box(np.array(H, float), np.array(L, float))
+    assert [r["top"] for r in real] == _series(top)
+    assert [r["bottom"] for r in real] == _series(bottom)
+    # Pine: nothing before the first confirmation (bar 13), then TopBox 110 / BottomBox 99, then 113 / 102 from bar 19.
+    assert real[12]["top"] is None and (real[13]["top"], real[13]["bottom"]) == (110.0, 99.0)
+    assert (real[19]["top"], real[19]["bottom"]) == (113.0, 102.0) and (real[-1]["top"], real[-1]["bottom"]) == (113.0, 102.0)
 
 
-def test_endpoint_is_point_in_time(client):
+def test_endpoint_projection_rows(client):
     c, days = client
-    rows = c.get(f"/api/v2/stock/BOXY/darvas?as_of={days[21].isoformat()}").json()["rows"]
-    assert [r["status"] for r in rows] == ["broken_up", "active"]
-    assert rows[-1]["end_date"] == days[21].isoformat() and rows[-1]["break_date"] is None
+    rows = c.get("/api/v2/stock/BOXY/darvas").json()["rows"]
+    fut = [r for r in rows if r["projected"]]
+    assert [r["trade_date"] for r in fut] == ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-05"]
+    assert all(r["top"] is None and r["bottom"] is None and r["top_extension"] == 113.0 for r in fut)
+    ema10 = pd.Series([float(x) for x in C]).ewm(span=10, adjust=False, min_periods=10).mean()
+    slope = ema10.iloc[-1] - ema10.iloc[-2]
+    last = [r for r in rows if not r["projected"]][-1]
+    assert last["top_extension"] == 113.0 and last["ema_10_projection"] == round(ema10.iloc[-1], 2)
+    assert [r["ema_10_projection"] for r in fut] == [round(ema10.iloc[-1] + slope * k, 2) for k in range(1, 6)]
+    assert all(r["top_extension"] is None and r["ema_10_projection"] is None for r in rows[:-6])
+
+
+def test_endpoint_is_point_in_time_limit_and_timeframes(client):
+    c, days = client
     rows = c.get(f"/api/v2/stock/BOXY/darvas?as_of={days[12].isoformat()}").json()["rows"]
-    assert rows == []
-
-
-def test_endpoint_limit_window_and_other_timeframes(client):
-    c, _days = client
+    assert all(r["top"] is None for r in rows) and all(r["top_extension"] is None for r in rows)
+    rows = c.get(f"/api/v2/stock/BOXY/darvas?as_of={days[16].isoformat()}").json()["rows"]
+    assert rows[16]["trade_date"] == days[16].isoformat() and rows[16]["top"] == 110.0 and rows[17]["projected"]
     rows = c.get("/api/v2/stock/BOXY/darvas?limit=8").json()["rows"]
-    assert len(rows) == 1 and rows[0]["top"] == 113.0  # box 1's life ended before the last 8 bars
+    assert len(rows) == 13 and rows[0]["trade_date"] == days[22].isoformat() and rows[0]["top"] == 113.0
     for tf in ("W", "M"):
         r = c.get(f"/api/v2/stock/BOXY/darvas?tf={tf}")
         assert r.status_code == 200 and r.json()["meta"]["status"] == "ok"
+        assert sum(x["projected"] for x in r.json()["rows"]) == 5
     assert c.get("/api/v2/stock/NOPE/darvas").json()["meta"]["status"] == "unavailable"
     assert c.get("/api/v2/stock/BOXY/darvas?tf=X").status_code == 422
 
 
-def test_boxes_never_span_an_unexplained_gap(client):
-    c, days = client
-    body = c.get("/api/v2/stock/GAPPY/darvas").json()
-    assert body["meta"]["status"] == "ok"
-    rows = body["rows"]
-    # Box 1 is untouched; box 2 (open at the gap) is cut at the last pre-gap session, and no box straddles it.
-    assert [(r["top"], r["status"]) for r in rows[:2]] == [(110.0, "broken_up"), (113.0, "superseded")]
-    assert rows[1]["end_date"] == days[21].isoformat() and rows[1]["break_date"] is None
-    gap = days[22].isoformat()
-    assert all(r["end_date"] < gap or r["start_date"] >= gap for r in rows)
-    assert any("gap" in n for n in body["meta"].get("notes", []))
+def test_no_restart_at_data_gaps(client):
+    """Pine has no gap special case: the series runs straight through an unexplained price gap."""
+    c, _days = client
+    rows = [r for r in c.get("/api/v2/stock/GAPPY/darvas").json()["rows"] if not r["projected"]]
+    g = pd.DataFrame({"h": H, "l": L}, dtype=float)
+    g.loc[22:, ["h", "l"]] = g.loc[22:, ["h", "l"]] / 3.0
+    top, bottom = calculate_darvas_box(g["h"].values, g["l"].values)
+    assert [r["top"] for r in rows] == _series(top) and [r["bottom"] for r in rows] == _series(bottom)

@@ -9,10 +9,11 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from App.services import data_gaps, db, deals, desk, universe
-from App.services.common import Result, no_session, unavailable
+from App.services.common import Result, is_trading_day, load_holidays, no_session, unavailable
 
 SYMBOL_RE = re.compile(r"^[A-Z0-9&\-_.]{1,20}$")
 EMA_SPANS = (10, 20, 50, 200)
@@ -236,65 +237,70 @@ def bars(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> Re
     )
 
 
-def _gap_cuts(daily: pd.DataFrame, dates: list[date | None], gap_dates: list[date], tf: str) -> list[tuple[int, int]]:
-    """Clean [start, end) bar spans between unexplained price gaps.
+PROJECTION_BARS = 5
 
-    D: a gap session starts a new span. W/M: the bar holding the gap mixes pre- and
-    post-gap prices unless the gap is its first session; such a bar is left out.
+
+def future_periods(last: date, tf: str, holidays: set[date], n: int = PROJECTION_BARS) -> list[date]:
+    """The next `n` bar dates after `last` on the NSE calendar (weekends + holidays skipped).
+
+    D = next sessions; W / M = the last session of each following week / month
+    (the date a W/M bar carries, as `weekly_ohlc` / `monthly_ohlc` stamp it).
     """
-    n = len(dates)
-    if not gap_dates or n == 0:
-        return [(0, n)]
-    sessions = sorted(d for d in (db.to_date(x) for x in daily["trade_date"]) if d is not None)
-    spans: list[tuple[int, int]] = []
-    start = 0
-    for g in gap_dates:
-        k = next((i for i in range(start, n) if dates[i] is not None and dates[i] >= g), None)
-        if k is None:
+    out: list[date] = []
+    d = last
+    if tf == "D":
+        while len(out) < n:
+            d += timedelta(days=1)
+            if is_trading_day(d, holidays):
+                out.append(d)
+        return out
+
+    def period(x: date) -> tuple[int, int]:
+        return tuple(x.isocalendar()[:2]) if tf == "W" else (x.year, x.month)  # type: ignore[return-value]
+
+    cur = period(last)
+    best: date | None = None
+    for _ in range(3000):
+        if len(out) >= n:
             break
-        nxt = k
-        if tf != "D":
-            before = [d for d in sessions if d < g]
-            prev_bar = dates[k - 1] if k > 0 else None
-            if before and (prev_bar is None or before[-1] > prev_bar):
-                nxt = k + 1  # pre-gap session sits inside bar k: drop the mixed bar
-        if k > start:
-            spans.append((start, k))
-        start = nxt
-    if start < n:
-        spans.append((start, n))
-    return spans
+        d += timedelta(days=1)
+        p = period(d)
+        if p != cur:
+            if best is not None:
+                out.append(best)
+            cur, best = p, None
+        if is_trading_day(d, holidays):
+            best = d
+    return out[:n]
 
 
-def _segment_boxes(frame: pd.DataFrame, dates: list[date | None], spans: list[tuple[int, int]],
-                   fn: Any) -> list[dict[str, Any]]:
-    """Run the box finder per clean span; a span's still-open last box (cut by a gap) is superseded."""
-    out: list[dict[str, Any]] = []
-    for k, (a, b) in enumerate(spans):
-        part = frame.iloc[a:b]
-        segs = fn(part["high_price"], part["low_price"], part["close_price"], boxp=5)
-        for sg in segs:
-            sg = {**sg, **{f: (sg[f] + a if sg[f] is not None else None)
-                          for f in ("start_i", "formed_i", "end_i", "last_i", "break_i")}}
-            if sg["status"] == "active" and k < len(spans) - 1:
-                sg["status"] = "superseded"
-            out.append(sg)
-    return out
+def ema_projection(ema: Any, n: int = PROJECTION_BARS) -> list[float] | None:
+    """Pine: slope = ema10 - ema10[1]; the dotted line runs to ema10 + slope * n. Returns ema_last + slope * k, k=1..n."""
+    vals = [float(v) for v in pd.Series(ema, dtype=float).tolist()]
+    if len(vals) < 2 or not all(np.isfinite(vals[-2:])):
+        return None
+    last, slope = vals[-1], vals[-1] - vals[-2]
+    return [last + slope * k for k in range(1, n + 1)]
 
 
 def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> Result:
-    """Historical Darvas boxes for any stock (not only queue members).
+    """Per-bar Darvas TopBox / BottomBox (the user's Pine "SUCCESS" indicator) + 5-bar projections.
 
-    Same box definition as the Darvas Squeeze / 10-EMA queues
-    (`Scripts.darvas_squeeze.darvas_box_segments` shares `calculate_darvas_box`'s
-    core). Adjusted OHLC (COALESCE(adj_*, raw)), bounded to as_of; W = completed
-    weeks only and M = calendar months, exactly as the queues resample.
-    Returns boxes that overlap the last `limit` bars of that timeframe.
+    Rows are the bars of `tf` (D sessions; W / M = the bars /bars serves, stamped
+    with the period's last session). `top` / `bottom` are exactly
+    `Scripts.darvas_squeeze.calculate_darvas_box` (Pine valuewhen, boxp 5) over the
+    whole adjusted history (COALESCE(adj_*, raw)), bounded to as_of; NULL before
+    the first box. W boxes use completed weeks only (as the queues do), so a
+    partial week has no box value. No restarts at data gaps (Pine has none).
+    Then `PROJECTION_BARS` rows with `projected` = true at the next calendar
+    periods: `top_extension` = the last TopBox (Pine top box extension) and
+    `ema_10_projection` = ema10 + slope * k (Pine EMA 10 projection); the last
+    real bar carries both lines' starting values.
     """
     try:
-        from Scripts.darvas_squeeze import darvas_box_segments, monthly_ohlc, weekly_ohlc
+        from Scripts.darvas_squeeze import calculate_darvas_box, monthly_ohlc, weekly_ohlc
     except ModuleNotFoundError:  # pragma: no cover - script-style import
-        from darvas_squeeze import darvas_box_segments, monthly_ohlc, weekly_ohlc  # type: ignore
+        from darvas_squeeze import calculate_darvas_box, monthly_ohlc, weekly_ohlc  # type: ignore
 
     tf = tf.upper()
     if tf not in ("D", "W", "M"):
@@ -307,59 +313,76 @@ def darvas(as_of: date | None, symbol: str, tf: str = "D", limit: int = 400) -> 
         ex, adjusted = _adj_exprs(con)
         daily = con.execute(
             f"""
-            SELECT p.symbol, p.trade_date,
+            SELECT p.symbol, p.trade_date AS session, p.trade_date,
                    {ex['open_price']} AS open_price, {ex['high_price']} AS high_price,
                    {ex['low_price']} AS low_price, {ex['close_price']} AS close_price,
-                   {ex['volume']} AS volume
+                   {ex['volume']} AS volume, {ex['delivery_qty']} AS delivery_qty
             FROM prices_daily p
             WHERE p.symbol = ? AND p.trade_date <= ?
             ORDER BY p.trade_date
             """,
             [symbol, resolved],
         ).fetchdf()
-        ev = data_gaps.events(con)
-    gap_dates = sorted({
-        db.to_date(d) for d in ev.loc[ev["symbol"] == symbol, "gap_date"]
-        if db.to_date(d) is not None and db.to_date(d) <= resolved
-    }) if not ev.empty else []
-    sources = ["prices_daily", "price_adjustments"]
+    sources = ["prices_daily", "price_adjustments", "nse_holidays"]
+    daily = daily.dropna(subset=["high_price", "low_price", "close_price"]).reset_index(drop=True)
     if daily.empty:
         return unavailable(resolved, f"no bars for {symbol} on or before {resolved.isoformat()}", sources)
+
+    # Bar spine = the bars the chart shows for tf (same bars as /bars).
+    if tf == "D":
+        dates = [db.to_date(d) for d in daily["trade_date"]]
+        closes = daily["close_price"].astype(float)
+    else:
+        agg = _resample(daily.rename(columns={
+            "open_price": "open", "high_price": "high", "low_price": "low", "close_price": "close"}), tf, resolved)
+        dates = [db.to_date(d) for d in agg["trade_date"]]
+        closes = agg["close"].astype(float).reset_index(drop=True)
+
+    # Box series on the queue's bars for tf, mapped onto the spine by bar date.
     frame = daily
     if tf == "W":
         frame = weekly_ohlc(daily, as_of=resolved)
     elif tf == "M":
         frame = monthly_ohlc(daily, as_of=resolved)
-    frame = frame.dropna(subset=["high_price", "low_price", "close_price"]).reset_index(drop=True)
-    dates = [db.to_date(d) for d in frame["trade_date"]]
-    segs = _segment_boxes(frame, dates, _gap_cuts(daily, dates, gap_dates, tf), darvas_box_segments)
-    first_i = max(0, len(frame) - limit)
-    rows = []
-    for sg in segs:
-        if sg["last_i"] < first_i:
+    top, bottom = calculate_darvas_box(frame["high_price"].astype(float).values, frame["low_price"].astype(float).values, boxp=5)
+    box_by_date = {db.to_date(d): (float(t), float(b)) for d, t, b in zip(frame["trade_date"], top, bottom)}
+
+    ema10 = closes.ewm(span=10, adjust=False, min_periods=10).mean()
+    first_i = max(0, len(dates) - limit)
+    rows: list[dict[str, Any]] = []
+    last_top: float | None = None
+    for i, d in enumerate(dates):
+        t, b = box_by_date.get(d, (np.nan, np.nan))
+        if np.isfinite(t):
+            last_top = t
+        if i < first_i:
             continue
-        bi = sg["break_i"]
         rows.append({
-            "start_date": dates[sg["start_i"]],
-            "formed_date": dates[sg["formed_i"]],
-            "end_date": dates[sg["end_i"]],
-            "top": db.num(sg["top"], 2),
-            "bottom": db.num(sg["bottom"], 2),
-            "status": sg["status"],
-            "break_date": dates[bi] if bi is not None else None,
-            "break_close": db.num(float(frame["close_price"].iloc[bi]), 2) if bi is not None else None,
-            "bars": int(sg["end_i"] - sg["start_i"] + 1),
+            "trade_date": d,
+            "top": db.num(t, 2) if np.isfinite(t) else None,
+            "bottom": db.num(b, 2) if np.isfinite(b) else None,
+            "projected": False, "top_extension": None, "ema_10_projection": None,
+        })
+    proj = ema_projection(ema10)
+    future = future_periods(dates[-1], tf, load_holidays()) if dates and dates[-1] else []
+    ext = db.num(last_top, 2) if last_top is not None else None
+    if rows:
+        rows[-1]["top_extension"] = ext
+        rows[-1]["ema_10_projection"] = db.num(float(ema10.iloc[-1]), 2) if proj else None
+    for k, d in enumerate(future):
+        rows.append({
+            "trade_date": d, "top": None, "bottom": None, "projected": True,
+            "top_extension": ext, "ema_10_projection": db.num(proj[k], 2) if proj else None,
         })
     return Result(
         as_of=resolved, rows=rows, sources=sources,
         extra={"symbol": symbol, "timeframe": tf, "prices_adjusted": adjusted, "box_period": 5,
-               "last_bar_date": dates[-1] if dates else None, "gap_dates": gap_dates},
-        notes=["Box = Pine valuewhen definition used by the Darvas Squeeze / 10-EMA queues (boxp 5); "
-               "broken_up / broken_down = first close above top / below bottom; superseded = replaced by a newer box "
-               "without a break; active = latest unbroken box."]
-        + (["W boxes use completed weeks only (as the queue does)."] if tf == "W" else [])
-        + ([f"Boxes restart after unexplained price gap(s) on {', '.join(d.isoformat() for d in gap_dates)} "
-            "(no box spans a gap; a box cut by a gap is served as superseded)."] if gap_dates else [])
+               "last_bar_date": dates[-1] if dates else None, "projection_bars": PROJECTION_BARS,
+               "future_dates": future},
+        notes=["top / bottom = Pine TopBox / BottomBox (boxp 5), the same series as the Darvas Squeeze / 10-EMA queues. "
+               f"projected rows = the next {PROJECTION_BARS} {'sessions' if tf == 'D' else 'periods'} on the NSE calendar "
+               "(no candles): top_extension = last TopBox, ema_10_projection = EMA10 + slope * k (slope = last EMA10 change)."]
+        + (["W boxes use completed weeks only (as the queue does); a partial week has no box value."] if tf == "W" else [])
         + ([] if adjusted else ["prices_daily has no adj_* columns yet; boxes use raw prices."]),
     )
 
