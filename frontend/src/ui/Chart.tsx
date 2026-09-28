@@ -318,6 +318,7 @@ export function Chart({
   const overlayKey = (overlays ?? []).map((o) => `${o.id}:${o.color ?? ''}:${o.dashed ? 1 : 0}:${o.axisLabel ? 1 : 0}`).join('|');
   const hasRs = !!rs;
   const withFuture = darvas !== undefined;
+  const hasEma10 = emaPeriods.includes(10);
 
   // ---- create chart + series (structure changes rebuild)
   useEffect(() => {
@@ -587,9 +588,9 @@ export function Chart({
       lines.top.setData(pts(darvas?.top));
       lines.bottom.setData(pts(darvas?.bottom));
       lines.topExtension.setData(pts(darvas?.topExtension));
-      lines.emaProjection.setData(emaPeriods.includes(10) ? pts(darvas?.emaProjection) : []);
+      lines.emaProjection.setData(hasEma10 ? pts(darvas?.emaProjection) : []);
     }
-  }, [shown, overlays, darvas, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
+  }, [shown, overlays, darvas, hasEma10, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
 
   // ---- initial visible range: only when the bars (or chart structure) change, so toggling
   // overlays / boxes keeps the user's zoom.
