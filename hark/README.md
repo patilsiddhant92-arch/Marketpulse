@@ -13,6 +13,7 @@ We design one tab at a time. We lock each tab's spec before we write production 
 | [05-data-gaps.md](05-data-gaps.md) | Data that the specs need but the pipeline lacks or gets wrong | Open |
 | [06-tab2-setups.md](06-tab2-setups.md) | Tab 2 **Setups / Screener**: discussion rounds + locked spec | **Locked 2026-10-09** |
 | [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, evidence, rounds 1–3, mockup | Round 3 |
+| [08-tab-deals.md](08-tab-deals.md) | Deals: audit, 2-year evidence study, proposals | Round 1 |
 | mockups/tab-sector-intel.html | Sector Intel mockup (board, chart grid, group panel) | v1 |
 | mockups/tab1-pulse.html | Clickable Pulse mockup on real data (open in a desktop browser) | v2 |
 | mockups/redesign-v1-workflow.html | First workflow-first mockup (Brief / Setups / Plan / Review) | Reference |

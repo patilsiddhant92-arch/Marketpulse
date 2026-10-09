@@ -54,3 +54,7 @@ Newest at the bottom. Each line: date · decision · reason.
 - No setup references in this tab for now (Siddhant).
 - Pulse mood + a "Is group ranking working now?" gauge shown beside the score. Cooling-fast breadth halves the edge, and the ranking's recent record predicts its next month.
 - Mockup v1 `mockups/tab-sector-intel.html`. All thresholds stay provisional until the 5-year point-in-time recheck.
+
+## 2026-10-09 — Deals round 1
+- Audit + 2-year evidence study in 08-tab-deals.md. A deal buy on its own isn't a signal. It confirms a strong chart (+3.1% vs +0.9% for the strong chart alone). Placements are positive (+1.9%, 65%). Churn and poor-record houses are reliable warnings. A good house record does not persist.
+- Proposed: 3 views (Today / Building / Houses), evidence-based verdict chips, out-of-sample house grades, equal-weight benchmark, NSE CSV backfill. Waiting on feedback.

@@ -1,0 +1,36 @@
+reading,n,x5,x20,x20_med,beat%,t
+"baseline: all >=1000Cr stocks, same dates",713097,-0.0,0.0,-1.08,44.7,0.0
+event: accumulate,115,-0.42,-0.21,1.14,55.7,-0.1
+event: fresh,480,0.04,0.3,-1.52,43.3,0.5
+event: distribute,837,0.67,1.0,-0.36,49.0,2.0
+event: transfer_interse,458,-0.03,0.44,0.13,50.7,0.8
+event: placement,382,0.25,1.85,1.67,64.9,4.9
+event: churn,4241,-0.86,-2.01,-3.9,37.7,-9.3
+net buy size 0-0.25x ADV,101,-0.79,0.39,0.69,50.5,0.3
+net buy size 0.25-1x ADV,254,0.66,0.87,-0.39,47.6,1.0
+net buy size 1-3x ADV,157,-0.5,-1.31,-2.08,39.5,-1.4
+net buy size 3-+x ADV,39,-0.83,1.18,-1.54,46.2,0.8
+net buyer class: FII > 0,93,-1.48,-1.28,-2.73,41.9,-1.1
+net buyer class: DII > 0,78,0.11,0.86,-0.28,46.2,0.7
+net buyer class: CORPORATE > 0,177,-0.68,-1.21,-2.45,41.8,-1.2
+net buyer class: OTHER > 0,281,0.52,1.22,-0.18,49.1,1.4
+net buyer class: HNI > 0,7,-0.05,-3.99,-9.73,42.9,-0.6
+"net buy, >=2 buying houses",59,-1.14,-0.46,-0.71,47.5,-0.2
+"net buy, 1 buying house",536,0.07,0.28,-1.21,45.5,0.5
+"net buy, repeat (>=2 net-buy sessions in 10)",115,-0.42,-0.21,1.14,55.7,-0.1
+net buy at premium to close (vwap > close),364,-0.12,0.02,-1.97,43.1,0.0
+net buy at discount to close,231,0.08,0.5,-0.09,49.8,0.6
+"net buy + strong chart (>200EMA, RS>=70, within 15% of high)",83,-0.15,3.11,1.91,55.4,2.0
+net buy + weak chart,173,0.14,-1.49,-2.44,43.4,-1.5
+"block deal present, net buy",14,-0.63,1.54,-0.79,50.0,0.9
+"bulk only, net buy",581,-0.03,0.17,-1.21,45.6,0.3
+"baseline: strong chart, no condition on deals",66474,0.25,0.93,0.13,50.6,21.7
+distribute + strong chart,79,1.43,4.99,2.53,65.8,2.7
+"house buy >= 5Cr, any house",5532,,-1.47,-1.62,43.1,-8.4
+house with <5 prior finished bets,2918,,-0.77,-1.41,45.6,-3.2
+"house >=5 prior bets, prior avg excess > +3%",301,,-1.43,-1.6,40.9,-2.1
+"house >=5 prior bets, prior avg excess 0..3%",686,,-0.5,-0.67,45.9,-1.3
+"house >=5 prior bets, prior avg excess < 0",1627,,-3.13,-3.25,37.6,-9.0
+group: industry with 0 net-buy deal stocks in 10 sessions,84202,,-0.02,-0.54,45.9,-1.0
+group: 1-2,4952,,-0.18,-0.49,45.9,-2.4
+group: 3+,138,,0.66,0.05,52.2,2.1
