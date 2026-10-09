@@ -126,3 +126,47 @@ Prototype rows: `python hark/tools/sector_study/sample_board.py` (Broad Industry
 | Rank Δ 1W / 1M | Places climbed by Health rank |
 | Leaders | Top 3 by RS percentile, click for Stock 360, copy to TradingView |
 | Flow (optional group) | Turnover share 5D, Δ vs 20D, deals net 10 sessions |
+
+## 7. Round 2 — Siddhant: "TT% in simple English? Why not turnover, delivery, A/D, near 52W high, for N days? Sector, industry, index too. Chart grid of industries."
+
+**TT % in simple English:** the share of a group's stocks that are in a clean uptrend (price above the 50, 150 and 200-day averages, those averages stacked and rising, and price near its 52-week high and well off its low). It is close to "near 52W high" but harder to read. Proposal: replace it with **% near 52W high**.
+
+### Test of the readings Siddhant named (`hark/tools/sector_study/study2_readings.py`)
+Same set-up as section 3 (stocks ≥ ₹1,000 Cr, groups ≥ 3, forward 21 sessions vs the median group, Oct 2024 – Jul 2026). "Top / bottom" = % of days the top / bottom fifth of groups beat the median group.
+
+| Reading | Best N | IC Sector | IC Broad Ind | IC Industry | Top vs bottom (Broad Ind) |
+|---|---|---|---|---|---|
+| % of members within 10% of 52W high | level | **0.160** | **0.103** | **0.094** | 55% vs 45% |
+| Members making a new 52W high | 5–10d | 0.147 | 0.103 | 0.069 | 57% vs 46% |
+| Advance / decline (net % of members up) | 10–20d | 0.114 | 0.081 | 0.048 | 54% vs 44% |
+| Change in % near 52W high | 20d | 0.101 | 0.087 | 0.049 | 55% vs 45% |
+| Return | 20d | 0.098 | 0.098 | 0.035 | 56% vs 45% |
+| Up-day share of delivery value | 10d | 0.078 | 0.077 | 0.036 | 54% vs 44% |
+| Turnover vs own 3M average | 1d | 0.047 | 0.049 | 0.017 | 52% vs 46% |
+| Turnover share vs own 3M average | 1d | 0.049 | 0.051 | 0.018 | 52% vs 46% |
+| Delivery value vs own 3M average | 5d | 0.043 | 0.053 | 0.004 | 52% vs 46% |
+| Delivery % vs own 20D average | any | ≈ 0 | ≈ 0 | ≈ 0.02 | ≈ 49% vs 49% |
+| Trend template % (for reference) | level | 0.167 | 0.119 | 0.097 | 52% vs 46% |
+
+Findings:
+- **% near 52W high is the best single reading** and the easiest to read. It stayed positive in 2025 H1, when Health turned negative.
+- **N matters.** A/D 1D is weak (0.03); A/D 10–20D is two to three times stronger. One-day readings are noise.
+- **Turnover alone does not say which way the money goes.** It tells you attention, not direction. Split by up days (up-day share of delivery) it becomes useful.
+- **Delivery % vs its own average has no edge** at group level.
+- **A 4-part score** (near-high %, new highs 10D, A/D 10D, up-day delivery share 10D, equal rank weights) beats any single reading: Sector IC 0.174 (62% vs 40%), Broad Industry 0.124 (59% vs 43%), Industry 0.080. It dipped below zero in Jul–Aug 2026, so it is a guide, not a rule.
+- Index level could not be tested: `index_daily` holds 32 sessions locally. Same readings, computed from index constituents, once history and constituents are loaded.
+
+### Revised board (all levels: Sector · Broad Industry · Industry · Index)
+Columns, in this order, each with N = 1D / 1W / 2W / 1M selectable and a percentile vs the group's own 2 years:
+1. Group · state · members
+2. **Near 52W high %** (+ change over N)
+3. **New 52W highs** (count over N)
+4. **A/D** (net % up over N)
+5. **Up-day delivery share** (over N)
+6. **Turnover ×** vs own 3M average (attention), and turnover share Δ
+7. Return over N vs median group
+8. Leadership score (the 4-part rank, default sort)
+9. Leaders (top 3 by RS)
+
+### Chart grid of groups
+9 cards per page, the same grid as Setups (Lightweight Charts, synced crosshair). Each card: the group's equal-weight index (candles from member OHLC, rebased) with 10/20/50 EMA, RS line vs MidSml400, and a lower pane with % near 52W high. Index level uses real index OHLC. Order follows the board sort. Click a card to open the group page.
