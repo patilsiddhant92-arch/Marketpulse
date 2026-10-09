@@ -106,3 +106,23 @@ Map and Today → already in Pulse. Accumulators → Setups or Deals. Board side
 ## 5. Questions for Siddhant (round 1)
 1. Default grain Broad Industry (58), with Industry as drill?
 2. Demote money flow to an optional column group, and drop Map / Today / Accumulators from this tab?
+
+## 6. Proposed board columns (answer to "what data will I see")
+Prototype rows: `python hark/tools/sector_study/sample_board.py` (Broad Industry, 1000 Cr floor, groups ≥ 5 members, as of 2026-08-13).
+
+| Column | Meaning |
+|---|---|
+| State | Favour / Neutral / Caution, shared with Pulse and Setups, with the numeric reason on hover |
+| Members | Stocks ≥ ₹1,000 Cr in the group |
+| TT % | % of members passing the trend template (default sort) |
+| TT Δ10 | Change in TT % over 10 sessions, points |
+| TT pctile | Today's TT % vs the group's own 2-year history |
+| New highs 1W | Members that made a 52-week high in the last 5 sessions |
+| 21D vs median | Group 21D equal-weight return minus the median group's, points |
+| RS-Mom | RRG momentum vs peers (100 = average) |
+| > 50 EMA | % of members above their 50 EMA |
+| Delivery acc | Delivery-weighted accumulation over 10 sessions |
+| Health | 0–100 composite, parts shown on hover |
+| Rank Δ 1W / 1M | Places climbed by Health rank |
+| Leaders | Top 3 by RS percentile, click for Stock 360, copy to TradingView |
+| Flow (optional group) | Turnover share 5D, Δ vs 20D, deals net 10 sessions |
