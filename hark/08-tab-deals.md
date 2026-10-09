@@ -181,3 +181,14 @@ Empty sections are dropped. The breadth block moves to the Pulse message (one li
    - Colour = verdict: green confirm · blue placement · teal absorbed · amber watch · grey churn · red avoid.
    - Tap = a 2-line popover plus a link to Deals.
    - Rule: the icon shows only within 10 sessions of the deal.
+
+### 5.4 Mockup v1
+`hark/mockups/tab-deals.html` is built by `hark/tools/deals_mockup/extract.py` from local data as of 2026-08-13, the last session before the price gap, so day-3 states can be shown. It has six views:
+- **Today**: every deal stock, sorted by verdict; noise is hidden behind a toggle.
+- **Deal watch**: holding / lost / reclaimed, with filters.
+- **Houses**: class evidence, out-of-sample grades, Follow.
+- **By group**
+- **Telegram**: one message, about 1,000 characters.
+- **In other tabs**: a demo of the deal icon popover, plus candles with B/S/P/C/T tags and dashed deal-price lines.
+
+The stock drawer shows the verdict, the deal-candle chart, buyers and sellers with their grades, and the next action. The jsdom test is /workspace/work/pulse/t5.js.
