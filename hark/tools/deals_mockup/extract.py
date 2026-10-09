@@ -169,7 +169,18 @@ skipped = {"transfer": sum(x["ev"] == "transfer_interse" for x in today), "churn
            "small": int(((dsn.trade_date == AS_OF)).sum() - len(today))}
 br = big[big.d == AS_OF]
 mkt = {"above50": round(float((br.c > br.e50).mean() * 100)), "adv": round(float(0))}
-data = {"asof": str(AS_OF.date()), "sessions": [str(pd.Timestamp(d).date()) for d in last10], "today": today, "watch": watch,
+# ---- history: every symbol's events over the last 20 deal sessions (incl churn / prop-only / transfers)
+last20 = deal_days[-20:]
+s20 = {pd.Timestamp(d): i for i, d in enumerate(last20)}
+H20 = dsn[dsn.trade_date.isin(last20)].merge(now[["mcap", "industry", "c"]].reset_index(), on="symbol", how="inner")
+H20 = H20[H20.mcap >= 1000]
+hist20 = []
+for sym, g in H20.groupby("symbol"):
+    ev = [[s20[pd.Timestamp(r.trade_date)], r.event_type, round(float(r.net_value_cr_ex_prop or 0), 1), round(float(r.prop_value_cr or 0), 1),
+           None if pd.isna(r.buy_vwap) else round(float(r.buy_vwap), 2), None if pd.isna(r.sell_vwap) else round(float(r.sell_vwap), 2)]
+          for r in g.sort_values("trade_date").itertuples()]
+    hist20.append({"sym": sym, "ind": g.industry.iat[0], "c": round(float(g.c.iat[0]), 2), "ev": ev})
+data = {"sessions20": [str(pd.Timestamp(d).date()) for d in last20], "hist20": hist20, "asof": str(AS_OF.date()), "sessions": [str(pd.Timestamp(d).date()) for d in last10], "today": today, "watch": watch,
         "marks": marks, "groups": groups, "houses": houses, "clsev": cls_ev, "skipped": skipped, "mkt": mkt}
 tpl = open(os.path.join(HERE, "template.html"), encoding="utf-8").read()
 out = os.path.join(ROOT, "hark/mockups/tab-deals.html")

@@ -192,3 +192,13 @@ Empty sections are dropped. The breadth block moves to the Pulse message (one li
 - **In other tabs**: a demo of the deal icon popover, plus candles with B/S/P/C/T tags and dashed deal-price lines.
 
 The stock drawer shows the verdict, the deal-candle chart, buyers and sellers with their grades, and the next action. The jsdom test is /workspace/work/pulse/t5.js.
+
+### 5.5 Mockup v1.1 (user feedback)
+- **Deal-day candle colour**: the deal-day candle is filled in the deal's own colour (teal buy, blue placement, orange sell, grey churn/transfer) with a letter on top. It replaces the green/red that day. Charts show deal-price lines for the 3 latest deals only.
+- **History view** (new tab): every stock ≥ ₹1,000 Cr with a deal in the last **5 / 10 / 20 deal sessions**, including churn, prop desks and transfers.
+  - Each stock gets one square per session, oldest first.
+  - Patterns: Repeated buying (2+ buy sessions, no selling), Single buy, Selling only, Buying and selling, Prop desk/churn only, Transfers only.
+  - Each row: buy/sell session counts, net ₹ Cr, prop ₹ Cr, avg deal price and now vs deal.
+  - Each pattern carries its evidence note.
+  - As of 13 Aug, 10 sessions: 3 repeated buying, 16 single buy, 16 selling only, 2 mixed, 55 churn-only, 7 transfers.
+- **Rule gap found**: APOLLOPIPE 2026-08-13 is labelled accumulate, but Anil Laxmichand Shah bought ₹12.6 Cr while Kiran Anil Shah sold ₹12.6 Cr. That's a family transfer the transfer rule missed (likely a price mismatch beyond ±0.25%). Its "repeated buying" streak needs re-checking once deal_rules is fixed.

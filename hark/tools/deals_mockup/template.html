@@ -35,7 +35,7 @@ pre.tg{background:#0e1621;border:1px solid #1d2a3a;border-radius:12px;padding:14
 .hide{display:none}
 </style></head><body><div class="wrap">
 <header><div class="brand"><b>Deals</b><span id="asof"></span></div>
-<div class="seg" id="tabs"><button data-v="today" class="on">Today</button><button data-v="watch">Deal watch</button><button data-v="houses">Houses</button><button data-v="groups">By group</button><button data-v="tg">Telegram</button><button data-v="else">In other tabs</button></div></header>
+<div class="seg" id="tabs"><button data-v="today" class="on">Today</button><button data-v="watch">Deal watch</button><button data-v="history">History</button><button data-v="houses">Houses</button><button data-v="groups">By group</button><button data-v="tg">Telegram</button><button data-v="else">In other tabs</button></div></header>
 <div class="layout"><main id="main"></main><aside id="side"></aside></div>
 <div class="foot">Mockup on local data (as of the last session before the price-data gap). Verdict rules and the numbers in them come from hark/08-tab-deals.md: 20-session return vs the equal-weight market of stocks ≥ ₹1,000 Cr, NSE deals Apr 2024 to Jul 2026. One market regime; thresholds are provisional.</div>
 </div><script>
@@ -66,11 +66,11 @@ function chart(x,w=440,h=200){
   const mk=(D.marks[x.sym]||[]);let s=`<svg width="100%" viewBox="0 0 ${w} ${h}" class="ch">`;
   px.forEach((p,i)=>{const X=4+i*bw+bw/2,up=p[4]>=p[1],m=mk.find(k=>k.d===p[0]);const tg=m?TAG[m.ev]:null;
     const col=up?'#22c55e':'#ef4444';
-    s+=`<line x1="${X}" x2="${X}" y1="${Y(p[2])}" y2="${Y(p[3])}" stroke="${col}" stroke-width="1"/>`;
-    s+=`<rect x="${X-bw*0.35}" y="${Math.min(Y(p[1]),Y(p[4]))}" width="${bw*0.7}" height="${Math.max(1,Math.abs(Y(p[1])-Y(p[4])))}" fill="${up?col:col}" ${tg?`stroke="${TC[tg]}" stroke-width="2.2"`:''}/>`;
+    s+=`<line x1="${X}" x2="${X}" y1="${Y(p[2])}" y2="${Y(p[3])}" stroke="${tg?TC[tg]:col}" stroke-width="1"/>`;
+    s+=`<rect x="${X-bw*0.35}" y="${Math.min(Y(p[1]),Y(p[4]))}" width="${bw*0.7}" height="${Math.max(1,Math.abs(Y(p[1])-Y(p[4])))}" fill="${tg?TC[tg]:col}"/>`;
     if(tg){const below=tg==='S';const ty=below?Y(p[3])+13:Y(p[2])-5;s+=`<text x="${X}" y="${ty}" text-anchor="middle" style="fill:${TC[tg]};font-weight:800;font-size:10px">${tg}</text>`}});
-  mk.forEach(m=>{if(!m.lvl||['C','T'].includes(TAG[m.ev]))return;const i=px.findIndex(p=>p[0]===m.d);if(i<0)return;const x0=4+i*bw;const yy=Y(m.lvl);
-    s+=`<line x1="${x0}" x2="${w-36}" y1="${yy}" y2="${yy}" stroke="${TC[TAG[m.ev]]}" stroke-dasharray="4 3" stroke-width="1.2"/><text x="${w-34}" y="${yy+3}" style="fill:${TC[TAG[m.ev]]}">${f1(m.lvl)}</text>`});
+  const used=[];[...mk].sort((a,b)=>a.d<b.d?1:-1).slice(0,3).forEach(m=>{if(!m.lvl||['C','T'].includes(TAG[m.ev]))return;const i=px.findIndex(p=>p[0]===m.d);if(i<0)return;const x0=4+i*bw;const yy=Y(m.lvl);
+    s+=`<line x1="${x0}" x2="${w-36}" y1="${yy}" y2="${yy}" stroke="${TC[TAG[m.ev]]}" stroke-dasharray="4 3" stroke-width="1.2"/>`+(used.every(u=>Math.abs(u-yy)>10)?(used.push(yy),`<text x="${w-34}" y="${yy+3}" style="fill:${TC[TAG[m.ev]]}">${f1(m.lvl)}</text>`):'')});
   return s+`<text x="4" y="${h-3}">${px[0][0]}</text><text x="${w-90}" y="${h-3}">${px[px.length-1][0]}</text></svg>`;
 }
 function who(list,title){return `<div class="who"><div class="mut" style="border:0">${title}</div>${list.length?list.map(b=>`<div><span>${b.n} <span class="dim">${b.cls}</span>${b.cls==='FII'||b.cls==='DII'?`<span class="gr ${b.g}">${b.g}</span>`:''}</span><span>₹${f1(b.v)} Cr</span></div>`).join(''):'<div class="dim">none (ex prop desks)</div>'}</div>`}
@@ -149,14 +149,42 @@ function els(){
   return `<div class="card"><h3>The deal icon, as it would sit in other tabs</h3><div class="sub">One icon per stock row in Pulse, Setups, Sector Intel, Charts, Stock360 and Plan, only within 10 sessions of a deal. Colour and letter = verdict. Tap it.</div>
   <div class="legend" style="margin-bottom:8px">${Object.entries({confirm:'confirmed',watch:'watch day 3',place:'placement',absorbed:'absorbed',supply:'supply',avoid:'avoid'}).map(([k,v])=>`<span><span class="icon" style="background:${VC[k]};cursor:default">${ICON[k]}</span> ${v}</span>`).join('')}</div>
   <table><thead><tr><th class="l">Setups row (example)</th><th></th><th>RS</th><th>52W</th><th class="l">Industry</th></tr></thead><tbody>${pick.map(x=>`<tr><td class="l"><b>${x.sym}</b></td><td class="l" style="overflow:visible">${ic(x)}</td><td>${x.rs??'–'}</td><td>${sg(x.a52)}</td><td class="l mut">${x.ind||''}</td></tr>`).join('')}</tbody></table></div>
-  <div class="card"><h3>Deal candles on Charts / Stock360</h3><div class="sub">The candle keeps its own colour. The deal day gets an outline and a letter, and the deal price runs as a dashed line for 20 sessions.</div>${pick[0]?chart(pick[0],700,260):''}</div>`;
+  <div class="card"><h3>Deal candles on Charts / Stock360</h3><div class="sub">The deal-day candle takes the deal's colour (teal buy, blue placement, orange sell, grey churn/transfer) plus a letter, and the deal price runs as a dashed line for 20 sessions.</div>${pick[0]?chart(pick[0],700,260):''}</div>`;
 }
+let hN=10,hP='all';
+const PAT={rbuy:['Repeated buying','var(--confirm)','Buying in 2+ sessions, no selling. Repeat buying alone showed no edge: use the chart and the deal price.'],
+ buy:['Single buy','var(--absorbed)','One net-buy session.'],
+ sell:['Selling only','var(--supply)','Net selling, no buying. Supply overhang until price closes above the sellers\' price.'],
+ mixed:['Buying and selling','var(--watch)','Both sides in the window. Read the latest session and the deal price.'],
+ prop:['Prop desk / churn only','var(--churn)','Same desks in and out. Churn lagged the market (−2.0%; −3.7% on quiet days).'],
+ xfer:['Transfers only','var(--ignore)','Shares changing hands; no new money.']};
+function hstat(h){const lo=D.sessions20.length-hN;const ev=h.ev.filter(e=>e[0]>=lo);if(!ev.length)return null;
+ const b=ev.filter(e=>['fresh','accumulate','placement'].includes(e[1])),s=ev.filter(e=>e[1]==='distribute'),c=ev.filter(e=>e[1]==='churn'),t=ev.filter(e=>e[1]==='transfer_interse');
+ const pat=b.length>=2&&!s.length?'rbuy':b.length===1&&!s.length?'buy':s.length&&!b.length?'sell':b.length&&s.length?'mixed':c.length?'prop':'xfer';
+ const net=ev.reduce((a,e)=>a+e[2],0),prop=ev.reduce((a,e)=>a+e[3],0);
+ const wv=(arr,i)=>{const v=arr.map(e=>e[i]).filter(x=>x);return v.length?v.reduce((a,x)=>a+x,0)/v.length:null};
+ const lvl=pat==='sell'?wv(s,5):wv(b,4);
+ return {sym:h.sym,ind:h.ind,c:h.c,ev,lo,pat,nb:b.length,ns:s.length,nc:c.length,net,prop,lvl,vs:lvl?(h.c/lvl-1)*100:null}}
+function strip(x){let s='';for(let i=x.lo;i<D.sessions20.length;i++){const e=x.ev.find(z=>z[0]===i);const tg=e?TAG[e[1]]:null;
+ s+=`<span title="${D.sessions20[i]}${e?' '+EV[e[1]]:''}" style="display:inline-block;width:${hN>10?9:14}px;height:16px;margin-right:2px;border-radius:3px;background:${tg?TC[tg]:'#1d2331'};color:#0b0d12;font-size:9px;font-weight:800;text-align:center;line-height:16px">${tg||''}</span>`}return s}
+function history(){
+ const R=D.hist20.map(hstat).filter(Boolean);const cnt=k=>R.filter(x=>x.pat===k).length;
+ const L=R.filter(x=>hP==='all'||x.pat===hP).sort((a,b)=>Object.keys(PAT).indexOf(a.pat)-Object.keys(PAT).indexOf(b.pat)||(b.nb+b.ns)-(a.nb+a.ns)||Math.abs(b.net)-Math.abs(a.net));
+ return `<div class="card"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><h3>Deal history · last ${hN} deal sessions</h3><div class="sub">Every stock ≥ ₹1,000 Cr with a deal, including churn, prop desks and transfers. One square per session, oldest first.</div></div>
+ <div class="seg" id="hn">${[5,10,20].map(n=>`<button data-v="${n}" class="${hN===n?'on':''}">${n} sessions</button>`).join('')}</div></div>
+ <div class="seg" id="hp" style="margin:6px 0 10px">${[['all','All '+R.length],...Object.entries(PAT).map(([k,v])=>[k,v[0]+' '+cnt(k)])].map(([k,l])=>`<button data-v="${k}" class="${hP===k?'on':''}">${l}</button>`).join('')}</div>
+ ${hP!=='all'?`<div class="do" style="margin:0 0 10px">${PAT[hP][2]}</div>`:''}
+ <table><thead><tr><th class="l">Stock</th><th class="l">Pattern</th><th class="l">Sessions</th><th>Buy</th><th>Sell</th><th>Net ₹ Cr</th><th>Prop ₹ Cr</th><th>Avg deal price</th><th>Now vs deal</th></tr></thead><tbody>
+ ${L.map(x=>`<tr data-s="${x.sym}" class="${sel===x.sym?'sel':''}"><td class="l"><b>${x.sym}</b></td><td class="l"><span class="v"><span class="dot" style="background:${PAT[x.pat][1]}"></span>${PAT[x.pat][0]}</span></td><td class="l">${strip(x)}</td><td class="up">${x.nb||'–'}</td><td class="dn">${x.ns||'–'}</td><td class="${x.net>=0?'up':'dn'}">${Math.abs(x.net)<0.05?'0':(x.net>0?'+':'−')+f1(Math.abs(x.net))}</td><td class="mut">${x.prop?f1(x.prop):'–'}</td><td>${x.lvl?f1(x.lvl):'–'}</td><td class="${x.vs>=0?'up':'dn'}">${x.vs==null?'–':sg(x.vs)}</td></tr>`).join('')}
+ </tbody></table></div>`}
 function render(){
-  $('#main').innerHTML={today,watch,houses,groups,tg,else:els}[tab]();
+  $('#main').innerHTML={today,watch,history,houses,groups,tg,else:els}[tab]();
   if(!sel){const f=(tab==='watch'?D.watch:D.today).find(x=>['confirm','watch','place','absorbed'].includes(x.cls))||D.today[0];sel=f&&f.sym}
-  $('#side').innerHTML=['today','watch','groups'].includes(tab)?drawer(bySym(sel)):tab==='houses'?houseDrawer():'';
+  $('#side').innerHTML=['today','watch','groups','history'].includes(tab)?drawer(bySym(sel)):tab==='houses'?houseDrawer():'';
   bind();
   const nz=document.getElementById('nz');if(nz)nz.onclick=()=>{noise=!noise;render()};
+  document.querySelectorAll('#hn button').forEach(b=>b.onclick=()=>{hN=+b.dataset.v;render()});
+  document.querySelectorAll('#hp button').forEach(b=>b.onclick=()=>{hP=b.dataset.v;render()});
   document.querySelectorAll('#wf button').forEach(b=>b.onclick=()=>{wf=b.dataset.v;render()});
   document.querySelectorAll('a.gs').forEach(a=>a.onclick=e=>{e.preventDefault();sel=a.dataset.s;render()});
   document.querySelectorAll('tr[data-h]').forEach(t=>t.onclick=()=>{hsel=+t.dataset.h;render()});
