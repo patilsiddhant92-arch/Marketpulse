@@ -8,12 +8,14 @@ We design one tab at a time. We lock each tab's spec before we write production 
 | [00-decisions-log.md](00-decisions-log.md) | Every decision, by date, with the reason | Running |
 | [01-redesign-overview.md](01-redesign-overview.md) | Goals, competitor benchmark, gaps, tab map, build principles | Agreed |
 | [02-tab1-pulse.md](02-tab1-pulse.md) | Tab 1 **Pulse** (was Desk / Overview): full spec | **Locked 2026-10-09** |
-| [03-tab-history-lab.md](03-tab-history-lab.md) | New tab **History Lab**: study how today's setup played out in the past | Draft, to schedule |
+| [03-tab-history-lab.md](03-tab-history-lab.md) | History Lab draft, now merged into 10-tab-research.md | Merged |
 | [04-writing-style.md](04-writing-style.md) | House style for all commentary (plain English, STE-inspired) | Agreed |
 | [05-data-gaps.md](05-data-gaps.md) | Data that the specs need but the pipeline lacks or gets wrong | Open |
 | [06-tab2-setups.md](06-tab2-setups.md) | Tab 2 **Setups / Screener**: discussion rounds + locked spec | **Locked 2026-10-09** |
 | [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, evidence, rounds 1–3, mockup, stock heatmap | Mockup v1, ready to lock |
 | [08-tab-deals.md](08-tab-deals.md) | Deals: audit, 2.5-year evidence study, rounds 1–2, mockup v1.2 | Mockup v1.2, ready to lock |
+| [09-tab-charts.md](09-tab-charts.md) | Charts as a TradingView-style charting tool (lists, event candles, EMAs, Darvas, RSI divergence, volume candles, tools) | Round 1 |
+| [10-tab-research.md](10-tab-research.md) | Research merged with History Lab: regime + analogs, what happened next, before big moves, index study, scorecard | Round 1 |
 | mockups/tab-sector-intel.html | Sector Intel mockup (board, chart grid, group panel) | v1 |
 | mockups/stock-heatmap.html | TradingView-style stock heatmap (home: Sector Intel or Pulse, undecided) | v1 |
 | mockups/tab-deals.html | Deals mockup: Today, Watch, History, Houses, By group, Telegram, In other tabs | v1.2 |
@@ -29,10 +31,9 @@ We design one tab at a time. We lock each tab's spec before we write production 
 2. Setups / Screener — **done**
 3. Sector Intel (Groups) — **mockup done**, lock pending
 4. Deals — **mockup done**, lock pending
-5. Plan + Journal
-6. Charts / Stock 360
-7. Research
-8. History Lab (new, from the Pulse round)
+5. Charts (charting tool; Stock 360 becomes its side panel) — **round 1**
+6. Research (merged with History Lab) — **round 1**
+7. Plan + Journal — **on hold** (Siddhant, 2026-10-09)
 
 ## Standing rules (apply to every tab)
 - Stock lists show only stocks with market cap ≥ ₹1,000 Cr.

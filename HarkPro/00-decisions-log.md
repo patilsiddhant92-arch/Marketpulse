@@ -73,3 +73,9 @@ Newest at the bottom. Each line: date · decision · reason.
 
 ## 2026-10-09 — Repo hygiene
 - Hark's work lives only on branch `hark/harkpro`, in `HarkPro/` (renamed from `hark/`). `main` was reset to Siddhant's 56a58b8 and stays untouched. Hark never pushes to main.
+
+## 2026-10-09 — Charts and Research round 1
+- Plan + Journal on hold.
+- Charts becomes a charting tool only: symbol search + lists from the watchlist, Deals, Sector Intel, Screener, peers and pasted TV text. One global chart setting with candle/line/volume candles, event-coloured candles, 10/20/200 EMA, the Pine Darvas box, a volume pane, and RSI with divergence lines. More tools are proposed. Stock 360 is proposed as a side panel (to confirm).
+- Research and History Lab merged into one tab with 5 views: Market now vs then (regime incl. choppy + analogs), What happened next, Before the big moves (D/W/M), Index study, Scorecard. Pre-move watch is cut as its own view.
+- Studies need the 5-year archive (the repo has about 18 months).
