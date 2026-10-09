@@ -107,3 +107,15 @@ Parity port of the proven scanner: trigger in the last N sessions, EMA stack, wi
 | Risk | Event chips (results soon, deals, surveillance) | security_events (ingestion pending), deals |
 
 Default view shows about 12 columns: tags, symbol, 52W-high distance, 10 EMA distance, RS 63D, risk %, tightness, delivery streak, turnover 1W×, group + state, chips. The other blocks open as column groups.
+
+## Round 4 — Hark's further proposals (2026-10-09, awaiting picks)
+1. **Base rate per row**: past results of similar setups (same screener, tightness band, group state, market mood) → hit rate and median R. Source: signal_outcomes.
+2. **Near-miss list**: stocks that fail exactly one gate, with the gate named. Keeps the strict Squeeze while showing what is about to qualify.
+3. **Why dropped**: for each stock that left since yesterday, the rule that broke.
+4. **Room to run**: distance from trigger to the nearest overhead supply (prior swing high / high-volume zone).
+5. **Stock character**: this symbol's own past breakout follow-through and failed-breakout count (6M).
+6. **Execution checks**: price band (5%/10% circuit), F&O ban, ex-date or results within N sessions, ASM/GSM, pledge (security_risk_daily, corporate_actions).
+7. **Size from risk and liquidity**: qty = risk budget ÷ (trigger − stop), capped at a % of 20D ADV.
+8. **Hand-off**: export triggers as a TradingView alert list / GTT sheet; "Add to Plan" sends trigger, stop, qty.
+9. **Weekly check**: tight weekly closes and weekly position vs the 10-week line.
+10. **Concentration warning**: too many picks from one group (needs Plan positions).
