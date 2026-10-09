@@ -1,0 +1,30 @@
+trait,n,low_third_%,high_third_%,lift,better_when
+B: 50d range %,254,5.9,22.4,1.58,high
+W: 10W above 30W %,254,21.2,5.9,1.49,low
+D: % above 20 EMA,254,5.9,20.0,1.41,high
+D: 50 EMA above 200 EMA %,254,20.0,9.4,1.41,low
+M: % above 10M EMA,252,19.0,10.7,1.34,low
+W: 30W MA rising (13w slope %),254,15.3,18.8,1.33,high
+B: ATR% vs its 50d avg,254,14.1,18.8,1.33,high
+I: template checks gained 1M,254,9.4,18.8,1.33,high
+I: trend-template checks (of 8),254,10.6,18.8,1.33,high
+A: accumulation minus distribution weeks (13w),254,18.8,11.8,1.33,low
+D: % above 50 EMA,254,8.2,18.8,1.33,high
+B: days to lift from low,254,18.8,5.9,1.33,low
+D: % above 52W low,254,7.1,18.8,1.33,high
+D: % above 200 EMA,254,18.8,10.6,1.33,low
+D: RSI 14,254,18.8,12.9,1.33,low
+W: weekly RSI,254,18.8,8.2,1.33,low
+I: 200 EMA slope 1M %,239,18.8,8.8,1.32,low
+W: % above 30W MA,254,17.6,10.6,1.25,low
+M: 6M return %,254,16.5,10.6,1.16,low
+A: up/down volume 50d,254,16.5,14.1,1.16,low
+W: % above 10W EMA,254,5.9,16.5,1.16,high
+A: delivery % vs 6M avg,253,15.3,13.1,1.08,low
+A: traded value 20d vs 6M,254,14.1,10.6,1.0,low
+A: up/down volume 13w,254,14.1,11.8,1.0,low
+W: higher weekly lows (of 8),254,12.9,11.8,0.91,low
+M: 12M return %,178,8.3,11.9,0.84,high
+D: % from 52W high,254,11.8,9.4,0.83,low
+I: RS change 1M,112,10.5,8.1,0.74,low
+I: RS percentile now,171,7.0,8.8,0.62,high

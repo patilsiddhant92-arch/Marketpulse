@@ -1,0 +1,32 @@
+diff --git a/Scripts/derived/setup_daily.py b/Scripts/derived/setup_daily.py
+index 38d3289..d36c2e2 100644
+--- a/Scripts/derived/setup_daily.py
++++ b/Scripts/derived/setup_daily.py
+@@ -64,7 +64,7 @@ SYMBOL_CHUNK_ROWS = 150_000  # indicator rows per symbol chunk (memory bound; th
+ INDICATOR_COLUMNS = (
+     "open_price", "high_price", "low_price", "close_price", "volume", "ema_10", "ema_20", "ema_200",
+     "rvol", "avg_volume_20d", "avg_traded_value_cr_20d", "turnover_cr", "delivery_pct", "avg_delivery_pct_20d",
+-    "rs_percentile", "away_52w_high_pct", "atr_pct", "band_remarks",
++    "rs_percentile", "away_52w_high_pct", "atr_pct", "band_remarks", "series",
+ )
+ 
+ OUTPUT_COLUMNS = [
+@@ -125,8 +125,16 @@ def _pool(ind: pd.DataFrame, master: pd.DataFrame | None, reference: pd.DataFram
+         ok &= mcap[rows] >= POOL["min_mcap"]
+         m = clean_symbols(master.copy()).drop_duplicates("symbol", keep="last").set_index("symbol")
+         band = asof_reference(sub, reference, "price_band")
+-        if "band" in m.columns:
+-            band = band.where(band.notna(), sym.map(pd.to_numeric(m["band"], errors="coerce")))
++        # No point-in-time band (reference starts Jul 2026): never back-fill today's band into history.
++        # Use the series traded that day instead: BE/BZ (trade-to-trade) -> 5%; anything else unknown (passes).
++        # Today's master band is used only on the master's own date. (HarkPro Research 1c look-ahead fix.)
++        if "series" in sub.columns:
++            ser = sub["series"].astype("object").fillna("").str.upper()
++            band = band.where(band.notna(), pd.Series(np.where(ser.isin(["BE", "BZ"]), 5.0, np.nan), index=sub.index))
++        if "band" in m.columns and "latest_price_date" in m.columns:
++            last = pd.to_datetime(sym.map(m["latest_price_date"]), errors="coerce")
++            on_master_day = pd.to_datetime(sub.index if isinstance(sub.index, pd.DatetimeIndex) else sub["trade_date"]) >= last
++            band = band.where(band.notna() | ~np.asarray(on_master_day), sym.map(pd.to_numeric(m["band"], errors="coerce")))
+         ok &= (band.fillna(20.0) > POOL["min_band"]).to_numpy(dtype=bool)
+         if "band_remarks" in m.columns:
+             remarks = remarks.where(remarks.notna(), sym.map(m["band_remarks"]))

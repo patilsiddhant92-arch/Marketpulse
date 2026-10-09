@@ -197,3 +197,55 @@ Presets use the exact rules from `App/services/screener.py`. A "fresh" fire mean
   - Exit test: 10 vs 20 vs 50 EMA, and the Darvas box low.
   - Pre-move traits vs matched controls (View 3).
   - Out-of-sample on the 5-year archive.
+
+## 13. Round 1d: what separates a runner from a fizzle (multi-timeframe, weeks/months) (2026-10-10)
+Siddhant: one signal on one day isn't enough. Study EMA position, weekly and monthly structure, accumulation over weeks/months, and improvement.
+The scripts are `tools/bigmove_study/premove.py` + `premove_split.py`.
+
+**Design (professional "model book" method, with controls)**
+- Event: a ≥ ₹1,000 Cr stock first closes 20% above its 120-session low (an *early lift*, the moment you would notice it).
+- Events run Nov 2024–Feb 2026: 756 in all, 156 runners and 600 fizzles.
+  - Runner: +50% within 120 sessions.
+  - Fizzle: never +15%.
+  - Base runner rate: 20.6%.
+- 30 traits, measured at the event close:
+  - **D**aily: EMA 20/50/200 position, RSI, distance to 52W high/low.
+  - **W**eekly: 10W/30W position + slope, weekly RSI, higher weekly lows.
+  - **M**onthly: 10M EMA, monthly RSI, 6M/12M return.
+  - **A**ccumulation over 10–13 weeks: up/down volume, accumulation − distribution weeks, delivery vs 6M, traded value vs 6M.
+  - **I**mprovement: RS now/1M/3M change, template checks and gain, 200 EMA slope.
+  - **B**ase: 50d range, ATR vs avg, days from low.
+
+**Findings**
+1. **Two different families. Don't mix them.**
+   - *Turnaround lifts* (below the 200 EMA): 329 events, 25.8% runners. Beaten-down, deep below the 30W/10M averages, and a fast, forceful lift.
+   - *Trend lifts* (above the 200 EMA): 254 events, 14.2% runners. In this window the turnaround family produced more runners, which a pure Minervini screen never sees.
+2. **Force of the lift matters in both.** Top vs bottom third of the 50-day range: 42.7% vs 10.0% runners (turnaround), 22.4% vs 5.9% (trend). Fewer days from the low also helps.
+3. **Inside the trend family, the profile is *early, not extended*.**
+   - The 10W only a little above the 30W (21.2% vs 5.9% when far above), with the 30W rising.
+   - Close well above the 20 EMA (20.0% vs 5.9%).
+   - Trend-template checks rising over the last month (18.8% vs 9.4%).
+4. **The accumulation counts were weak in this sample.** Up/down volume, accum − distribution weeks and delivery vs 6M gave lifts of only 1.1–1.37×, and often the "wrong" side (runners had *less* visible accumulation). Silent accumulation as measured from EOD volume/delivery is not visible here. It may need deals, shareholding changes, or a longer window.
+5. **Regime dominates.** Runner rate by quarter of the event:
+   - 2025 Q1: 40.0% (the March 2025 bottom)
+   - 2026 Q1: 30.5%
+   - 2025 Q3: 7.5%
+   - 2024 Q4: 8.5%
+   The same chart is worth 4–5× more in a good tape, so this ties to the regime quadrant in §11.
+6. **Out-of-sample check.**
+   - A 10-trait count was picked on Nov 2024–Jun 2025 and tested on Jul 2025–Feb 2026 (250 events, base 18.4%).
+   - Score 0–3: 13.2%. Score 6–7: 33.3%. Score 8–10: 28.6%.
+   - About 1.6–1.8× the base rate, but the picked traits mostly describe the *turnaround* family. Needs the 5-year archive before anything is locked.
+
+**Caveats**
+- One 2-year sample with a crash-and-recovery inside it, and overlapping windows.
+- A +50% target favours volatile, beaten-down stocks. The next round should measure moves in ATR units and vs the market.
+
+**Proposed Research View 3 ("Before the big moves"), revised**
+- Two tabs: *Trend lifts* and *Turnaround lifts*. Each shows:
+  - the trait profile (runner vs fizzle medians);
+  - today's early lifts scored by trait count;
+  - the regime quadrant as a multiplier.
+- Case study per stock (section 12): a D/W/M strip showing which traits were on in the 13 weeks before the lift, plus the entry ladder.
+
+**Desk look-ahead fix**: `HarkPro/patches/setup_daily-band-lookahead.patch`. Before the reference band exists, it uses the series traded that day (BE/BZ → 5%, else unknown) and never back-fills today's band. The main app is not edited (HarkPro-only rule). Apply it, then rebuild setup_daily.
