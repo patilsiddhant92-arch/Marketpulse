@@ -58,3 +58,4 @@ Newest at the bottom. Each line: date · decision · reason.
 ## 2026-10-09 — Deals round 1
 - Audit + 2-year evidence study in 08-tab-deals.md. A deal buy on its own isn't a signal. It confirms a strong chart (+3.1% vs +0.9% for the strong chart alone). Placements are positive (+1.9%, 65%). Churn and poor-record houses are reliable warnings. A good house record does not persist.
 - Proposed: 3 views (Today / Building / Houses), evidence-based verdict chips, out-of-sample house grades, equal-weight benchmark, NSE CSV backfill. Waiting on feedback.
+- Round 1b (study2.py): the deal price acts as a level. Holding it for 3 sessions on a strong chart = +5.2%; absorbed distribution +1.8%; placement + strong chart +2.6% (76%); quiet-day churn −3.7%. Building view becomes Deal watch (holding / lost / reclaimed).

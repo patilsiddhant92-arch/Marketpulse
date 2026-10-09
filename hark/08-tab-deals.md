@@ -80,3 +80,37 @@ Caveats: about 2 years and one market regime. Overlapping windows and same-day c
    - Industry deal count joins Sector Intel as a context column (the parked item).
    - Stock360 gets the deal timeline.
 6. **Readout example**: "SBI MF and HDFC MF took 2.1 crore shares from the promoter at ₹412, 0.8% under the close. Placements like this beat the market about 2 in 3 times over the next month."
+
+## 4. Round 1b: what can we do better (study2.py, same data and method)
+Question: does price action around the deal add an edge? The confirmation tests enter at the close k sessions after the deal and measure the next 20 sessions against the market.
+
+| Reading | n | vs market T+20 | Beat % | t |
+|---|---|---|---|---|
+| Net buy, enter next open (base) | 587 | +0.2% | 46% | 0.4 |
+| Net buy, close T+3 **above** buy price | 328 | +1.0% | 47% | 1.4 |
+| Net buy, close T+3 **below** buy price | 265 | −1.1% | 42% | −1.3 |
+| **Net buy + strong chart, T+3 above buy price** | 40 | **+5.2%** | 60% | 3.0 |
+| **Placement + strong chart** | 115 | **+2.6%** | **76%** | 4.4 |
+| Placement at ≥ 3% discount / within 3% | 19 / 363 | +1.7 / +1.9% | 58 / 65% | |
+| **Distribution, T+3 back above sell price** (absorbed) | 450 | **+1.8%** | 52% | 2.7 |
+| Distribution, T+3 below sell price | 379 | −0.6% | 43% | −0.9 |
+| Net buy after a prior 1M of +10..+30% | 154 | +1.8% | 49% | 1.6 |
+| Net buy after > +30% (extended) / < −10% (falling) | 62 / 81 | −1.7 / −2.1% | 37 / 43% | |
+| Net buy + delivery ≥ 1.5× its 20D average | 97 | +1.2% | 54% | 1.0 |
+| Net buy + delivery below its 20D average | 203 | −0.6% | 43% | −0.6 |
+| Deal-day candle (close location, day change) | | about 0 | | |
+| Churn on a quiet day (RVOL < 3) | 1,203 | **−3.7%** | 35% | −8.9 |
+| Churn on a hype day (RVOL ≥ 3) | 2,803 | −1.2% | 39% | −4.6 |
+
+**What this adds**
+1. **The deal price is a level.** Whether price holds it over the next 3 sessions separates good deals from bad ones by about 2 pts. Strong chart + holding = +5.2%. So don't act on the deal night: put it on a 3-session watch.
+2. **Absorbed distribution** (price back above the sellers' price) is a positive, not a warning.
+3. **Placement + strong chart** is the best single reading (76% beat the market).
+4. **Context filters**: skip buys after a > 30% month or a falling knife. A delivery spike helps a little. The deal-day candle tells you nothing.
+5. **Quiet-day churn** is the strongest negative (−3.7%).
+
+**Proposal changes**
+- **Building → Deal watch**: every deal of the last 10 sessions with its deal price drawn as a level. The status reads "holding / lost / reclaimed" with sessions counted, and the verdict upgrades after T+3.
+- Verdict chips gain **Holding deal price**, **Absorbed** and **Extended**.
+- Charts / Stock360 draw buy/sell deal prices as horizontal lines.
+- Next data source to test: NSE insider (PIT/SAST) disclosures. Promoter open-market buying is a different signal from bulk/block deals.
