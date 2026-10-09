@@ -1,0 +1,75 @@
+# Tab 2 — Setups / Screener (discussion, opened 2026-10-09)
+
+Status: **discussion**. No code until the spec is locked.
+
+## Siddhant's screeners (his words, condensed)
+1. **Darvas Squeeze** — the candle sits between the Darvas top box and the 10 EMA. It may cut either line, but if it is in the box, the stock must be on the list.
+2. **Darvas 10 EMA** — OHLC above the 10 EMA. Case 1: price retraces to the 10 EMA. Case 2: the 10 EMA catches up to price.
+3. **VCP** — based on Manas Arora's teaching (X and YouTube). Current logic needs work.
+4. **Momentum** — the current scanner, with sector and industry leaders from the watchlist. Copy stocks by bucket, industry, sector.
+Tables must show valuable data.
+
+## Features to keep from the current app
+- Chart with more data, kept clean: coloured candles for events and deals, Darvas box, 10 and 20 EMA.
+- Basic drawing tools: lines, Fibonacci (TradingView-like).
+- RSI with all divergence cases on price vs RSI.
+- Chart grid, synced, for the stocks in the screener.
+- Copy watchlist in TradingView format (global).
+- Symbol click opens TradingView.
+- RS score on TradingView.
+- Peer view: show a better stock in the same group when there is one.
+
+## Audit: current logic vs Siddhant's definition (data as of 2026-08-13)
+
+### Darvas Squeeze (`Scripts/darvas_squeeze.py::evaluate_squeeze_bar`, params `Scripts/desk_contract.py::DARVAS`)
+Box: Pine Darvas, `boxp=5`. Current membership needs ALL of:
+| Gate | Current rule | In Siddhant's definition? |
+|---|---|---|
+| Close in zone | 10 EMA × 0.998 ≤ close ≤ top × 1.002 (wicks may pierce) | Yes |
+| Squeeze width | (top − 10 EMA) / top ≤ 5% | No |
+| Distance to top | close within 5% of top | No |
+| Candle range | (high − low) / close ≤ 4% | No |
+| Dry volume | RVOL ≤ 1.0 | No |
+| Rising 10 EMA | 10 EMA today > yesterday | No |
+| Trend | 10 EMA ≥ 20 EMA × 0.995 | No |
+| Pool | mcap ≥ ₹1,000 Cr, ADV ≥ ₹3 Cr, band > 5%, no GSM, close > 200 EMA | Partly (₹1,000 Cr rule) |
+| Persistence | stays listed 5 sessions if the coil holds | No |
+
+Counts on 2026-08-13 (≥ ₹1,000 Cr, above 200 EMA, valid box: 856 stocks):
+- close inside the zone: **342**
+- any part of the candle touches the zone: **556**
+- current queue: **120** (111 of them have close in zone; the rest are persistence carry-overs)
+- the 5% squeeze-width gate alone removes 197 of the 342.
+
+Conclusion: the current logic is **much stricter** than the stated definition.
+
+### Darvas 10 EMA (`classify_darvas_10ema_frame`)
+Needs a rising 10 EMA and close > 10 EMA (wicks may undercut). Three flavours:
+- **Pullback** = Siddhant's case 1. Bar touches the 10 EMA, |distance| ≤ 3.5%, RVOL ≤ 1.0.
+- **Catch-up** = Siddhant's case 2. Price within 5% of its 5-day high close, 1.5–12% above the 10 EMA, RVOL ≤ 2.2, gap to the EMA shrinking.
+- **Trace-back** = not in Siddhant's definition. Touched the 10 EMA in the last 8 sessions, then rose 0.3–18%.
+Also: stocks already in Squeeze are removed, and tightening squeezes (≤ 8%) are skipped. No Darvas box condition is used.
+Current queue on 2026-08-13: 284.
+
+### VCP (`Scripts/minervini_geometry.detect_contractions` + `Scripts/vcp.py::VCP`)
+Fractal swings over 150 sessions, ≥ 2 contractions with strictly shrinking depth, close inside the last contraction. Gates: close ≥ ₹30, within 25% of the 52W high, 20D avg volume ≥ 100k. Volume dry-up = 3D / 20D volume. Queue: 41.
+
+### Momentum (`App/services/momentum.py`)
+Parity port of the proven scanner: trigger in the last N sessions, EMA stack, within 25% of 52W high, ≥ 50% above 52W low, buckets by distance from 10 EMA (0–2 / 2–5 / 5–10 / 10%+), TV export with `###bucket` sections, sector/industry leaders. Keep as is.
+
+## Open questions for Siddhant
+1. Squeeze "in box": close inside the zone (342 stocks), or any part of the candle (556)?
+2. Squeeze extra gates (width ≤ 5%, RVOL ≤ 1, range ≤ 4%, rising 10 EMA): drop them as filters and keep them as a tightness score and columns?
+3. 10 EMA: keep or drop Trace-back? "OHLC above 10 EMA": the whole bar (low ≥ 10 EMA), or close above with the wick allowed to touch? Should the name "Darvas" mean a box condition (for example price above the last box top)?
+4. VCP: which Manas Arora videos/posts? Hark can pull transcripts and draft rules from them.
+
+## Hark's proposals (to discuss)
+- **One board, tags per screener.** Each stock shows once with tags (SQZ, 10E-PB, 10E-CU, VCP, MOM). Stocks in 2+ screeners rank higher (confluence).
+- **Columns that help a decision**: trigger, stop, risk % to stop, risk in ADR units, ADR%, RS rating 1–99 + RS-line-at-high flag, group rank + group mood, tightness (squeeze width, range, volume dry-up), delivery vs own 20D habit, distance to 52W high, days in setup, New / Active / Returning, event chips (results in ≤ 10 sessions is a warning), and the screener's past hit rate in today's mood band.
+- **Scan count history**: how many stocks pass each screener per day, as a chart. A rising squeeze count is a market signal on its own.
+- **Peer swap**: flag when a stock in the same industry has a higher RS, a valid setup and a tighter stop.
+- **Review flow**: keyboard J/K through the chart grid, mark Reviewed / Plan / Skip, notes.
+- **Charts**: lightweight-charts v5 is already in the app. Drawing tools (trend line, horizontal, Fibonacci) can be built as its plugins. The full TradingView charting library needs a licence application.
+- **RSI divergence**: four cases: regular bullish, regular bearish, hidden bullish, hidden bearish. Detect with confirmed pivots, so no repainting.
+- **RS on TradingView**: TradingView cannot read MarketPulse data. Options: a Pine script for the RS line vs Nifty 500 plus an approximate IBD-style rating, or put the RS rating into the TV watchlist section names.
+- **TV export everywhere**: one global "Copy for TradingView" with grouping by bucket / screener / sector / industry.

@@ -31,3 +31,7 @@ Newest at the bottom. Each line: date · decision · reason.
 - Mood stays one score with a direction qualifier (for example "Strong, and cooling fast"). Reason: Siddhant accepted the mockup as it was. We can split it into Backdrop and Momentum later if the single score confuses.
 - As-of date picker (replay any past session) is in the spec. Reason: it follows from "use history to the full". Can be dropped from v1 if it slows the build.
 - Next round: Tab 2, Setups / Screener.
+
+## 2026-10-09 — Tab 2 opened
+- Siddhant listed his four screeners (Darvas Squeeze, Darvas 10 EMA, VCP per Manas Arora, Momentum) and the chart/TV features to keep. Audit and questions in `06-tab2-setups.md`.
+- Finding: the current Squeeze logic is much stricter than his definition (120 listed vs 342 with close in zone on 2026-08-13).

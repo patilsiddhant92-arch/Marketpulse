@@ -11,6 +11,7 @@ We design one tab at a time. We lock each tab's spec before we write production 
 | [03-tab-history-lab.md](03-tab-history-lab.md) | New tab **History Lab**: study how today's setup played out in the past | Draft, to schedule |
 | [04-writing-style.md](04-writing-style.md) | House style for all commentary (plain English, STE-inspired) | Agreed |
 | [05-data-gaps.md](05-data-gaps.md) | Data that the specs need but the pipeline lacks or gets wrong | Open |
+| [06-tab2-setups.md](06-tab2-setups.md) | Tab 2 **Setups / Screener**: audit of current logic, open questions, proposals | Discussion |
 | mockups/tab1-pulse.html | Clickable Pulse mockup on real data (open in a desktop browser) | v2 |
 | mockups/redesign-v1-workflow.html | First workflow-first mockup (Brief / Setups / Plan / Review) | Reference |
 | tools/pulse_mockup/ | Script that rebuilds the Pulse mockup from `Database/marketpulse.duckdb` | Prototype |
