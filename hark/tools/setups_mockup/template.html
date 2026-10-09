@@ -1,0 +1,233 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MarketPulse · Setups (mockup)</title>
+<style>
+:root{--bg:#0b0d12;--panel:#12151d;--panel2:#171b25;--line:#232838;--tx:#e7eaf0;--mut:#8a93a6;--dim:#5d6578;--up:#22c55e;--dn:#ef4444;--warn:#f59e0b;--acc:#7c9cff;--r:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1500px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.brand{display:flex;align-items:baseline;gap:10px}.brand b{font-size:20px}.brand span{color:var(--mut);font-size:12px}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px;flex-wrap:wrap}
+.seg button{background:none;border:0;color:var(--mut);padding:5px 9px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px}
+.seg button.on{background:var(--panel2);color:var(--tx);box-shadow:inset 0 0 0 1px var(--line)}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:9px;padding:6px 10px;cursor:pointer;font:inherit;font-size:12px}
+.btn:hover{border-color:var(--acc)}select.btn{padding:5px 6px}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.card h3{margin:0 0 4px;font-size:13px;font-weight:600}.sub{color:var(--mut);font-size:12px;margin-bottom:8px}
+.brief{display:grid;grid-template-columns:1.3fr 1fr;gap:16px}@media(max-width:1000px){.brief{grid-template-columns:1fr}}
+.say{font-size:14px;line-height:1.6}.say p{margin:0 0 5px}.say .do{margin-top:8px;padding:9px 12px;background:var(--panel2);border-left:3px solid var(--acc);border-radius:8px}
+.cnt{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.cnt div{background:var(--panel2);border-radius:10px;padding:8px}
+.cnt .v{font-size:20px;font-weight:700}.cnt .l{color:var(--mut);font-size:11px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{color:var(--mut);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;text-align:right;padding:6px 5px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;background:var(--panel);cursor:pointer}
+th:hover{color:var(--tx)}th.l,td.l{text-align:left}
+td{padding:6px 5px;text-align:right;border-bottom:1px solid #1a1f2c;white-space:nowrap}
+tbody tr{cursor:pointer}tbody tr:hover{background:#151a25}tr.sel{background:#1a2133!important}
+tr.res td{background:rgba(245,158,11,.10)}tr.res td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}.warn{color:var(--warn)}.dim{color:var(--dim)}
+.tag{display:inline-block;font-size:10px;padding:1px 5px;border-radius:5px;margin-right:3px;font-weight:600}
+.t-SQZ{background:#0f3040;color:#7dd3fc}.t-10E{background:#12361f;color:#86efac}.t-VCP{background:#2b2350;color:#c4b5fd}.t-MOM{background:#3a2a10;color:#fcd34d}
+.chip{display:inline-block;font-size:10px;padding:1px 5px;border-radius:5px;margin-left:3px;background:#232a3b;color:#c9d2e6}
+.chip.deal{background:#2b2350;color:#c4b5fd}.chip.hi{background:#12361f;color:#86efac}.chip.band{background:#3a2a10;color:#fcd34d}.chip.risk{background:#3b1520;color:#fda4af}
+.gs{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:0}
+.gs.Favour{background:var(--up)}.gs.Neutral{background:#64748b}.gs.Caution{background:var(--dn)}
+.new{font-size:9px;font-weight:700;color:#67e8f9;margin-left:4px}
+.scroll{overflow:auto;max-height:640px}
+.layout{display:grid;grid-template-columns:1fr 520px;gap:12px}@media(max-width:1250px){.layout{grid-template-columns:1fr}}
+.colgroups label{font-size:12px;color:var(--mut);margin-right:10px;cursor:pointer}
+.spark{display:inline-block;vertical-align:middle}
+.grid9{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}@media(max-width:1000px){.grid9{grid-template-columns:1fr}}
+.mini{background:var(--panel2);border-radius:10px;padding:6px}.mini .t{display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px}
+svg text{fill:var(--mut);font-size:9.5px}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px;font-size:12px;margin-top:8px}.kv div span{color:var(--mut)}
+.note{font-size:11px;color:var(--dim)}.foot{color:var(--dim);font-size:11px;margin-top:10px;line-height:1.6}
+a.tv{color:var(--tx);text-decoration:none;font-weight:600}a.tv:hover{color:var(--acc)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1f2a44;color:#fff;padding:8px 14px;border-radius:9px;font-size:12px;display:none}
+</style></head><body><div class="wrap">
+<header>
+  <div class="brand"><b>Setups</b><span id="asof"></span></div>
+  <div class="ctl">
+    <div class="seg" id="qf"></div>
+    <div class="seg" id="gf"></div>
+    <select class="btn" id="tvby"><option value="scr">TV: by screener</option><option value="sec">TV: by sector</option><option value="ind">TV: by industry</option><option value="mom">TV: by momentum bucket</option></select>
+    <button class="btn" id="tvcopy">Copy for TradingView</button>
+  </div>
+</header>
+
+<div class="card brief">
+  <div><div class="sub">Read-out · as of the last close</div><div class="say" id="say"></div></div>
+  <div><div class="sub">How many stocks pass each screener today, against its own history</div><div class="cnt" id="cnt"></div>
+  <div class="note" style="margin-top:6px">Line = daily count since May 2024. Percentile = where today's count sits in that history.</div></div>
+</div>
+
+<div class="card" style="padding:10px 14px">
+  <div class="ctl" style="justify-content:space-between">
+    <div class="seg" id="view"><button data-v="board" class="on">Board</button><button data-v="grid">Chart grid</button><button data-v="near">Near-miss</button><button data-v="drop">Dropped</button></div>
+    <div class="colgroups" id="cg"></div>
+    <div class="ctl"><span class="note">Highlight rows with results within</span><select class="btn" id="resn" disabled><option>10 sessions</option></select><span class="note warn">results dates need event ingestion</span></div>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="card" id="main" style="padding:8px"></div>
+  <div class="card" id="detail"></div>
+</div>
+<div class="foot" id="foot"></div>
+</div><div class="toast" id="toast"></div>
+<script>
+const D=/*DATA*/null;
+const $=s=>document.querySelector(s);
+const f=(v,d=1,suf='')=>v==null?'<span class="dim">–</span>':(+v).toFixed(d)+suf;
+const sg=(v,d=1,suf='%')=>v==null?'<span class="dim">–</span>':`<span class="${v>0?'up':v<0?'dn':''}">${v>0?'+':''}${(+v).toFixed(d)}${suf}</span>`;
+const st={q:'All',g:'All',view:'board',sort:'score',dir:-1,sel:null,cols:{trade:false,strength:false,turnover:false,flow:false,character:false},page:0};
+const QK={SQZ:'darvas_squeeze','10E':'darvas_10ema',VCP:'vcp'};
+const tagk=t=>t.split(' ')[0];
+// ---- score: confluence + group + tightness + RS (display order only, the user picks) ----
+D.rows.forEach(r=>{
+  const ks=new Set(r.tags.map(tagk));r.k=[...ks];
+  r.score=ks.size*20+(r.gstate==='Favour'?15:r.gstate==='Caution'?-15:0)+(r.rsp||0)*0.3+(r.dstreak||0)*2-(r.risk||8)*1.5;
+  const b=r.k.filter(k=>QK[k]).map(k=>D.base[QK[k]+'|'+r.gstate]).filter(Boolean);
+  r.base=b.length?b.sort((a,c)=>c.win-a.win)[0]:null;
+});
+$('#asof').textContent=`as of ${D.asof} · ${D.rows.length} stocks · ≥ ₹1,000 Cr`;
+// ---- filters ----
+const qs=['All','SQZ','10E','VCP','MOM'];
+$('#qf').innerHTML=qs.map(q=>`<button data-q="${q}" class="${q==='All'?'on':''}">${q==='All'?'All screeners':q}</button>`).join('');
+$('#gf').innerHTML=['All','Favour','Neutral','Caution'].map(g=>`<button data-g="${g}" class="${g==='All'?'on':''}">${g==='All'?'All groups':g==='Favour'?'<span class="gs Favour"></span>Favour':g==='Caution'?'<span class="gs Caution"></span>Caution':'<span class="gs Neutral"></span>Neutral'}</button>`).join('');
+const CG={trade:'Trade',strength:'Strength',turnover:'Turnover',flow:'Group flow',character:'Character'};
+$('#cg').innerHTML='<span class="note">Column groups: </span>'+Object.entries(CG).map(([k,v])=>`<label><input type="checkbox" data-c="${k}"> ${v}</label>`).join('');
+document.querySelectorAll('#qf button').forEach(b=>b.onclick=()=>{st.q=b.dataset.q;st.page=0;document.querySelectorAll('#qf button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.querySelectorAll('#gf button').forEach(b=>b.onclick=()=>{st.g=b.dataset.g;st.page=0;document.querySelectorAll('#gf button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.querySelectorAll('#view button').forEach(b=>b.onclick=()=>{st.view=b.dataset.v;document.querySelectorAll('#view button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.querySelectorAll('#cg input').forEach(i=>i.onchange=()=>{st.cols[i.dataset.c]=i.checked;render()});
+const list=()=>{let L=D.rows.filter(r=>(st.q==='All'||r.k.includes(st.q))&&(st.g==='All'||r.gstate===st.g));
+  const k=st.sort;L.sort((a,b)=>{const x=val(a,k),y=val(b,k);if(x==null)return 1;if(y==null)return -1;return (x>y?1:x<y?-1:0)*st.dir});return L};
+const val=(r,k)=>k==='room'?(r.room==='Blue sky'?999:r.room):k==='base'?(r.base?r.base.win:null):k==='group'?({Favour:2,Neutral:1,Caution:0}[r.gstate]):k==='s'?r.s:r[k];
+// ---- read-out ----
+const ord=n=>n+(n%100>=11&&n%100<=13?'th':['th','st','nd','rd'][n%10]||'th');
+function pct(arr,v){const a=arr.map(x=>x[1]);return Math.round(a.filter(x=>x<=v).length/a.length*100)}
+function readout(){
+  const c=D.counts,n=q=>(c[q].at(-1)||[0,0])[1],med=q=>{const a=c[q].slice(-20).map(x=>x[1]).sort((x,y)=>x-y);return a[10]};
+  const fav=D.rows.filter(r=>r.gstate==='Favour').length,cau=D.rows.filter(r=>r.gstate==='Caution').length;
+  const multi=D.rows.filter(r=>r.k.length>=2).length;
+  const bF=D.base['darvas_squeeze|Favour'],bC=D.base['darvas_squeeze|Caution'];
+  const p=pct(c.darvas_squeeze,n('darvas_squeeze'));
+  $('#say').innerHTML=`<p>${n('darvas_squeeze')} stocks are in a Darvas squeeze. The 20-session median is ${med('darvas_squeeze')}. Today is at the ${ord(p)} percentile of its history.</p>
+  <p>${fav} of ${D.rows.length} setups sit in groups marked Favour. ${cau} sit in groups marked Caution.</p>
+  <p>In the past, new squeezes in Favour groups were up after 20 sessions ${bF.win}% of the time (median ${bF.med>0?'+':''}${bF.med}%). In Caution groups the figure was ${bC.win}% (median ${bC.med}%).</p>
+  <p>${multi} stocks pass two or more screeners.</p>
+  <div class="do"><b>What to do:</b> start with stocks that pass two or more screeners in Favour groups. Treat setups in Caution groups as watch-only.</div>`;
+  const nm={darvas_squeeze:'Darvas Squeeze',darvas_10ema:'Darvas 10 EMA',vcp:'VCP'};
+  $('#cnt').innerHTML=Object.keys(nm).map(q=>`<div><div class="l">${nm[q]}</div><div class="v">${n(q)}</div><div class="l">${ord(pct(c[q],n(q)))} pct · med 20D ${med(q)}</div>${sparkC(c[q])}</div>`).join('')+
+   `<div><div class="l">Momentum</div><div class="v">${D.mom_n}</div><div class="l">count history: pipeline to store</div></div>`;
+}
+function sparkC(a){const w=150,h=28,v=a.map(x=>x[1]),mx=Math.max(...v),mn=Math.min(...v);
+  const p=v.map((y,i)=>`${(i/(v.length-1)*w).toFixed(1)},${(h-(y-mn)/(mx-mn||1)*h).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" class="spark"><polyline points="${p}" fill="none" stroke="#7c9cff" stroke-width="1"/><circle cx="${w}" cy="${(h-(v.at(-1)-mn)/(mx-mn||1)*h).toFixed(1)}" r="2.5" fill="#fff"/></svg>`}
+// ---- board ----
+function tagHtml(t){return `<span class="tag t-${tagk(t)}">${t}</span>`}
+function chipHtml(r){return r.chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('')}
+function board(){
+  const L=list();const C=st.cols;
+  const H=[['s','Symbol','l'],['tags','Setups','l'],['group','Group','l'],['a52','52W hi'],['a10','10 EMA'],['rsp','RS pct'],['risk','Risk %'],['room','Room'],['r10','Tight'],['dstreak','Delivery'],['t5','Tov 1W×'],['base','Base rate'],
+   ...(C.trade?[['trig','Trigger'],['stop','Stop'],['riskadr','Risk÷ADR']]:[]),
+   ...(C.strength?[['rs21','RS 21D'],['rsp5','RS Δ5D'],['a50','50 EMA']]:[]),
+   ...(C.turnover?[['t1','Tov 1D×'],['t21','Tov 1M×'],['tov','Tov ₹Cr']]:[]),
+   ...(C.flow?[['gsh1','Grp share 1D'],['gsh5','1W'],['gsh21','1M'],['grank','Grp rank']]:[]),
+   ...(C.character?[['held','Breakouts'],['wk','Weekly']]:[]),['chips','Chips','l']];
+  let h=`<div class="scroll"><table><thead><tr>${H.map(([k,t,c])=>`<th class="${c||''}" data-k="${k}">${t}${st.sort===k?(st.dir<0?' ▾':' ▴'):''}</th>`).join('')}</tr></thead><tbody>`;
+  for(const r of L){
+    const cells={s:`<td class="l"><a class="tv" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(r.s)}" target="_blank" onclick="event.stopPropagation()">${r.s}</a>${r.status==='new'?'<span class="new">NEW</span>':''}<div class="note">${(r.ind||'').slice(0,26)}</div></td>`,
+     tags:`<td class="l">${r.tags.map(tagHtml).join('')}${r.sqz!=null?`<div class="note">squeeze ${r.sqz}% · ${r.age||0}d</div>`:r.vcp?`<div class="note">${r.vcp}</div>`:''}</td>`,
+     group:`<td class="l" title="${r.gwhy}"><span class="gs ${r.gstate}"></span>${r.gstate}<div class="note">${r.gwhy.split(':')[0].slice(0,24)}</div></td>`,
+     a52:`<td>${sg(r.a52)}</td>`,a10:`<td>${sg(r.a10)}</td>`,rsp:`<td>${f(r.rsp,0)}${r.rsp5?`<div class="note">${sg(r.rsp5,0,'')}</div>`:''}</td>`,
+     risk:`<td class="${r.risk>8?'warn':''}">${f(r.risk,1,'%')}</td>`,room:`<td>${r.room==='Blue sky'?'<span class="up">Blue sky</span>':f(r.room,1,'%')}</td>`,
+     r10:`<td>${f(r.r10,1,'%')}<div class="note">dry-up ${f(r.vdu,0,'%')}</div></td>`,
+     dstreak:`<td>${f(r.dp,0,'%')} <span class="mut">/${f(r.dp20,0)}</span><div class="note ${r.dstreak>=3?'up':''}">${r.dstreak}d above avg</div></td>`,
+     t5:`<td class="${r.t5>=1.5?'up':''}">${f(r.t5,2,'×')}</td>`,
+     base:`<td>${r.base?`${r.base.win}%<div class="note">med ${r.base.med>0?'+':''}${r.base.med}% · n ${r.base.n}</div>`:'<span class="dim">–</span>'}</td>`,
+     trig:`<td>${f(r.trig,1)}</td>`,stop:`<td>${f(r.stop,1)}</td>`,riskadr:`<td>${f(r.riskadr,2)}</td>`,
+     rs21:`<td>${sg(r.rs21)}</td>`,rsp5:`<td>${sg(r.rsp5,0,'')}</td>`,a50:`<td>${sg(r.a50)}</td>`,
+     t1:`<td>${f(r.t1,2,'×')}</td>`,t21:`<td>${f(r.t21,2,'×')}</td>`,tov:`<td>${f(r.tov,1)}</td>`,
+     gsh1:`<td>${sg(r.gsh1)}</td>`,gsh5:`<td>${sg(r.gsh5)}</td>`,gsh21:`<td>${sg(r.gsh21)}</td>`,grank:`<td>${f(r.grank,0)}<span class="mut">/${r.granks}</span></td>`,
+     held:`<td>${r.held} held · ${r.failed} failed</td>`,wk:`<td>${r.wk_above?'above 10W':'<span class="dn">below 10W</span>'}${r.wk_tight?' · tight':''}</td>`,
+     chips:`<td class="l">${chipHtml(r)}</td>`};
+    h+=`<tr data-s="${r.s}" class="${st.sel===r.s?'sel':''}${r.results?' res':''}">${H.map(([k])=>cells[k]).join('')}</tr>`;
+  }
+  h+='</tbody></table></div>';
+  $('#main').innerHTML=`<div class="sub" style="padding:4px 6px">${L.length} stocks · default order: screeners passed, group state, RS, delivery streak, risk. Click a header to sort. Click a symbol for TradingView, a row for the chart.</div>`+h;
+  document.querySelectorAll('#main th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(k==='tags'||k==='chips')return;st.dir=st.sort===k?-st.dir:-1;st.sort=k;render()});
+  document.querySelectorAll('#main tbody tr').forEach(tr=>tr.onclick=()=>{st.sel=tr.dataset.s;render()});
+}
+// ---- chart ----
+function chart(s,W,H,opt={}){
+  const c=D.charts[s];if(!c)return '<div class="note">No chart data.</div>';
+  const n=c.c.length,rsiH=opt.rsi?52:0,volH=opt.vol?26:0,ph=H-rsiH-volH-14;
+  const lo=Math.min(...c.l.filter(x=>x!=null),...c.bot.filter(x=>x!=null).slice(-30)),hi=Math.max(...c.h.filter(x=>x!=null));
+  const y=v=>(4+(hi-v)/(hi-lo||1)*(ph-8)).toFixed(1),bw=W/n,x=i=>(i*bw+bw/2).toFixed(1);
+  let g='';
+  // Darvas box segments (shaded while a top is in force)
+  for(let i=1;i<n;i++){if(c.top[i]==null)continue;let j=i;while(j+1<n&&c.top[j+1]===c.top[i]&&c.bot[j+1]===c.bot[i])j++;
+    if(j-i>=2)g+=`<rect x="${(i*bw).toFixed(1)}" y="${y(c.top[i])}" width="${((j-i+1)*bw).toFixed(1)}" height="${Math.max(1,y(c.bot[i])-y(c.top[i]))}" fill="rgba(124,156,255,.08)" stroke="rgba(124,156,255,.45)" stroke-width=".7"/>`;i=j;}
+  const line=(a,col)=>`<polyline fill="none" stroke="${col}" stroke-width="1.1" points="${a.map((v,i)=>v==null?'':`${x(i)},${y(v)}`).join(' ')}"/>`;
+  const dealSet=new Set(c.deal);
+  for(let i=0;i<n;i++){if(c.c[i]==null)continue;const upc=c.c[i]>=c.o[i];let col=upc?'#22c55e':'#ef4444';if(dealSet.has(i))col='#a78bfa';
+    g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(c.h[i])}" y2="${y(c.l[i])}" stroke="${col}" stroke-width="1"/><rect x="${(i*bw+bw*.18).toFixed(1)}" y="${y(Math.max(c.o[i],c.c[i]))}" width="${(bw*.64).toFixed(1)}" height="${Math.max(.8,Math.abs(y(c.o[i])-y(c.c[i])))}" fill="${upc&&!dealSet.has(i)?'none':col}" stroke="${col}" stroke-width=".9"/>`}
+  g+=line(c.e10,'#f59e0b')+line(c.e20,'#38bdf8');
+  const r=D.rows.find(z=>z.s===s);
+  if(r&&r.trig)g+=`<line x1="0" x2="${W}" y1="${y(r.trig)}" y2="${y(r.trig)}" stroke="#22c55e" stroke-dasharray="3 3" stroke-width=".8"/><text x="${W-2}" y="${y(r.trig)-2}" text-anchor="end">trig ${r.trig}</text>`;
+  if(r&&r.stop)g+=`<line x1="0" x2="${W}" y1="${y(r.stop)}" y2="${y(r.stop)}" stroke="#ef4444" stroke-dasharray="3 3" stroke-width=".8"/><text x="${W-2}" y="${+y(r.stop)+10}" text-anchor="end">stop ${r.stop}</text>`;
+  if(opt.vol){const mv=Math.max(...c.v),y0=ph+volH;for(let i=0;i<n;i++)g+=`<rect x="${(i*bw+bw*.2).toFixed(1)}" y="${(y0-c.v[i]/mv*volH).toFixed(1)}" width="${(bw*.6).toFixed(1)}" height="${(c.v[i]/mv*volH).toFixed(1)}" fill="${dealSet.has(i)?'#a78bfa':'#334155'}"/>`}
+  if(opt.rsi){const y0=ph+volH+8,ry=v=>(y0+(100-v)/100*rsiH).toFixed(1);
+    g+=`<rect x="0" y="${ry(70)}" width="${W}" height="${ry(30)-ry(70)}" fill="rgba(148,163,184,.06)"/>`+`<polyline fill="none" stroke="#c084fc" stroke-width="1" points="${c.rsi.map((v,i)=>v==null?'':`${x(i)},${ry(v)}`).join(' ')}"/>`;
+    c.bd.forEach(i=>g+=`<path d="M${x(i)},${+ry(c.rsi[i]||50)+9} l-3.5,5 h7z" fill="#22c55e"/>`);c.sd.forEach(i=>g+=`<path d="M${x(i)},${+ry(c.rsi[i]||50)-9} l-3.5,-5 h7z" fill="#ef4444"/>`);
+    g+=`<text x="2" y="${+ry(70)-1}">RSI 70</text><text x="2" y="${+ry(30)+9}">30</text>`}
+  g+=`<text x="2" y="${H-2}">${c.d[0]}</text><text x="${W-2}" y="${H-2}" text-anchor="end">${c.d[n-1]}</text>`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" data-s="${s}" data-n="${n}" class="ch">${g}<line class="xh" x1="-9" x2="-9" y1="0" y2="${H}" stroke="#94a3b8" stroke-width=".6"/></svg>`;
+}
+function detail(){
+  const r=D.rows.find(z=>z.s===st.sel)||list()[0];if(!r){$('#detail').innerHTML='';return}
+  const P=(D.peers[r.ind]||[]).filter(p=>p.s!==r.s);
+  const better=P.find(p=>p.tags.length&&p.rsp>(r.rsp||0)+10);
+  $('#detail').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline"><div><a class="tv" style="font-size:16px" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(r.s)}">${r.s}</a> <span class="mut">${r.name}</span></div><span>${f(r.close,2)} ${sg(r.chg,2)}</span></div>
+  <div style="margin:4px 0">${r.tags.map(tagHtml).join('')}${chipHtml(r)}</div>
+  ${chart(r.s,500,330,{rsi:true,vol:true})}
+  <div class="note">Box = Darvas box · <span style="color:#f59e0b">10 EMA</span> · <span style="color:#38bdf8">20 EMA</span> · <span style="color:#a78bfa">purple candle = bulk/block deal day</span> · ▲▼ RSI divergence (regular, from the pipeline). Drawing tools and hidden divergence come with the production chart.</div>
+  <div class="kv">
+   <div><span>Group</span><br><span class="gs ${r.gstate}"></span>${r.gstate} · ${r.ind||'–'}<br><span class="note">${r.gwhy}</span></div>
+   <div><span>Base rate</span><br>${r.base?`New setups like this, same group state: up after 20D ${r.base.win}% of the time, median ${r.base.med>0?'+':''}${r.base.med}% (n ${r.base.n})`:'Momentum-only: base rate not stored yet'}</div>
+   <div><span>Room to run</span><br>${r.room==='Blue sky'?'Trigger is at the 52W high: no overhead supply':r.room!=null?`${r.room}% from trigger to the 52W high`:'–'}</div>
+   <div><span>Stock character, 6M</span><br>${r.held} box breakouts held +5% · ${r.failed} failed back into the box</div>
+   <div><span>Delivery</span><br>${r.dp5.map(v=>f(v,0)).join(' · ')}% (last 5) · ${r.dstreak} days above own 20D avg</div>
+   <div><span>Turnover vs own 3M avg</span><br>1D ${f(r.t1,2,'×')} · 1W ${f(r.t5,2,'×')} · 1M ${f(r.t21,2,'×')}</div>
+   <div><span>Weekly</span><br>${r.wk_above?'Close above 10-week line':'Close below 10-week line'}${r.wk_tight?' · last 3 weekly closes within 2%':''}</div>
+   <div><span>Trade</span><br>Trigger ${f(r.trig,1)} · stop ${f(r.stop,1)} · risk ${f(r.risk,1,'%')} = ${f(r.riskadr,2)} ADR</div>
+  </div>
+  <h3 style="margin-top:12px">Peers in ${r.ind||'group'} · top RS</h3>
+  ${better?`<div class="say"><div class="do" style="font-size:12px"><b>${better.s}</b> has RS ${better.rsp} against ${f(r.rsp,0)}, and it is also on the board (${better.tags.join(', ')}). Compare before you choose.</div></div>`:''}
+  <table><thead><tr><th class="l">Peer</th><th>RS pct</th><th>52W hi</th><th>10 EMA</th><th class="l">On board</th></tr></thead><tbody>
+  ${P.map(p=>`<tr data-p="${p.s}"><td class="l"><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(p.s)}">${p.s}</a></td><td>${f(p.rsp,0)}</td><td>${sg(p.a52)}</td><td>${sg(p.a10)}</td><td class="l">${p.tags.map(tagHtml).join('')||'<span class="dim">–</span>'}</td></tr>`).join('')}</tbody></table>`;
+  document.querySelectorAll('#detail tr[data-p]').forEach(tr=>tr.onclick=()=>{if(D.rows.find(z=>z.s===tr.dataset.p)){st.sel=tr.dataset.p;render()}});
+}
+function grid(){
+  const L=list(),per=9,pages=Math.ceil(L.length/per);st.page=Math.min(st.page,pages-1);const S=L.slice(st.page*per,st.page*per+per);
+  $('#main').innerHTML=`<div class="ctl" style="justify-content:space-between;padding:4px 6px 8px"><span class="sub" style="margin:0">Page ${st.page+1} of ${pages} · ${L.length} stocks · J / K or the arrows to move · crosshair is synced across charts</span><span><button class="btn" id="pv">◀</button> <button class="btn" id="nx">▶</button></span></div>
+  <div class="grid9">${S.map(r=>`<div class="mini" data-s="${r.s}"><div class="t"><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(r.s)}">${r.s}</a><span>${r.tags.map(tagHtml).join('')}<span class="gs ${r.gstate}"></span></span></div>${chart(r.s,300,170,{})}<div class="note">RS ${f(r.rsp,0)} · 52W ${f(r.a52,1,'%')} · risk ${f(r.risk,1,'%')} · deliv ${r.dstreak}d</div></div>`).join('')}</div>`;
+  $('#pv').onclick=()=>{st.page=Math.max(0,st.page-1);render()};$('#nx').onclick=()=>{st.page=Math.min(pages-1,st.page+1);render()};
+  document.querySelectorAll('.mini').forEach(m=>m.onclick=e=>{if(e.target.tagName!=='A'){st.sel=m.dataset.s;detail()}});
+  document.querySelectorAll('#main svg.ch').forEach(sv=>{sv.onmousemove=e=>{const b=sv.getBoundingClientRect(),fx=(e.clientX-b.left)/b.width;
+    document.querySelectorAll('#main svg.ch').forEach(o=>{const vb=o.viewBox.baseVal,xx=(fx*vb.width).toFixed(1);const l=o.querySelector('.xh');l.setAttribute('x1',xx);l.setAttribute('x2',xx)})}});
+}
+document.addEventListener('keydown',e=>{if(st.view!=='grid')return;if(e.key==='j'||e.key==='ArrowRight'){st.page++;render()}if(e.key==='k'||e.key==='ArrowLeft'){st.page=Math.max(0,st.page-1);render()}});
+function near(){$('#main').innerHTML=`<div class="sub" style="padding:4px 6px">Darvas Squeeze near-miss: close is inside the box-to-10 EMA zone, and exactly one rule fails. ${D.near.length} stocks, tightest first.</div><div class="scroll"><table><thead><tr><th class="l">Symbol</th><th class="l">Group</th><th>Squeeze</th><th>Close</th><th>Box top</th><th class="l">Rule that fails</th></tr></thead><tbody>${D.near.map(r=>`<tr><td class="l"><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(r.s)}">${r.s}</a></td><td class="l mut">${r.ind||'–'}</td><td>${f(r.sq,1,'%')}</td><td>${f(r.close,1)}</td><td>${f(r.top,1)}</td><td class="l warn">${r.why}</td></tr>`).join('')}</tbody></table></div>`}
+function drop(){$('#main').innerHTML=`<div class="sub" style="padding:4px 6px">Left a screener since ${D.prev}, with the reason. ${D.dropped.length} stocks.</div><div class="scroll"><table><thead><tr><th class="l">Screener</th><th class="l">Symbol</th><th class="l">Why it left</th></tr></thead><tbody>${D.dropped.map(r=>`<tr><td class="l mut">${r.q}</td><td class="l"><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(r.s)}">${r.s}</a></td><td class="l ${r.why.startsWith('Broke')?'up':r.why.startsWith('Closed below')||r.why.startsWith('Hit')?'dn':''}">${r.why}</td></tr>`).join('')}</tbody></table></div>`}
+// ---- TradingView export (global) ----
+$('#tvcopy').onclick=()=>{const by=$('#tvby').value,L=list(),grp={};
+  L.forEach(r=>{let ks=by==='scr'?r.k:by==='sec'?[r.sec||'Unclassified']:by==='ind'?[r.ind||'Unclassified']:r.tags.filter(t=>t.startsWith('MOM')).map(t=>t.slice(4));ks.forEach(k=>(grp[k]=grp[k]||[]).push('NSE:'+r.s))});
+  const txt=Object.entries(grp).map(([k,v])=>'###'+k.replace(/[,\s]+/g,'_')+','+v.join(',')).join(',');
+  (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>toast(`Copied ${L.length} stocks in ${Object.keys(grp).length} sections`)).catch(()=>{prompt('Copy:',txt)})};
+function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',2200)}
+function render(){if(st.view==='board')board();else if(st.view==='grid')grid();else if(st.view==='near')near();else drop();detail()}
+readout();render();
+$('#foot').innerHTML=`Mockup built from the local DuckDB as of ${D.asof} (the committed data stops there). Screeners are the app's own: setup_daily (Darvas Squeeze, Darvas 10 EMA, VCP) and the momentum scanner with default settings. Group state uses Industry groups over all stocks: Favour = ≥ 60% above 50 EMA, beating the median industry over 21D, index above its 50 EMA; Caution = turnover share 5D avg below 85% of 20D avg while falling, or weak breadth and lagging over 63D. Base rate = new setups since May 2024, close-to-close 20 sessions later, split by the group state on the signal day. Room to run uses the 52W high as overhead supply (prototype). Results-date highlight, ex-date, ASM and pledge chips need the event tables, which are empty locally. RS vs MidSml400 63D is empty locally, so RS percentile is shown.`;
+</script></body></html>

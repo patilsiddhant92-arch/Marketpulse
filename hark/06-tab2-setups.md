@@ -1,6 +1,6 @@
 # Tab 2 — Setups / Screener (discussion, opened 2026-10-09)
 
-Status: **discussion**. No code until the spec is locked.
+Status: **LOCKED 2026-10-09** (spec at the end of this file, after the discussion rounds). Mockup: `mockups/tab2-setups.html`, built by `tools/setups_mockup/extract.py`.
 
 ## Siddhant's screeners (his words, condensed)
 1. **Darvas Squeeze** — the candle sits between the Darvas top box and the 10 EMA. It may cut either line, but if it is in the box, the stock must be on the list.
@@ -125,3 +125,65 @@ Default view shows about 12 columns: tags, symbol, 52W-high distance, 10 EMA dis
 - **Results within N sessions: highlight the whole row in the table**, not just a chip. Default N = 10 sessions (adjustable).
 - **"Act faster" is dropped**: no risk-based sizing, no TV alert/GTT hand-off, no concentration warning.
 - Items 1–6 and 9 (base rate, room to run, stock character, weekly check, near-miss, why dropped) were not rejected. They stay in the draft spec until Siddhant says otherwise.
+
+
+---
+# LOCKED SPEC — Tab 2 Setups (2026-10-09)
+
+## Purpose
+Siddhant's analysis tab. It shows every setup from his four screeners with the data needed to choose between them. He makes the pick. The tab does not size or place trades.
+
+## Screeners (calculations unchanged from the current app)
+| Screener | Source | Tag |
+|---|---|---|
+| Darvas Squeeze | `setup_daily` / `evaluate_squeeze_bar`, current strict gates (`DARVAS` in desk_contract) | `SQZ` |
+| Darvas 10 EMA | `classify_darvas_10ema_frame`. Cases: **Retrace** (Pullback + Trace-back) and **Catch-up**. Tier **T1** = whole bar above the 10 EMA. **T2** = wick undercuts the EMA, close back at or near it | `10E Retrace T1` and the like |
+| VCP | Rework to the Manas Arora rules in `research/manas-arora-vcp.md`. Hard gates first; backtest the thresholds marked [I] before locking them. Until then, the current VCP stays | `VCP` |
+| Momentum | `App/services/momentum.py`, parity. Keeps the 20D avg volume gate and gets **one visible SMA-template / EMA-template switch**. Buckets 0–2 / 2–5 / 5–10 / 10%+ | `MOM 0–2%` and the like |
+Pool rules stay: ≥ ₹1,000 Cr, ADV ≥ ₹3 Cr, band > 5% (**10% band allowed, 5% band excluded**), no GSM, above 200 EMA. RS stays vs Nifty MidSmallcap 400.
+
+## Layout
+1. **Header**: screener filter, group-state filter (Favour / Neutral / Caution), global **Copy for TradingView** (sections by screener, sector, industry or momentum bucket; format `###Section,NSE:A,NSE:B`).
+2. **Read-out**: plain-English commentary with numbers and a "What to do" line (style guide `04-writing-style.md`). It covers screener counts against their own history (20-session median plus archive percentile), the group-state split, base rates and confluence.
+3. **Scan count history**: one sparkline per screener, with today's percentile. Momentum count history needs a new stored series.
+4. **Views**: Board · Chart grid · Near-miss · Dropped.
+5. **Detail panel**: chart, facts, peers.
+
+## Board — one row per stock, screener tags show confluence
+Default columns: Symbol (click opens TradingView; NEW badge), Setups (tags plus squeeze %, days in setup or VCP footprint), Group (state dot, reason on hover), **Dist. to 52W high**, Dist. to 10 EMA, RS percentile (+ Δ5D), Risk % to stop, Room to run, Tightness (10D range + volume dry-up), **Delivery** (today vs own 20D avg + **consecutive days above it**), **Turnover 1W ×** own 3M avg, Base rate, Chips.
+Column groups (toggle): Trade (trigger, stop, risk ÷ ADR) · Strength (RS 21D vs MidSml400, RS Δ5D, dist. to 50 EMA) · Turnover (**1D / 1W / 1M ×**, ₹ Cr) · Group flow (**group turnover share Δ 1D / 1W / 1M**, group rank) · Character (box breakouts held/failed in 6M, weekly position).
+Default order = screeners passed, then group state, RS, delivery streak, risk. Every header sorts.
+**Results within N sessions (default 10) highlights the whole row.**
+Chips (data-backed only): deal (net ₹ Cr, last 10 sessions), 10% band, ASM/GSM, ex-date, pledge, 52W high. **No F&O chip.**
+
+## Pulse → Setups link
+Every row carries its Industry group's state from Pulse, with one reason that cites numbers:
+- **Favour**: ≥ 60% of members above 50 EMA, beating the median industry over 21D, group EW index above its 50 EMA.
+- **Caution**: turnover share 5D avg < 85% of its 20D avg while the group falls (money leaving), **or** < 40% above 50 EMA and lagging over 63D.
+- **Neutral**: everything else.
+Prototype evidence: new squeezes in Favour groups were up after 20 sessions 47% of the time (median −0.4%, n 2,781), against 41% in Caution groups (median −1.9%, n 1,873). Darvas 10 EMA: 46% vs 38%. Recheck on the five-year archive. Deals, Sector Intel and news feed into the state later (cross-tab wiring is deferred).
+
+## Decision aids (kept)
+- **Base rate**: hit rate and median 20D return of past new setups from the same screener in the same group state. Production adds a market-mood band and trigger-based R outcomes.
+- **Near-miss**: Squeeze candidates with close in the zone that fail exactly one gate, with the gate and its value named.
+- **Why dropped**: each stock that left a screener since the previous session, with the reason (broke out, closed below 10 EMA, hit stop, left the pool, rule failed).
+- **Room to run**: distance from trigger to overhead supply. Prototype uses the 52W high; production uses prior swing highs and high-volume zones.
+- **Stock character**: the stock's own Darvas box breakouts in 6M, held (+5% in 10 sessions) vs failed (back in the box within 5).
+- **Weekly check**: weekly close vs 10-week line; last 3 weekly closes within 2%.
+- **Peer view**: top RS stocks in the same industry, with their setup tags. A note shows when a peer on the board has RS ≥ 10 points higher.
+
+## Charts
+- Candles colour-coded by event (deal day purple; results, ex-date and news once ingested). Darvas boxes, 10 and 20 EMA, trigger and stop lines, volume.
+- RSI pane with all four divergence cases (regular and hidden, bullish and bearish), on confirmed pivots so nothing repaints. The pipeline currently stores regular only.
+- Drawing tools: trend line, horizontal line, Fibonacci retracement (lightweight-charts plugins), saved per symbol.
+- Chart grid: 9 per page, crosshair and timeframe synced, J/K to page.
+- RS on TradingView: a Pine script for the RS line vs MidSml400 plus an approximate rating (TradingView cannot read MarketPulse data).
+
+## Dropped from scope
+Risk-based sizing, TradingView alert / GTT hand-off, concentration warning, F&O ban chip.
+
+## Data work this tab needs (see 05-data-gaps.md)
+- `security_events` ingestion (results dates, news), `corporate_actions` (ex-dates), `security_risk_daily` (ASM/GSM/pledge). All are empty locally.
+- `rs_vs_midsml400_63d` and `group_daily.excess_midsml_*` / `rrg_quadrant` are empty locally. Check on the full archive.
+- Store a daily momentum count series; store a hidden-divergence flag.
+- Delivery streak and turnover multiples: derive in the API (no new table).

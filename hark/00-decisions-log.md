@@ -38,3 +38,8 @@ Newest at the bottom. Each line: date · decision · reason.
 - Round 2: keep current calculations (RS vs MidSml400, momentum). Keep strict Squeeze (77.8% vs 60.1% box breakouts within 20D). 10 EMA: whole bar above first, undercut-and-close-near second. VCP research saved in research/manas-arora-vcp.md. Cross-tab wiring deferred.
 - Round 3: momentum keeps the 20D avg volume gate and the SMA/EMA template toggle. Decision table proposed with delivery streak and turnover 1D/1W/1M multiples (stock and group).
 - Round 4: 10% band OK, 5% band out, no F&O chip; results-within-N highlights the row; "Act faster" dropped.
+
+## 2026-10-09 — Tab 2 Setups LOCKED
+- Spec at the end of `06-tab2-setups.md`; mockup `mockups/tab2-setups.html` (457 setups as of 2026-08-13, validated in jsdom with no JS errors).
+- Every setup row carries its Industry group state (Favour / Neutral / Caution) with a numeric reason. Prototype: squeezes in Favour groups were up after 20 sessions 47% of the time vs 41% in Caution.
+- Next tab: Plan + Journal.
