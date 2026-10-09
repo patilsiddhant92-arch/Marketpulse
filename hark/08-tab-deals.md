@@ -114,3 +114,70 @@ Question: does price action around the deal add an edge? The confirmation tests 
 - Verdict chips gain **Holding deal price**, **Absorbed** and **Extended**.
 - Charts / Stock360 draw buy/sell deal prices as horizontal lines.
 - Next data source to test: NSE insider (PIT/SAST) disclosures. Promoter open-market buying is a different signal from bulk/block deals.
+
+## 5. Round 2: the user's list (2026-10-09)
+The user asked for: deal candles on charts, deals by sector/group, better drill-downs, fund tracking + alerts, a shorter Telegram message, and a deal icon in the other tabs.
+
+### 5.1 Fund evidence (study3_funds.py)
+| Buyer (≥ ₹5 Cr non-PROP buy) | n | vs market T+20 | Beat % | t |
+|---|---|---|---|---|
+| FII | 947 | +1.2% | 53% | 4.3 |
+| DII | 825 | +0.9% | 46% | 3.2 |
+| Corporate | 1,373 | −2.6% | 38% | −6.7 |
+| Other (trading firms, HNI) | 2,374 | −2.7% | 41% | −9.0 |
+| FII with a good prior record / poor record | 264 / 208 | +1.1 / 0.0% | | |
+| Good-record house buying a strong chart | 206 | **+2.1%** | 58% | 3.0 |
+| Poor-record house buying a strong chart | 241 | −0.1% | 52% | |
+| Any buy on a strong chart | 757 | +0.8% | 56% | |
+
+The rank correlation between a house's prior record and its next bet is 0.09: weak but real. **Who the buyer is matters more than their record**: FII/DII positive, Corporate/Other negative. Fund alerts are justified only for FII/DII houses with a good out-of-sample record buying a strong chart.
+
+### 5.2 Telegram (Scripts/telegram_deals.py) audit
+- 08-Oct-2026 output: **6 messages, about 7,200 characters**.
+- Inter-se transfers are listed as BUYs and SELLs (PI Opportunities AIF / Pioneer: ICICIBANK, RELIANCE, KAJARIACER, INDGN).
+- "Conviction" includes net-negative names (GCSL −₹4.4 Cr, AGARWALEYE −₹1,181 Cr).
+- It uses the old tiers; nothing in it is ranked by evidence.
+
+New format: **one message, at most about 1,200 characters, only what's actionable, each line one verdict**:
+```
+📊 Deals · 08 Oct · Market: correction (stay light)
+✅ Confirms setup (strong chart + FII/DII buy)
+  XYZ  ₹42 Cr · SBI MF · hold ₹412 to confirm
+🏦 Placement on a strong chart
+  ABC  ₹180 Cr promoter → 3 MFs @ ₹1,020 (-0.8%)
+🔁 Absorbed (sellers' price reclaimed)
+  DEF  sold @ ₹640, now ₹655
+👀 Watch day 3: holding / lost
+  GHI holding +2.1% · JKL lost -1.4%
+⚠️ Avoid: churn / poor-record buyer
+  MNO, PQR
+Skipped: 4 transfers, 37 churn, 12 below ₹1,000 Cr
+TV: NSE:XYZ,NSE:ABC,NSE:DEF,NSE:GHI
+```
+Empty sections are dropped. The breadth block moves to the Pulse message (one line here). There's an optional /deals detail command for the full list.
+
+### 5.3 Proposed designs
+1. **Deal candles (Charts, Stock360, chart grid)**:
+   - The candle keeps its colour; the deal day gets a tinted outline plus a 1-letter tag above or below.
+   - Tags: **B** net buy (teal) · **S** net sell (orange) · **P** placement (blue) · **T** transfer (grey) · **C** churn (grey, faded).
+   - Hover shows "B ₹42 Cr · SBI MF (DII, good record) · @ ₹412".
+   - A dashed deal-price line runs for 20 sessions, labelled holding / lost.
+2. **Deals by group**:
+   - The Sector Intel board gets a "Deals 10D" column: net-buy names / net-sell names / flow ₹ Cr (ex transfers and churn).
+   - A chip shows at 3+ net-buy names. It's context only (evidence +0.7%, weak).
+   - The group drill lists its deal stocks with their verdicts.
+   - The Deals tab gets a "By group" switch.
+3. **Drill-downs**:
+   - **Stock drawer**: verdict + "what usually follows"; a 20-session mini chart with deal lines; who bought and who sold (the counterparty explains transfers); each buyer's class + record grade; holding status since the deal.
+   - **House drawer**: class, out-of-sample grade, open positions vs market since entry, recent buys, and a Follow button.
+4. **Fund tracking**:
+   - A Followed houses list.
+   - The grade shows only for FII/DII (good / mixed / poor, from finished past bets only).
+   - **Alert 1**: a followed or good-record FII/DII house buys a strong chart.
+   - **Alert 2**: day 3, holding or lost.
+   - No "star" label for Corporate/Other.
+5. **Deal icon in other tabs** (reuses `stockContext`):
+   - One small icon on any stock row in Pulse movers, Setups, Sector Intel drill, Charts, Stock360 and the Plan/Journal.
+   - Colour = verdict: green confirm · blue placement · teal absorbed · amber watch · grey churn · red avoid.
+   - Tap = a 2-line popover plus a link to Deals.
+   - Rule: the icon shows only within 10 sessions of the deal.
