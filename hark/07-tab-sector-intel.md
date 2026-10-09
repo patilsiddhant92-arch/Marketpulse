@@ -229,3 +229,7 @@ Mockup: hark/mockups/stock-heatmap.html (hark/tools/heatmap_mockup/extract.py <d
 - ≥ ₹1,000 Cr default, All toggle. Header shows the turnover-weighted group move; click a header to zoom, click a tile to open the TradingView chart.
 - Hover: 1D/1W/1M, turnover with ×20D average, mcap.
 Open: where it lives (a Sector Intel view or Pulse), and whether the default size is turnover or mcap.
+- 3d-2 (user: "there was volume, volume*price etc. option too"): the Size and Colour selectors now work like TradingView's dropdowns.
+  - Size: value traded (vol × price), 20D average value traded, volume (shares), delivery value, market cap, equal.
+  - Colour: change 1D, change from open, gap, perf 1W/1M/3M/6M/1Y, relative volume, volatility (ATR %, low = green), delivery %, distance from the 52W high, RS percentile.
+  - Each colour metric has its own centre and spread. "vs market" applies to the return metrics only.

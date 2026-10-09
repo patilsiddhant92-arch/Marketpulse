@@ -8,6 +8,7 @@ header{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 14px
 h1{font-size:15px;margin:0 8px 0 0}.ctl{display:flex;gap:6px;align-items:center;color:var(--mut)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .seg button{background:none;border:0;color:var(--mut);padding:4px 9px;cursor:pointer;font:inherit}
+select{background:#0d1117;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
 .seg button.on{background:#238636;color:#fff}
 #legend{display:flex;align-items:center;gap:0;margin-left:auto}#legend span{width:34px;text-align:center;font-size:11px;padding:2px 0}
 #summary{padding:6px 14px;color:var(--mut);border-bottom:1px solid var(--line)}
@@ -22,8 +23,8 @@ h1{font-size:15px;margin:0 8px 0 0}.ctl{display:flex;gap:6px;align-items:center;
 </style></head><body>
 <header><h1>Stock Heatmap</h1>
 <div class="ctl">Group <div class="seg" id="g"><button data-v="sector" class="on">Sector</button><button data-v="bi">Broad Industry</button><button data-v="ind">Industry</button></div></div>
-<div class="ctl">Size <div class="seg" id="sz"><button data-v="t" class="on">Turnover today</button><button data-v="t20">Avg turnover 20D</button><button data-v="mc">Market cap</button></div></div>
-<div class="ctl">Colour <div class="seg" id="cl"><button data-v="r1" class="on">1D</button><button data-v="r5">1W</button><button data-v="r21">1M</button></div></div>
+<div class="ctl">Size <select id="sz"><option value="t" selected>Value traded (vol × price)</option><option value="t20">Value traded, 20D avg</option><option value="v">Volume (shares)</option><option value="dv">Delivery value</option><option value="mc">Market cap</option><option value="eq">Equal</option></select></div>
+<div class="ctl">Colour <select id="cl"><option value="r1" selected>Change 1D %</option><option value="co">Change from open %</option><option value="gap">Gap %</option><option value="r5">Perf 1W %</option><option value="r21">Perf 1M %</option><option value="r63">Perf 3M %</option><option value="r126">Perf 6M %</option><option value="r252">Perf 1Y %</option><option value="rvol">Relative volume</option><option value="vol">Volatility (ATR %)</option><option value="dp">Delivery %</option><option value="a52">From 52W high %</option><option value="rs">RS percentile</option></select></div>
 <div class="ctl"><div class="seg" id="rel"><button data-v="abs" class="on">% change</button><button data-v="rel">vs market</button></div></div>
 <div class="ctl">Universe <div class="seg" id="fl"><button data-v="1000" class="on">≥ ₹1,000 Cr</button><button data-v="0">All</button></div></div>
 <button id="back" class="seg" style="padding:4px 9px;color:var(--tx);cursor:pointer">← All groups</button>
@@ -33,8 +34,11 @@ h1{font-size:15px;margin:0 8px 0 0}.ctl{display:flex;gap:6px;align-items:center;
 const DATA=/*DATA*/null;
 const C=DATA.cols, S=DATA.rows.map(r=>Object.fromEntries(C.map((k,i)=>[k,r[i]])));
 const st={g:'sector',sz:'t',cl:'r1',rel:'abs',fl:'1000',focus:null};
-const STEPS=[-3,-2,-1,0,1,2,3];
-function col(v){if(v==null)return'#3b4250';const a=Math.min(Math.abs(v)/3,1);
+const M={r1:{c:0,s:3,u:'%'},co:{c:0,s:3,u:'%'},gap:{c:0,s:2,u:'%'},r5:{c:0,s:6,u:'%'},r21:{c:0,s:12,u:'%'},r63:{c:0,s:25,u:'%'},
+ r126:{c:0,s:40,u:'%'},r252:{c:0,s:60,u:'%'},rvol:{c:1.25,s:1.25,u:'×',norel:1},vol:{c:3,s:2,u:'%',inv:1,norel:1},dp:{c:45,s:25,u:'%',norel:1},
+ a52:{c:-15,s:15,u:'%',norel:1},rs:{c:50,s:45,u:'',norel:1}};
+const NAMES={t:'value traded',t20:'20D avg value traded',v:'volume',dv:'delivery value',mc:'market cap',eq:'equal'};
+function col(v){if(v==null)return'#3b4250';const m=M[st.cl];let d=(v-(st.rel==='rel'&&!m.norel?0:m.c))/m.s;if(m.inv)d=-d;const a=Math.min(Math.abs(d),1);v=d;
  const g=[48,204,90],r=[242,54,69],n=[66,72,84],e=v>=0?g:r;return`rgb(${e.map((x,i)=>Math.round(n[i]+(x-n[i])*a)).join(',')})`}
 function median(a){a=a.filter(x=>x!=null).sort((x,y)=>x-y);return a.length?a[a.length>>1]:0}
 function squarify(items,x,y,w,h){ // items: [{v,...}] sorted desc; returns with x,y,w,h
@@ -49,44 +53,48 @@ function squarify(items,x,y,w,h){ // items: [{v,...}] sorted desc; returns with 
   else{const rh=s/w;let xx=x;row.forEach(i=>{const iw=i.a/rh;out.push({...i,x:xx,y,w:iw,h:rh});xx+=iw});y+=rh;h-=rh}}
  return out}
 function fmtCr(v){return v==null?'–':v>=1e5?(v/1e5).toFixed(2)+' L Cr':v>=100?Math.round(v).toLocaleString('en-IN')+' Cr':v.toFixed(1)+' Cr'}
+function fv(v,rel){const m=M[st.cl];if(v==null)return'–';if(m.u==='%')return (v>0&&(m.c===0||rel)?'+':'')+v.toFixed(m.s>=12?1:2)+'%';return m.u==='×'?v.toFixed(2)+'×':Math.round(v)+''}
 function pct(v){return v==null?'–':(v>0?'+':'')+v.toFixed(2)+'%'}
 function render(){
  const map=document.getElementById('map');map.innerHTML='';
- let rows=S.filter(s=>(st.fl==='0'||(s.mc||0)>=1000)&&s[st.g]&&(s[st.sz]||0)>0);
+ let rows=S.filter(s=>(st.fl==='0'||(s.mc||0)>=1000)&&s[st.g]&&(st.sz==='eq'||(s[st.sz]||0)>0));
  if(st.focus)rows=rows.filter(s=>s[st.g]===st.focus);
  const mkt=median(S.filter(s=>st.fl==='0'||(s.mc||0)>=1000).map(s=>s[st.cl]));
- const val=s=>s[st.cl]==null?null:(st.rel==='rel'?s[st.cl]-mkt:s[st.cl]);
+ const rel=st.rel==='rel'&&!M[st.cl].norel;const val=s=>s[st.cl]==null?null:(rel?s[st.cl]-mkt:s[st.cl]);const W8=s=>st.sz==='eq'?1:s[st.sz];
  const groups={};rows.forEach(s=>(groups[s[st.g]]=groups[s[st.g]]||[]).push(s));
- const gl=Object.entries(groups).map(([k,m])=>({k,m,v:m.reduce((a,s)=>a+s[st.sz],0)})).sort((a,b)=>b.v-a.v);
+ const gl=Object.entries(groups).map(([k,m])=>({k,m,v:m.reduce((a,s)=>a+W8(s),0)})).sort((a,b)=>b.v-a.v);
  const W=map.clientWidth,H=map.clientHeight;
  squarify(gl,0,0,W,H).forEach(g=>{
   const d=document.createElement('div');d.className='grp';Object.assign(d.style,{left:g.x+'px',top:g.y+'px',width:g.w+'px',height:g.h+'px'});
-  const tw=g.m.reduce((a,s)=>a+s[st.sz],0),gr=g.m.filter(s=>val(s)!=null).reduce((a,s)=>a+val(s)*s[st.sz],0)/tw;
+  const gm=g.m.filter(s=>val(s)!=null),tw=gm.reduce((a,s)=>a+W8(s),0),gr=tw?gm.reduce((a,s)=>a+val(s)*W8(s),0)/tw:null;
   const hd=g.h>26&&g.w>40;
-  if(hd){const h=document.createElement('div');h.className='gh';h.textContent=`${g.k}  ${pct(gr)}`;h.title='Click to zoom into '+g.k;
+  if(hd){const h=document.createElement('div');h.className='gh';h.textContent=`${g.k}  ${fv(gr,rel)}`;h.title='Click to zoom into '+g.k;
    h.onclick=()=>{st.focus=st.focus?null:g.k;render()};d.appendChild(h)}
-  const items=g.m.map(s=>({s,v:s[st.sz]})).sort((a,b)=>b.v-a.v);
+  const items=g.m.map(s=>({s,v:W8(s)})).sort((a,b)=>b.v-a.v);
   squarify(items,0,hd?16:0,g.w-2,g.h-(hd?18:2)).forEach(t=>{
    const e=document.createElement('div');e.className='t';const v=val(t.s);
    Object.assign(e.style,{left:t.x+'px',top:t.y+'px',width:t.w+'px',height:t.h+'px',background:col(v)});
    const fs=Math.max(8,Math.min(22,Math.sqrt(t.w*t.h)/5));
-   if(t.w>30&&t.h>16){e.style.fontSize=fs+'px';e.innerHTML=`<b>${t.s.s}</b>`+(t.h>fs*2.6?`<i>${pct(t.s[st.cl])}</i>`:'')}
+   if(t.w>30&&t.h>16){e.style.fontSize=fs+'px';e.innerHTML=`<b>${t.s.s}</b>`+(t.h>fs*2.6?`<i>${fv(t.s[st.cl])}</i>`:'')}
    e.onmousemove=ev=>tip(ev,t.s,v,mkt);e.onmouseleave=()=>document.getElementById('tip').style.display='none';
    e.onclick=()=>window.open('https://in.tradingview.com/chart/?symbol=NSE:'+encodeURIComponent(t.s.s),'_blank');
    d.appendChild(e)});
   map.appendChild(d)});
  const up=rows.filter(s=>(s[st.cl]||0)>0).length,dn=rows.filter(s=>(s[st.cl]||0)<0).length;
  const tt=rows.reduce((a,s)=>a+(s.t||0),0);
- document.getElementById('summary').textContent=`${DATA.date} · ${rows.length} stocks · ${up} up, ${dn} down · turnover ₹${fmtCr(tt)} · market median ${pct(mkt)} (${{r1:'1D',r5:'1W',r21:'1M'}[st.cl]})`+(st.focus?` · zoomed: ${st.focus}`:'')+' · click a tile for its TradingView chart, a header to zoom';
+ document.getElementById('summary').textContent=`${DATA.date} · ${rows.length} stocks · ${up} up, ${dn} down · turnover ₹${fmtCr(tt)} · median stock ${fv(mkt)} · size = ${NAMES[st.sz]}`+(st.focus?` · zoomed: ${st.focus}`:'')+' · click a tile for its TradingView chart, a header to zoom';
  document.getElementById('back').style.display=st.focus?'inline-block':'none';
- document.getElementById('legend').innerHTML=STEPS.map(s=>`<span style="background:${col(s)}">${s>0?'+':''}${s}%</span>`).join('');
+ {const m=M[st.cl],c0=rel?0:m.c;document.getElementById('legend').innerHTML=[-1,-2/3,-1/3,0,1/3,2/3,1].map(k=>{const v=c0+k*m.s*(m.inv?-1:1);return`<span style="background:${col(v)}">${fv(v,rel)}</span>`}).join('');}
 }
 function tip(ev,s,v,mkt){const t=document.getElementById('tip');t.style.display='block';
  t.style.left=Math.min(ev.clientX+14,innerWidth-240)+'px';t.style.top=Math.min(ev.clientY+14,innerHeight-170)+'px';
  t.innerHTML=`<b>${s.s}</b> · ₹${s.c?.toLocaleString('en-IN')}<br><span class="k">${s.sector} › ${s.bi||''} › ${s.ind||''}</span><br>
- 1D ${pct(s.r1)} · 1W ${pct(s.r5)} · 1M ${pct(s.r21)}<br>${st.rel==='rel'?`vs market: ${pct(v)}<br>`:''}
- <span class="k">Turnover</span> ₹${fmtCr(s.t)} <span class="k">(20D avg ₹${fmtCr(s.t20)}, ${s.t20?(s.t/s.t20).toFixed(1)+'×':'–'})</span><br><span class="k">Mcap</span> ₹${fmtCr(s.mc)}`}
-for(const id of['g','sz','cl','rel','fl'])document.getElementById(id).onclick=e=>{const b=e.target.closest('button');if(!b)return;
+ 1D ${pct(s.r1)} · 1W ${pct(s.r5)} · 1M ${pct(s.r21)}<br>${M[st.cl].norel?'':`vs median stock: ${pct((s[st.cl]??NaN)-mkt)}<br>`}
+ <span class="k">Turnover</span> ₹${fmtCr(s.t)} <span class="k">(20D avg ₹${fmtCr(s.t20)}, ${s.t20?(s.t/s.t20).toFixed(1)+'×':'–'})</span><br><span class="k">Volume</span> ${s.v?.toLocaleString('en-IN')} · <span class="k">RVOL</span> ${s.rvol??'–'} · <span class="k">Deliv</span> ${s.dp??'–'}%<br>
+ <span class="k">Gap</span> ${pct(s.gap)} · <span class="k">From open</span> ${pct(s.co)} · <span class="k">3M</span> ${pct(s.r63)}<br>
+ <span class="k">From 52W high</span> ${pct(s.a52)} · <span class="k">RS</span> ${s.rs??'–'} · <span class="k">ATR</span> ${s.vol??'–'}%<br><span class="k">Mcap</span> ₹${fmtCr(s.mc)}`}
+for(const id of['sz','cl'])document.getElementById(id).onchange=e=>{st[id]=e.target.value;render()};
+for(const id of['g','rel','fl'])document.getElementById(id).onclick=e=>{const b=e.target.closest('button');if(!b)return;
  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));st[id]=b.dataset.v;if(id==='g')st.focus=null;render()};
 document.getElementById('back').onclick=()=>{st.focus=null;render()};
 addEventListener('resize',render);render();
