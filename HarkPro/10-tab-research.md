@@ -131,3 +131,69 @@ Siddhant had no past periods in mind and asked for the professional approach.
 - Caveats: one short sample of overlapping windows. Re-run on the 5-year archive before locking thresholds, and add the past-episode table (how long each chop lasted and how it ended).
 
 **In the app**: Pulse shows the quadrant (one line + its record). Research View 1 shows the quadrant ribbon over the archive, the past episodes of the current quadrant, and what followed them.
+
+## 12. Round 1c: "How could we have caught it?" case studies (2026-10-09)
+Siddhant's ask: use our own screener to show where MTARTECH, STLTECH and other big movers gave entries.
+Window: 2025-08-13 to 2026-08-13 (local data, before the gap). Tools are in `tools/bigmove_study/`:
+- `caught.py SYM…` runs a case study for each symbol.
+- `caught.py` with no arguments runs the scorecard for all movers.
+- `precision.py` runs the false-alarm check.
+Presets use the exact rules from `App/services/screener.py`. A "fresh" fire means the preset is true today and was false for the previous 5 sessions.
+
+**MTARTECH** (1,396 on 29 Aug 2025 → 8,374 on 19 Jun 2026, +500%)
+- First flags: Delivery thrust + EMAs converge on 12 Sep 2025 at 1,679 (20% off the low).
+- Then Near 52W high and the VCP flag on 17 Sep, and Fresh 52W high on 22 Sep.
+- Minervini 8/8 came last, on 14 Oct at 2,128 (52% off the low).
+- Re-entry ladder: enter on the first fresh fire of Delivery thrust / EMAs converge / VCP / Fresh or Near 52W high; exit on a close below the 20 EMA; repeat. 6 trades:
+  - +47%
+  - +1.7%
+  - +29.7%
+  - +79.6% (7 Apr → 8 Jun)
+  - −8.9%
+  - +9.1%
+  - Compounded **+246%**.
+**STLTECH** (86 on 27 Jan 2026 → 661 on 13 Aug 2026, +666%)
+- Delivery thrust on 30 Jan at 106 (23% off the low), then EMAs converge + VCP on 2 Feb.
+- Minervini 8/8 came only on 26 Feb at 164 (91% off the low).
+- Ladder, 3 trades:
+  - +62.9%
+  - +180.6% (8 Apr Near 52W high → 2 Jul)
+  - +1.5%
+  - Compounded **+364%**.
+
+**All 226 stocks ≥ ₹1,000 Cr that doubled (low → peak) in the window**
+| Preset | Movers caught | Entry above the low | Room left to peak (median) |
+|---|---|---|---|
+| VCP flag | 93% | +37% | +77% |
+| Delivery thrust | 91% | +37% | +76% |
+| EMAs converge | 60% | **+28%** | +85% |
+| Near / Fresh 52W high | 85% | +68–71% | +45% |
+| Stage 2 / EMA stack | 82% | +63% | +46–48% |
+| Minervini 8/8 / SMA template | 62–64% | +58–62% | +48–51% |
+- Early-structure signals (Delivery thrust, EMAs converge, VCP) fire roughly 30 points nearer the low than the trend-template family. The template is a confirmation, not an entry.
+- Ladder across all 226: median +31% vs a median move of +136%, median 3 trades. A plain 20 EMA exit gives back most of the move: it captures the strongest leg and misses the rest.
+
+**Honest check (precision.py)**: a preset that "caught" 90% of the winners may fire on everything.
+- Across all fresh fires from Aug 2025 to Feb 2026, the share followed by +50% within 120 sessions:
+  - All stock-days: 9.5% (base rate).
+  - Single presets: 9–12%.
+  - With RS ≥ 80: 11–14%. Best were EMAs converge 14.1%, VCP 13.2% and Delivery thrust 13.1%.
+- So no single screener hit picks the winner. The edge comes from:
+  - stacking evidence (RS + structure + delivery);
+  - small losses on the ~87% that don't run;
+  - **re-entering** the ones that keep setting up.
+
+**Desk bug found (look-ahead)**
+- MTARTECH and STLTECH never appear in `setup_daily` (Darvas/10 EMA/VCP queues) on any date.
+- Cause: `Scripts/derived/setup_daily.py` `_pool` falls back to *today's* `stocks_master.band` when there is no point-in-time band, and the reference band only starts in Jul 2026. Both are in BE / 5% band now, so the whole history was excluded. 248 stocks are in BE on 13 Aug.
+- This hides exactly the stocks that ran hardest (they get moved to 5% bands *because* they ran).
+- Fix: use the series as of each date (EQ → band > 5%) or leave the band unknown before the reference starts. Then rebuild setup_daily. This is a main-app fix, so it needs the user's OK.
+
+**Proposed Research view: Case study**
+- Type a symbol (or pick one from the big-mover list). The chart shades the move and marks every preset's fresh fire with its letter, plus the ladder's entries/exits and P&L.
+- A table lists the first fire per preset (entry, % off the low, room left).
+- The scorecard above works as the "which screen finds them earliest" panel, always shown with its precision so it never oversells.
+- Next studies:
+  - Exit test: 10 vs 20 vs 50 EMA, and the Darvas box low.
+  - Pre-move traits vs matched controls (View 3).
+  - Out-of-sample on the 5-year archive.

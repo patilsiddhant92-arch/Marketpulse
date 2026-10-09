@@ -80,3 +80,4 @@ Newest at the bottom. Each line: date · decision · reason.
 - Research and History Lab merged into one tab with 5 views: Market now vs then (regime incl. choppy + analogs), What happened next, Before the big moves (D/W/M), Index study, Scorecard. Pre-move watch is cut as its own view.
 - Studies need the 5-year archive (the repo has about 18 months).
 - Choppy: two-axis regime (index range/trend × breakouts paying/failing), tested locally (§11 of 10-tab-research.md). In chop, the next breakouts held 40% of the time vs 52% in trend + paying.
+- Research 1c: big-move case studies (MTARTECH/STLTECH + 226 doublers). Early-structure presets (delivery thrust, EMAs converge, VCP) fire ~30 pts nearer the low than 8/8. Precision only 13-14% vs a 9.5% base, so re-entry + risk control is the edge. Desk look-ahead bug: today's band excludes BE stocks from all history.

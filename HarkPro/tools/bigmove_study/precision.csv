@@ -1,0 +1,24 @@
+signal,fires,hit_50pct_in_120d_%
+All stock-days,166648,9.5
+Minervini 8/8,832,10.8
+Minervini 8/8 + RS>=80,573,12.7
+Stage 2 leader,967,12.0
+Stage 2 leader + RS>=80,800,12.2
+EMA stack,1319,10.5
+EMA stack + RS>=80,866,12.2
+EMAs converge,2179,10.4
+EMAs converge + RS>=80,754,14.1
+Near 52W high,729,10.8
+Near 52W high + RS>=80,682,11.1
+Fresh 52W high,841,10.3
+Fresh 52W high + RS>=80,781,10.6
+SMA template,718,11.6
+SMA template + RS>=80,564,12.6
+Delivery thrust,2371,10.8
+Delivery thrust + RS>=80,1176,13.1
+NR7 / inside,1771,10.1
+NR7 / inside + RS>=80,1434,10.6
+Weekly RSI 60,1232,9.9
+Weekly RSI 60 + RS>=80,882,11.2
+VCP flag,2045,9.4
+VCP flag + RS>=80,752,13.2
