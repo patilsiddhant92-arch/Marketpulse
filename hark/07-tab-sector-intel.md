@@ -219,3 +219,13 @@ Independent recompute for 2026-08-13, Broad Industry, compared with `group_daily
 - **Point-in-time limits**: taxonomy is today's. Market cap is as-of only from 2026-07-02 (security_reference_daily); before that it is today's share count × price (documented approximation, ~94% of rows).
 - **Windows count rows, not sessions**: across the 13 Aug – 8 Oct local gap, the 8 Oct "1D" and 5D/20D values span two months. The cause is the data gap. A guard (NULL when the window spans more than N calendar days) is worth adding.
 - Minor: `avg_delivery_pct_20d` includes today, so "delivery above its 20D average" compares a day with an average that contains it.
+
+### Round 3d: Stock heatmap, TradingView-style (2026-10-09, proposal)
+The user asked whether we can match the TradingView stock heatmap (all Indian stocks, grouped by sector, tile = value traded, colour = % change).
+Yes, from data we already hold (indicators_daily turnover/close + stocks_master taxonomy). The current app's Treemap is group-level only (tiles = groups, colour = Health/21D).
+Mockup: hark/mockups/stock-heatmap.html (hark/tools/heatmap_mockup/extract.py <date>; jsdom test /workspace/work/pulse/t4.js).
+- Group by Sector / Broad Industry / Industry; size by turnover today, 20D avg turnover, or market cap; colour by 1D / 1W / 1M.
+- Colour mode "% change" (TradingView's ±3% scale) or "vs market" (minus the median stock), which fixes the "everything green" day.
+- ≥ ₹1,000 Cr default, All toggle. Header shows the turnover-weighted group move; click a header to zoom, click a tile to open the TradingView chart.
+- Hover: 1D/1W/1M, turnover with ×20D average, mcap.
+Open: where it lives (a Sector Intel view or Pulse), and whether the default size is turnover or mcap.
