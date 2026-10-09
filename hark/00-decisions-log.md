@@ -35,3 +35,4 @@ Newest at the bottom. Each line: date · decision · reason.
 ## 2026-10-09 — Tab 2 opened
 - Siddhant listed his four screeners (Darvas Squeeze, Darvas 10 EMA, VCP per Manas Arora, Momentum) and the chart/TV features to keep. Audit and questions in `06-tab2-setups.md`.
 - Finding: the current Squeeze logic is much stricter than his definition (120 listed vs 342 with close in zone on 2026-08-13).
+- Round 2: keep current calculations (RS vs MidSml400, momentum). Keep strict Squeeze (77.8% vs 60.1% box breakouts within 20D). 10 EMA: whole bar above first, undercut-and-close-near second. VCP research saved in research/manas-arora-vcp.md. Cross-tab wiring deferred.

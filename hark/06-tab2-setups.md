@@ -73,3 +73,18 @@ Parity port of the proven scanner: trigger in the last N sessions, EMA stack, wi
 - **RSI divergence**: four cases: regular bullish, regular bearish, hidden bullish, hidden bearish. Detect with confirmed pivots, so no repainting.
 - **RS on TradingView**: TradingView cannot read MarketPulse data. Options: a Pine script for the RS line vs Nifty 500 plus an approximate IBD-style rating, or put the RS rating into the TV watchlist section names.
 - **TV export everywhere**: one global "Copy for TradingView" with grouping by bucket / screener / sector / industry.
+
+---
+## Round 2 — Siddhant's answers (2026-10-09)
+- **Keep the current app and its calculations**, including RS vs Nifty MidSmallcap 400 and the momentum scanner. The redesign is about a better flow, not new maths.
+- **Darvas Squeeze: keep the current strict logic.** Backtest on local history (2024-05-17 to 2026-07-15, ≥ ₹1,000 Cr, above 200 EMA), using bars with close in the zone:
+  | Group | Bars | Broke above box top within 20 sessions | Median 20D return | 20D win rate |
+  |---|---|---|---|---|
+  | Current queue | 36,222 | **77.8%** | −0.70% | 46.7% |
+  | Zone only (not in queue) | 107,466 | 60.1% | −1.12% | 45.6% |
+  The strict gates find coils that break out far more often. Membership alone does not make money. The breakout and its follow-through do. Recalculate on the full five-year archive.
+- **Darvas 10 EMA:** first priority = whole bar (OHLC) above the 10 EMA. Second tier = an undercut of the 10 EMA with the close back near or above it. Two cases: Retrace (price comes to the EMA), Catch-up (the EMA comes to price). Trace-back is not in his definition, so it is folded into Retrace or dropped (to decide in the spec).
+- **VCP:** Hark researches Manas Arora itself. Report: `research/manas-arora-vcp.md` (21 rules, each tagged with its source: his own words, someone else's summary, or Hark's inference).
+- **Table must show distance to 52W high.**
+- **Tab role:** this is Siddhant's analysis tab. He sees the setups and makes his own choice.
+- **Pulse → Setups link:** each stock should carry its group's state from Pulse (trending, event/news caution, money flowing out) and the reason. Full cross-tab wiring waits until Deals and Sector Intel are specified.
