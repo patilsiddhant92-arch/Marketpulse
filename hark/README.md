@@ -12,9 +12,14 @@ We design one tab at a time. We lock each tab's spec before we write production 
 | [04-writing-style.md](04-writing-style.md) | House style for all commentary (plain English, STE-inspired) | Agreed |
 | [05-data-gaps.md](05-data-gaps.md) | Data that the specs need but the pipeline lacks or gets wrong | Open |
 | [06-tab2-setups.md](06-tab2-setups.md) | Tab 2 **Setups / Screener**: discussion rounds + locked spec | **Locked 2026-10-09** |
-| [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, evidence, rounds 1–3, mockup | Round 3 |
-| [08-tab-deals.md](08-tab-deals.md) | Deals: audit, 2-year evidence study, proposals | Round 1 |
+| [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, evidence, rounds 1–3, mockup, stock heatmap | Mockup v1, ready to lock |
+| [08-tab-deals.md](08-tab-deals.md) | Deals: audit, 2.5-year evidence study, rounds 1–2, mockup v1.2 | Mockup v1.2, ready to lock |
 | mockups/tab-sector-intel.html | Sector Intel mockup (board, chart grid, group panel) | v1 |
+| mockups/stock-heatmap.html | TradingView-style stock heatmap (home: Sector Intel or Pulse, undecided) | v1 |
+| mockups/tab-deals.html | Deals mockup: Today, Watch, History, Houses, By group, Telegram, In other tabs | v1.2 |
+| mockups/screenshots/deals/ | Phone-size sample screenshots of the Deals mockup | Samples |
+| tools/deals_mockup/ | `extract.py` rebuilds the Deals mockup; `screenshots.py` draws the phone PNGs (Pillow) | Prototype |
+| tools/deals_study/ | Deals evidence studies (study.py, study2.py, study3_funds.py) + NSE history fetch | Research |
 | mockups/tab1-pulse.html | Clickable Pulse mockup on real data (open in a desktop browser) | v2 |
 | mockups/redesign-v1-workflow.html | First workflow-first mockup (Brief / Setups / Plan / Review) | Reference |
 | tools/pulse_mockup/ | Script that rebuilds the Pulse mockup from `Database/marketpulse.duckdb` | Prototype |
@@ -22,9 +27,9 @@ We design one tab at a time. We lock each tab's spec before we write production 
 ## Tab order for the design rounds
 1. Pulse — **done**
 2. Setups / Screener — **done**
-3. Sector Intel (Groups) — **in progress**
-4. Plan + Journal
-5. Deals
+3. Sector Intel (Groups) — **mockup done**, lock pending
+4. Deals — **mockup done**, lock pending
+5. Plan + Journal
 6. Charts / Stock 360
 7. Research
 8. History Lab (new, from the Pulse round)

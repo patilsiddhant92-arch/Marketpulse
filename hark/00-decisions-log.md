@@ -60,3 +60,13 @@ Newest at the bottom. Each line: date · decision · reason.
 - Proposed: 3 views (Today / Building / Houses), evidence-based verdict chips, out-of-sample house grades, equal-weight benchmark, NSE CSV backfill. Waiting on feedback.
 - Round 1b (study2.py): the deal price acts as a level. Holding it for 3 sessions on a strong chart = +5.2%; absorbed distribution +1.8%; placement + strong chart +2.6% (76%); quiet-day churn −3.7%. Building view becomes Deal watch (holding / lost / reclaimed).
 - Round 2 (user list): deal candles + deal-price lines on charts, a Deals 10D column in Sector Intel, richer stock/house drawers, fund follow + alerts (FII/DII good record on a strong chart; class matters more than record), a 1-message Telegram (current one: 6 msgs, transfers shown as buys, net sellers in Conviction), a cross-tab deal icon. Proposed; waiting on feedback.
+
+## 2026-10-09 — Deals mockup v1–v1.2 and primary-tab checkpoint
+- Mockup `mockups/tab-deals.html` (as of 2026-08-13). Views: Today, Deal watch, History, Houses, By group, Telegram, In other tabs.
+- Deal-day candle: the whole candle in the deal's one colour (teal buy, blue placement, orange sell, grey churn/transfer) + letter. Price lines only for the 3 latest deals.
+- History view: the last 5/10/20 deal sessions. Patterns: repeated buying, single buy, selling only, mixed, prop/churn only, transfers.
+- Copy to TradingView on every Deals list (`###Title,NSE:SYM`), plus "copy every list" with sections.
+- Fund diversification: FII/DII money by group + each fund's spread across groups (Houses).
+- Rule gap to fix: a family transfer was classed as accumulate (APOLLOPIPE 2026-08-13, Anil/Kiran Shah, ₹12.6 Cr each side).
+- Sample phone screenshots in `mockups/screenshots/deals/`.
+- Checkpoint (Siddhant): the primary tabs are mostly done. Pulse and Setups are locked. Sector Intel and Deals have mockups, with the lock pending. Plan + Journal, Charts/Stock 360, Research and History Lab are not started. Waiting on Siddhant's next instruction.
