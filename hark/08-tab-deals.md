@@ -202,3 +202,13 @@ The stock drawer shows the verdict, the deal-candle chart, buyers and sellers wi
   - Each pattern carries its evidence note.
   - As of 13 Aug, 10 sessions: 3 repeated buying, 16 single buy, 16 selling only, 2 mixed, 55 churn-only, 7 transfers.
 - **Rule gap found**: APOLLOPIPE 2026-08-13 is labelled accumulate, but Anil Laxmichand Shah bought ₹12.6 Cr while Kiran Anil Shah sold ₹12.6 Cr. That's a family transfer the transfer rule missed (likely a price mismatch beyond ±0.25%). Its "repeated buying" streak needs re-checking once deal_rules is fixed.
+
+### 5.6 Mockup v1.2 (user feedback)
+- **One colour** for the whole deal-day candle is confirmed.
+- **Copy to TradingView** on every list in the Deals tab (Today, Watch, History, Houses, By group). It copies the rows on screen with current filters as `###<list title>,NSE:SYM,...`. Symbols are mapped TradingView-style: `-` and `&` become `_`, e.g. NSE:BAJAJ_AUTO.
+  - A tab with 2+ lists also gets "Copy every list (sections)", one `###` section per list.
+  - Paste into Add symbol, or save as .txt for watchlist Import list.
+- **Fund diversification into groups** (Houses view):
+  - (a) "Where FII/DII money went · by group": non-prop FII/DII buys over 10 deal sessions by industry, with house count, FII ₹ and DII ₹. As of 13 Aug, E-Retail had 26 houses, Fintech 13, Healthcare services 13.
+  - (b) Each house row gets a "Spread across groups" cell: group count + top-3 industry shares. The phone card shows a stacked bar per fund.
+  - Context only: no forward-return test yet on "many houses in one group".

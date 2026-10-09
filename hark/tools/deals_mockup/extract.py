@@ -161,6 +161,22 @@ act = act.merge(H[["house", "n", "avg", "beat", "grade"]], on="house", how="left
 houses = [{"h": r.house.title(), "cls": r.cls, "v": round(r.v, 1), "syms": r.syms, "n": 0 if pd.isna(r.n) else int(r.n),
            "avg": None if pd.isna(r.avg) else round(r.avg, 1), "beat": None if pd.isna(r.beat) else round(r.beat),
            "grade": r.grade if isinstance(r.grade, str) else ("ungraded")} for r in act.itertuples()]
+# ---- fund diversification: where each house's buying went, by industry (window, non-prop buys)
+imap = ind.drop_duplicates("symbol", keep="last").set_index("symbol").industry.to_dict()
+pb = prints[(~prints.is_prop) & (prints.side == "BUY")].copy(); pb["ind"] = pb.symbol.map(imap).fillna("Other")
+spread = {}
+for h, g in pb.groupby("house"):
+    s = g.groupby("ind").agg(v=("v", "sum"), syms=("symbol", lambda x: sorted(set(x)))).sort_values("v", ascending=False)
+    spread[h.title()] = [[i, round(r.v, 1), r.syms] for i, r in s.iterrows()]
+for x in houses: x["grp"] = spread.get(x["h"], [])
+fg = pb[pb.clientele.isin(["FII", "DII"])].groupby(["ind", "clientele"]).agg(v=("v", "sum"), n=("symbol", "nunique"), h=("house", "nunique")).reset_index()
+fundgrp = []
+for i, g in fg.groupby("ind"):
+    d = {r.clientele: r for r in g.itertuples()}
+    fundgrp.append({"ind": i, "fii": round(float(d["FII"].v), 1) if "FII" in d else 0, "dii": round(float(d["DII"].v), 1) if "DII" in d else 0,
+                    "houses": int(pb[(pb.ind == i) & pb.clientele.isin(["FII", "DII"])].house.nunique()),
+                    "syms": sorted(set(pb[(pb.ind == i) & pb.clientele.isin(["FII", "DII"])].symbol))})
+fundgrp.sort(key=lambda r: -(r["houses"] * 1000 + r["fii"] + r["dii"]))
 cls_ev = [{"c": "FII", "n": 947, "x": 1.2, "b": 53}, {"c": "DII", "n": 825, "x": 0.9, "b": 46},
           {"c": "Corporate", "n": 1373, "x": -2.6, "b": 38}, {"c": "Trading firms / HNI", "n": 2374, "x": -2.7, "b": 41}]
 
@@ -180,7 +196,7 @@ for sym, g in H20.groupby("symbol"):
            None if pd.isna(r.buy_vwap) else round(float(r.buy_vwap), 2), None if pd.isna(r.sell_vwap) else round(float(r.sell_vwap), 2)]
           for r in g.sort_values("trade_date").itertuples()]
     hist20.append({"sym": sym, "ind": g.industry.iat[0], "c": round(float(g.c.iat[0]), 2), "ev": ev})
-data = {"sessions20": [str(pd.Timestamp(d).date()) for d in last20], "hist20": hist20, "asof": str(AS_OF.date()), "sessions": [str(pd.Timestamp(d).date()) for d in last10], "today": today, "watch": watch,
+data = {"fundgrp": fundgrp, "sessions20": [str(pd.Timestamp(d).date()) for d in last20], "hist20": hist20, "asof": str(AS_OF.date()), "sessions": [str(pd.Timestamp(d).date()) for d in last10], "today": today, "watch": watch,
         "marks": marks, "groups": groups, "houses": houses, "clsev": cls_ev, "skipped": skipped, "mkt": mkt}
 tpl = open(os.path.join(HERE, "template.html"), encoding="utf-8").read()
 out = os.path.join(ROOT, "hark/mockups/tab-deals.html")

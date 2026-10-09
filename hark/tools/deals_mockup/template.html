@@ -111,17 +111,22 @@ function watch(){
   </tbody></table></div>`;
 }
 let hsel=null,follow=new Set();
+function spreadCell(h){const tot=h.grp.reduce((a,g)=>a+g[1],0)||1;
+ return `<span class="mut">${h.grp.length} group${h.grp.length>1?'s':''}</span> `+h.grp.slice(0,3).map(g=>`<span class="chip">${g[0].split(/[ /&,(]/)[0]} ${Math.round(g[1]/tot*100)}%</span>`).join(' ')}
 function houses(){
   return `<div class="card"><h3>Who's buying matters more than their record</h3><div class="sub">Buys ≥ ₹5 Cr, 20 sessions later vs the market, Apr 2024 to Jul 2026.</div>
   <table><thead><tr><th class="l">Buyer class</th><th>Deals</th><th>vs market</th><th>Beat %</th></tr></thead><tbody>${D.clsev.map(c=>`<tr><td class="l">${c.c}</td><td>${c.n.toLocaleString('en-IN')}</td><td class="${c.x>=0?'up':'dn'}">${sg(c.x)}</td><td>${c.b}%</td></tr>`).join('')}</tbody></table>
   <div class="do">Grades show for FII/DII only, from finished trades before today. Alerts fire when a good-record or followed FII/DII house buys a strong chart.</div></div>
-  <div class="card"><h3>Houses buying in the window</h3><table><thead><tr><th class="l">House</th><th class="l">Class</th><th>Bought ₹ Cr</th><th class="l">Grade</th><th>Past trades</th><th>Avg vs mkt</th><th>Beat %</th><th class="l">Stocks</th><th></th></tr></thead><tbody>
-  ${D.houses.map((h,i)=>`<tr data-h="${i}"><td class="l"><b>${h.h}</b></td><td class="l mut">${h.cls}</td><td>${f1(h.v)}</td><td class="l"><span class="gr ${h.grade}">${h.grade}</span></td><td>${h.n||'–'}</td><td class="${h.avg>=0?'up':'dn'}">${h.avg==null?'–':sg(h.avg)}</td><td>${h.beat??'–'}${h.beat!=null?'%':''}</td><td class="l mut">${h.syms.join(', ')}</td><td><button class="seg fb" data-h="${i}" style="padding:2px 8px;color:var(--tx)">${follow.has(i)?'Following':'Follow'}</button></td></tr>`).join('')}</tbody></table></div>`;
+  <div class="card"><h3>Where FII/DII money went · by group</h3><div class="sub">Non-prop FII and DII buys in the last 10 deal sessions, by industry. Many houses in one group = broad interest, not one desk.</div>
+  <table><thead><tr><th class="l">Industry</th><th>Houses</th><th>FII ₹ Cr</th><th>DII ₹ Cr</th><th class="l">Stocks</th></tr></thead><tbody>
+  ${D.fundgrp.map(g=>`<tr data-tv="${g.syms.join(',')}"><td class="l"><b>${g.ind}</b></td><td>${g.houses}</td><td>${g.fii?f1(g.fii):'–'}</td><td>${g.dii?f1(g.dii):'–'}</td><td class="l">${g.syms.map(x=>`<a class="gs" data-s="${x}">${x}</a>`).join(' ')}</td></tr>`).join('')}</tbody></table></div>
+  <div class="card"><h3>Houses buying in the window</h3><table><thead><tr><th class="l">House</th><th class="l">Class</th><th>Bought ₹ Cr</th><th class="l">Grade</th><th>Past trades</th><th>Avg vs mkt</th><th>Beat %</th><th class="l">Spread across groups</th><th class="l">Stocks</th><th></th></tr></thead><tbody>
+  ${D.houses.map((h,i)=>`<tr data-h="${i}" data-tv="${h.grp.flatMap(g=>g[2]).join(',')}"><td class="l"><b>${h.h}</b></td><td class="l mut">${h.cls}</td><td>${f1(h.v)}</td><td class="l"><span class="gr ${h.grade}">${h.grade}</span></td><td>${h.n||'–'}</td><td class="${h.avg>=0?'up':'dn'}">${h.avg==null?'–':sg(h.avg)}</td><td>${h.beat??'–'}${h.beat!=null?'%':''}</td><td class="l">${spreadCell(h)}</td><td class="l mut">${h.syms.join(', ')}</td><td><button class="seg fb" data-h="${i}" style="padding:2px 8px;color:var(--tx)">${follow.has(i)?'Following':'Follow'}</button></td></tr>`).join('')}</tbody></table></div>`;
 }
 function groups(){
   return `<div class="card"><h3>Deals by industry · last 10 sessions</h3><div class="sub">Transfers and churn excluded. Context only: 3+ buying names in a group averaged only +0.7% over 20 sessions.</div>
   <table><thead><tr><th class="l">Industry</th><th class="l">Sector</th><th>Buying names</th><th>Selling names</th><th>Net ₹ Cr</th><th class="l">Stocks</th></tr></thead><tbody>
-  ${D.groups.map(g=>`<tr><td class="l"><b>${g.ind}</b>${g.b>=3?' <span class="chip g">3+ buyers</span>':''}</td><td class="l mut">${g.sec||''}</td><td class="up">${g.b||'–'}</td><td class="dn">${g.s||'–'}</td><td class="${g.flow>=0?'up':'dn'}">${g.flow>=0?'+':'−'}${f1(Math.abs(g.flow))}</td><td class="l">${g.syms.map(s=>`<a href="#" class="gs" data-s="${s}" style="color:var(--tx)">${s}</a>`).join(', ')}</td></tr>`).join('')}</tbody></table>
+  ${D.groups.map(g=>`<tr data-tv="${g.syms.join(',')}"><td class="l"><b>${g.ind}</b>${g.b>=3?' <span class="chip g">3+ buyers</span>':''}</td><td class="l mut">${g.sec||''}</td><td class="up">${g.b||'–'}</td><td class="dn">${g.s||'–'}</td><td class="${g.flow>=0?'up':'dn'}">${g.flow>=0?'+':'−'}${f1(Math.abs(g.flow))}</td><td class="l">${g.syms.map(s=>`<a href="#" class="gs" data-s="${s}" style="color:var(--tx)">${s}</a>`).join(', ')}</td></tr>`).join('')}</tbody></table>
   <div class="do">In Sector Intel this becomes a "Deals 10D" column (buying / selling / ₹ Cr) and a list in the group drill.</div></div>`;
 }
 function tgText(){
@@ -177,11 +182,21 @@ function history(){
  <table><thead><tr><th class="l">Stock</th><th class="l">Pattern</th><th class="l">Sessions</th><th>Buy</th><th>Sell</th><th>Net ₹ Cr</th><th>Prop ₹ Cr</th><th>Avg deal price</th><th>Now vs deal</th></tr></thead><tbody>
  ${L.map(x=>`<tr data-s="${x.sym}" class="${sel===x.sym?'sel':''}"><td class="l"><b>${x.sym}</b></td><td class="l"><span class="v"><span class="dot" style="background:${PAT[x.pat][1]}"></span>${PAT[x.pat][0]}</span></td><td class="l">${strip(x)}</td><td class="up">${x.nb||'–'}</td><td class="dn">${x.ns||'–'}</td><td class="${x.net>=0?'up':'dn'}">${Math.abs(x.net)<0.05?'0':(x.net>0?'+':'−')+f1(Math.abs(x.net))}</td><td class="mut">${x.prop?f1(x.prop):'–'}</td><td>${x.lvl?f1(x.lvl):'–'}</td><td class="${x.vs>=0?'up':'dn'}">${x.vs==null?'–':sg(x.vs)}</td></tr>`).join('')}
  </tbody></table></div>`}
+const tvSym=x=>'NSE:'+x.replace(/[-&]/g,'_');
+function tvSyms(card){const out=[];card.querySelectorAll('tbody tr').forEach(r=>{(r.dataset.s?[r.dataset.s]:(r.dataset.tv||'').split(',')).forEach(x=>{x&&!out.includes(x)&&out.push(x)})});return out}
+function addTV(){const all=[];document.querySelectorAll('#main .card').forEach(card=>{const syms=tvSyms(card);if(!syms.length)return;const h=card.querySelector('h3');const title=h.textContent.replace(/[,·]/g,' ').replace(/\s+/g,' ').trim();
+  all.push('###'+title+','+syms.map(tvSym).join(','));
+  const b=document.createElement('button');b.className='seg tvb';b.textContent=`Copy ${syms.length} to TradingView`;b.style.cssText='float:right;padding:3px 9px;color:var(--tx);font-size:11px;margin-left:8px';
+  b.onclick=e=>{e.stopPropagation();const t='###'+title+','+syms.map(tvSym).join(',');copy(t,syms.length)};h.parentNode.insertBefore(b,h)});
+  if(all.length>1){const b=document.createElement('button');b.className='seg tvb';b.textContent='Copy every list on this tab (sections)';b.style.cssText='margin:0 0 10px;padding:4px 10px;color:var(--tx);font-size:11px';
+   b.onclick=()=>copy(all.join('\n'),all.length+' lists');$('#main').prepend(b)}}
+function copy(t,n){window.__tv=t;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{}).finally(()=>{let k=document.getElementById('toast');if(!k){k=document.createElement('div');k.id='toast';k.style.cssText='position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1d2331;border:1px solid #2a3142;padding:8px 14px;border-radius:9px;font-size:12px;z-index:9';document.body.append(k)}
+  k.textContent=`Copied ${n}${typeof n==='number'?' symbols':''}. In TradingView: watchlist ⋯ → Import list, or paste into Add symbol.`;clearTimeout(k._t);k._t=setTimeout(()=>k.remove(),3500)})}
 function render(){
   $('#main').innerHTML={today,watch,history,houses,groups,tg,else:els}[tab]();
   if(!sel){const f=(tab==='watch'?D.watch:D.today).find(x=>['confirm','watch','place','absorbed'].includes(x.cls))||D.today[0];sel=f&&f.sym}
   $('#side').innerHTML=['today','watch','groups','history'].includes(tab)?drawer(bySym(sel)):tab==='houses'?houseDrawer():'';
-  bind();
+  bind();addTV();
   const nz=document.getElementById('nz');if(nz)nz.onclick=()=>{noise=!noise;render()};
   document.querySelectorAll('#hn button').forEach(b=>b.onclick=()=>{hN=+b.dataset.v;render()});
   document.querySelectorAll('#hp button').forEach(b=>b.onclick=()=>{hP=b.dataset.v;render()});
