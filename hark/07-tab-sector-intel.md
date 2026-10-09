@@ -170,3 +170,37 @@ Columns, in this order, each with N = 1D / 1W / 2W / 1M selectable and a percent
 
 ### Chart grid of groups
 9 cards per page, the same grid as Setups (Lightweight Charts, synced crosshair). Each card: the group's equal-weight index (candles from member OHLC, rebased) with 10/20/50 EMA, RS line vs MidSml400, and a lower pane with % near 52W high. Index level uses real index OHLC. Order follows the board sort. Click a card to open the group page.
+
+## 8. Round 3: Siddhant said "no setups reference in this tab (for now); yes to mood beside the score and the 5-year recheck"
+
+### Decisions
+- No setup counts or links to Tab 2 in this tab for now.
+- Show the Pulse mood and a **"Is group ranking working now?"** gauge beside the score.
+- Every threshold stays provisional until we recheck it on the five-year archive with point-in-time data.
+
+### Evidence: does the market state change how well the group score works?
+4-part score (2W window), Oct 2024 – Jul 2026. Top / bottom = % of days the top / bottom fifth of groups beat the median group over the next 21 sessions.
+
+| Condition | Sector IC | Broad Ind IC | Broad Ind top vs bottom | Industry IC |
+|---|---|---|---|---|
+| Mood < 45 | 0.152 | 0.106 | 58% vs 44% | 0.089 |
+| Mood 45–55 | 0.212 | 0.153 | 61% vs 42% | 0.105 |
+| Mood ≥ 55 | 0.179 | 0.128 | 58% vs 44% | 0.050 |
+| 10 EMA breadth **cooling fast** (−10 pts in 10 days) | 0.133 | **0.061** | 55% vs 46% | 0.049 |
+| Steady | 0.221 | 0.156 | 59% vs 43% | 0.102 |
+| Improving fast | 0.187 | 0.170 | 63% vs 41% | 0.099 |
+
+- The **mood level** barely matters. The **direction** does: when short-term breadth is falling fast, the ranking works about half as well. (Correction to round 2: the H1 2025 failure was the cooling-fast phases, not weak mood as such.)
+- **The ranking's own recent record predicts its next month.** If its realised correlation over the 63 sessions that ended 21 sessions ago was > 0.05, the next correlation averaged 0.164 at Broad Industry. Otherwise it averaged 0.042. This becomes the "Working / Not working" gauge. It uses only data known on the day.
+
+### Mockup v1: `mockups/tab-sector-intel.html`
+Rebuild: `python hark/tools/sector_mockup/extract.py [AS_OF]`. Built for 2026-08-13: 22 sectors, 58 broad industries, 171 industries, 44 indices (price only). Tested in jsdom with no JS errors.
+- Context strip: Pulse mood with direction, the "working now" gauge (on 13 Aug: Working, top fifth 58% vs bottom 42%), and a plain-English verdict.
+- Board: level (Sector / Broad Industry / Industry / Index), window (1D / 1W / 2W / 1M), state filter, sortable. Columns: score, near-52W-high % (+ change, own percentile), new highs (distinct members), A/D, up-day delivery share, turnover ×, share Δ, return vs median, leaders (TradingView links). Copy-leaders button.
+- Chart grid: 9 per page in board order. Each card has equal-weight candles, 10 / 20 / 50 EMA, an RS line and a near-high pane. The crosshair is synced.
+- Group panel: large chart, plain-English read-out, members by RS.
+- Index level: price returns only. Breadth needs constituent lists (data gap).
+- Note: the study's "new highs" counted new-high days. The mockup counts distinct members. Both will be rechecked on the archive.
+
+### 5-year recheck (to run on Siddhant's machine)
+`python hark/tools/sector_study/study2_readings.py` and `mood_series.py` on the full database. Before the run, add point-in-time market cap (`security_reference_daily`) and taxonomy history. Lock the thresholds only after this run.

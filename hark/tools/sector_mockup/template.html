@@ -1,0 +1,159 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MarketPulse · Sector Intel (mockup)</title><style>
+:root{--bg:#0b0d12;--panel:#12151d;--panel2:#171b25;--line:#232838;--tx:#e7eaf0;--mut:#8a93a6;--dim:#5d6578;--up:#22c55e;--dn:#ef4444;--warn:#f59e0b;--acc:#7c9cff;--r:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1500px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.brand{display:flex;align-items:baseline;gap:10px}.brand b{font-size:20px}.brand span{color:var(--mut);font-size:12px}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px;flex-wrap:wrap}
+.seg button{background:none;border:0;color:var(--mut);padding:5px 9px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px}
+.seg button.on{background:var(--panel2);color:var(--tx);box-shadow:inset 0 0 0 1px var(--line)}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:9px;padding:6px 10px;cursor:pointer;font:inherit;font-size:12px}
+.btn:hover{border-color:var(--acc)}select.btn{padding:5px 6px}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.card h3{margin:0 0 4px;font-size:13px;font-weight:600}.sub{color:var(--mut);font-size:12px;margin-bottom:8px}
+.brief{display:grid;grid-template-columns:1.3fr 1fr;gap:16px}@media(max-width:1000px){.brief{grid-template-columns:1fr}}
+.say{font-size:14px;line-height:1.6}.say p{margin:0 0 5px}.say .do{margin-top:8px;padding:9px 12px;background:var(--panel2);border-left:3px solid var(--acc);border-radius:8px}
+.cnt{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.cnt div{background:var(--panel2);border-radius:10px;padding:8px}
+.cnt .v{font-size:20px;font-weight:700}.cnt .l{color:var(--mut);font-size:11px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{color:var(--mut);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;text-align:right;padding:6px 5px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;background:var(--panel);cursor:pointer}
+th:hover{color:var(--tx)}th.l,td.l{text-align:left}
+td{padding:6px 5px;text-align:right;border-bottom:1px solid #1a1f2c;white-space:nowrap}
+tbody tr{cursor:pointer}tbody tr:hover{background:#151a25}tr.sel{background:#1a2133!important}
+tr.res td{background:rgba(245,158,11,.10)}tr.res td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}.warn{color:var(--warn)}.dim{color:var(--dim)}
+.tag{display:inline-block;font-size:10px;padding:1px 5px;border-radius:5px;margin-right:3px;font-weight:600}
+.t-SQZ{background:#0f3040;color:#7dd3fc}.t-10E{background:#12361f;color:#86efac}.t-VCP{background:#2b2350;color:#c4b5fd}.t-MOM{background:#3a2a10;color:#fcd34d}
+.chip{display:inline-block;font-size:10px;padding:1px 5px;border-radius:5px;margin-left:3px;background:#232a3b;color:#c9d2e6}
+.chip.deal{background:#2b2350;color:#c4b5fd}.chip.hi{background:#12361f;color:#86efac}.chip.band{background:#3a2a10;color:#fcd34d}.chip.risk{background:#3b1520;color:#fda4af}
+.gs{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:0}
+.gs.Favour{background:var(--up)}.gs.Neutral{background:#64748b}.gs.Caution{background:var(--dn)}
+.new{font-size:9px;font-weight:700;color:#67e8f9;margin-left:4px}
+.scroll{overflow:auto;max-height:640px}
+.layout{display:grid;grid-template-columns:1fr 520px;gap:12px}@media(max-width:1250px){.layout{grid-template-columns:1fr}}
+.colgroups label{font-size:12px;color:var(--mut);margin-right:10px;cursor:pointer}
+.spark{display:inline-block;vertical-align:middle}
+.grid9{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}@media(max-width:1000px){.grid9{grid-template-columns:1fr}}
+.mini{background:var(--panel2);border-radius:10px;padding:6px}.mini .t{display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px}
+svg text{fill:var(--mut);font-size:9.5px}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px;font-size:12px;margin-top:8px}.kv div span{color:var(--mut)}
+.note{font-size:11px;color:var(--dim)}.foot{color:var(--dim);font-size:11px;margin-top:10px;line-height:1.6}
+a.tv{color:var(--tx);text-decoration:none;font-weight:600}a.tv:hover{color:var(--acc)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1f2a44;color:#fff;padding:8px 14px;border-radius:9px;font-size:12px;display:none}
+</style></head><body><div class="wrap">
+<header>
+  <div class="brand"><b>Setups</b><span id="asof"></span></div>
+  <div class="ctl">
+    <div class="seg" id="qf"></div>
+    <div class="seg" id="gf"></div>
+    <select class="btn" id="tvby"><option value="scr">TV: by screener</option><option value="sec">TV: by sector</option><option value="ind">TV: by industry</option><option value="mom">TV: by momentum bucket</option></select>
+    <button class="btn" id="tvcopy">Copy for TradingView</button>
+  </div>
+</header>
+
+<div class="card brief">
+  <div><div class="sub">Read-out · as of the last close</div><div class="say" id="say"></div></div>
+.mood{display:grid;grid-template-columns:auto 1fr 1.2fr;gap:18px;align-items:center}@media(max-width:1000px){.mood{grid-template-columns:1fr}}
+.big{font-size:30px;font-weight:700}.pill{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600}
+.ok{background:#12361f;color:#86efac}.bad{background:#3b1520;color:#fda4af}.mid{background:#3a2a10;color:#fcd34d}
+.bar{display:inline-block;height:6px;border-radius:3px;background:#7c9cff;vertical-align:middle}
+.pc{font-size:10px;color:var(--dim);margin-left:3px}
+.pager{display:flex;gap:6px;align-items:center;justify-content:flex-end;margin:6px 0}
+</style></head><body><div class="wrap">
+<header>
+  <div class="brand"><b>Sector Intel</b><span id="asof"></span></div>
+  <div class="ctl">
+    <div class="seg" id="lv"></div><div class="seg" id="win"></div><div class="seg" id="sf"></div>
+    <button class="btn" id="tvcopy">Copy leaders for TradingView</button>
+  </div>
+</header>
+<div class="card mood" id="ctx"></div>
+<div class="card" style="padding:10px 14px"><div class="ctl" style="justify-content:space-between">
+  <div class="seg" id="view"><button data-v="board" class="on">Board</button><button data-v="grid">Chart grid</button></div>
+  <div class="note" id="legend"></div></div></div>
+<div class="layout"><div class="card" id="main" style="padding:8px"></div><div class="card" id="detail"></div></div>
+<div class="foot" id="foot"></div>
+</div><div class="toast" id="toast"></div>
+<script>
+const D=/*DATA*/null;
+const $=s=>document.querySelector(s);
+const f=(v,d=1,suf='')=>v==null?'<span class="dim">–</span>':(+v).toFixed(d)+suf;
+const sg=(v,d=1,suf='')=>v==null?'<span class="dim">–</span>':`<span class="${v>0?'up':v<0?'dn':'mut'}">${v>0?'+':''}${(+v).toFixed(d)}${suf}</span>`;
+const pc=v=>v==null?'':`<span class="pc" title="Percentile vs this group's own history">p${v}</span>`;
+const WN={'1D':'1 day','1W':'1 week','2W':'2 weeks','1M':'1 month'};
+const st={lv:'broad_industry',win:'2W',sf:'all',view:'board',sort:'score',desc:true,sel:null,page:0};
+function seg(id,opts,key){$(id).innerHTML=opts.map(([v,l])=>`<button data-v="${v}" class="${st[key]===v?'on':''}">${l}</button>`).join('');
+  $(id).querySelectorAll('button').forEach(b=>b.onclick=()=>{st[key]=b.dataset.v;st.page=0;if(key==='lv')st.sel=null;render()})}
+function rows(){if(st.lv==='index')return D.indices;let r=D.levels[st.lv].rows;if(st.sf!=='all')r=r.filter(z=>z.state===st.sf);
+  const k=st.sort,W=st.win,val=z=>{const v=z[k+'_'+W]!==undefined?z[k+'_'+W]:z[k];return Array.isArray(v)?v.length:v};
+  return [...r].sort((a,b)=>{const x=val(a),y=val(b);if(x==null)return 1;if(y==null)return -1;return (typeof x==='string'?x.localeCompare(y):x-y)*(st.desc?-1:1)})}
+function ctx(){const m=D.mood,R=D.reliability[st.lv==='index'?'broad_industry':st.lv],E=D.evidence.dir[m.dir];
+  const work=R.ic>0.05;const tone=m.dir==='cooling fast'||!work?'bad':m.dir==='improving fast'&&work?'ok':'mid';
+  const verdict=!work?'Group ranking has not worked in the last 3 months. Treat the board as a map, not a signal.':m.dir==='cooling fast'?'Short-term breadth is falling fast. In the past the ranking worked about half as well in this state.':'Group ranking has worked lately. Lean on the top of the board.';
+  const sp=m.spark,mn=Math.min(...sp),mx=Math.max(...sp),w=180,h=34,pt=sp.map((v,i)=>`${(i/(sp.length-1)*w).toFixed(1)},${(h-(v-0)/100*h).toFixed(1)}`).join(' ');
+  $('#ctx').innerHTML=`<div><div class="sub">Market mood (Pulse)</div><span class="big">${m.score}</span> <span class="mut">${m.label}, ${m.dir}</span><br><svg width="${w}" height="${h}"><rect y="${h*.45}" width="${w}" height="${h*.1}" fill="rgba(148,163,184,.08)"/><polyline points="${pt}" fill="none" stroke="#7c9cff"/></svg><div class="note">Last 120 sessions · 10 EMA breadth ${m.a10chg>0?'+':''}${m.a10chg} pts in 10 days</div></div>
+  <div><div class="sub">Is group ranking working now?</div><span class="pill ${tone}">${work?'Working':'Not working'}</span>
+   <div style="margin-top:6px">In the last 3 months, top-fifth groups beat the median group <b>${R.top}%</b> of the time; bottom-fifth <b>${R.bot}%</b>.</div>
+   <div class="note">Rank correlation ${R.ic} · ${R.days} signal days, ${R.from} to ${R.to} (the latest whose next 21 sessions are known)</div></div>
+  <div class="say"><p>${verdict}</p><p class="note">History (Oct 2024 – Jul 2026, Broad Industry): when breadth was ${m.dir}, top-fifth groups beat the median ${E[1]}% of the time vs ${E[2]}% for the bottom fifth. After a working quarter the next month's correlation averaged ${D.evidence.lag.working}; after a poor one, ${D.evidence.lag.not}.</p></div>`}
+function head(c){return `<th class="${c[2]||''}" data-k="${c[0]}" title="${c[3]||''}">${c[1]}${st.sort===c[0]?(st.desc?' ▾':' ▴'):''}</th>`}
+function board(){const W=st.win,R=rows();
+  if(st.lv==='index'){const C=[['g','Index','l'],['cat','Type','l'],['c','Close'],['r1d','1D %'],['r1w','1W %'],['r2w','2W %'],['r1m','1M %'],['a20','> 20 EMA']];
+    $('#main').innerHTML=`<div class="note" style="margin:4px 6px 8px">Index level: price only for now. Near-high %, new highs, A/D and delivery need each index's constituent list, which the database does not hold yet. ${R.length} of 44 indices found locally (${R[0]?.n||0} sessions of history).</div><div class="scroll"><table><thead><tr>${C.map(head).join('')}</tr></thead><tbody>${R.map(z=>`<tr><td class="l">${z.g}</td><td class="l mut">${z.cat}</td><td>${f(z.c,1)}</td><td>${sg(z.r1d)}</td><td>${sg(z.r1w)}</td><td>${sg(z.r2w)}</td><td>${sg(z.r1m)}</td><td>${z.a20?'<span class="up">Yes</span>':'<span class="dn">No</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+    bindSort();return}
+  const C=[['g','Group','l'],['n','Stocks'],['score','Score','','Leadership score 0–100: average rank of the four readings to its right'],['near','Near 52W high','','% of members within 10% of their 52-week high; change over the window; p = vs own history'],
+   ['nh','New highs','',`Members that made a new 52-week high in the last ${WN[W]}`],['ad','A/D','',`Net % of members up per day, averaged over ${WN[W]}`],['upd','Up-day delivery','',`Delivered value on up days ÷ all delivered value, ${WN[W]}`],
+   ['tox','Turnover ×','',`Turnover over ${WN[W]} vs its own 3-month average (attention, not direction)`],['shd','Share Δ','','Turnover share vs its 3-month average, points'],['rx','Return vs median','',`Group return over ${WN[W]} minus the median group`],['lead','Leaders','l','Top 3 members by RS percentile']];
+  $('#main').innerHTML=`<div class="scroll"><table><thead><tr>${C.map(head).join('')}</tr></thead><tbody>${R.map(z=>`<tr data-id="${z.id}" class="${st.sel===z.id?'sel':''}">
+   <td class="l"><span class="gs ${z.state}" title="${z.state}: ${z.why}"></span>${z.g}${z.n<5?' <span class="chip">small</span>':''}</td><td>${z.n}</td>
+   <td><span class="bar" style="width:${(z['score_'+W]||0)*.4}px"></span> ${f(z['score_'+W],0)}</td>
+   <td>${f(z.near,0,'%')} ${sg(z['nearchg_'+W],0)}${W==='2W'||1?pc(z.pct.near):''}</td>
+   <td>${f(z['nh_'+W],0)}</td><td>${sg(z['ad_'+W],0,'%')}${W==='2W'?pc(z.pct.ad_2W):''}</td><td>${f(z['upd_'+W],0,'%')}${W==='2W'?pc(z.pct.upd_2W):''}</td>
+   <td>${z['tox_'+W]==null?'–':'<span class="'+(z['tox_'+W]>=1.3?'warn':'')+'">'+z['tox_'+W].toFixed(2)+'×</span>'}</td><td>${sg(z['shd_'+W],2)}</td><td>${sg(z['rx_'+W],1)}</td>
+   <td class="l">${z.lead.map(s=>`<a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(s)}" onclick="event.stopPropagation()">${s}</a>`).join(' ')}</td></tr>`).join('')}</tbody></table></div>`;
+  bindSort();document.querySelectorAll('#main tbody tr[data-id]').forEach(tr=>tr.onclick=()=>{st.sel=tr.dataset.id;render()})}
+function bindSort(){document.querySelectorAll('#main th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(st.sort===k)st.desc=!st.desc;else{st.sort=k;st.desc=!['g','cat'].includes(k)}render()})}
+function chart(id,W,H,big){const c=D.charts[id];if(!c)return '';const n=c.c.length,rsH=big?50:28,nrH=big?44:24,ph=H-rsH-nrH-16;
+  const lo=Math.min(...c.l),hi=Math.max(...c.h),y=v=>(3+(hi-v)/(hi-lo||1)*(ph-6)).toFixed(1),bw=W/n,x=i=>(i*bw+bw/2).toFixed(1);
+  let g='';for(let i=0;i<n;i++){const up=c.c[i]>=c.o[i],col=up?'#22c55e':'#ef4444';
+    g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(c.h[i])}" y2="${y(c.l[i])}" stroke="${col}" stroke-width=".8"/><rect x="${(i*bw+bw*.15).toFixed(1)}" y="${y(Math.max(c.o[i],c.c[i]))}" width="${(bw*.7).toFixed(1)}" height="${Math.max(.6,Math.abs(y(c.o[i])-y(c.c[i])))}" fill="${up?'none':col}" stroke="${col}" stroke-width=".7"/>`}
+  const L=(a,col,yy)=>`<polyline fill="none" stroke="${col}" stroke-width="1" points="${a.map((v,i)=>v==null?'':`${x(i)},${yy(v)}`).join(' ')}"/>`;
+  g+=L(c.e10,'#f59e0b',y)+L(c.e20,'#38bdf8',y)+L(c.e50,'#e879f9',y);
+  const y1=ph+4,rmn=Math.min(...c.rs),rmx=Math.max(...c.rs),ry=v=>(y1+(rmx-v)/(rmx-rmn||1)*(rsH-6)).toFixed(1);
+  g+=`<line x1="0" x2="${W}" y1="${y1-2}" y2="${y1-2}" stroke="#232838"/>`+L(c.rs,'#a3e635',ry)+`<text x="2" y="${y1+8}">RS vs market</text>`;
+  const y2=y1+rsH+2,ny=v=>(y2+(100-v)/100*(nrH-4)).toFixed(1);
+  g+=`<line x1="0" x2="${W}" y1="${y2-1}" y2="${y2-1}" stroke="#232838"/><polygon fill="rgba(124,156,255,.25)" points="0,${ny(0)} ${c.near.map((v,i)=>`${x(i)},${ny(v??0)}`).join(' ')} ${W},${ny(0)}"/><text x="2" y="${y2+8}">near 52W hi ${c.near.at(-1)}%</text>`;
+  g+=`<text x="2" y="${H-2}">${c.d[0]}</text><text x="${W-2}" y="${H-2}" text-anchor="end">${c.d[n-1]}</text>`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" data-n="${n}" data-id="${id}" class="ch">${g}<line class="xh" x1="-9" x2="-9" y1="0" y2="${H}" stroke="#94a3b8" stroke-width=".6"/></svg>`}
+function grid(){if(st.lv==='index'){$('#main').innerHTML='<div class="note" style="padding:10px">Index charts need index history (32 sessions locally). Production uses real index candles.</div>';return}
+  const R=rows(),P=Math.ceil(R.length/9),pg=R.slice(st.page*9,st.page*9+9),W=st.win;
+  $('#main').innerHTML=`<div class="pager"><span class="note">Sorted like the board · page ${st.page+1} of ${P}</span><button class="btn" id="pv">‹</button><button class="btn" id="nx">›</button></div>
+  <div class="grid9">${pg.map(z=>`<div class="mini" data-id="${z.id}"><div class="t"><span><span class="gs ${z.state}"></span><b>${z.g}</b></span><span class="mut">score ${f(z['score_'+W],0)} · ${sg(z['ret_'+W],1,'%')}</span></div>${chart(z.id,320,210,false)}<div class="note xv"></div></div>`).join('')}</div>`;
+  $('#pv').onclick=()=>{st.page=Math.max(0,st.page-1);render()};$('#nx').onclick=()=>{st.page=Math.min(P-1,st.page+1);render()};
+  document.querySelectorAll('.mini').forEach(m=>m.onclick=()=>{st.sel=m.dataset.id;st.view='board';render();setTimeout(()=>document.querySelector('#detail').scrollIntoView({behavior:'smooth'}),50)});
+  sync()}
+function sync(){const svgs=[...document.querySelectorAll('svg.ch')];svgs.forEach(sv=>sv.onmousemove=e=>{const r=sv.getBoundingClientRect(),fr=(e.clientX-r.left)/r.width;
+  svgs.forEach(o=>{const n=+o.dataset.n,W=o.viewBox.baseVal.width,i=Math.max(0,Math.min(n-1,Math.floor(fr*n))),xx=(i+.5)*W/n;const l=o.querySelector('.xh');l.setAttribute('x1',xx);l.setAttribute('x2',xx);
+   const c=D.charts[o.dataset.id],lab=o.parentElement.querySelector('.xv');if(lab&&c)lab.textContent=`${c.d[i]} · close ${c.c[i]} · near hi ${c.near[i]}%`})})}
+function detail(){if(st.lv==='index'){$('#detail').innerHTML='<div class="note">Pick a taxonomy level to open a group.</div>';return}
+  const R=rows(),z=R.find(r=>r.id===st.sel)||R[0];if(!z){$('#detail').innerHTML='';return}st.sel=z.id;const W=st.win;
+  const M=(D.members[z.id]||[]),nn=M.filter(m=>m.fh!=null&&m.fh>=-10).length,ab=M.filter(m=>m.a50).length;
+  const one=M.length?Math.max(...M.map(m=>m.mcap))/M.reduce((s,m)=>s+m.mcap,0):0;
+  const say=`${nn} of ${M.length} members are within 10% of their 52-week high, and ${ab} are above the 50 EMA. ${z['nh_'+W]?`${z['nh_'+W]} made a new 52-week high in the last ${WN[W]}.`:`None made a new 52-week high in the last ${WN[W]}.`} ${z['ad_'+W]>10?'Most days, more members rose than fell.':z['ad_'+W]<-10?'Most days, more members fell than rose.':'Advances and declines were about even.'} ${z['upd_'+W]>=60?`${z['upd_'+W].toFixed(0)}% of delivered value came on up days: buyers took delivery.`:z['upd_'+W]<=40?`Only ${z['upd_'+W].toFixed(0)}% of delivered value came on up days.`:''} ${nn<=1&&M.length>=5?'The move is narrow: one stock or none.':nn>=M.length/3?'The move is broad.':''}`;
+  $('#detail').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline"><div><b style="font-size:16px">${z.g}</b> <span class="mut">${D.levels[st.lv].name} · ${z.n} stocks</span></div><span><span class="gs ${z.state}"></span>${z.state}</span></div>
+  <div class="note" style="margin:2px 0 6px">${z.why}</div>${chart(z.id,500,330,true)}
+  <div class="note">Equal-weight group candles · <span style="color:#f59e0b">10</span> / <span style="color:#38bdf8">20</span> / <span style="color:#e879f9">50 EMA</span> · <span style="color:#a3e635">RS line vs the equal-weight market</span> (MidSml400 in production) · shaded = % near 52W high</div>
+  <div class="say" style="margin:8px 0;font-size:13px"><p>${say}</p></div>
+  <div class="sub">Members by RS (≥ ₹1,000 Cr)</div><div class="scroll" style="max-height:300px"><table><thead><tr><th class="l">Stock</th><th>RS</th><th>1D</th><th>1M</th><th>From 52W hi</th><th>> 50E</th><th>Mcap ₹Cr</th></tr></thead><tbody>
+  ${M.slice(0,40).map(m=>`<tr><td class="l"><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(m.s)}">${m.s}</a> <span class="dim">${m.nm}</span></td><td>${f(m.rs,0)}</td><td>${sg(m.chg)}</td><td>${sg(m.r1m)}</td><td>${sg(m.fh)}</td><td>${m.a50?'✓':'<span class="dim">·</span>'}</td><td>${m.mcap.toLocaleString('en-IN')}</td></tr>`).join('')}</tbody></table></div>`;
+  sync()}
+function legend(){$('#legend').innerHTML=`<span class="gs Favour"></span>Favour <span class="gs Neutral"></span>Neutral <span class="gs Caution"></span>Caution · window: ${WN[st.win]} · p = percentile vs the group's own history`}
+function render(){seg('#lv',[['sector','Sector'],['broad_industry','Broad Industry'],['industry','Industry'],['index','Index']],'lv');seg('#win',[['1D','1D'],['1W','1W'],['2W','2W'],['1M','1M']],'win');
+  seg('#sf',[['all','All'],['Favour','Favour'],['Neutral','Neutral'],['Caution','Caution']],'sf');
+  document.querySelectorAll('#view button').forEach(b=>{b.classList.toggle('on',b.dataset.v===st.view);b.onclick=()=>{st.view=b.dataset.v;st.page=0;render()}});
+  $('#asof').textContent='as of '+D.as_of;ctx();legend();st.view==='grid'?grid():board();detail()}
+$('#tvcopy').onclick=()=>{if(st.lv==='index')return;const t=rows().filter(z=>z.lead.length).map(z=>`###${z.g},`+z.lead.map(s=>'NSE:'+s).join(',')).join(',');navigator.clipboard?.writeText(t);const el=$('#toast');el.textContent='Copied leaders of '+rows().length+' groups';el.style.display='block';setTimeout(()=>el.style.display='none',1800)};
+$('#foot').innerHTML='Mockup on local data. Stocks ≥ ₹1,000 Cr, current taxonomy (not point-in-time). Score = average within-level rank of near-high %, new highs, A/D and up-day delivery share for the chosen window. Thresholds are provisional until rechecked on the five-year archive. Rebuild: <code>python hark/tools/sector_mockup/extract.py [AS_OF]</code>.';
+render();
+</script></body></html>

@@ -48,3 +48,9 @@ Newest at the bottom. Each line: date · decision · reason.
 - Siddhant asked for Sector Intel next. Round 1 audit, evidence and proposals are in `07-tab-sector-intel.md`.
 - Evidence (local 18 months): % trend template and % new highs predict the next 21 sessions best; turnover-share Δ (money flow) shows no edge; Broad Industry gives about twice the signal of Industry; group Health adds little for stocks with RS ≥ 80.
 - Proposed: one group state across tabs, Broad Industry by default, a "Broadening now" list, flow demoted, Map/Today/Accumulators out of this tab. Waiting on Siddhant.
+
+## 2026-10-09 — Sector Intel rounds 2–3
+- TT% dropped (hard to read). Readings tested over N days. Near-52W-high %, new highs over 5–10D, A/D over 10–20D and up-day delivery share make up the score. Turnover means attention, not direction. Delivery % vs its own average showed no edge.
+- No setup references in this tab for now (Siddhant).
+- Pulse mood + a "Is group ranking working now?" gauge shown beside the score. Cooling-fast breadth halves the edge, and the ranking's recent record predicts its next month.
+- Mockup v1 `mockups/tab-sector-intel.html`. All thresholds stay provisional until the 5-year point-in-time recheck.

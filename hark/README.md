@@ -12,7 +12,8 @@ We design one tab at a time. We lock each tab's spec before we write production 
 | [04-writing-style.md](04-writing-style.md) | House style for all commentary (plain English, STE-inspired) | Agreed |
 | [05-data-gaps.md](05-data-gaps.md) | Data that the specs need but the pipeline lacks or gets wrong | Open |
 | [06-tab2-setups.md](06-tab2-setups.md) | Tab 2 **Setups / Screener**: discussion rounds + locked spec | **Locked 2026-10-09** |
-| [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, predictive evidence, proposals | Round 1 |
+| [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, evidence, rounds 1–3, mockup | Round 3 |
+| mockups/tab-sector-intel.html | Sector Intel mockup (board, chart grid, group panel) | v1 |
 | mockups/tab1-pulse.html | Clickable Pulse mockup on real data (open in a desktop browser) | v2 |
 | mockups/redesign-v1-workflow.html | First workflow-first mockup (Brief / Setups / Plan / Review) | Reference |
 | tools/pulse_mockup/ | Script that rebuilds the Pulse mockup from `Database/marketpulse.duckdb` | Prototype |
