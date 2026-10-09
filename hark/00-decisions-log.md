@@ -43,3 +43,8 @@ Newest at the bottom. Each line: date · decision · reason.
 - Spec at the end of `06-tab2-setups.md`; mockup `mockups/tab2-setups.html` (457 setups as of 2026-08-13, validated in jsdom with no JS errors).
 - Every setup row carries its Industry group state (Favour / Neutral / Caution) with a numeric reason. Prototype: squeezes in Favour groups were up after 20 sessions 47% of the time vs 41% in Caution.
 - Next tab: Plan + Journal.
+
+## 2026-10-09 — Sector Intel opened (moved ahead of Plan + Journal)
+- Siddhant asked for Sector Intel next. Round 1 audit, evidence and proposals are in `07-tab-sector-intel.md`.
+- Evidence (local 18 months): % trend template and % new highs predict the next 21 sessions best; turnover-share Δ (money flow) shows no edge; Broad Industry gives about twice the signal of Industry; group Health adds little for stocks with RS ≥ 80.
+- Proposed: one group state across tabs, Broad Industry by default, a "Broadening now" list, flow demoted, Map/Today/Accumulators out of this tab. Waiting on Siddhant.

@@ -12,15 +12,16 @@ We design one tab at a time. We lock each tab's spec before we write production 
 | [04-writing-style.md](04-writing-style.md) | House style for all commentary (plain English, STE-inspired) | Agreed |
 | [05-data-gaps.md](05-data-gaps.md) | Data that the specs need but the pipeline lacks or gets wrong | Open |
 | [06-tab2-setups.md](06-tab2-setups.md) | Tab 2 **Setups / Screener**: discussion rounds + locked spec | **Locked 2026-10-09** |
+| [07-tab-sector-intel.md](07-tab-sector-intel.md) | Sector Intel (Groups): audit, predictive evidence, proposals | Round 1 |
 | mockups/tab1-pulse.html | Clickable Pulse mockup on real data (open in a desktop browser) | v2 |
 | mockups/redesign-v1-workflow.html | First workflow-first mockup (Brief / Setups / Plan / Review) | Reference |
 | tools/pulse_mockup/ | Script that rebuilds the Pulse mockup from `Database/marketpulse.duckdb` | Prototype |
 
 ## Tab order for the design rounds
 1. Pulse — **done**
-2. Setups / Screener — next
-3. Plan + Journal
-4. Groups
+2. Setups / Screener — **done**
+3. Sector Intel (Groups) — **in progress**
+4. Plan + Journal
 5. Deals
 6. Charts / Stock 360
 7. Research
