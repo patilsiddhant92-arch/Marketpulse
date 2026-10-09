@@ -70,3 +70,6 @@ frontend/dist/
 # Claude Code
 .claude/
 
+
+# design sample screenshots (hark workbook)
+!hark/mockups/screenshots/**/*.png
