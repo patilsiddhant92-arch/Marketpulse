@@ -111,6 +111,7 @@ def row_for(r):
         if e != "distribute" and cls == "watch" and n_after >= 3:
             if status == "holding": cls, title, why = "confirm", "Confirmed: held the deal price 3 sessions", "Strong chart + net buy + held 3 days: +5.2%, 60% beat the market (n=40)."
             elif status == "lost": cls, title, why = "avoid", "Failed: lost the deal price", "Net buys that lost the deal price usually lagged (−1.1%)."
+            else: title, why = "Back above the deal price: watch", "Dipped below the deal price, now back above. Needs to hold before it counts."
         if e == "distribute" and n_after >= 3 and status == "reclaimed":
             cls, title, why = "absorbed", "Absorbed: seller's price reclaimed", "Absorbed supply averaged +1.8% over 20 sessions."
     chips = []
