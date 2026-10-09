@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MarketPulse · Pulse</title>
+<style>
+:root{--bg:#0b0d12;--panel:#12151d;--panel2:#171b25;--line:#232838;--tx:#e7eaf0;--mut:#8a93a6;--dim:#5d6578;--up:#22c55e;--dn:#ef4444;--warn:#f59e0b;--acc:#7c9cff;--r:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1320px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.brand{display:flex;align-items:baseline;gap:10px}.brand b{font-size:20px;letter-spacing:.3px}.brand span{color:var(--mut);font-size:12px}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{background:none;border:0;color:var(--mut);padding:6px 10px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px}
+.seg button.on{background:var(--panel2);color:var(--tx);box-shadow:inset 0 0 0 1px var(--line)}
+.grid{display:grid;gap:14px}.g2{grid-template-columns:1.35fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g6{grid-template-columns:repeat(6,1fr)}
+@media(max-width:1000px){.g2,.g3{grid-template-columns:1fr}.g6{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card h3{margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.2px}.sub{color:var(--mut);font-size:12px;margin-bottom:10px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.hero{display:grid;grid-template-columns:220px 1fr;gap:18px}@media(max-width:800px){.hero{grid-template-columns:1fr}}
+.mood{font-size:44px;font-weight:700;line-height:1}.moodl{font-size:13px;color:var(--mut)}
+.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.say{font-size:15px;line-height:1.6}.say p{margin:0 0 6px}.say .do{margin-top:8px;padding:10px 12px;background:var(--panel2);border-left:3px solid var(--acc);border-radius:8px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{color:var(--mut);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:right;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:default}
+th:first-child,td:first-child{text-align:left}td{padding:7px 6px;text-align:right;border-bottom:1px solid #1a1f2c;white-space:nowrap}
+th.s{cursor:pointer}th.s:hover{color:var(--tx)}
+.xp{display:block;font-size:9px;font-weight:700;line-height:1;margin-top:2px}.xp.u{color:#67e8f9}.xp.d{color:#fda4af}td.xpu{box-shadow:inset 0 -3px 0 #22d3ee}td.xpd{box-shadow:inset 0 -3px 0 #fb7185}
+.heat td.c{font-weight:600;border-radius:6px}.jump{outline:2px solid var(--warn);outline-offset:-2px}
+.rng{position:relative;height:6px;background:#1e2433;border-radius:4px;width:110px;display:inline-block;vertical-align:middle}
+.rng i{position:absolute;top:-3px;width:3px;height:12px;background:var(--tx);border-radius:2px}
+.rng b{position:absolute;top:0;height:6px;background:#2e3a55;border-radius:4px}
+.kpi .v{font-size:22px;font-weight:700}.kpi .l{color:var(--mut);font-size:12px}.kpi .d{font-size:12px;margin-top:2px}
+.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}.warn{color:var(--warn)}
+.chip{display:inline-block;font-size:10px;padding:1px 5px;border-radius:5px;margin-left:4px;background:#232a3b;color:#c9d2e6;vertical-align:1px}
+.chip.deal{background:#2b2350;color:#c4b5fd}.chip.hi{background:#12361f;color:#86efac}.chip.ipo{background:#0f3040;color:#7dd3fc}.chip.band{background:#3a2a10;color:#fcd34d}.chip.ext{background:#3b1520;color:#fda4af}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+svg text{fill:var(--mut);font-size:10px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--mut)}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.foot{color:var(--dim);font-size:11px;margin-top:14px;line-height:1.6}
+.scroll{overflow-x:auto}
+.tm div{position:absolute;overflow:hidden;border:1px solid var(--bg);border-radius:4px;padding:4px 5px;font-size:11px;line-height:1.2;color:#fff}
+.tm div b{display:block;font-size:11px}
+.note{font-size:11px;color:var(--dim)}
+.bar{height:8px;border-radius:4px;display:inline-block;vertical-align:middle}
+</style></head><body><div class="wrap">
+<header>
+  <div class="brand"><b>Pulse</b><span id="asof"></span></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <span class="note">Compare today with</span>
+    <div class="seg" id="lb"></div>
+    <div class="seg" id="unit"><button data-u="pct" class="on">%</button><button data-u="n"># stocks</button></div>
+  </div>
+</header>
+
+<div class="card hero" style="margin-bottom:14px">
+  <div>
+    <div class="moodl">Market mood</div>
+    <div class="mood" id="moodv"></div>
+    <div id="moodp" style="margin:6px 0"></div>
+    <div id="moodsp"></div>
+    <div class="note" id="moodn"></div>
+  </div>
+  <div class="say" id="say"></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="hd"><div><h3>Participation: stocks above their moving averages</h3><div class="sub" id="heatsub"></div></div>
+    <div class="legend"><span><i style="background:var(--up)"></i>rose vs prior day</span><span><i style="background:var(--dn)"></i>fell</span><span><i style="background:var(--warn)"></i>unusual move (&gt;2σ)</span><span><i style="background:#22d3ee"></i>expansion</span><span><i style="background:#fb7185"></i>contraction</span></div></div>
+    <div class="scroll"><table class="heat" id="heat"></table></div><div style="margin-top:12px"><h3>Expansion log</h3><div class="sub" id="xsub"></div><div class="scroll"><table id="xlog"></table></div></div>
+  </div>
+  <div class="card">
+    <div class="hd"><div><h3>Participation trend</h3><div class="sub">Shaded band = the normal range (10th–90th percentile) of the full history</div></div>
+    <div class="legend"><span><i style="background:#7c9cff"></i>10 EMA</span><span><i style="background:#22c55e"></i>50 EMA</span><span><i style="background:#f59e0b"></i>200 EMA</span></div></div>
+    <div id="trend"></div>
+  </div>
+</div>
+
+<div class="grid g6" style="margin-top:14px" id="kpis"></div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <div class="hd"><div><h3>Days that looked like today</h3><div class="sub">Closest past sessions by participation level, its 5-day change and short-term breadth. What the average stock did next.</div></div></div>
+    <div id="anasum" style="margin-bottom:8px"></div>
+    <table id="ana"></table>
+  </div>
+  <div class="card">
+    <div class="hd"><div><h3>Money in the market</h3><div class="sub">Total NSE cash turnover and delivered value, all stocks, ₹ Cr</div></div></div>
+    <div id="tov"></div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <div class="hd"><div><h3>Where the money went</h3><div class="sub" id="tmsub"></div></div>
+      <div class="seg" id="tmper"><button data-p="r1" class="on">1D</button><button data-p="r5">1W</button><button data-p="r21">1M</button><button data-p="r63">3M</button></div></div>
+    <div class="tm" id="tm" style="position:relative;height:340px"></div>
+  </div>
+  <div class="card">
+    <div class="hd"><div><h3>Rotation: share of market turnover</h3><div class="sub">Sector's share of turnover today vs its 20-day average. Money moving in vs out.</div></div></div>
+    <div id="rot"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="hd"><div><h3>Groups</h3><div class="sub">Sectors and industries: all stocks, equal weight. Indices: official NSE sectoral and thematic indices. Sort by any column.</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="glvl"><button data-l="Sector" class="on">Sector</button><button data-l="Industry">Industry</button><button data-l="Sectoral">Index · Sectoral</button><button data-l="Thematic">Index · Thematic</button></div></div></div>
+  <div class="scroll"><table id="gt"></table></div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="hd"><div><h3>Stocks that moved</h3><div class="sub" id="stsub"></div></div>
+    <div class="seg" id="stk"><button data-k="up" class="on">Gainers</button><button data-k="dn">Losers</button><button data-k="tov">Turnover</button><button data-k="dlv">Delivery ₹</button><button data-k="rvol">Volume surge</button></div></div>
+  <div class="legend" style="margin-bottom:6px"><span><span class="chip deal">DEAL</span> bulk/block deal, last 3 days</span><span><span class="chip hi">52W</span> fresh 52-week high</span><span><span class="chip ipo">IPO</span> listed &lt; 1 year</span><span><span class="chip band">BAND</span> price band / surveillance</span><span><span class="chip ext">EXT</span> &gt;3 ADR above 10 EMA</span><span><span class="chip">RES</span> <span class="chip">NEWS</span> once results and announcements are ingested</span></div>
+  <div class="scroll"><table id="st"></table></div>
+</div>
+
+<div class="foot" id="foot"></div>
+</div>
+<script>
+const D=__DATA__;
+const S=D.series, N=S.d.length, L=N-1;
+let LB=5, UNIT='pct', TMP='r1', GL='Sector', SK='up', GS={k:'shd',dir:-1};
+const $=s=>document.querySelector(s);
+const fmt=(v,d=1)=>v==null?'–':Number(v).toFixed(d);
+const fmtI=v=>v==null?'–':Math.round(v).toLocaleString('en-IN');
+const cr=v=>v==null?'–':(v>=1000?(v/1000).toFixed(1)+'k':Math.round(v).toString());
+const sgn=(v,d=1)=>v==null?'–':(v>0?'+':'')+Number(v).toFixed(d);
+const cls=v=>v>0?'up':v<0?'dn':'mut';
+const dt=s=>{const x=new Date(s+'T00:00');return x.toLocaleDateString('en-IN',{day:'numeric',month:'short'})};
+const dty=s=>{const x=new Date(s+'T00:00');return x.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})};
+function pctRank(arr,v){const a=arr.filter(x=>x!=null);if(v==null)return null;return Math.round(100*a.filter(x=>x<v).length/a.length)}
+function quant(arr,q){const a=arr.filter(x=>x!=null).sort((x,y)=>x-y);return a[Math.floor(q*(a.length-1))]}
+function avg(a){a=a.filter(x=>x!=null);return a.reduce((s,x)=>s+x,0)/a.length}
+function std(a){a=a.filter(x=>x!=null);const m=avg(a);return Math.sqrt(avg(a.map(x=>(x-m)**2)))}
+function ser(k){return S[k]}
+const nn=S.nh.map((h,i)=>h==null||S.nl[i]==null?null:h-S.nl[i]);
+const adr=S.adv.map((a,i)=>a==null?null:100*a/(a+S.decl[i]));
+// Breadth expansion / contraction: one-day relative change in the COUNT of stocks above an EMA.
+// Flag when the change is in the top or bottom 5% of that row's own history AND at least 15% (and 100 stocks).
+const CNT={},REL={},XTH={};
+['e10','e20','e50','e100','e200'].forEach(k=>{CNT[k]=S[k].map((v,i)=>v==null?null:v*S.stocks[i]/100);REL[k]=CNT[k].map((v,i)=>i&&v&&CNT[k][i-1]?v/CNT[k][i-1]-1:null);XTH[k]=[Math.min(quant(REL[k],.05),-0.15),Math.max(quant(REL[k],.95),0.15)]});
+function xflag(k,i){const r=REL[k][i],c=CNT[k][i]-CNT[k][i-1];if(r==null)return 0;if(r>=XTH[k][1]&&c>=100)return 1;if(r<=XTH[k][0]&&-c>=100)return -1;return 0}
+function xEvents(){const ev=[];for(let i=1;i<=L;i++){['e10','e20','e50','e100','e200'].forEach(k=>{const f=xflag(k,i);if(f)ev.push({i,k,f})})}return ev}
+// Mood: average history percentile of 6 readings (prototype)
+const moodParts=[['e10',S.e10],['e50',S.e50],['e200',S.e200],['upvol',S.upvol],['nn',nn],['st2',S.st2]];
+const mood=S.d.map((_,i)=>{const v=moodParts.map(([k,a])=>pctRank(a.slice(0,i+1).length>60?a:a,a[i]));const f=v.filter(x=>x!=null);return f.length?avg(f):null});
+function moodWord(m){return m>=70?['Strong','var(--up)']:m>=55?['Healthy','#86efac']:m>=45?['Mixed','var(--warn)']:m>=30?['Weak','#fb923c']:['Very weak','var(--dn)']}
+
+function spark(arr,w=200,h=36,col='#7c9cff',band){const a=arr.map(v=>v==null?null:v);const f=a.filter(x=>x!=null);let mn=Math.min(...f),mx=Math.max(...f);if(band){mn=Math.min(mn,band[0]);mx=Math.max(mx,band[1])}if(mx==mn)mx=mn+1;
+ const X=i=>i*(w-4)/(a.length-1)+2,Y=v=>h-3-(v-mn)*(h-6)/(mx-mn);let p='';a.forEach((v,i)=>{if(v!=null)p+=(p?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1)});
+ let bd=band?`<rect x="0" y="${Y(band[1])}" width="${w}" height="${Y(band[0])-Y(band[1])}" fill="#ffffff0d"/>`:'';
+ return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${bd}<path d="${p}" fill="none" stroke="${col}" stroke-width="1.6"/><circle cx="${X(a.length-1)}" cy="${Y(a[a.length-1])}" r="2.6" fill="${col}"/></svg>`}
+
+function header(){
+ $('#asof').textContent=`as of ${dty(D.asof)} close · ${N} sessions of history`;
+ const opts=[[5,'5D'],[10,'10D'],[20,'1M'],[60,'3M'],[250,'1Y']];
+ $('#lb').innerHTML=opts.map(([v,l])=>`<button data-v="${v}" class="${v==LB?'on':''}">${l}</button>`).join('');
+ $('#lb').onclick=e=>{if(e.target.dataset.v){LB=+e.target.dataset.v;header();render()}};
+}
+$('#unit').onclick=e=>{if(e.target.dataset.u){UNIT=e.target.dataset.u;[...$('#unit').children].forEach(b=>b.classList.toggle('on',b.dataset.u==UNIT));render()}};
+$('#tmper').onclick=e=>{if(e.target.dataset.p){TMP=e.target.dataset.p;[...$('#tmper').children].forEach(b=>b.classList.toggle('on',b.dataset.p==TMP));treemap()}};
+$('#glvl').onclick=e=>{if(e.target.dataset.l){GL=e.target.dataset.l;[...$('#glvl').children].forEach(b=>b.classList.toggle('on',b.dataset.l==GL));groupsT()}};
+$('#stk').onclick=e=>{if(e.target.dataset.k){SK=e.target.dataset.k;[...$('#stk').children].forEach(b=>b.classList.toggle('on',b.dataset.k==SK));stocksT()}};
+
+function heroSay(){
+ const m=mood[L], m0=mood[L-LB];const [w,c]=moodWord(m);
+ const cool=S.e10[L]<S.e10[L-LB]-10, heatup=S.e10[L]>S.e10[L-LB]+10;
+ $('#moodv').innerHTML=`<span style="color:${c}">${w}</span>`+(cool?`<div style="font-size:16px;color:#fb923c;margin-top:4px">and cooling fast</div>`:heatup?`<div style="font-size:16px;color:#86efac;margin-top:4px">and improving fast</div>`:'');
+ $('#moodp').innerHTML=`<span class="pill" style="background:${c}22;color:${c}">${Math.round(m)} / 100</span> <span class="${cls(m-m0)}" style="font-size:12px">${sgn(m-m0,0)} vs ${LB}D ago</span>`;
+ $('#moodsp').innerHTML=spark(mood.slice(-Math.max(LB,20)-1),200,44,c,[45,55]);
+ $('#moodn').textContent=`Last ${Math.max(LB,20)} sessions. 100 = best breadth in our history.`;
+ const e10=S.e10[L],e10o=S.e10[L-LB],e50=S.e50[L],e50o=S.e50[L-LB],e200=S.e200[L];
+ const rk50=pctRank(S.e50,e50), rk10=pctRank(S.e10,e10);
+ const a=S.adv[L],d=S.decl[L];const nh=S.nh[L],nl=S.nl[L];
+ const t=S.tov[L], t20=avg(S.tov.slice(L-20,L));
+ const lines=[];
+ const xs=['e200','e100','e50','e20','e10'].map(k=>({k,f:xflag(k,L)})).filter(x=>x.f);
+ if(xs.length){const x=xs[0];const lb={e10:'10-day',e20:'20-day',e50:'50-day',e100:'100-day',e200:'200-day'}[x.k];const n=xEvents().filter(e=>e.k==x.k&&e.f==x.f).length;
+  lines.push(`<b>Breadth ${x.f>0?'expansion':'contraction'}.</b> Stocks above their ${lb} average went from ${fmtI(CNT[x.k][L-1])} to ${fmtI(CNT[x.k][L])} (${sgn(REL[x.k][L]*100,0)}%) in one day. A move this big happened on ${n} days in our history.`)}
+ const dir=e10<e10o-5?'fell':e10>e10o+5?'rose':'held steady';
+ lines.push(`Short-term breadth ${dir}. ${fmt(e10,0)}% of stocks are above their 10-day average. ${LB} sessions ago, the number was ${fmt(e10o,0)}%.`);
+ lines.push(`The medium trend is ${e50>=55?'healthy':e50>=45?'neutral':'weak'}. ${fmt(e50,0)}% of stocks are above their 50-day average. This level is higher than on ${rk50}% of days in our history.`);
+ lines.push(`${fmtI(a)} stocks rose and ${fmtI(d)} fell today. ${nh} stocks made a new 52-week high and ${nl} made a new low.`);
+ lines.push(`Turnover was ₹${fmtI(t)} Cr. That is ${t>t20?'more':'less'} than the 20-day average by ${Math.abs(100*(t/t20-1)).toFixed(0)}%.`);
+ const ana=D.analogs, pos=ana.filter(x=>x.f20>0).length;
+ let act;
+ if(m<45) act=`Take fewer new trades. Use smaller size. Buy only the strongest stocks in leading groups.`;
+ else if(m<55) act=`Trade normal setups with care. Keep size normal or smaller until breadth turns up again.`;
+ else act=`Conditions support new trades. Use normal size. Add only to positions that show a profit.`;
+ if(e10<e10o-10 && m>=55) act=`The backdrop is strong, but short-term breadth is falling fast. Do not chase breakouts today. Keep your current positions. Add new ones when the 10-day number stops falling.`;
+ else if(e10<e10o-10) act=`Short-term breadth is falling fast. Do not add new positions today. Wait for the 10-day number to stop falling.`;
+ $('#say').innerHTML=lines.map(x=>`<p>${x}</p>`).join('')+`<div class="do"><b>What to do:</b> ${act}<div class="note" style="margin-top:4px">In ${ana.length} similar past setups, the average stock rose over the next 20 sessions ${pos} times.</div></div>`;
+}
+
+const ROWS=[['e10','10 EMA'],['e20','20 EMA'],['e50','50 EMA'],['e100','100 EMA'],['e200','200 EMA']];
+function heat(){
+ const cnt=k=>S[k].map((v,i)=>v==null?null:v*S.stocks[i]/100);
+ const val=k=>UNIT=='pct'?S[k]:cnt(k);
+ const show=Math.min(LB,10);const idx=[];for(let i=L-show+1;i<=L;i++)idx.push(i);
+ let h='<tr><th>Above</th>'+idx.map(i=>`<th>${i==L?'Today':dt(S.d[i])}</th>`).join('')+(LB>10?`<th>${LB}D ago</th>`:'')+`<th>Δ ${LB}D</th><th>vs history</th><th>Pctl</th></tr>`;
+ ROWS.forEach(([k,lab])=>{const a=val(k);
+  const chg=S[k].map((v,i)=>i&&v!=null&&S[k][i-1]!=null?v-S[k][i-1]:null);
+  h+=`<tr><td>${lab}</td>`;
+  idx.forEach(i=>{const c=chg[i];const sd=std(chg.slice(Math.max(1,i-60),i));const z=c==null?0:c/sd;
+   const al=Math.min(0.85,Math.abs(c||0)/Math.max(sd*2.5,0.1));const bg=c>0?`rgba(34,197,94,${al})`:`rgba(239,68,68,${al})`;
+   const xf=xflag(k,i);const xr=REL[k][i];
+   h+=`<td class="c ${Math.abs(z)>2?'jump':''} ${xf>0?'xpu':xf<0?'xpd':''}" style="background:${bg}" title="Change ${sgn(c)} pts (${sgn(z,1)}σ) · count ${sgn(xr*100,0)}%">${UNIT=='pct'?fmt(a[i],0):fmtI(a[i])}${xf?`<span class="xp ${xf>0?'u':'d'}">${xf>0?'▲':'▼'}${sgn(xr*100,0)}%</span>`:''}</td>`});
+  if(LB>10)h+=`<td>${UNIT=='pct'?fmt(a[L-LB],0):fmtI(a[L-LB])}</td>`;
+  const dd=a[L]-a[L-LB];h+=`<td class="${cls(dd)}">${UNIT=='pct'?sgn(dd,0):sgn(dd,0)}</td>`;
+  const mn=Math.min(...S[k].filter(x=>x!=null)),mx=Math.max(...S[k].filter(x=>x!=null)),p10=quant(S[k],.1),p90=quant(S[k],.9);
+  const X=v=>((v-mn)/(mx-mn)*100).toFixed(1);
+  h+=`<td><span class="rng" title="min ${fmt(mn,0)} · max ${fmt(mx,0)}"><b style="left:${X(p10)}%;width:${X(p90)-X(p10)}%"></b><i style="left:calc(${X(S[k][L])}% - 1px)"></i></span></td>`;
+  const pr=pctRank(S[k],S[k][L]);h+=`<td class="${pr>=60?'up':pr<=30?'dn':'mut'}">${pr}</td></tr>`});
+ $('#heat').innerHTML=h;
+ $('#heatsub').textContent=`All ${fmtI(S.stocks[L])} listed stocks. Cell colour shows the change from the prior session. Pctl = how today ranks against every day since ${dty(S.d[0])}.`;
+}
+
+function xlog(){const ev=xEvents();const lab={e10:'10 EMA',e20:'20 EMA',e50:'50 EMA',e100:'100 EMA',e200:'200 EMA'};
+ const fw=(i,n)=>i+n<=L?100*(S.ew[i+n]/S.ew[i]-1):null;
+ const stat=(f,k)=>{const e=ev.filter(x=>x.f==f&&x.k==k&&x.i+20<=L).map(x=>fw(x.i,20));return e.length?{n:e.length,med:[...e].sort((a,b)=>a-b)[Math.floor(e.length/2)],pos:e.filter(x=>x>0).length}:null};
+ const st=['e20','e50','e200'].map(k=>{const u=stat(1,k),d=stat(-1,k);return `<b>${lab[k]}</b>: expansions ${u?u.n:0}× (next 20D median ${u?sgn(u.med):'–'}%, up ${u?u.pos:0}/${u?u.n:0}) · contractions ${d?d.n:0}× (${d?sgn(d.med):'–'}%)`}).join('<br>');
+ $('#xsub').innerHTML=`Days the number of stocks above an average jumped or dropped unusually in one session (top/bottom 5% of its own history, at least 15% and 100 stocks).<br>${st}`;
+ const byD={};ev.forEach(x=>{const key=x.i+'_'+x.f;(byD[key]=byD[key]||{i:x.i,f:x.f,ks:[]}).ks.push(x.k)});
+ const last=Object.values(byD).sort((a,b)=>b.i-a.i).slice(0,8);
+ $('#xlog').innerHTML='<tr><th>Date</th><th>Signal</th><th>Averages</th><th>Stocks</th><th>Next 10D</th><th>Next 20D</th></tr>'+last.map(x=>{const k=x.ks.includes('e20')?'e20':x.ks[x.ks.length-1];const f10=fw(x.i,10),f20=fw(x.i,20);
+  return `<tr><td>${x.i==L?'<b>Today</b>':dty(S.d[x.i])}</td><td class="${x.f>0?'up':'dn'}">${x.f>0?'Expansion':'Contraction'}</td><td class="mut">${x.ks.map(q=>q.slice(1)).join(', ')} EMA</td><td>${lab[k]}: ${fmtI(CNT[k][x.i-1])} → ${fmtI(CNT[k][x.i])} <span class="${cls(x.f)}">(${sgn(REL[k][x.i]*100,0)}%)</span></td><td class="${cls(f10)}">${f10==null?'…':sgn(f10)+'%'}</td><td class="${cls(f20)}">${f20==null?'…':sgn(f20)+'%'}</td></tr>`}).join('');
+}
+function trend(){
+ const n=Math.max(LB,20), st=L-n, w=520,h=210,pl=26,pb=18;
+ const lines=[['e10','#7c9cff'],['e50','#22c55e'],['e200','#f59e0b']];
+ const X=i=>pl+(i-st)*(w-pl-6)/(n),Y=v=>h-pb-(v)*(h-pb-6)/100;
+ let s=`<svg viewBox="0 0 ${w} ${h}" width="100%">`;
+ [0,25,50,75,100].forEach(v=>s+=`<line x1="${pl}" x2="${w}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1e2433"/><text x="2" y="${Y(v)+3}">${v}%</text>`);
+ const p10=quant(S.e50,.1),p90=quant(S.e50,.9);s+=`<rect x="${pl}" width="${w-pl}" y="${Y(p90)}" height="${Y(p10)-Y(p90)}" fill="#22c55e10"/>`;
+ lines.forEach(([k,c])=>{let p='';for(let i=st;i<=L;i++){const v=S[k][i];if(v!=null)p+=(p?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1)}s+=`<path d="${p}" fill="none" stroke="${c}" stroke-width="1.8"/>`});
+ const ticks=5;for(let t=0;t<=ticks;t++){const i=Math.round(st+t*n/ticks);s+=`<text x="${X(i)-14}" y="${h-4}">${dt(S.d[i])}</text>`}
+ s+='</svg>';$('#trend').innerHTML=s;
+}
+
+function kpis(){
+ const items=[
+  ['Advancers %',adr,v=>fmt(v,0)+'%','Share of stocks that rose',1],
+  ['Up-volume %',S.upvol,v=>fmt(v,0)+'%','Volume in rising stocks',1],
+  ['Net new highs',nn,v=>sgn(v,0),'52W highs minus lows',0],
+  ['In Stage 2',S.st2,v=>fmt(v,0)+'%','Pass the trend template',1],
+  ['Breakouts holding',S.ft,v=>fmt(v,0)+'%','Recent breakouts above entry',1],
+  ['India VIX',S.vix,v=>fmt(v,1),'Expected volatility',-1]];
+ $('#kpis').innerHTML=items.map(([l,a,f,ex,good])=>{const v=a[L];const av=avg(a.slice(L-LB,L));const pr=pctRank(a,v);const dd=v-av;const cc=good==0?cls(dd):cls(dd*good);
+  return `<div class="card kpi"><div class="l">${l}</div><div class="v">${f(v)}</div><div class="d"><span class="${cc}">${sgn(dd,1)}</span> <span class="mut">vs ${LB}D avg · pctl ${pr}</span></div>${spark(a.slice(-Math.max(LB,20)-1),180,30,good<0?'#f59e0b':'#7c9cff')}<div class="note">${ex}</div></div>`}).join('');
+}
+
+function analogs(){
+ const a=D.analogs;const f10=a.map(x=>x.f10),f20=a.map(x=>x.f20);const med=q=>{const s=[...q].sort((x,y)=>x-y);return (s[3]+s[4])/2};
+ $('#anasum').innerHTML=`<span class="pill" style="background:#7c9cff22;color:#a5b8ff">Next 10D median ${sgn(med(f10))}%</span> <span class="pill" style="background:#7c9cff22;color:#a5b8ff">Next 20D median ${sgn(med(f20))}%</span> <span class="pill" style="background:#22c55e22;color:#86efac">${f20.filter(x=>x>0).length} of ${a.length} up after 20D</span>`;
+ $('#ana').innerHTML=`<tr><th>Date</th><th>Above 50 EMA</th><th>5D change</th><th>Above 10 EMA</th><th>Next 10D</th><th>Next 20D</th></tr>`+
+  `<tr style="background:#7c9cff12"><td><b>Today</b></td><td>${fmt(S.e50[L])}%</td><td>${sgn(S.e50[L]-S.e50[L-5])}</td><td>${fmt(S.e10[L])}%</td><td class="mut">?</td><td class="mut">?</td></tr>`+
+  a.map(x=>`<tr><td>${dty(x.d)}</td><td>${fmt(x.e50)}%</td><td>${sgn(x.e50c5)}</td><td>${fmt(x.e10)}%</td><td class="${cls(x.f10)}">${sgn(x.f10)}%</td><td class="${cls(x.f20)}">${sgn(x.f20)}%</td></tr>`).join('');
+}
+
+function tov(){
+ const n=Math.min(Math.max(LB,20),60),st=L-n+1,w=520,h=200,pl=34,pb=18;const t=S.tov.slice(st),d=S.dlv.slice(st);
+ const mx=Math.max(...t)*1.08;const bw=(w-pl-6)/n;const Y=v=>h-pb-v*(h-pb-6)/mx;
+ let s=`<svg viewBox="0 0 ${w} ${h}" width="100%">`;
+ [0,.5,1].forEach(f=>{const v=mx*f;s+=`<line x1="${pl}" x2="${w}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1e2433"/><text x="0" y="${Y(v)+3}">${(v/1000).toFixed(0)}k</text>`});
+ t.forEach((v,i)=>{const x=pl+i*bw;s+=`<rect x="${x+1}" y="${Y(v)}" width="${bw-2}" height="${h-pb-Y(v)}" fill="${i==n-1?'#7c9cff':'#2e3a55'}" rx="2"><title>${S.d[st+i]}: ₹${fmtI(v)} Cr</title></rect><rect x="${x+1}" y="${Y(d[i])}" width="${bw-2}" height="${h-pb-Y(d[i])}" fill="${i==n-1?'#a5b8ff':'#3d4c70'}" rx="2"/>`});
+ const a20=S.tov.map((_,i)=>i>=20?avg(S.tov.slice(i-20,i)):null).slice(st);let p='';a20.forEach((v,i)=>{if(v)p+=(p?'L':'M')+(pl+i*bw+bw/2).toFixed(1)+','+Y(v).toFixed(1)});
+ s+=`<path d="${p}" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+ [0,Math.floor(n/2),n-1].forEach(i=>s+=`<text x="${pl+i*bw-8}" y="${h-4}">${dt(S.d[st+i])}</text>`);
+ s+='</svg>';
+ const tt=S.tov[L],t20=avg(S.tov.slice(L-20,L)),dl=S.dlv[L];
+ $('#tov').innerHTML=`<div style="display:flex;gap:18px;margin-bottom:6px;flex-wrap:wrap"><div class="kpi"><div class="l">Turnover today</div><div class="v">₹${fmtI(tt)} Cr</div><div class="d ${cls(tt-t20)}">${sgn(100*(tt/t20-1),0)}% vs 20D avg</div></div><div class="kpi"><div class="l">Delivered value</div><div class="v">₹${fmtI(dl)} Cr</div><div class="d mut">${fmt(100*dl/tt,0)}% of turnover · ${fmt(avg(S.dlv.slice(L-20,L).map((v,i)=>100*v/S.tov[L-20+i])),0)}% 20D avg</div></div></div>${s}<div class="legend"><span><i style="background:#2e3a55"></i>turnover</span><span><i style="background:#3d4c70"></i>delivered</span><span><i style="background:#f59e0b"></i>20D average</span></div>`;
+}
+
+function color(r,scale){const a=Math.min(1,Math.abs(r)/scale);return r>=0?`rgba(22,163,74,${.25+.7*a})`:`rgba(220,38,38,${.25+.7*a})`}
+function squarify(items,x,y,w,h){const out=[];if(!(w>0&&h>0))return out;if(!(w>0&&h>0))return out;const tot=items.reduce((s,i)=>s+i.v,0);let rest=items.slice();let X=x,Y=y,W=w,H=h;
+ while(rest.length){const short=Math.min(W,H);let row=[],best=Infinity;const area=W*H, rtot=rest.reduce((s,i)=>s+i.v,0);
+  for(let i=0;i<rest.length;i++){const r=rest.slice(0,i+1);const s=r.reduce((a,b)=>a+b.v,0)/rtot*area;const ws=r.map(q=>q.v/rtot*area);const worst=Math.max(...ws.map(a=>Math.max(short*short*a/(s*s),(s*s)/(short*short*a))));if(worst<=best){best=worst;row=r}else break}
+  if(!row.length)row=[rest[0]];if(!row.length)row=[rest[0]];const s=row.reduce((a,b)=>a+b.v,0)/rtot*area;const thick=s/short;let off=0;
+  row.forEach(q=>{const a=q.v/rtot*area,len=a/thick;if(W>=H)out.push({...q,x:X,y:Y+off,w:thick,h:len});else out.push({...q,x:X+off,y:Y,w:len,h:thick});off+=len});
+  if(W>=H){X+=thick;W-=thick}else{Y+=thick;H-=thick}rest=rest.slice(row.length)}return out}
+function treemap(){const el=$('#tm');const W=el.clientWidth||600,H=el.clientHeight||340;const g=D.groups.Sector.filter(x=>x.tov>0).map(x=>({...x,v:x.tov})).sort((a,b)=>b.v-a.v);
+ const sc={r1:2.5,r5:5,r21:10,r63:20}[TMP];const rects=squarify(g,0,0,W,H);
+ el.innerHTML=rects.map(r=>`<div style="left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:${color(r[TMP]*100,sc)}" title="${r.n}: ₹${fmtI(r.tov)} Cr, ${sgn(r[TMP]*100)}%">${r.w>60&&r.h>30?`<b>${r.n}</b>${sgn(r[TMP]*100)}% · ₹${cr(r.tov)}`:''}</div>`).join('');
+ $('#tmsub').textContent=`Box size = today's turnover. Colour = sector return over ${({r1:'1 day',r5:'1 week',r21:'1 month',r63:'3 months'})[TMP]}. All stocks.`;
+}
+function rot(){const g=D.groups.Sector.filter(x=>x.shd!=null).sort((a,b)=>b.shd-a.shd);const mx=Math.max(...g.map(x=>Math.abs(x.shd)));
+ $('#rot').innerHTML=`<table>`+g.map(x=>{const w=Math.abs(x.shd)/mx*100;return `<tr><td style="width:34%">${x.n}</td><td style="width:42%;text-align:left"><div style="display:flex;align-items:center"><div style="width:50%;display:flex;justify-content:flex-end">${x.shd<0?`<span class="bar" style="width:${w}%;background:var(--dn)"></span>`:''}</div><div style="width:1px;height:14px;background:#33405c"></div><div style="width:50%">${x.shd>0?`<span class="bar" style="width:${w}%;background:var(--up)"></span>`:''}</div></div></td><td class="${cls(x.shd)}">${sgn(x.shd,2)} pts</td><td class="mut">${fmt(x.sh,1)}%</td></tr>`}).join('')+`</table><div class="note">Last two columns: change in share (points) and today's share of all turnover.</div>`;
+}
+function indexT(){let g=D.indices.filter(x=>x.cat==GL);const k=GS.k in g[0]?GS.k:'r1';g.sort((a,b)=>((a[k]??-1e9)>(b[k]??-1e9)?1:-1)*(GS.k in g[0]?GS.dir:-1));
+ const cols=[['n','Index'],['px','Close'],['r1','1D %'],['r5','1W %'],['r21','1M %'],['r63','3M %'],['d20','vs 20 EMA'],['d50','vs 50 EMA'],['tr','Trend'],['pxh','30 sessions']];
+ const tc={Constructive:'up',Strong:'up',Neutral:'mut',Weak:'dn',Downtrend:'dn'};
+ $('#gt').innerHTML='<tr>'+cols.map(([k,l])=>`<th class="s" data-k="${k}">${l}${GS.k==k?(GS.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>'+g.map(x=>`<tr><td>${x.n}${x.h52?'<span class="chip hi">52W</span>':''}</td><td>${fmtI(x.px)}</td>${['r1','r5','r21','r63'].map(p=>`<td class="${cls(x[p])}">${x[p]==null?'–':sgn(x[p])}</td>`).join('')}<td class="${cls(x.d20)}">${sgn(x.d20)}%</td><td class="${cls(x.d50)}">${sgn(x.d50)}%</td><td class="${tc[x.tr]||'mut'}">${x.tr||'–'}</td><td>${spark(x.pxh,110,22,(x.r21||0)>=0?'#22c55e':'#ef4444')}</td></tr>`).join('');
+ $('#gt').querySelectorAll('th.s').forEach(th=>th.onclick=()=>{const k=th.dataset.k;GS={k,dir:GS.k==k?-GS.dir:-1};indexT()});
+}
+function groupsT(){if(GL=='Sectoral'||GL=='Thematic')return indexT();const cols=[['n','Group',0],['members','Stocks',0],['r1','1D %',1],['r5','1W %',1],['r21','1M %',1],['r63','3M %',1],['tov','Turnover ₹Cr',0],['sh','Share %',0],['shd','Δ share',0],['dlv','Delivered ₹Cr',0],['a50','> 50 EMA',0],['rank','Rank',0],['rc5','Rank Δ 1W',0],['q','RRG',0],['deal','Deals ₹Cr',0],['shh','Share 3M',0]];
+ let g=(D.groups[GL]||[]).slice();const k=GS.k;g.sort((a,b)=>((a[k]??-1e9)>(b[k]??-1e9)?1:-1)*GS.dir);if(GL=='Industry')g=g.slice(0,40);
+ const qc={Leading:'up',Improving:'acc',Weakening:'warn',Lagging:'dn'};
+ $('#gt').innerHTML='<tr>'+cols.map(([k,l])=>`<th class="s" data-k="${k}">${l}${GS.k==k?(GS.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>'+g.map(x=>`<tr><td>${x.n}</td><td class="mut">${x.members}</td>${['r1','r5','r21','r63'].map(p=>`<td class="${cls(x[p])}">${sgn(x[p]*100)}</td>`).join('')}<td>${fmtI(x.tov)}</td><td>${fmt(x.sh,1)}</td><td class="${cls(x.shd)}">${sgn(x.shd,2)}</td><td>${fmtI(x.dlv)}</td><td>${fmt(x.a50,0)}%</td><td>${x.rank??'–'}</td><td class="${cls(-(x.rc5||0))}">${x.rc5==null?'–':sgn(-x.rc5,0)}</td><td class="${qc[x.q]||'mut'}">${x.q||'–'}</td><td class="${cls(x.deal)}">${x.deal==null?'–':sgn(x.deal,0)}</td><td>${spark(x.shh,90,22,'#7c9cff')}</td></tr>`).join('');
+ $('#gt').querySelectorAll('th.s').forEach(th=>th.onclick=()=>{const k=th.dataset.k;GS={k,dir:GS.k==k?-GS.dir:-1};groupsT()});
+}
+function stocksT(){let s=D.stocks.filter(x=>x.ch!=null);
+ const by={up:(a,b)=>b.ch-a.ch,dn:(a,b)=>a.ch-b.ch,tov:(a,b)=>b.tov-a.tov,dlv:(a,b)=>b.dlv-a.dlv,rvol:(a,b)=>(b.rvol||0)-(a.rvol||0)}[SK];
+ if(SK=='rvol')s=s.filter(x=>x.tov>=5);s.sort(by);s=s.slice(0,20);
+ $('#stsub').textContent=`Only stocks with market cap ≥ ₹1,000 Cr (${D.universe_1000.toLocaleString('en-IN')} of ${D.universe_all.toLocaleString('en-IN')}). Breadth and money flow above use all stocks.`;
+ $('#st').innerHTML=`<tr><th>Stock</th><th>Sector</th><th>Close</th><th>1D %</th><th>1W %</th><th>1M %</th><th>Turnover ₹Cr</th><th>RVOL</th><th>Delivered ₹Cr</th><th>Deliv % vs 20D</th><th>RS</th><th>Mcap ₹Cr</th></tr>`+
+ s.map(x=>{const ext=x.adr&&x.x10!=null&&x.x10/x.adr>3;const ch=(x.deal?'<span class="chip deal">DEAL</span>':'')+(x.h52?'<span class="chip hi">52W</span>':'')+(x.ipo!=null&&x.ipo<365?'<span class="chip ipo">IPO</span>':'')+(x.band&&x.band!='-'&&x.band!=''?'<span class="chip band">BAND</span>':'')+(ext?'<span class="chip ext">EXT</span>':'');
+  const dv=x.dp!=null&&x.dp20?x.dp/x.dp20:null;
+  return `<tr><td><b>${x.s}</b>${ch}<div class="note">${(x.nm||'').slice(0,28)}</div></td><td class="mut">${(x.sec||'').slice(0,22)}</td><td>${fmt(x.px,1)}</td><td class="${cls(x.ch)}">${sgn(x.ch)}</td><td class="${cls(x.r5)}">${sgn(x.r5)}</td><td class="${cls(x.r21)}">${sgn(x.r21)}</td><td>${fmtI(x.tov)}</td><td class="${x.rvol>=2?'warn':''}">${fmt(x.rvol,1)}×</td><td>${fmtI(x.dlv)}</td><td class="${dv>=1.3?'up':dv!=null&&dv<0.7?'dn':'mut'}">${fmt(x.dp,0)}% <span class="note">${dv?fmt(dv,1)+'×':''}</span></td><td>${x.rs==null?'–':fmt(x.rs,0)}</td><td class="mut">${fmtI(x.mc)}</td></tr>`}).join('');
+}
+function render(){heroSay();heat();xlog();trend();kpis();analogs();tov();treemap();rot();groupsT();stocksT();
+ $('#foot').innerHTML=`Prototype on real MarketPulse data. "As of" is ${dty(D.asof)}, the last session before a gap in the committed repo data (13 Aug to 8 Oct 2026), so every comparison uses contiguous history. History here starts ${dty(S.d[0])}; on your machine it uses the full 5-year archive.<br>Mood score = average history-percentile of six readings (10/50/200 EMA participation, up-volume, net new highs, Stage 2). It is a prototype and is not yet tested against forward returns. Analog returns use an equal-weight average of all stocks, capped at ±20% a day.`}
+header();render();window.onresize=()=>treemap();
+</script></body></html>
