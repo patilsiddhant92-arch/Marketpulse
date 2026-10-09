@@ -59,6 +59,7 @@ a.tv{color:var(--tx);text-decoration:none;font-weight:600}a.tv:hover{color:var(-
 .ok{background:#12361f;color:#86efac}.bad{background:#3b1520;color:#fda4af}.mid{background:#3a2a10;color:#fcd34d}
 .bar{display:inline-block;height:6px;border-radius:3px;background:#7c9cff;vertical-align:middle}
 .pc{font-size:10px;color:var(--dim);margin-left:3px}
+.hi8{color:#4ade80;font-weight:600}.lo2{color:#f87171}
 .pager{display:flex;gap:6px;align-items:center;justify-content:flex-end;margin:6px 0}
 </style></head><body><div class="wrap">
 <header>
@@ -81,6 +82,10 @@ const $=s=>document.querySelector(s);
 const f=(v,d=1,suf='')=>v==null?'<span class="dim">–</span>':(+v).toFixed(d)+suf;
 const sg=(v,d=1,suf='')=>v==null?'<span class="dim">–</span>':`<span class="${v>0?'up':v<0?'dn':'mut'}">${v>0?'+':''}${(+v).toFixed(d)}${suf}</span>`;
 const pc=v=>v==null?'':`<span class="pc" title="Percentile vs this group's own history">p${v}</span>`;
+const rk={};function ranks(R,W){['score','near','nh','ad','upd','tov','tox','shd','rx','nearchg'].forEach(k=>{const v=R.map(z=>z[k+'_'+W]!==undefined?z[k+'_'+W]:z[k]).filter(x=>x!=null).sort((a,b)=>a-b);rk[k]=v})}
+const hl=(k,v,txt)=>{const a=rk[k];if(v==null||!a||a.length<5)return txt;let lo=0,hi=a.length;while(lo<hi){const m=(lo+hi)>>1;if(a[m]<v)lo=m+1;else hi=m}const p=lo/(a.length-1);
+  return p>=.8?`<span class="hi8">${txt}</span>`:p<=.2?`<span class="lo2">${txt}</span>`:txt};
+const nf=(v,d=0,suf='')=>v==null?'<span class="dim">–</span>':(v>0&&suf!=='%'&&suf!=='×'?'+':'')+(+v).toFixed(d)+suf;
 const WN={'1D':'1 day','1W':'1 week','2W':'2 weeks','1M':'1 month'};
 const st={lv:'broad_industry',win:'2W',sf:'all',view:'board',sort:'score',desc:true,sel:null,page:0};
 function seg(id,opts,key){$(id).innerHTML=opts.map(([v,l])=>`<button data-v="${v}" class="${st[key]===v?'on':''}">${l}</button>`).join('');
@@ -98,19 +103,20 @@ function ctx(){const m=D.mood,R=D.reliability[st.lv==='index'?'broad_industry':s
    <div class="note">Rank correlation ${R.ic} · ${R.days} signal days, ${R.from} to ${R.to} (the latest whose next 21 sessions are known)</div></div>
   <div class="say"><p>${verdict}</p><p class="note">History (Oct 2024 – Jul 2026, Broad Industry): when breadth was ${m.dir}, top-fifth groups beat the median ${E[1]}% of the time vs ${E[2]}% for the bottom fifth. After a working quarter the next month's correlation averaged ${D.evidence.lag.working}; after a poor one, ${D.evidence.lag.not}.</p></div>`}
 function head(c){return `<th class="${c[2]||''}" data-k="${c[0]}" title="${c[3]||''}">${c[1]}${st.sort===c[0]?(st.desc?' ▾':' ▴'):''}</th>`}
-function board(){const W=st.win,R=rows();
+function board(){const W=st.win,R=rows();if(st.lv!=='index')ranks(D.levels[st.lv].rows,W);
   if(st.lv==='index'){const C=[['g','Index','l'],['cat','Type','l'],['c','Close'],['r1d','1D %'],['r1w','1W %'],['r2w','2W %'],['r1m','1M %'],['a20','> 20 EMA']];
     $('#main').innerHTML=`<div class="note" style="margin:4px 6px 8px">Index level: price only for now. Near-high %, new highs, A/D and delivery need each index's constituent list, which the database does not hold yet. ${R.length} of 44 indices found locally (${R[0]?.n||0} sessions of history).</div><div class="scroll"><table><thead><tr>${C.map(head).join('')}</tr></thead><tbody>${R.map(z=>`<tr><td class="l">${z.g}</td><td class="l mut">${z.cat}</td><td>${f(z.c,1)}</td><td>${sg(z.r1d)}</td><td>${sg(z.r1w)}</td><td>${sg(z.r2w)}</td><td>${sg(z.r1m)}</td><td>${z.a20?'<span class="up">Yes</span>':'<span class="dn">No</span>'}</td></tr>`).join('')}</tbody></table></div>`;
     bindSort();return}
   const C=[['g','Group','l'],['n','Stocks'],['score','Score','','Leadership score 0–100: average rank of the four readings to its right'],['near','Near 52W high','','% of members within 10% of their 52-week high; change over the window; p = vs own history'],
    ['nh','New highs','',`Members that made a new 52-week high in the last ${WN[W]}`],['ad','A/D','',`Net % of members up per day, averaged over ${WN[W]}`],['upd','Up-day delivery','',`Delivered value on up days ÷ all delivered value, ${WN[W]}`],
-   ['tox','Turnover ×','',`Turnover over ${WN[W]} vs its own 3-month average (attention, not direction)`],['shd','Share Δ','','Turnover share vs its 3-month average, points'],['rx','Return vs median','',`Group return over ${WN[W]} minus the median group`],['lead','Leaders','l','Top 3 members by RS percentile']];
+   ['tov','Turnover ₹Cr/day','',`Average daily turnover over ${WN[W]}, ₹ Cr`],['sh','Share','',`Share of all-stock turnover over ${WN[W]}`],['tox','Turnover ×','',`Turnover over ${WN[W]} vs its own 3-month average (attention, not direction)`],['shd','Share Δ','','Turnover share vs its 3-month average, points'],['rx','Return vs median','',`Group return over ${WN[W]} minus the median group`],['lead','Leaders','l','Top 3 members by RS percentile']];
   $('#main').innerHTML=`<div class="scroll"><table><thead><tr>${C.map(head).join('')}</tr></thead><tbody>${R.map(z=>`<tr data-id="${z.id}" class="${st.sel===z.id?'sel':''}">
    <td class="l"><span class="gs ${z.state}" title="${z.state}: ${z.why}"></span>${z.g}${z.n<5?' <span class="chip">small</span>':''}</td><td>${z.n}</td>
-   <td><span class="bar" style="width:${(z['score_'+W]||0)*.4}px"></span> ${f(z['score_'+W],0)}</td>
-   <td>${f(z.near,0,'%')} ${sg(z['nearchg_'+W],0)}${W==='2W'||1?pc(z.pct.near):''}</td>
-   <td>${f(z['nh_'+W],0)}</td><td>${sg(z['ad_'+W],0,'%')}${W==='2W'?pc(z.pct.ad_2W):''}</td><td>${f(z['upd_'+W],0,'%')}${W==='2W'?pc(z.pct.upd_2W):''}</td>
-   <td>${z['tox_'+W]==null?'–':'<span class="'+(z['tox_'+W]>=1.3?'warn':'')+'">'+z['tox_'+W].toFixed(2)+'×</span>'}</td><td>${sg(z['shd_'+W],2)}</td><td>${sg(z['rx_'+W],1)}</td>
+   <td><span class="bar" style="width:${(z['score_'+W]||0)*.4}px"></span> ${hl('score',z['score_'+W],f(z['score_'+W],0))}</td>
+   <td>${hl('near',z.near,f(z.near,0,'%'))} <span class="mut">${nf(z['nearchg_'+W],0)}</span>${pc(z.pct.near)}</td>
+   <td>${hl('nh',z['nh_'+W],f(z['nh_'+W],0))}</td><td>${hl('ad',z['ad_'+W],nf(z['ad_'+W],0)+'%')}${W==='2W'?pc(z.pct.ad_2W):''}</td><td>${hl('upd',z['upd_'+W],f(z['upd_'+W],0,'%'))}${W==='2W'?pc(z.pct.upd_2W):''}</td>
+   <td>${hl('tov',z['tov_'+W],z['tov_'+W]==null?'–':Math.round(z['tov_'+W]).toLocaleString('en-IN'))}</td><td>${f(z['sh_'+W],2,'%')}</td>
+   <td>${hl('tox',z['tox_'+W],z['tox_'+W]==null?'–':z['tox_'+W].toFixed(2)+'×')}</td><td>${hl('shd',z['shd_'+W],nf(z['shd_'+W],2))}</td><td>${hl('rx',z['rx_'+W],nf(z['rx_'+W],1))}</td>
    <td class="l">${z.lead.map(s=>`<a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(s)}" onclick="event.stopPropagation()">${s}</a>`).join(' ')}</td></tr>`).join('')}</tbody></table></div>`;
   bindSort();document.querySelectorAll('#main tbody tr[data-id]').forEach(tr=>tr.onclick=()=>{st.sel=tr.dataset.id;render()})}
 function bindSort(){document.querySelectorAll('#main th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(st.sort===k)st.desc=!st.desc;else{st.sort=k;st.desc=!['g','cat'].includes(k)}render()})}
@@ -148,7 +154,7 @@ function detail(){if(st.lv==='index'){$('#detail').innerHTML='<div class="note">
   <div class="sub">Members by RS (≥ ₹1,000 Cr)</div><div class="scroll" style="max-height:300px"><table><thead><tr><th class="l">Stock</th><th>RS</th><th>1D</th><th>1M</th><th>From 52W hi</th><th>> 50E</th><th>Mcap ₹Cr</th></tr></thead><tbody>
   ${M.slice(0,40).map(m=>`<tr><td class="l"><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(m.s)}">${m.s}</a> <span class="dim">${m.nm}</span></td><td>${f(m.rs,0)}</td><td>${sg(m.chg)}</td><td>${sg(m.r1m)}</td><td>${sg(m.fh)}</td><td>${m.a50?'✓':'<span class="dim">·</span>'}</td><td>${m.mcap.toLocaleString('en-IN')}</td></tr>`).join('')}</tbody></table></div>`;
   sync()}
-function legend(){$('#legend').innerHTML=`<span class="gs Favour"></span>Favour <span class="gs Neutral"></span>Neutral <span class="gs Caution"></span>Caution · window: ${WN[st.win]} · p = percentile vs the group's own history`}
+function legend(){$('#legend').innerHTML=`<span class="gs Favour"></span>Favour <span class="gs Neutral"></span>Neutral <span class="gs Caution"></span>Caution · window: ${WN[st.win]} · <span class="hi8">green</span> = top 20% of groups today, <span class="lo2">red</span> = bottom 20%, plain = middle · p = vs own history`}
 function render(){seg('#lv',[['sector','Sector'],['broad_industry','Broad Industry'],['industry','Industry'],['index','Index']],'lv');seg('#win',[['1D','1D'],['1W','1W'],['2W','2W'],['1M','1M']],'win');
   seg('#sf',[['all','All'],['Favour','Favour'],['Neutral','Neutral'],['Caution','Caution']],'sf');
   document.querySelectorAll('#view button').forEach(b=>{b.classList.toggle('on',b.dataset.v===st.view);b.onclick=()=>{st.view=b.dataset.v;st.page=0;render()}});

@@ -10,3 +10,5 @@
 | 6 | `stage2_pct` reads ~11% (94th percentile) | Value looks low in absolute terms | Confirm the definition in `regime_daily` |
 | 7 | Market cap is "latest" in `stocks_master` | Replay uses today's cap for past dates | Use `security_reference_daily.market_cap_cr` as of the date |
 | 8 | No stored equal-weight market series | Forward returns are computed on the fly | Add `market_ew_daily` in the pipeline |
+
+- Sector Intel: deal count per group parked for later (Siddhant, 2026-10-09); `deals` table exists, so no data gap. Revisit in the Deals round.

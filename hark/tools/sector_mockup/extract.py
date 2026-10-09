@@ -8,6 +8,7 @@ Readings per group (stocks >= 1000 Cr, current taxonomy; groups >= 3 members):
   nh_N   = distinct members making a new 52W high (high > prior 52W high) within the last N sessions
   ad_N   = mean over N sessions of (advancers - decliners) / members, %
   upd_N  = delivered value on up days / all delivered value over N sessions, %
+  tov_N  = average daily turnover over N sessions, Rs Cr; sh_N = average share of all-stock turnover, %
   tox_N  = group turnover N-session avg / 63-session avg
   shd_N  = turnover share N-session avg minus 63-session avg, points
   rx_N   = group equal-weight return over N sessions minus the median group's, points
@@ -113,6 +114,8 @@ for lv, lvname in LEVELS.items():
         a[f"nh_{wk}"] = a["nhw_" + wk]
         a[f"ad_{wk}"] = roll(G, "adv", N) * 100
         a[f"upd_{wk}"] = roll(G, "upd", N, "sum") / roll(G, "dv", N, "sum") * 100
+        a[f"tov_{wk}"] = roll(G, "t", N)
+        a[f"sh_{wk}"] = roll(G, "sh", N)
         a[f"tox_{wk}"] = roll(G, "t", N) / a.t63
         a[f"shd_{wk}"] = roll(G, "sh", N) - a.sh63
         ret = (a.idx / G.idx.shift(N) - 1) * 100
@@ -162,9 +165,9 @@ for lv, lvname in LEVELS.items():
                "near": round(z.near, 1), "lead": lead.get(z.gname, []),
                "pct": {k: (None if pd.isna(z["pct_" + k]) else round(z["pct_" + k])) for k in ["near", "ad_2W", "upd_2W", "score_2W"]}}
         for wk in WINDOWS:
-            for k in ["nh", "ad", "upd", "tox", "shd", "rx", "ret", "nearchg", "score"]:
+            for k in ["nh", "ad", "upd", "tov", "sh", "tox", "shd", "rx", "ret", "nearchg", "score"]:
                 v = z[f"{k}_{wk}"]
-                row[f"{k}_{wk}"] = None if pd.isna(v) or not np.isfinite(v) else round(float(v), 2 if k in ("tox", "shd") else 1)
+                row[f"{k}_{wk}"] = None if pd.isna(v) or not np.isfinite(v) else round(float(v), 2 if k in ("tox", "shd", "sh") else 0 if k == "tov" else 1)
         rows.append(row)
         # chart: last CHART_N sessions, EW OHLC
         h = a[a.gname == z.gname].tail(CHART_N)

@@ -204,3 +204,8 @@ Rebuild: `python hark/tools/sector_mockup/extract.py [AS_OF]`. Built for 2026-08
 
 ### 5-year recheck (to run on Siddhant's machine)
 `python hark/tools/sector_study/study2_readings.py` and `mood_series.py` on the full database. Before the run, add point-in-time market cap (`security_reference_daily`) and taxonomy history. Lock the thresholds only after this run.
+
+### Round 3b: Siddhant's feedback on mockup v1
+- **"Everything green makes no sense."** v1 coloured any positive number green. After a broad rally that turns most of the board green, and the colour said nothing. Now colour means rank against the other groups on the same day: green = top 20%, red = bottom 20%, plain = middle. The state dot keeps its own meaning (Favour / Neutral / Caution).
+- **Turnover was missing as a value.** Added **Turnover ₹Cr/day** (window average) and **Share %** of all-stock turnover, next to Turnover × and Share Δ.
+- **Parked for later (Siddhant): deal count per group** (bulk/block deals in the window, maybe net buy/sell value). Revisit in the Deals round.
