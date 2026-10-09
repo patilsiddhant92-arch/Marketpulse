@@ -119,3 +119,9 @@ Default view shows about 12 columns: tags, symbol, 52W-high distance, 10 EMA dis
 8. **Hand-off**: export triggers as a TradingView alert list / GTT sheet; "Add to Plan" sends trigger, stop, qty.
 9. **Weekly check**: tight weekly closes and weekly position vs the 10-week line.
 10. **Concentration warning**: too many picks from one group (needs Plan positions).
+
+### Round 4 decisions (2026-10-09)
+- Execution checks: **10% band stocks allowed**. **5% band stocks stay out** (the pool already requires band > 5%). **No F&O ban chip.** Keep chips for ex-date, ASM/GSM and pledge.
+- **Results within N sessions: highlight the whole row in the table**, not just a chip. Default N = 10 sessions (adjustable).
+- **"Act faster" is dropped**: no risk-based sizing, no TV alert/GTT hand-off, no concentration warning.
+- Items 1–6 and 9 (base rate, room to run, stock character, weekly check, near-miss, why dropped) were not rejected. They stay in the draft spec until Siddhant says otherwise.

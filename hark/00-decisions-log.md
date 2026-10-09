@@ -37,3 +37,4 @@ Newest at the bottom. Each line: date · decision · reason.
 - Finding: the current Squeeze logic is much stricter than his definition (120 listed vs 342 with close in zone on 2026-08-13).
 - Round 2: keep current calculations (RS vs MidSml400, momentum). Keep strict Squeeze (77.8% vs 60.1% box breakouts within 20D). 10 EMA: whole bar above first, undercut-and-close-near second. VCP research saved in research/manas-arora-vcp.md. Cross-tab wiring deferred.
 - Round 3: momentum keeps the 20D avg volume gate and the SMA/EMA template toggle. Decision table proposed with delivery streak and turnover 1D/1W/1M multiples (stock and group).
+- Round 4: 10% band OK, 5% band out, no F&O chip; results-within-N highlights the row; "Act faster" dropped.
