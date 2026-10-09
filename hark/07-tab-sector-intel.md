@@ -209,3 +209,13 @@ Rebuild: `python hark/tools/sector_mockup/extract.py [AS_OF]`. Built for 2026-08
 - **"Everything green makes no sense."** v1 coloured any positive number green. After a broad rally that turns most of the board green, and the colour said nothing. Now colour means rank against the other groups on the same day: green = top 20%, red = bottom 20%, plain = middle. The state dot keeps its own meaning (Favour / Neutral / Caution).
 - **Turnover was missing as a value.** Added **Turnover ₹Cr/day** (window average) and **Share %** of all-stock turnover, next to Turnover × and Share Δ.
 - **Parked for later (Siddhant): deal count per group** (bulk/block deals in the window, maybe net buy/sell value). Revisit in the Deals round.
+
+### Round 3c: Are the current app's group calculations correct? (audit, 2026-10-09)
+Independent recompute for 2026-08-13, Broad Industry, compared with `group_daily`:
+- Exact match: members (1000cr floor), % above 50 EMA, 1D EW return, turnover ₹Cr, turnover share, 5D/20D share averages; 10D delivery accumulation within 0.03 pts.
+- 21D EW return: matches except Ferrous Metals (2.7 pts). The app drops a stock whose window contains a split-like jump. The app is the more correct one.
+- Formulas reviewed in `Scripts/derived/group_daily.py` + `_common.py`: no bugs found. New 52W highs use the prior session's official high (no look-ahead).
+- **Health, RRG and Rank are blank locally**: they need MidSml400 history, and only 32 sessions exist. The formulas look right, but no one has tested them against forward returns, and they overlap each other.
+- **Point-in-time limits**: taxonomy is today's. Market cap is as-of only from 2026-07-02 (security_reference_daily); before that it is today's share count × price (documented approximation, ~94% of rows).
+- **Windows count rows, not sessions**: across the 13 Aug – 8 Oct local gap, the 8 Oct "1D" and 5D/20D values span two months. The cause is the data gap. A guard (NULL when the window spans more than N calendar days) is worth adding.
+- Minor: `avg_delivery_pct_20d` includes today, so "delivery above its 20D average" compares a day with an average that contains it.
