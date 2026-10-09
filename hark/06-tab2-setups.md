@@ -88,3 +88,22 @@ Parity port of the proven scanner: trigger in the last N sessions, EMA stack, wi
 - **Table must show distance to 52W high.**
 - **Tab role:** this is Siddhant's analysis tab. He sees the setups and makes his own choice.
 - **Pulse → Setups link:** each stock should carry its group's state from Pulse (trending, event/news caution, money flowing out) and the reason. Full cross-tab wiring waits until Deals and Sector Intel are specified.
+
+## Round 3 — momentum inputs and decision table (2026-10-09)
+- Momentum also uses the **20D average volume** gate and a **SMA template or EMA template** toggle. Both exist in `App/services/momentum.py` (`min_avg_volume_20d`, `sma50_gt_150`/`sma150_gt_200`/`sma200_rising` vs the EMA stack). Keep both and make the template choice one visible switch.
+- The table must hold data that helps him choose between stocks. It must include **delivery % trend over consecutive days** and **turnover 1D / 1W / 1M**, for the stock and for its leading sector/group.
+
+### Proposed decision table (all fields already in `indicators_daily` / `group_daily` unless marked NEW)
+| Block | Columns | Source |
+|---|---|---|
+| Identity | Symbol (→ TradingView), screener tags, New/Active/Returning, days in setup | setup_daily |
+| Trade | Trigger, stop, risk % to stop, risk ÷ ADR | setup_daily, adr_20_pct |
+| Position | Dist. to 52W high, dist. to 10 EMA, dist. to 50 EMA | away_52w_high_pct, away_10ema_pct |
+| Strength | RS vs MidSml400 21D/63D, RS percentile, RS rank change 5/15/30D | rs_vs_midsml400_*, rs_rank_t* |
+| Tightness | Squeeze width, range 5D/10D %, ATR% vs its 50D avg, volume dry-up | range_*_pct, atr_pct_avg_*, volume_dryup_pct |
+| Delivery | Delivery % today vs own 20D avg, **streak: consecutive days above own 20D avg**, 5-day sparkline, price-up-delivery-up | delivery_pct, avg_delivery_pct_20d (streak NEW, derived) |
+| Turnover (stock) | **Turnover 1D / 1W / 1M as multiple of its own 3M average** | turnover_cr (multiples NEW, derived) |
+| Group | Group (sector/industry), group state from Pulse, **group turnover share Δ 1D / 1W / 1M**, group rank Δ | group_daily, sector_metrics_daily |
+| Risk | Event chips (results soon, deals, surveillance) | security_events (ingestion pending), deals |
+
+Default view shows about 12 columns: tags, symbol, 52W-high distance, 10 EMA distance, RS 63D, risk %, tightness, delivery streak, turnover 1W×, group + state, chips. The other blocks open as column groups.
