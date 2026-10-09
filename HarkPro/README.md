@@ -1,4 +1,4 @@
-# hark/ — MarketPulse redesign workbook
+# HarkPro/ — MarketPulse redesign workbook
 
 This folder holds the design discussions between Siddhant and Hark for the MarketPulse redesign.
 We design one tab at a time. We lock each tab's spec before we write production code.
@@ -44,9 +44,9 @@ We design one tab at a time. We lock each tab's spec before we write production 
 
 ## Rebuild the Pulse mockup
 ```
-python hark/tools/pulse_mockup/extract.py 2026-08-13
+python HarkPro/tools/pulse_mockup/extract.py 2026-08-13
 ```
 Pass the as-of date. On a machine with the full 5-year archive, use the latest session.
 
-- `mockups/tab2-setups.html`: Tab 2 Setups mockup (local data to 2026-08-13). Rebuild: `python hark/tools/setups_mockup/extract.py [AS_OF]` from the repo root.
+- `mockups/tab2-setups.html`: Tab 2 Setups mockup (local data to 2026-08-13). Rebuild: `python HarkPro/tools/setups_mockup/extract.py [AS_OF]` from the repo root.
 - `research/manas-arora-vcp.md`: Manas Arora VCP research with sources.

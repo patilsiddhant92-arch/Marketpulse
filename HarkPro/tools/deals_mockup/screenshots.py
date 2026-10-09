@@ -1,13 +1,13 @@
 """Phone-size PNG screenshots of the Deals mockup, drawn with Pillow from the data embedded in
-hark/mockups/tab-deals.html (no browser needed). Rebuild the mockup first, then:
-    python hark/tools/deals_mockup/screenshots.py
-Writes hark/mockups/screenshots/deals/*.png."""
+HarkPro/mockups/tab-deals.html (no browser needed). Rebuild the mockup first, then:
+    python HarkPro/tools/deals_mockup/screenshots.py
+Writes HarkPro/mockups/screenshots/deals/*.png."""
 import os
 ROOT=os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'../../..'))
-OUT=os.path.join(ROOT,'hark/mockups/screenshots/deals')
+OUT=os.path.join(ROOT,'HarkPro/mockups/screenshots/deals')
 import json,re
 from PIL import Image,ImageDraw,ImageFont
-H=open(os.path.join(ROOT,'hark/mockups/tab-deals.html'),encoding='utf-8').read()
+H=open(os.path.join(ROOT,'HarkPro/mockups/tab-deals.html'),encoding='utf-8').read()
 D=json.loads(re.search(r'const D=(\{.*?\});\nconst \$',H,re.S).group(1))
 S=2.5;W=int(412*S)
 FR='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';FB='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';FM='/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'

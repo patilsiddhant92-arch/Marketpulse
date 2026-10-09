@@ -1,4 +1,4 @@
-"""Builds hark/mockups/stock-heatmap.html: TradingView-style stock heatmap from the local DB."""
+"""Builds HarkPro/mockups/stock-heatmap.html: TradingView-style stock heatmap from the local DB."""
 import json, sys, duckdb, pandas as pd, pathlib
 D = sys.argv[1] if len(sys.argv) > 1 else "2026-08-13"
 root = pathlib.Path(__file__).resolve().parents[3]
@@ -21,6 +21,6 @@ for col in ("r1", "r5", "r21"):  # unadjusted split/bonus guard
 rows = df.astype(object).where(pd.notna(df), None).values.tolist()
 data = {"date": D, "cols": list(df.columns), "rows": rows}
 tpl = (pathlib.Path(__file__).parent / "template.html").read_text()
-out = root / "hark/mockups/stock-heatmap.html"
+out = root / "HarkPro/mockups/stock-heatmap.html"
 out.write_text(tpl.replace("/*DATA*/null", json.dumps(data, separators=(",", ":"))))
 print(out, len(rows))

@@ -129,4 +129,4 @@ for lab, m in [("industry with 0 net-buy deal stocks in 10 sessions", u2.nb10 ==
 out = pd.concat([out, pd.DataFrame(G)], ignore_index=True)
 pd.set_option("display.width", 200); pd.set_option("display.max_colwidth", 70)
 print(out.to_string(index=False))
-out.to_csv(ROOT / "hark/tools/deals_study/results.csv", index=False)
+out.to_csv(ROOT / "HarkPro/tools/deals_study/results.csv", index=False)

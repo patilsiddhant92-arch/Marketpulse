@@ -1,7 +1,7 @@
 """Sector Intel mockup extractor (hark design round 2/3).
 
-Usage (repo root):  python hark/tools/sector_mockup/extract.py [AS_OF]
-Writes hark/mockups/tab-sector-intel.html from template.html + Database/marketpulse.duckdb.
+Usage (repo root):  python HarkPro/tools/sector_mockup/extract.py [AS_OF]
+Writes HarkPro/mockups/tab-sector-intel.html from template.html + Database/marketpulse.duckdb.
 
 Readings per group (stocks >= 1000 Cr, current taxonomy; groups >= 3 members):
   near   = % of members with close within 10% of their 52W high
@@ -233,7 +233,7 @@ OUT["evidence"] = {"dir": {"cooling fast": [0.061, 55, 46], "steady": [0.156, 59
 
 tpl = open(os.path.join(HERE, "template.html"), encoding="utf-8").read()
 html = tpl.replace("/*DATA*/null", json.dumps(OUT, separators=(",", ":"), allow_nan=True).replace("NaN", "null").replace("-Infinity", "null").replace("Infinity", "null"))
-dst = os.path.join(ROOT, "hark/mockups/tab-sector-intel.html")
+dst = os.path.join(ROOT, "HarkPro/mockups/tab-sector-intel.html")
 open(dst, "w", encoding="utf-8").write(html)
 print("as_of", AS_OF.date(), {k: len(v["rows"]) for k, v in OUT["levels"].items()}, "indices", len(irows),
       "mood", OUT["mood"], "rel", rel_out, "bytes", len(html))

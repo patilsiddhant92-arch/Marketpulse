@@ -1,6 +1,6 @@
 """Build the Tab 2 (Setups) mockup from the local DuckDB.
-Run from the repo root:  python hark/tools/setups_mockup/extract.py [AS_OF_DATE]
-Writes hark/mockups/tab2-setups.html. Prototype only; the production spec is hark/06-tab2-setups.md.
+Run from the repo root:  python HarkPro/tools/setups_mockup/extract.py [AS_OF_DATE]
+Writes HarkPro/mockups/tab2-setups.html. Prototype only; the production spec is HarkPro/06-tab2-setups.md.
 Reuses the app's own logic: setup_daily (Darvas Squeeze, Darvas 10 EMA, VCP) and App.services.momentum._scan.
 """
 import sys, json, math, datetime, os
@@ -287,5 +287,5 @@ data = dict(asof=ASOF, prev=str(PREV.date()), rows=rows, charts=charts, peers=pe
 here = os.path.dirname(__file__)
 tpl = open(os.path.join(here, 'template.html')).read()
 out = tpl.replace('/*DATA*/null', json.dumps(data, separators=(',', ':'), default=str))
-open('hark/mockups/tab2-setups.html', 'w').write(out)
+open('HarkPro/mockups/tab2-setups.html', 'w').write(out)
 print('rows', len(rows), 'near', len(near), 'dropped', len(dropped), 'bytes', len(out))

@@ -1,11 +1,11 @@
 """Deals redesign mockup extractor (hark Deals round 2).
 
-Usage (repo root):  python hark/tools/deals_mockup/extract.py [AS_OF]
-Writes hark/mockups/tab-deals.html from template.html + Database/marketpulse.duckdb (+ the round-1 house record,
-built from the 2.5-year NSE history by hark/tools/deals_study/study.py).
+Usage (repo root):  python HarkPro/tools/deals_mockup/extract.py [AS_OF]
+Writes HarkPro/mockups/tab-deals.html from template.html + Database/marketpulse.duckdb (+ the round-1 house record,
+built from the 2.5-year NSE history by HarkPro/tools/deals_study/study.py).
 
 AS_OF defaults to 2026-08-13, the last session before the local price gap, so day-3 states can be shown.
-Verdicts follow hark/08-tab-deals.md (evidence: T+20 excess vs the equal-weight >= 1000 Cr market):
+Verdicts follow HarkPro/08-tab-deals.md (evidence: T+20 excess vs the equal-weight >= 1000 Cr market):
   strong chart = close > 200 EMA, RS >= 70, within 15% of the 52W high.
   net buy: prior 21D > +30% -> Extended; < -10% -> Falling knife; strong -> Confirms setup (day 3 check);
            weak -> No edge.   placement -> Placement (+strong = best).  distribute -> Supply at seller price.
@@ -44,7 +44,7 @@ prints["trade_date"] = pd.to_datetime(prints.trade_date)
 
 # ---- houses: out-of-sample record from the 2.5-year study (only bets finished by AS_OF)
 with contextlib.redirect_stdout(io.StringIO()):
-    S = runpy.run_path(os.path.join(ROOT, "hark/tools/deals_study/study.py"))
+    S = runpy.run_path(os.path.join(ROOT, "HarkPro/tools/deals_study/study.py"))
 P = S["p"]; spos = {d: i for i, d in enumerate(sorted(S["ind"].trade_date.unique()))}
 cut = spos.get(AS_OF, max(spos.values()))
 fin = P[(P.si + 21 <= cut) & P.x20.notna()]
@@ -199,6 +199,6 @@ for sym, g in H20.groupby("symbol"):
 data = {"fundgrp": fundgrp, "sessions20": [str(pd.Timestamp(d).date()) for d in last20], "hist20": hist20, "asof": str(AS_OF.date()), "sessions": [str(pd.Timestamp(d).date()) for d in last10], "today": today, "watch": watch,
         "marks": marks, "groups": groups, "houses": houses, "clsev": cls_ev, "skipped": skipped, "mkt": mkt}
 tpl = open(os.path.join(HERE, "template.html"), encoding="utf-8").read()
-out = os.path.join(ROOT, "hark/mockups/tab-deals.html")
+out = os.path.join(ROOT, "HarkPro/mockups/tab-deals.html")
 open(out, "w", encoding="utf-8").write(tpl.replace("/*DATA*/null", json.dumps(data, default=str)))
 print("wrote", out, "today", len(today), "watch", len(watch), "groups", len(groups), "houses", len(houses), skipped)

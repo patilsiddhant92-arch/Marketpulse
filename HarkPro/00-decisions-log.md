@@ -70,3 +70,6 @@ Newest at the bottom. Each line: date · decision · reason.
 - Rule gap to fix: a family transfer was classed as accumulate (APOLLOPIPE 2026-08-13, Anil/Kiran Shah, ₹12.6 Cr each side).
 - Sample phone screenshots in `mockups/screenshots/deals/`.
 - Checkpoint (Siddhant): the primary tabs are mostly done. Pulse and Setups are locked. Sector Intel and Deals have mockups, with the lock pending. Plan + Journal, Charts/Stock 360, Research and History Lab are not started. Waiting on Siddhant's next instruction.
+
+## 2026-10-09 — Repo hygiene
+- Hark's work lives only on branch `hark/harkpro`, in `HarkPro/` (renamed from `hark/`). `main` was reset to Siddhant's 56a58b8 and stays untouched. Hark never pushes to main.

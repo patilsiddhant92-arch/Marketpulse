@@ -20,7 +20,7 @@ Eight views: Today · Repeated · Play · Star funds · Leaderboard · Prop/chur
 | Play tier thresholds | Not tested. In the study, size and number of houses add nothing. |
 | History | Locally only 75 deal sessions (29 Apr 2026 on). Too few to judge any rule. |
 
-## 2. Evidence study (hark/tools/deals_study/study.py)
+## 2. Evidence study (HarkPro/tools/deals_study/study.py)
 - **Data**: 65,991 NSE bulk/block prints, Apr 2024 to Oct 2026, from NSE's historical endpoint (`fetch_nse_history.py`, the CSV mode returns full data; JSON caps at 70 rows). That gives 19,080 stock-sessions through the app's own `build_deal_session_net`.
 - **Method**: stocks ≥ ₹1,000 Cr. Entry at the next open; exit at the close T+5 / T+20. Excess = return minus the equal-weight average of all ≥ ₹1,000 Cr stocks over the same sessions. Deals up to 14 Jul 2026 (local price gap after 13 Aug).
 - **Universe**: market cap = today's share count × price (approximation).
@@ -183,7 +183,7 @@ Empty sections are dropped. The breadth block moves to the Pulse message (one li
    - Rule: the icon shows only within 10 sessions of the deal.
 
 ### 5.4 Mockup v1
-`hark/mockups/tab-deals.html` is built by `hark/tools/deals_mockup/extract.py` from local data as of 2026-08-13, the last session before the price gap, so day-3 states can be shown. It has six views:
+`HarkPro/mockups/tab-deals.html` is built by `HarkPro/tools/deals_mockup/extract.py` from local data as of 2026-08-13, the last session before the price gap, so day-3 states can be shown. It has six views:
 - **Today**: every deal stock, sorted by verdict; noise is hidden behind a toggle.
 - **Deal watch**: holding / lost / reclaimed, with filters.
 - **Houses**: class evidence, out-of-sample grades, Follow.

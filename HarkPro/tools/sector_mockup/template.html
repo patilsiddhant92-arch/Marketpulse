@@ -160,6 +160,6 @@ function render(){seg('#lv',[['sector','Sector'],['broad_industry','Broad Indust
   document.querySelectorAll('#view button').forEach(b=>{b.classList.toggle('on',b.dataset.v===st.view);b.onclick=()=>{st.view=b.dataset.v;st.page=0;render()}});
   $('#asof').textContent='as of '+D.as_of;ctx();legend();st.view==='grid'?grid():board();detail()}
 $('#tvcopy').onclick=()=>{if(st.lv==='index')return;const t=rows().filter(z=>z.lead.length).map(z=>`###${z.g},`+z.lead.map(s=>'NSE:'+s).join(',')).join(',');navigator.clipboard?.writeText(t);const el=$('#toast');el.textContent='Copied leaders of '+rows().length+' groups';el.style.display='block';setTimeout(()=>el.style.display='none',1800)};
-$('#foot').innerHTML='Mockup on local data. Stocks ≥ ₹1,000 Cr, current taxonomy (not point-in-time). Score = average within-level rank of near-high %, new highs, A/D and up-day delivery share for the chosen window. Thresholds are provisional until rechecked on the five-year archive. Rebuild: <code>python hark/tools/sector_mockup/extract.py [AS_OF]</code>.';
+$('#foot').innerHTML='Mockup on local data. Stocks ≥ ₹1,000 Cr, current taxonomy (not point-in-time). Score = average within-level rank of near-high %, new highs, A/D and up-day delivery share for the chosen window. Thresholds are provisional until rechecked on the five-year archive. Rebuild: <code>python HarkPro/tools/sector_mockup/extract.py [AS_OF]</code>.';
 render();
 </script></body></html>

@@ -1,6 +1,6 @@
 """Build the Tab 1 (Pulse) mockup from the local DuckDB.
-Run from the repo root:  python hark/tools/pulse_mockup/extract.py [AS_OF_DATE]
-Writes hark/mockups/tab1-pulse.html. Prototype only; the production version is the /api/v2/pulse/* spec in hark/02-tab1-pulse.md.
+Run from the repo root:  python HarkPro/tools/pulse_mockup/extract.py [AS_OF_DATE]
+Writes HarkPro/mockups/tab1-pulse.html. Prototype only; the production version is the /api/v2/pulse/* spec in HarkPro/02-tab1-pulse.md.
 """
 import duckdb, json, math
 import pandas as pd, numpy as np

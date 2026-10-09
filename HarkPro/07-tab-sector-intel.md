@@ -36,7 +36,7 @@ nightly table `group_daily` (built by `Scripts/derived/group_daily.py`).
 
 ## 3. Evidence: which group readings predict the next 21 sessions?
 
-Script: `hark/tools/sector_study/study.py <Level>`. Local data from 2024-10-01 to 2026-07 (440 signal days; windows that cross the 13 Aug–8 Oct gap are excluded).
+Script: `HarkPro/tools/sector_study/study.py <Level>`. Local data from 2024-10-01 to 2026-07 (440 signal days; windows that cross the 13 Aug–8 Oct gap are excluded).
 Groups with ≥ 3 members, 1000 Cr floor. Target = the group's forward 21-session equal-weight return minus the median group's.
 IC = average daily rank correlation. Health and RRG were recomputed against an equal-weight market proxy, because MidSml400 history is missing locally.
 
@@ -108,7 +108,7 @@ Map and Today → already in Pulse. Accumulators → Setups or Deals. Board side
 2. Demote money flow to an optional column group, and drop Map / Today / Accumulators from this tab?
 
 ## 6. Proposed board columns (answer to "what data will I see")
-Prototype rows: `python hark/tools/sector_study/sample_board.py` (Broad Industry, 1000 Cr floor, groups ≥ 5 members, as of 2026-08-13).
+Prototype rows: `python HarkPro/tools/sector_study/sample_board.py` (Broad Industry, 1000 Cr floor, groups ≥ 5 members, as of 2026-08-13).
 
 | Column | Meaning |
 |---|---|
@@ -131,7 +131,7 @@ Prototype rows: `python hark/tools/sector_study/sample_board.py` (Broad Industry
 
 **TT % in simple English:** the share of a group's stocks that are in a clean uptrend (price above the 50, 150 and 200-day averages, those averages stacked and rising, and price near its 52-week high and well off its low). It is close to "near 52W high" but harder to read. Proposal: replace it with **% near 52W high**.
 
-### Test of the readings Siddhant named (`hark/tools/sector_study/study2_readings.py`)
+### Test of the readings Siddhant named (`HarkPro/tools/sector_study/study2_readings.py`)
 Same set-up as section 3 (stocks ≥ ₹1,000 Cr, groups ≥ 3, forward 21 sessions vs the median group, Oct 2024 – Jul 2026). "Top / bottom" = % of days the top / bottom fifth of groups beat the median group.
 
 | Reading | Best N | IC Sector | IC Broad Ind | IC Industry | Top vs bottom (Broad Ind) |
@@ -194,7 +194,7 @@ Columns, in this order, each with N = 1D / 1W / 2W / 1M selectable and a percent
 - **The ranking's own recent record predicts its next month.** If its realised correlation over the 63 sessions that ended 21 sessions ago was > 0.05, the next correlation averaged 0.164 at Broad Industry. Otherwise it averaged 0.042. This becomes the "Working / Not working" gauge. It uses only data known on the day.
 
 ### Mockup v1: `mockups/tab-sector-intel.html`
-Rebuild: `python hark/tools/sector_mockup/extract.py [AS_OF]`. Built for 2026-08-13: 22 sectors, 58 broad industries, 171 industries, 44 indices (price only). Tested in jsdom with no JS errors.
+Rebuild: `python HarkPro/tools/sector_mockup/extract.py [AS_OF]`. Built for 2026-08-13: 22 sectors, 58 broad industries, 171 industries, 44 indices (price only). Tested in jsdom with no JS errors.
 - Context strip: Pulse mood with direction, the "working now" gauge (on 13 Aug: Working, top fifth 58% vs bottom 42%), and a plain-English verdict.
 - Board: level (Sector / Broad Industry / Industry / Index), window (1D / 1W / 2W / 1M), state filter, sortable. Columns: score, near-52W-high % (+ change, own percentile), new highs (distinct members), A/D, up-day delivery share, turnover ×, share Δ, return vs median, leaders (TradingView links). Copy-leaders button.
 - Chart grid: 9 per page in board order. Each card has equal-weight candles, 10 / 20 / 50 EMA, an RS line and a near-high pane. The crosshair is synced.
@@ -203,7 +203,7 @@ Rebuild: `python hark/tools/sector_mockup/extract.py [AS_OF]`. Built for 2026-08
 - Note: the study's "new highs" counted new-high days. The mockup counts distinct members. Both will be rechecked on the archive.
 
 ### 5-year recheck (to run on Siddhant's machine)
-`python hark/tools/sector_study/study2_readings.py` and `mood_series.py` on the full database. Before the run, add point-in-time market cap (`security_reference_daily`) and taxonomy history. Lock the thresholds only after this run.
+`python HarkPro/tools/sector_study/study2_readings.py` and `mood_series.py` on the full database. Before the run, add point-in-time market cap (`security_reference_daily`) and taxonomy history. Lock the thresholds only after this run.
 
 ### Round 3b: Siddhant's feedback on mockup v1
 - **"Everything green makes no sense."** v1 coloured any positive number green. After a broad rally that turns most of the board green, and the colour said nothing. Now colour means rank against the other groups on the same day: green = top 20%, red = bottom 20%, plain = middle. The state dot keeps its own meaning (Favour / Neutral / Caution).
@@ -223,7 +223,7 @@ Independent recompute for 2026-08-13, Broad Industry, compared with `group_daily
 ### Round 3d: Stock heatmap, TradingView-style (2026-10-09, proposal)
 The user asked whether we can match the TradingView stock heatmap (all Indian stocks, grouped by sector, tile = value traded, colour = % change).
 Yes, from data we already hold (indicators_daily turnover/close + stocks_master taxonomy). The current app's Treemap is group-level only (tiles = groups, colour = Health/21D).
-Mockup: hark/mockups/stock-heatmap.html (hark/tools/heatmap_mockup/extract.py <date>; jsdom test /workspace/work/pulse/t4.js).
+Mockup: HarkPro/mockups/stock-heatmap.html (HarkPro/tools/heatmap_mockup/extract.py <date>; jsdom test /workspace/work/pulse/t4.js).
 - Group by Sector / Broad Industry / Industry; size by turnover today, 20D avg turnover, or market cap; colour by 1D / 1W / 1M.
 - Colour mode "% change" (TradingView's ±3% scale) or "vs market" (minus the median stock), which fixes the "everything green" day.
 - ≥ ₹1,000 Cr default, All toggle. Header shows the turnover-weighted group move; click a header to zoom, click a tile to open the TradingView chart.
