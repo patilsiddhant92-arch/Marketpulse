@@ -90,6 +90,44 @@ For today's regime and for the analog days:
 
 ## 10. Open questions for Siddhant
 1. The merge (one Research tab with five views) and the cut of Pre-move watch as its own view: OK?
-2. Does the "choppy" definition in §3 match what you see now? Name 2–3 past periods you remember as choppy, and I'll check the rule labels them correctly.
+2. ~~Choppy periods~~: answered by the professional approach in §11 (two axes: index range vs trend × breakouts paying vs failing).
 3. Big-move thresholds in §5 (D +30%/20s, W +50%/13w, M +100%/12m): right for your style?
 4. Can I run these studies on your 5-year archive? I need the daily files from 2021 or the built DB (the repo has about 18 months).
+
+## 11. Round 1b: how professionals define "choppy", and the approach chosen (2026-10-09)
+Siddhant had no past periods in mind and asked for the professional approach.
+
+**What professionals use**
+- **Breakout traders** (O'Neil, Minervini, Stockbee/Bonde, Qullamaggie) don't define chop on the index chart. They ask one question: *are breakouts working right now?*
+  - Bonde reads breadth (stocks above their MAs, new highs) and his Market Monitor breadth crossovers.
+  - Minervini watches his own failed breakouts. 3–5 quick stop-outs in 2–3 weeks means reduce exposure.
+  - O'Neil uses distribution days and follow-through days.
+- **Technicians** measure the index's path:
+  - **Choppiness Index** (Dreiss): above 61.8 is choppy, below 38.2 trending.
+  - **ADX**: below 20 means no trend.
+  - **Kaufman efficiency ratio**: net move ÷ total path; near 0 is chop.
+- Fixed thresholds don't travel well between markets. Read each one against its own history (our standing rule).
+
+**Approach chosen: two axes, not one label**
+| | Breakouts paying | Breakouts failing |
+|---|---|---|
+| **Index trending** | Press: full size | Narrow: index up, few leaders work |
+| **Index in a range** | Stock-picker's market: trade leaders only | **Chop: sit out or size down** |
+- Index axis: Range if Choppiness(14) is in the top 40% of its own history or the efficiency ratio(20) is in the bottom 40%, on the equal-weight ≥ ₹1,000 Cr market. Otherwise Trend.
+- Breakout axis: share of 50-day-high breakouts on ≥ 1.5× volume still above their breakout close 5 sessions later, over the trailing 10 sessions. Failing = below its own median.
+- Both readings use point-in-time percentiles: each day is ranked only against earlier days.
+
+**First test** (local data, Jul 2024–Aug 2026, ~465 sessions; `tools/regime_study/choppy.py` + `quadrant.py`). Each quadrant is scored by what the **next 10 sessions'** breakouts did:
+| Quadrant | Days | Next breakouts holding after 5 sessions | EW market next 20 sessions |
+|---|---|---|---|
+| Trend + paying | 84 | **51.6%** | +1.5% |
+| Range + paying | 161 | 48.8% | +0.6% |
+| Trend + failing | 91 | 43.1% | +0.9% |
+| Range + failing (chop) | 129 | **40.4%** | −0.9% |
+| All days | | 45.8% | |
+- The order is the one you'd expect, and the gap matters for a breakout trader: in chop, breakouts held about 4 in 10 times; in Press, about 5 in 10.
+- On 2026-08-13 (the last session before the data gap): Choppiness 77, ER 0.16, so the index was ranging. Breakouts were still holding (49%), which puts it in the stock-picker's market. Today's reading needs the missing Aug–Oct daily files.
+- A single-label rule (choppy if 2 of 3 legs agree) was tried first. It labelled 57% of days choppy, too loose to be useful, and was dropped.
+- Caveats: one short sample of overlapping windows. Re-run on the 5-year archive before locking thresholds, and add the past-episode table (how long each chop lasted and how it ended).
+
+**In the app**: Pulse shows the quadrant (one line + its record). Research View 1 shows the quadrant ribbon over the archive, the past episodes of the current quadrant, and what followed them.
