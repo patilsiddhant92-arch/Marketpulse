@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from App.api.v2.routes import API_VERSION, router
+from App.api.v2 import routes_sectors  # noqa: E402,F401  Sector Intel (/api/v2/sectors/*)
 
 __all__ = ["router", "create_app", "API_VERSION"]
 
