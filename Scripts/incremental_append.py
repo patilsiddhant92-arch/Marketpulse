@@ -8,10 +8,12 @@ touches what the new session(s) can change:
 * prices_daily - the new rows are inserted; a symbol whose cumulative price_factor changed (a
   split/bonus newly applied) or whose history moved under a new ticker is rewritten entirely.
 * indicators_daily - per symbol with new rows, the rows from ``rewrite_start`` on are replaced.
-  Every daily column is causal EXCEPT the swing-point RSI divergence flags (daily, weekly,
-  monthly: a swing at t needs bar t+1) and the completed-week wema_20 (a week whose Friday is a
-  holiday completes only when the next session arrives), so ``rewrite_start`` goes back to the
-  start of the calendar month / previous week of the first new session. The per-symbol pass
+  Every daily column is causal (the RSI divergence flags too since 2026-10: the shared engine
+  Scripts/rsi_divergence.py flags a divergence on its confirm bar, 3 bars after the pivot; the
+  old swing flags needed bar t+1). Weekly / monthly columns change while their LAST bar is still
+  forming, and the completed-week wema_20 completes late when a Friday is a holiday, so
+  ``rewrite_start`` goes back to the start of the calendar month / previous week of the first
+  new session. The per-symbol pass
   runs over the symbol's full history with exactly the full-build code (its cost is almost
   independent of the row count, and only the full history reproduces the rolling-mean
   summation residue bit for bit - a trailing window flips e.g. sma_200_rising of flat ETFs).
@@ -150,7 +152,8 @@ def _require_current_schema(con) -> None:
     if "price_factor" not in price_cols or "adj_close_price" not in price_cols:
         raise FullRecomputeRequired("prices_daily has no price-adjustment columns (built by older code)")
     ind_cols = set(table_columns(con, "indicators_daily"))
-    for col in ("price_factor", "rs_rank_t30", "wema_20", "setup_class", "database_high"):
+    # rsi_divergence_type marks the causal divergence engine: older rows carry the look-ahead flags.
+    for col in ("price_factor", "rs_rank_t30", "wema_20", "setup_class", "database_high", "rsi_divergence_type"):
         if col not in ind_cols:
             raise FullRecomputeRequired(f"indicators_daily has no {col} column (built by older code)")
     if "sector_metrics_daily" not in tables:
@@ -315,9 +318,9 @@ def _sessions_between(con, start: pd.Timestamp, end: pd.Timestamp) -> int:
 
 def month_window_start(first_new: pd.Timestamp) -> pd.Timestamp:
     """Earliest date a session on ``first_new`` can change for a symbol that traded every
-    session: the previous calendar month-end (its monthly bar label; the swing flags of that bar
-    need the current month's bar) and the Monday of the previous week (weekly swing flags, a
-    holiday-shortened week completing late for wema_20). ``rewrite_starts`` generalises this
+    session: the previous calendar month-end (its monthly bar label; the monthly columns ffill
+    from it) and the Monday of the previous week (weekly columns, a holiday-shortened week
+    completing late for wema_20). ``rewrite_starts`` generalises this
     per symbol for symbols with gaps."""
     month_start = first_new.replace(day=1)
     week_start = first_new - pd.Timedelta(days=first_new.weekday())
@@ -327,12 +330,12 @@ def month_window_start(first_new: pd.Timestamp) -> pd.Timestamp:
 def rewrite_starts(con, symbols: list[str], recompute_from: pd.Timestamp) -> dict[str, pd.Timestamp]:
     """Per symbol with new rows: the first stored row whose value the new sessions can change.
 
-    The only non-causal columns are the swing-point flags (daily/weekly/monthly RSI
-    divergence: a swing at bar t needs bar t+1) and wema_20 (a week completes when a session
-    on/after its calendar Friday exists). New rows extend or add the symbol's LAST weekly and
+    Daily columns are causal (the RSI divergence flags fire on their confirm bar). The weekly /
+    monthly columns move while the last W/M bar is still forming, and wema_20 completes a week
+    when a session on/after its calendar Friday exists. New rows extend or add the symbol's LAST weekly and
     monthly bar, so the rows that can change are those mapped (as-of) to the bar BEFORE the last
     one - i.e. every row on/after the label of the symbol's previous trading week (its Friday)
-    and previous trading month (its calendar month-end) - plus the last row (daily swing).
+    and previous trading month (its calendar month-end) - plus the last row (kept as a margin).
     A symbol without such a previous bar is rewritten from its first row.
     """
     if not symbols:
