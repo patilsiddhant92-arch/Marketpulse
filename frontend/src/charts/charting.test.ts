@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rsi, sma } from '../lib/indicators';
-import { volumeAlpha, volumeWidth } from '../ui/volumeCandleSeries';
+import { volumeAlpha, volumeWidth, withAlpha } from '../ui/volumeCandleSeries';
 import { findPivots, rsiDivergences, type DivBar } from './divergence';
 import {
   EVENT_COLORS,
@@ -127,7 +127,7 @@ describe('deal candles: mapping', () => {
     expect(b.text).toContain('deal price ₹1,174.9');
     expect(b.text).toContain('now holding');
     expect(dealEvent(deal({ letter: 'S', net_cr: -4, top_seller: 'X' }))!).toMatchObject({ color: EVENT_COLORS.deal_S, letter: 'S' });
-    expect(dealEvent(deal({ letter: 'P' }))!.color).toBe('#3b82f6');
+    expect(dealEvent(deal({ letter: 'P' }))!.color).toBe('ev-placement');
     expect(dealEvent(deal({ letter: 'T' }))!.color).toBe(EVENT_COLORS.deal_T);
     expect(dealEvent(deal({ letter: 'C' }))!.text).toContain('Churn');
     expect(dealEvent(deal({ letter: 'Z' }))).toBeNull();
@@ -162,9 +162,9 @@ describe('deal candles: mapping', () => {
   });
   it('volume spike paints only when alone on the bar', () => {
     const t = ['2026-01-05'];
-    const v = { date: '2026-01-05', key: 'volume' as const, letter: 'V', color: 'fg', text: 'v', paints: true };
+    const v = { date: '2026-01-05', key: 'volume' as const, letter: 'V', color: 'fg' as const, text: 'v', paints: true };
     expect(resolveEvents(t, [v]).get('2026-01-05')!.top).toMatchObject({ key: 'volume', paints: true });
-    const ex = { date: '2026-01-05', key: 'ex_date' as const, letter: 'E', color: 'x', text: 'e', paints: false };
+    const ex = { date: '2026-01-05', key: 'ex_date' as const, letter: 'E', color: 'ev-churn' as const, text: 'e', paints: false };
     expect(resolveEvents(t, [v, ex]).get('2026-01-05')!.top.key).toBe('volume');
   });
 });
@@ -205,5 +205,8 @@ describe('volume candles', () => {
     expect(volumeWidth(null, 1000)).toBe(0.45);
     expect(volumeAlpha(3000, 1000)).toBe(1);
     expect(volumeAlpha(0, 1000)).toBe(0.35);
+    expect(withAlpha(`#${'ff0080'}`, 0.5)).toBe('rgba(255, 0, 128, 0.5)');
+    expect(withAlpha('rgba(1, 2, 3, 1)', 0.4)).toBe('rgba(1, 2, 3, 0.4)');
+    expect(withAlpha('red', 0.4)).toBe('red');
   });
 });

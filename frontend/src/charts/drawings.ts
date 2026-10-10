@@ -4,6 +4,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { readJSON, writeJSON } from '../lib/storage';
+import { tokenColor } from '../lib/tokens';
 import type { ChartLevel, ChartSegment } from '../ui/Chart';
 
 export type DrawTool = 'none' | 'hline' | 'trend';
@@ -21,7 +22,6 @@ type Store = Record<string, Drawing[]>;
 
 const KEY = 'mp.chart.drawings.v1';
 const MAX_PER_SYMBOL = 50;
-export const DRAW_COLOR = '#38bdf8';
 
 const isPoint = (p: unknown): p is DrawPoint =>
   !!p && typeof (p as DrawPoint).time === 'string' && typeof (p as DrawPoint).price === 'number' && Number.isFinite((p as DrawPoint).price);
@@ -124,15 +124,16 @@ export function clickTool(
 export function drawingLayers(list: readonly Drawing[]): { levels: ChartLevel[]; segments: ChartSegment[] } {
   const levels: ChartLevel[] = [];
   const segments: ChartSegment[] = [];
+  const color = tokenColor('draw');
   for (const d of list) {
-    if (d.kind === 'hline') levels.push({ id: d.id, price: d.a.price, color: DRAW_COLOR, title: '' });
+    if (d.kind === 'hline') levels.push({ id: d.id, price: d.a.price, color, title: '' });
     else
       segments.push({
         id: d.id,
         pane: 'price',
         from: { time: d.a.time, value: d.a.price },
         to: { time: d.b.time, value: d.b.price },
-        color: DRAW_COLOR,
+        color,
         width: 2,
       });
   }

@@ -10,6 +10,7 @@
 import type { EndpointMap, StockEventRow } from '../api/types';
 import { fmtCr, fmtNum } from '../lib/fmt';
 import type { OHLCBar } from '../lib/indicators';
+import { tokenColor, type TokenName } from '../lib/tokens';
 
 export type DealCandleRow = EndpointMap['charts/{sym}/deal-candles']['row'];
 
@@ -39,21 +40,26 @@ export type EventKey =
   | 'volume'
   | 'ex_date';
 
-/** Fixed chart palette for event candles (dark theme). `fg` = the theme's text colour (white body). */
-export const EVENT_COLORS: Record<EventKey, string> = {
-  results: '#a855f7', // purple
-  deal_B: '#14b8a6', // teal
-  deal_P: '#3b82f6', // blue
-  deal_S: '#f97316', // orange
-  deal_C: '#8b93a1', // grey
-  deal_T: '#8b93a1', // grey
-  breakout: '#22e55e', // bright green
-  breakdown: '#f2552c', // red-orange
-  gap_up: '#eab308', // gold
-  gap_down: '#eab308',
+/** Event palette as design tokens (styles/tokens.css, --c-ev-*). `fg` = the theme text colour (white body). */
+export const EVENT_COLORS: Record<EventKey, TokenName> = {
+  results: 'ev-results', // purple
+  deal_B: 'ev-buy', // teal
+  deal_P: 'ev-placement', // blue
+  deal_S: 'ev-sell', // orange
+  deal_C: 'ev-churn', // grey
+  deal_T: 'ev-churn', // grey
+  breakout: 'ev-breakout', // bright green
+  breakdown: 'ev-breakdown', // red-orange
+  gap_up: 'ev-gap', // gold
+  gap_down: 'ev-gap',
   volume: 'fg',
-  ex_date: '#8b93a1',
+  ex_date: 'ev-churn',
 };
+
+/** Canvas colour of an event key (resolved from the token at call time). */
+export function eventColor(key: EventKey, alpha = 1): string {
+  return tokenColor(EVENT_COLORS[key], alpha);
+}
 
 const PRIORITY: Record<EventKey, number> = {
   results: 1,
@@ -96,7 +102,8 @@ export interface ChartEvent {
   date: string;
   key: EventKey;
   letter: string;
-  color: string;
+  /** Palette token of the event (resolve with tokenColor / eventColor). */
+  color: TokenName;
   /** Hover text, plain English. */
   text: string;
   /** Colours the candle (false = chip only). */
@@ -295,9 +302,4 @@ export function resolveEvents(
     out.set(t, { top: painters[0] ? top : { ...top, paints: false }, all: list });
   }
   return out;
-}
-
-/** Resolve a palette entry to a canvas colour ('fg' -> the theme text colour supplied by the caller). */
-export function paletteColor(c: string, fg: string): string {
-  return c === 'fg' ? fg : c;
 }

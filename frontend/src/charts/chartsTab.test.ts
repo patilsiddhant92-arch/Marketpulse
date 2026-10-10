@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CHART_PREF_DEFAULTS, resetChartPrefsCache, setChartPrefs, useChartPrefs } from '../lib/chartPrefs';
 import { buildChartLayers, dealLines, DEAL_LINE_BARS } from './chartLayers';
 import { clickTool, drawingLayers, sanitize } from './drawings';
-import { EVENT_COLORS, type DealCandleRow } from './eventCandles';
+import { type DealCandleRow } from './eventCandles';
+
+// tokens.css is not loaded in jsdom: set the one token these tests read.
+const TEAL = 'rgba(20, 184, 166, 1)';
+beforeAll(() => document.documentElement.style.setProperty('--c-ev-buy', '20 184 166'));
 import { parseSource, parseSymbolText, peersList, sourceId } from './sources';
 import type { PeerRow } from '../api/types';
 import type { OHLCBar } from '../lib/indicators';
@@ -84,10 +88,9 @@ describe('chart prefs: global settings, backward-compatible', () => {
   it('old stored prefs keep their keys and gain the new defaults; junk is dropped', () => {
     localStorage.setItem('mp.chartprefs.v1', JSON.stringify({ darvas: false, bm: 'nifty50', style: 'weird', emas: [10, 33, 50] }));
     resetChartPrefsCache();
-    let got: ReturnType<typeof useChartPrefs>[0] | null = null;
     // Read through the setter path (no React needed): patch nothing, then read storage back.
     setChartPrefs({});
-    got = JSON.parse(localStorage.getItem('mp.chartprefs.v1') ?? '{}');
+    const got = JSON.parse(localStorage.getItem('mp.chartprefs.v1') ?? '{}') as ReturnType<typeof useChartPrefs>[0];
     expect(got).toMatchObject({ darvas: false, bm: 'nifty50', style: 'candles', emas: [10, 50], rsi: true });
   });
 });
@@ -101,7 +104,7 @@ describe('chart layers', () => {
     const segs = dealLines([dealRow({}), dealRow({ trade_date: '2026-01-07', show_line: false })], t, 'D');
     expect(segs).toHaveLength(1);
     expect(segs[0]).toMatchObject({ from: { time: '2026-01-05', value: 100 }, to: { time: t[4 + DEAL_LINE_BARS.D], value: 100 }, dashed: true, axisLabel: 'B holding' });
-    expect(segs[0].color).toBe(EVENT_COLORS.deal_B);
+    expect(segs[0].color).toBe(TEAL);
     // A deal near the end stops at the last bar.
     expect(dealLines([dealRow({ trade_date: t[38] })], t, 'D')[0].to.time).toBe(t[39]);
   });
@@ -109,8 +112,8 @@ describe('chart layers', () => {
     const bars = flatBars(40);
     const prefs = { ...CHART_PREF_DEFAULTS };
     const l = buildChartLayers({ bars, tf: 'D', prefs, deals: [dealRow({})] });
-    expect(l.candleColors).toEqual([{ time: '2026-01-05', color: EVENT_COLORS.deal_B }]);
-    expect(l.markers[0]).toMatchObject({ time: '2026-01-05', text: 'B', color: EVENT_COLORS.deal_B, position: 'aboveBar' });
+    expect(l.candleColors).toEqual([{ time: '2026-01-05', color: TEAL }]);
+    expect(l.markers[0]).toMatchObject({ time: '2026-01-05', text: 'B', color: TEAL, position: 'aboveBar' });
     expect(l.barNote('2026-01-05')).toContain('Net buy');
     expect(l.barNote('2026-01-06')).toBeNull();
     expect(l.emaPeriods).toEqual([10, 20, 200]);

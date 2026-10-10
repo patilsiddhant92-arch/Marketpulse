@@ -8,7 +8,7 @@ import { EMA_CHOICES, useChartPrefs } from '../lib/chartPrefs';
 import { cn } from '../lib/cn';
 import { fmtNum } from '../lib/fmt';
 import { useEscapeLayer } from '../lib/layers';
-import { DIV_COLORS, type ChartLayers } from './chartLayers';
+import { DIV_TOKENS, type ChartLayers } from './chartLayers';
 import { clearDrawings, removeDrawing, useDrawings, type DrawTool } from './drawings';
 import { EVENT_COLORS, EVENT_GROUPS, type EventKey } from './eventCandles';
 
@@ -62,8 +62,8 @@ function Check({ on, onChange, children, title }: { on: boolean; onChange: (v: b
   );
 }
 
-const swatch = (color: string) => (
-  <span aria-hidden className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: color === 'fg' ? 'rgb(var(--c-fg))' : color }} />
+const swatch = (token: string) => (
+  <span aria-hidden className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: `rgb(var(--c-${token}))` }} />
 );
 
 const GROUP_SWATCH: Record<string, EventKey> = {
@@ -246,8 +246,8 @@ export function EventLegend({ layers, className }: { layers: ChartLayers; classN
       ))}
       {layers.divergences.length > 0 && (
         <span className="flex items-center gap-1" title="RSI divergence lines on the price and RSI panes">
-          <span className="inline-block h-0.5 w-3" style={{ background: DIV_COLORS.bear }} /> {bear} bearish
-          <span className="ml-1 inline-block h-0.5 w-3" style={{ background: DIV_COLORS.bull }} /> {bull} bullish divergence
+          <span className="inline-block h-0.5 w-3" style={{ background: `rgb(var(--c-${DIV_TOKENS.bear}))` }} /> {bear} bearish
+          <span className="ml-1 inline-block h-0.5 w-3" style={{ background: `rgb(var(--c-${DIV_TOKENS.bull}))` }} /> {bull} bullish divergence
         </span>
       )}
       <span className="ml-auto">Hover a candle for what happened.</span>

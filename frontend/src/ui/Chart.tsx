@@ -39,7 +39,7 @@ import { fmtCompactIN, fmtDate, fmtNum, fmtPct, fmtSignedPct } from '../lib/fmt'
 import { ema, resampleBars, rsi as rsiCalc, sma, type OHLCBar } from '../lib/indicators';
 import { tokenColor, type TokenName } from '../lib/tokens';
 import type { DarvasLines, DarvasPoint } from './darvasModel';
-import { VolumeCandleSeries, volumeWidth, type VolumeCandleData } from './volumeCandleSeries';
+import { NARROW_CHART_PX, VolumeCandleSeries, volumeAlpha, volumeWidth, withAlpha, type VolumeCandleData } from './volumeCandleSeries';
 
 export type { DarvasLines } from './darvasModel';
 
@@ -696,17 +696,23 @@ export function Chart({
     );
     if (volCandleRef.current) {
       const vavg = sma(shown.map((b) => b.volume ?? null), 20);
+      // Narrow charts (phones, small tiles): colour intensity instead of width (09-tab-charts §4).
+      const narrow = (containerRef.current?.clientWidth ?? NARROW_CHART_PX) < NARROW_CHART_PX;
       volCandleRef.current.setData(
-        shown.map((b, i) => ({
-          time: b.time as Time,
-          open: b.open,
-          high: b.high,
-          low: b.low,
-          close: b.close,
+        shown.map((b, i) => {
           // Average of the 20 bars before this one (a spike does not dilute its own baseline).
-          width: volumeWidth(b.volume, i > 0 ? vavg[i - 1] : null),
-          color: paint.get(b.time) ?? tokenColor(b.close >= b.open ? 'up' : 'down'),
-        })),
+          const avg = i > 0 ? vavg[i - 1] : null;
+          const base = paint.get(b.time) ?? tokenColor(b.close >= b.open ? 'up' : 'down');
+          return {
+            time: b.time as Time,
+            open: b.open,
+            high: b.high,
+            low: b.low,
+            close: b.close,
+            width: narrow ? 0.7 : volumeWidth(b.volume, avg),
+            color: narrow ? withAlpha(base, volumeAlpha(b.volume, avg)) : base,
+          };
+        }),
       );
     }
     if (volAvgRef.current) {

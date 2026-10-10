@@ -102,3 +102,19 @@ export class VolumeCandleSeries implements ICustomSeriesPaneView<Time, VolumeCan
     return { ...customSeriesDefaultOptions };
   }
 }
+
+/** '#rrggbb' or 'rgba(r, g, b, a)' / 'rgb(r, g, b)' -> rgba with the given alpha (other strings pass through). */
+export function withAlpha(color: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  const hex = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(color.trim());
+  if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${a})`;
+  return color;
+}
+
+/** Below this chart width (phones, small tiles) volume candles use colour intensity instead of width. */
+export const NARROW_CHART_PX = 480;

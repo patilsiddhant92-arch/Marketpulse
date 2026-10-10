@@ -5,10 +5,9 @@
 import { QueryClient } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { routes } from '../routes';
-import { EVENT_COLORS } from './eventCandles';
 
 vi.mock('../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
 // lightweight-charts needs a canvas: expose the props the Charts tab passes instead.
@@ -60,6 +59,7 @@ afterEach(() => {
 });
 
 describe('Charts tab', () => {
+  beforeAll(() => document.documentElement.style.setProperty('--c-ev-buy', '20 184 166'));
   it('main chart + list rail; J moves through the list; deal candle colour and RSI reach the chart; I opens Stock 360', async () => {
     mockApi();
     const router = createMemoryRouter(routes, { initialEntries: ['/charts?src=list&syms=AAA,BBB'] });
@@ -67,7 +67,7 @@ describe('Charts tab', () => {
 
     const chart = await screen.findByRole('img', { name: 'AAA daily chart' }, { timeout: 8000 });
     expect(screen.getByRole('listbox', { name: /Symbols/ })).toBeInTheDocument();
-    await waitFor(() => expect(chart.getAttribute('data-candles')).toContain(EVENT_COLORS.deal_B), { timeout: 5000 });
+    await waitFor(() => expect(chart.getAttribute('data-candles')).toContain('rgba(20, 184, 166, 1)'), { timeout: 5000 });
     expect(chart.getAttribute('data-rsi')).toBe('1');
     expect(chart.getAttribute('data-emas')).toBe('10,20,200');
     expect(chart.getAttribute('data-segments')).toContain(`deal-${dates[50]}-B`);

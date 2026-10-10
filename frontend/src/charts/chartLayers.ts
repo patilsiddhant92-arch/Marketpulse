@@ -17,7 +17,7 @@ import {
   EVENT_COLORS,
   calendarEvents,
   dealEvent,
-  paletteColor,
+  eventColor,
   priceEvents,
   resolveEvents,
   type BarEvents,
@@ -28,7 +28,8 @@ import {
 /** Deal-price line length: 20 sessions, as bars of the timeframe. */
 export const DEAL_LINE_BARS: Record<Timeframe, number> = { D: 20, W: 4, M: 1 };
 
-export const DIV_COLORS = { bear: '#f2552c', bull: '#22c55e', hidden_bear: '#f2552c', hidden_bull: '#22c55e' } as const;
+/** Divergence line tokens: bearish = box-break red-orange, bullish = breakout green. */
+export const DIV_TOKENS = { bear: 'ev-breakdown', bull: 'ev-breakout', hidden_bear: 'ev-breakdown', hidden_bull: 'ev-breakout' } as const;
 
 export interface LayerInput {
   bars: readonly OHLCBar[];
@@ -38,8 +39,6 @@ export interface LayerInput {
   events?: readonly StockEventRow[] | null;
   darvas?: readonly DarvasRow[] | null;
   drawings?: readonly Drawing[];
-  /** Theme text colour for the white "volume" candle (resolved once by the hook). */
-  fg?: string;
 }
 
 export interface ChartLayers {
@@ -74,7 +73,7 @@ export function dealLines(rows: readonly DealCandleRow[], barTimes: readonly str
       pane: 'price',
       from: { time: barTimes[i], value: price },
       to: { time: barTimes[j], value: price },
-      color: EVENT_COLORS[key] ?? EVENT_COLORS.deal_C,
+      color: eventColor(key in EVENT_COLORS ? key : 'deal_C'),
       dashed: true,
       width: 1,
       axisLabel: `${r.letter}${r.status ? ` ${r.status}` : ''}`,
@@ -85,7 +84,7 @@ export function dealLines(rows: readonly DealCandleRow[], barTimes: readonly str
 
 export function divergenceSegments(divs: readonly Divergence[]): ChartSegment[] {
   return divs.flatMap((d) => {
-    const color = DIV_COLORS[d.kind];
+    const color = tokenColor(DIV_TOKENS[d.kind]);
     const dashed = d.kind.startsWith('hidden');
     const id = `div-${d.kind}-${d.from.index}-${d.to.index}`;
     return [
@@ -100,7 +99,6 @@ const BELOW: ReadonlySet<ChartEvent['key']> = new Set(['breakdown', 'gap_down', 
 export function buildChartLayers(input: LayerInput): ChartLayers {
   const { bars, tf, prefs } = input;
   const times = bars.map((b) => b.time);
-  const fg = input.fg ?? '#e9edf4';
 
   // ---- event candles
   let byBar = new Map<string, BarEvents>();
@@ -115,18 +113,19 @@ export function buildChartLayers(input: LayerInput): ChartLayers {
     byBar = resolveEvents(times, events, prefs.eventGroups);
     for (const [time, be] of byBar) {
       const top = be.top;
-      if (top.paints) candleColors.push({ time, color: paletteColor(top.color, fg) });
+      const color = tokenColor(top.color);
+      if (top.paints) candleColors.push({ time, color });
       markers.push({
         time,
         kind: 'custom',
         text: top.letter,
-        color: paletteColor(top.color, fg),
+        color,
         position: BELOW.has(top.key) ? 'belowBar' : 'aboveBar',
         shape: 'circle',
       });
       const chip = be.all.find((e) => e.key === 'ex_date');
       if (chip && chip !== top && top.key !== 'ex_date') {
-        markers.push({ time, kind: 'custom', text: 'E', color: EVENT_COLORS.ex_date, position: 'belowBar', shape: 'square' });
+        markers.push({ time, kind: 'custom', text: 'E', color: eventColor('ex_date'), position: 'belowBar', shape: 'square' });
       }
     }
   }
@@ -183,7 +182,6 @@ export function useChartLayers(
   const deals = useApiQuery('charts/{sym}/deal-candles', { params: { sym: symbol } }, { enabled });
   const events = useApiQuery('stock/{sym}/events', { params: { sym: symbol }, query: { days_ahead: 14, limit: 500 } }, { enabled });
   const drawings = useDrawings(symbol);
-  const fg = useMemo(() => tokenColor('fg'), []);
   return useMemo(
     () =>
       buildChartLayers({
@@ -194,8 +192,7 @@ export function useChartLayers(
         events: events.data?.rows,
         darvas: opts.darvas,
         drawings,
-        fg,
       }),
-    [bars, tf, prefs, deals.data, events.data, opts.darvas, drawings, fg],
+    [bars, tf, prefs, deals.data, events.data, opts.darvas, drawings],
   );
 }
