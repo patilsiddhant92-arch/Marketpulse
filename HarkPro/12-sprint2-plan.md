@@ -25,3 +25,20 @@ The rules from 11-implementation-plan.md still apply: your own worktree only, co
 `{side: "bull"|"bear", type: "Strong"|"Medium"|"Weak"|"Hidden", p1_date, p2_date, p1_price, p2_price, p1_rsi, p2_rsi, confirm_date, trigger_price, stop_price, status: "watching"|"triggered"|"failed"}`
 Rules (prototype at tools/divergence/detect_prototype.py): 3-bar pivots on low (bull) / high (bear), confirmed 3 bars after the pivot (no look-ahead); pivots 5-60 bars apart; "equal" = within 0.5 ATR(14) for price, 2 RSI points for RSI. Regular bull needs an RSI pivot < 40 and RSI never > 60 between; bear mirrored (> 60, never < 40). Hidden bull needs close > EMA50 and RSI2 < 50; hidden bear mirrored. Trigger = the high between the lows (bull) / the low between the highs (bear); stop = the 2nd pivot's low/high.
 `GET /api/v2/setups/divergences?tf=&side=&types=&as_of=` -> today's confirmed divergences across the ≥ ₹1,000 Cr universe (symbol, group, type, side, confirm_date, trigger, distance to trigger %, RSI, the Pulse group state when available).
+
+## Result (2026-10-10 14:00)
+All five branches merged into hark/harkpro. tsc clean, vitest 319/319 (45 files), pytest 181 passed across the API v2, tab, deals, research, incremental and divergence suites plus 85 new tests. openapi up to date. Legacy NiceGUI tests can't run here (nicegui not installed); their failures are unchanged.
+
+### Needs action on the user's PC
+- **Full DB rebuild.** The new `rsi_divergence_type` column makes the first nightly append fall back to a full recompute (deliberate, so the old look-ahead flags are wiped). The family-transfer rule also only shows in Deals after the derived tables are rebuilt.
+
+### Calls made (open to change)
+- "The read" is built client-side (chartRead.ts), so it also works in replay and on W/M bars. No backend endpoint.
+- Fund alerts: followed AND good-record FII/DII AND strong chart (stricter than 08 §5.3's "or").
+- Sector Intel group state now uses the Pulse source (all stocks, per 07 §4.1), so some states change.
+- Divergence "equal price" = 0.5 ATR, which makes Medium the most common type; tighten it if the scanner is noisy. Monthly is thin until the 5-year data lands.
+
+### Left for next pass
+- RS pane in Stock 360 (Chart v2 has none yet). The Deals drawer chart, Charts grid tiles and group/index charts still use ui/Chart. Old ui/volumeCandleSeries.ts draws black candles (Chart v2 has its own fix).
+- Deals side colours to tokens, stockContext.dealsHref points at an old view, two Research QuadrantChips, a few custom Pulse tables.
+- A followed house only alerts if it's in the top 3 buyers.
