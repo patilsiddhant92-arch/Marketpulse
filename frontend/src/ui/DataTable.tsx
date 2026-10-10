@@ -121,6 +121,8 @@ export interface DataTableProps<T extends RowData> {
   hideToolbar?: boolean;
   /** Group rows under header rows (stable within the current sort). */
   groupBy?: DataTableGroupBy<T>;
+  /** Extra classes for one row (e.g. highlight a row that needs attention). */
+  rowClassName?: (row: T) => string | undefined;
   className?: string;
 }
 
@@ -635,7 +637,7 @@ export function DataTable<T extends RowData>(props: DataTableProps<T>) {
                     }}
                     data-odd={rowIndex % 2 === 1 || undefined}
                     data-active={isActive || undefined}
-                    className="mp-tr absolute left-0 top-0 flex w-full cursor-default border-b border-line/40"
+                    className={cn('mp-tr absolute left-0 top-0 flex w-full cursor-default border-b border-line/40', props.rowClassName?.(r.original))}
                     style={{ transform: `translateY(${vi.start}px)`, height: rowHeight }}
                   >
                     {visibleCols.map((c, ci) => {

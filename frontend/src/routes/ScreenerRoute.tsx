@@ -1,5 +1,9 @@
 /**
- * Screener (spec 7.3) — two modes behind one switch (?mode=, default Momentum):
+ * Screener (spec 7.3) — three modes behind one switch (?mode=, default Setups):
+ *
+ * Setups (default, HarkPro/06-tab2-setups.md locked spec): one board of every stock in
+ * Darvas Squeeze / Darvas 10 EMA / VCP / Momentum with group state and decision columns —
+ * see screener/setups/SetupsView.tsx.
  *
  * Momentum (default): the user's main scanner, restored with the old
  * workspace's filters, defaults, coil buckets, leaders and TradingView copy
@@ -40,6 +44,7 @@ import {
   type RuleField,
 } from '../screener/model';
 import { MOMENTUM_DEFAULTS } from '../screener/momentumModel';
+import { SETUPS_DEFAULTS } from '../screener/setups/model';
 import { RuleBar } from '../screener/RuleBar';
 import { RuleDebugger } from '../screener/RuleDebugger';
 import { ScreenerGlance } from '../screener/ScreenerGlance';
@@ -72,21 +77,28 @@ interface RunContext {
 }
 
 const MomentumView = lazy(() => import('../screener/MomentumView'));
+const SetupsView = lazy(() => import('../screener/setups/SetupsView'));
 
 const MODES = [
+  { id: 'setups', label: 'Setups', hint: 'One board: Darvas Squeeze, Darvas 10 EMA, VCP and Momentum with group state, decision columns, near-miss and dropped' },
   { id: 'momentum', label: 'Momentum', hint: 'The momentum scanner: trigger in the lookback, coil buckets, sector / industry leaders, TradingView buckets' },
   { id: 'presets', label: 'Presets', hint: 'Rule presets (Minervini, Stage 2, Darvas, VCP…), custom rules, rule debugger' },
 ] as const;
-const MODE_DEFAULTS = { mode: 'momentum' };
+const MODE_DEFAULTS = { mode: 'setups' };
+type Mode = (typeof MODES)[number]['id'];
 
 export default function ScreenerRoute() {
   const [modeState, setMode] = useTabUrlState('/screener', MODE_DEFAULTS, 'mode');
   const [, setParams] = useSearchParams();
-  const mode = modeState.mode === 'presets' ? 'presets' : 'momentum';
-  const switchTo = (next: 'momentum' | 'presets') => {
+  const mode: Mode = modeState.mode === 'presets' ? 'presets' : modeState.mode === 'momentum' ? 'momentum' : 'setups';
+  const switchTo = (next: Mode) => {
     if (next === mode) return;
-    // Drop the other mode's params so the URL only describes what is on screen.
-    const other = next === 'presets' ? Object.keys(MOMENTUM_DEFAULTS) : Object.keys(SCREENER_DEFAULTS);
+    // Drop the other modes' params so the URL only describes what is on screen.
+    const other = [
+      ...(next !== 'presets' ? Object.keys(SCREENER_DEFAULTS) : []),
+      ...(next !== 'momentum' ? Object.keys(MOMENTUM_DEFAULTS) : []),
+      ...(next !== 'setups' ? Object.keys(SETUPS_DEFAULTS) : []),
+    ];
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev);
@@ -118,7 +130,11 @@ export default function ScreenerRoute() {
         ))}
       </div>
       <div className="min-h-0 flex-1">
-        {mode === 'momentum' ? (
+        {mode === 'setups' ? (
+          <Suspense fallback={<Skeleton width={480} height={18} />}>
+            <SetupsView />
+          </Suspense>
+        ) : mode === 'momentum' ? (
           <Suspense fallback={<Skeleton width={480} height={18} />}>
             <MomentumView />
           </Suspense>
