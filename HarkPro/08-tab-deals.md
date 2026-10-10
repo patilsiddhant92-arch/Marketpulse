@@ -202,6 +202,7 @@ The stock drawer shows the verdict, the deal-candle chart, buyers and sellers wi
   - Each pattern carries its evidence note.
   - As of 13 Aug, 10 sessions: 3 repeated buying, 16 single buy, 16 selling only, 2 mixed, 55 churn-only, 7 transfers.
 - **Rule gap found**: APOLLOPIPE 2026-08-13 is labelled accumulate, but Anil Laxmichand Shah bought ₹12.6 Cr while Kiran Anil Shah sold ₹12.6 Cr. That's a family transfer the transfer rule missed (likely a price mismatch beyond ±0.25%). Its "repeated buying" streak needs re-checking once deal_rules is fixed.
+  - **Fixed (sprint 2, 2026-10-10)**: `deal_rules.family_transfers` adds a family / promoter-group match: same surname (people) or leading family word (holding companies, trusts), neither side FII/DII/PROP, qty within ±2% and price within ±1%, print by print or the family's aggregate. APOLLOPIPE 13 Aug (0.26% gap) is now T, and the Telegram digest counts it under "Skipped: transfers". Across the local DB only 2 sessions change (APOLLOPIPE 13 Aug, ZENITHDRUG 10 Aug, Amit/Bindu Garg). The Gupta buys before it (promoter family, no seller) stay buys. The stored `deal_session_net` picks this up on the next derived-tables rebuild.
 
 ### 5.6 Mockup v1.2 (user feedback)
 - **One colour** for the whole deal-day candle is confirmed.
