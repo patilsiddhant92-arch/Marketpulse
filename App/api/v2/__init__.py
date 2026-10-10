@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from App.api.v2.routes import API_VERSION, router
+from App.api.v2.routes_pulse import router as _pulse_router; router.include_router(_pulse_router)  # noqa: E702 Pulse tab
 
 __all__ = ["router", "create_app", "API_VERSION"]
 

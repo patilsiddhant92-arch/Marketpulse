@@ -4993,6 +4993,604 @@
           }
         }
       }
+    },
+    "/api/v2/pulse/summary": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Summary",
+        "description": "Mood score (0-100, average archive percentile of six readings), label, direction qualifier, commentary sentences, the What-to-do action, History Lab line and breadth flags.",
+        "operationId": "pulse_summary_api_v2_pulse_summary_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions",
+              "default": 5,
+              "title": "Lookback"
+            },
+            "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/breadth": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Breadth",
+        "description": "Per session: % and count of stocks above the 10/20/50/100/200 EMA, daily change, 60-day sigma, unusual-move and expansion/contraction flags, point-in-time percentile. meta.context.stats: archive min/max/p10/p90, lookback delta and the flag thresholds.",
+        "operationId": "pulse_breadth_api_v2_pulse_breadth_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2000,
+                  "minimum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sessions of series to return (default depends on lookback)",
+              "title": "Sessions"
+            },
+            "description": "Sessions of series to return (default depends on lookback)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions",
+              "default": 5,
+              "title": "Lookback"
+            },
+            "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/internals": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Internals",
+        "description": "Six market internals cards: value, change vs lookback average, archive percentile, series.",
+        "operationId": "pulse_internals_api_v2_pulse_internals_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2000,
+                  "minimum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sessions of series to return (default depends on lookback)",
+              "title": "Sessions"
+            },
+            "description": "Sessions of series to return (default depends on lookback)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions",
+              "default": 5,
+              "title": "Lookback"
+            },
+            "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/expansions": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Expansions",
+        "description": "Latest breadth expansion / contraction days with next 10/20-session equal-weight returns; meta.context.stats per 20/50/200 EMA.",
+        "operationId": "pulse_expansions_api_v2_pulse_expansions_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 8,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/flow": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Flow",
+        "description": "Market turnover / delivered value per session (all stocks) with 20-day average; meta.context.headline and meta.context.sectors (share, change in share, returns).",
+        "operationId": "pulse_flow_api_v2_pulse_flow_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 250,
+                  "minimum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sessions"
+            }
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions",
+              "default": 5,
+              "title": "Lookback"
+            },
+            "description": "Compare with: 5, 10, 20 (1M), 60 (3M) or 250 (1Y) sessions"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/groups": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Groups",
+        "description": "Groups table: sector / industry (group_daily, all stocks, equal weight) or the official NSE sectoral / thematic indices (index_daily).",
+        "operationId": "pulse_groups_api_v2_pulse_groups_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "sector",
+                "industry",
+                "sectoral",
+                "thematic"
+              ],
+              "type": "string",
+              "default": "sector",
+              "title": "Level"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/movers": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Movers",
+        "description": "Top 20 stocks that moved (market cap >= min_mcap on the as-of date) with event chips.",
+        "operationId": "pulse_movers_api_v2_pulse_movers_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "gainers",
+                "losers",
+                "turnover",
+                "delivered",
+                "rvol"
+              ],
+              "type": "string",
+              "default": "gainers",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "min_mcap",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "default": 1000.0,
+              "title": "Min Mcap"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pulse/analogs": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Analogs",
+        "description": "Days like today: nearest past sessions (excluding the latest 25) and their next 10/20-session equal-weight returns. Shared with History Lab.",
+        "operationId": "pulse_analogs_api_v2_pulse_analogs_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "k",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "default": 8,
+              "title": "K"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_str__Any__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10377,6 +10975,53 @@
           "meta"
         ],
         "title": "Envelope[WhyBullet]"
+      },
+      "Envelope_dict_str__Any__": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[dict[str, Any]]"
       },
       "EventRow": {
         "properties": {

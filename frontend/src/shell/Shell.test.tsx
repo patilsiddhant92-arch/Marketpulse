@@ -128,14 +128,14 @@ describe('Shell', () => {
         );
       return undefined;
     });
-    renderApp('/');
+    renderApp('/desk?view=setups');
 
     const nav = screen.getByRole('navigation', { name: 'Tabs' });
     expect(
       within(nav)
         .getAllByRole('link')
         .map((a) => a.textContent?.replace(/^\d/, '')),
-    ).toEqual(['Desk', 'Screener', 'Groups', 'Deals', 'Charts', 'Research']);
+    ).toEqual(['Pulse', 'Screener', 'Groups', 'Deals', 'Charts', 'Research']);
     expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
     // Verdict shows in the strip and in the Desk environment panel.
     expect((await screen.findAllByText('Constructive')).length).toBeGreaterThan(0);
@@ -164,7 +164,7 @@ describe('Shell', () => {
         return json({ status: 'healthy', actionable: true, database_date: '2026-09-24', expected_session: '2026-09-25', detail: 'stale' });
       return undefined;
     });
-    renderApp('/desk');
+    renderApp('/desk?view=setups');
     expect(await screen.findByText(/not available yet \(API v2 pending\)/)).toBeInTheDocument();
     expect(await screen.findByText('Thu 24 Sep')).toBeInTheDocument();
     // No API-down banner (panels may show their own "not available yet" states).
@@ -178,7 +178,7 @@ describe('Shell', () => {
       if (url.pathname === '/api/v2/health') return new Response('', { status: 502 });
       return undefined;
     });
-    renderApp('/desk');
+    renderApp('/desk?view=setups');
     expect(await screen.findByText(/Market environment unavailable/)).toBeInTheDocument();
     expect(screen.getAllByText(/regime_daily not built yet/).length).toBeGreaterThan(0);
     expect(await screen.findByText('API unreachable')).toBeInTheDocument();
@@ -202,7 +202,7 @@ describe('Shell', () => {
 
   it('switches tabs with number keys and keeps visited tabs mounted', async () => {
     mockFetch(() => undefined);
-    const router = renderApp('/desk');
+    const router = renderApp('/desk?view=setups');
     expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
     act(() => {
       fireEvent.keyDown(window, { key: '4' });
@@ -214,7 +214,7 @@ describe('Shell', () => {
 
   it('opens the command palette with Ctrl+K and opens a typed symbol in the sidecar', async () => {
     mockFetch(() => undefined);
-    const router = renderApp('/desk');
+    const router = renderApp('/desk?view=setups');
     await screen.findByRole('region', { name: 'Desk queues' });
     act(() => {
       fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
