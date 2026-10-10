@@ -1,7 +1,8 @@
 /**
- * Research tab against a fixture API: the intentional "being computed" state
- * for unavailable envelopes, then each study rendered from realistic rows,
- * with n printed beside every statistic and "insufficient sample" below 30.
+ * Research tab against a fixture API (real /api/v2/research envelopes captured
+ * on the local archive, trimmed): the intentional "being computed" state for
+ * unavailable envelopes, then each study view, with the caveat on every view
+ * and n printed beside every statistic.
  */
 import { QueryClient } from '@tanstack/react-query';
 import { configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -12,6 +13,8 @@ import { routes } from '..';
 import { fixtureFor } from './fixtures';
 
 vi.mock('../../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
+// lightweight-charts needs a canvas.
+vi.mock('./CaseChart', () => ({ CaseChart: ({ label }: { label: string }) => <div role="img" aria-label={label} /> }));
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -38,7 +41,10 @@ function serveFixtures(url: URL): Response | undefined {
   let endpoint = path;
   let params: Record<string, string> | undefined;
   let m: RegExpMatchArray | null;
-  if ((m = path.match(/^research\/big-moves\/(.+)$/))) {
+  if ((m = path.match(/^research\/case-study\/(.+)$/))) {
+    endpoint = 'research/case-study/{sym}';
+    params = { sym: decodeURIComponent(m[1]) };
+  } else if ((m = path.match(/^research\/big-moves\/(.+)$/))) {
     endpoint = 'research/big-moves/{event_id}';
     params = { event_id: decodeURIComponent(m[1]) };
   } else if ((m = path.match(/^evidence\/(.+)$/))) {
@@ -80,106 +86,95 @@ afterEach(() => {
 });
 
 describe('Research tab', () => {
-  it('shows an intentional "being computed" state when the evidence tables are not built', async () => {
+  it('shows an intentional "being computed" state when a study is unavailable', async () => {
     mockFetch((url) =>
-      RESEARCH.test(url.pathname)
-        ? json(unavailable('market_analogs not built yet (evidence engine, spec §5)', ['market_analogs']))
-        : undefined,
+      RESEARCH.test(url.pathname) ? json(unavailable('not enough history for the regime study', ['indicators_daily'])) : undefined,
     );
     renderApp('/research');
     expect(await screen.findByText('Evidence is being computed — available after the next rebuild')).toBeInTheDocument();
-    expect(screen.getByText(/market_analogs not built yet/)).toBeInTheDocument();
-    expect(screen.getByText(/No number is shown until it can be shown with its sample size/)).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: 'Research studies' })).toBeInTheDocument();
-    // Dev builds offer the fixture preview; switching it on renders fixture data without the API.
-    fireEvent.click(screen.getByRole('button', { name: /Preview with fixtures/ }));
-    expect(await screen.findByText('Fixture data — not real')).toBeInTheDocument();
-    expect(await screen.findByRole('grid', { name: 'Market analogs' })).toBeInTheDocument();
+    expect(screen.getByText(/not enough history for the regime study/)).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: 'Research studies' });
+    expect(within(nav).getByRole('button', { name: 'Days like today' })).toHaveAttribute('aria-current', 'page');
+    // Pre-move watch is cut; group studies moved to Sector Intel.
+    expect(within(nav).queryByRole('button', { name: 'Pre-move watch' })).toBeNull();
+    expect(within(nav).queryByRole('button', { name: 'Group studies' })).toBeNull();
+    expect(within(nav).queryByRole('button', { name: 'Market analogs' })).toBeNull();
   });
 
-  it('market analogs: medians with n, spread, agreement and a time-travel link per analog', async () => {
+  it('days like today: regime quadrant, ribbon, record with n, analogs vs all days, time travel', async () => {
     const fetchFn = mockFetch(serveFixtures);
     const router = renderApp('/research');
-    const grid = await screen.findByRole('grid', { name: 'Market analogs' });
-    expect(within(grid).getAllByRole('row')).toHaveLength(11);
+    expect((await screen.findAllByText("Stock-picker's market")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Retrospective research, not advice/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('img', { name: 'Regime quadrant ribbon' })).toBeInTheDocument();
+    const record = screen.getByRole('table', { name: 'Quadrant record' });
+    expect(within(record).getAllByRole('row')).toHaveLength(6);
+    expect(within(record).getAllByText(/n=/).length).toBeGreaterThan(3);
+    expect(screen.getByText(/What to do:/)).toBeInTheDocument();
+    const analogs = await screen.findByRole('table', { name: 'Days like today' });
+    expect(within(analogs).getAllByRole('row')).toHaveLength(11);
     const h20 = document.querySelector('[data-horizon="20"]') as HTMLElement;
-    expect(h20).toHaveTextContent('+3.8%');
     expect(h20).toHaveTextContent('n=10');
-    expect(h20).toHaveTextContent('7 up / 3 down');
-    expect(screen.getByText(/70% of analogs were higher 20 sessions later/)).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: /return fan/ })).toBeInTheDocument();
-    expect(fetchFn).toHaveBeenCalledWith('/api/v2/research/analogs', expect.anything());
-
-    fireEvent.click(within(grid).getAllByRole('button', { name: /Go/ })[0]);
+    expect(fetchFn).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/v2\/research\/regime/), expect.anything());
+    fireEvent.click(within(analogs).getAllByRole('button', { name: 'Go' })[0]);
     await waitFor(() => expect(router.state.location.search).toMatch(/as_of=\d{4}-\d{2}-\d{2}/));
-    expect(await screen.findByText(/Studies as of/)).toBeInTheDocument();
   });
 
-  it('big movers: event browser, catalyst shares with n, lift with precision and n, event fingerprint vs controls', async () => {
-    mockFetch(serveFixtures);
-    renderApp('/research?rview=movers');
-    const grid = await screen.findByRole('grid', { name: 'Big-move events' });
-    expect(within(grid).getAllByRole('row').length).toBe(19);
-    expect(screen.getByText('events=18')).toBeInTheDocument();
-    const lift = screen.getByRole('table', { name: 'Pre-move trait lift' });
-    const rsRow = within(lift).getAllByRole('row')[1];
-    expect(rsRow).toHaveTextContent('2.4×');
-    expect(rsRow).toHaveTextContent('7.9%');
-    expect(rsRow).toHaveTextContent('n=412');
-    // n = 22 < 30: lift is not printed as a number.
-    const dealRow = within(lift)
-      .getAllByRole('row')
-      .find((r) => r.textContent?.includes('Deal buy 10s'))!;
-    expect(dealRow).toHaveTextContent('insufficient sample');
-    expect(dealRow).not.toHaveTextContent('1.8×');
-    expect(within(lift).getByText('in-sample')).toBeInTheDocument();
-
-    fireEvent.click(within(grid).getByText('APARINDS'));
-    const dialog = await screen.findByRole('dialog', { name: /APARINDS/ });
-    expect(within(dialog).getByText('Results ±3')).toBeInTheDocument();
-    expect(await within(dialog).findByRole('table', { name: 'Pre-move fingerprint vs controls' })).toBeInTheDocument();
-    expect(within(dialog).getByText('controls=10')).toBeInTheDocument();
-    // Bars endpoint 404s here: the served close path is drawn instead.
-    expect(await within(dialog).findByRole('img', { name: /close vs T-1 close/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /Stock 360 as of event/ })).toBeInTheDocument();
+  it('before the big moves: two families, today\'s lifts scored, profile, out-of-sample and regime multiplier', async () => {
+    const fetchFn = mockFetch(serveFixtures);
+    renderApp('/research?rview=before');
+    const grid = await screen.findByRole('grid', { name: "Today's early lifts" });
+    expect(within(grid).getAllByRole('row').length).toBeGreaterThan(5);
+    expect(screen.getByRole('table', { name: 'Runner vs fizzle trait profile' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Out-of-sample runner rate by score' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Runner rate by regime quadrant' })).toBeInTheDocument();
+    expect(screen.getAllByText(/not advice/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Turnaround lifts' }));
+    await waitFor(() =>
+      expect(fetchFn.mock.calls.some((c) => String(c[0]).startsWith('/api/v2/research/before-moves') && String(c[0]).includes('family=turnaround'))).toBe(true),
+    );
+    expect(await screen.findByText(/330 past turnaround lifts had an outcome/)).toBeInTheDocument();
   });
 
-  it('pre-move watch: labelled research, precision with n, insufficient sample below 30', async () => {
-    mockFetch(serveFixtures);
-    renderApp('/research?rview=premove');
-    const grid = await screen.findByRole('grid', { name: 'Pre-move watch' });
-    expect(screen.getByText('Research list — not a trade signal')).toBeInTheDocument();
-    const anant = within(grid)
-      .getAllByRole('row')
-      .find((r) => r.textContent?.includes('ANANTRAJ'))!;
-    expect(anant).toHaveTextContent('insufficient sample');
-    expect(anant).toHaveTextContent('n=22');
-    expect(anant).not.toHaveTextContent('8.6%');
-    const jyoti = within(grid)
-      .getAllByRole('row')
-      .find((r) => r.textContent?.includes('JYOTICNC'))!;
-    expect(jyoti).toHaveTextContent('9.4%');
-    expect(jyoti).toHaveTextContent('n=212');
-    expect(jyoti).toHaveTextContent('beats base rate');
+  it('case study: big-mover list, symbol search, first-fire table, ladder and precision context', async () => {
+    const fetchFn = mockFetch(serveFixtures);
+    renderApp('/research?rview=case');
+    const grid = await screen.findByRole('grid', { name: 'Big movers' });
+    expect(within(grid).getAllByRole('row').length).toBeGreaterThan(5);
+    // The top mover is studied by default.
+    await waitFor(() => expect(fetchFn.mock.calls.some((c) => String(c[0]).startsWith('/api/v2/research/case-study/STLTECH'))).toBe(true));
+    fireEvent.change(screen.getByLabelText('Study a stock'), { target: { value: 'mtartech' } });
+    fireEvent.click(screen.getByRole('button', { name: /Study/ }));
+    await waitFor(() => expect(fetchFn.mock.calls.some((c) => String(c[0]).startsWith('/api/v2/research/case-study/MTARTECH'))).toBe(true));
+    expect(await screen.findByRole('img', { name: 'MTARTECH case study chart' })).toBeInTheDocument();
+    const first = screen.getByRole('table', { name: 'First fire per preset' });
+    const dt = within(first).getAllByRole('row').find((r) => r.textContent?.includes('Delivery thrust'))!;
+    expect(dt).toHaveTextContent('12 Sep 2025');
+    expect(dt).toHaveTextContent('+20%');
+    expect(screen.getByText(/6 trades, compounded \+246%/)).toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: '20 EMA ladder trades' })).getAllByRole('row')).toHaveLength(7);
+    const prec = screen.getByRole('table', { name: 'Preset precision' });
+    expect(within(prec).getByText('False alarms')).toBeInTheDocument();
+    expect(screen.getAllByText(/not advice/).length).toBeGreaterThan(0);
   });
 
-  it('group studies switch taxonomy level and print n', async () => {
+  it('setup scorecard: catch rate with n beside precision and false alarms', async () => {
     mockFetch(serveFixtures);
-    renderApp('/research?rview=groups');
-    const grid = await screen.findByRole('grid', { name: 'Big movers by Industry' });
-    expect(
-      within(grid)
-        .getAllByRole('row')
-        .find((r) => r.textContent?.includes('Aerospace & Defense')),
-    ).toHaveTextContent('n=4');
-    fireEvent.click(screen.getByRole('button', { name: 'Broad Sector' }));
-    const g2 = await screen.findByRole('grid', { name: 'Big movers by Broad Sector' });
-    expect(
-      within(g2)
-        .getAllByRole('row')
-        .find((r) => r.textContent?.includes('Industrials')),
-    ).toHaveTextContent('n=7');
-    expect(screen.getByText(/After an Industry turns Leading/)).toBeInTheDocument();
+    renderApp('/research?rview=scorecard');
+    const table = await screen.findByRole('table', { name: 'Setup scorecard' });
+    expect(within(table).getAllByRole('row')).toHaveLength(12);
+    const vcp = within(table).getAllByRole('row').find((r) => r.textContent?.includes('VCP flag'))!;
+    expect(vcp).toHaveTextContent('93%');
+    expect(vcp).toHaveTextContent('fires=');
+    expect(screen.getByText(/226 stocks doubled in the window/)).toBeInTheDocument();
+  });
+
+  it('index study: drawdown table and leadership', async () => {
+    mockFetch(serveFixtures);
+    renderApp('/research?rview=index');
+    const table = await screen.findByRole('table', { name: 'Drawdown table' });
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    expect(screen.getByText(/data gap #3/)).toBeInTheDocument();
   });
 
   it('setup evidence: queue × environment with n on every cell and insufficient sample below 30', async () => {
@@ -202,10 +197,10 @@ describe('Research tab', () => {
 
   it('passes as_of from the URL to research queries', async () => {
     const fetchFn = mockFetch(serveFixtures);
-    renderApp('/research?rview=movers&as_of=2026-08-01');
-    await screen.findByRole('grid', { name: 'Big-move events' });
+    renderApp('/research?rview=scorecard&as_of=2026-08-01');
+    await screen.findByRole('table', { name: 'Setup scorecard' });
     const calls = fetchFn.mock.calls.map((c) => String(c[0]));
-    expect(calls.some((u) => u.startsWith('/api/v2/research/big-moves?') && u.includes('as_of=2026-08-01'))).toBe(true);
+    expect(calls.some((u) => u.startsWith('/api/v2/research/scorecard?') && u.includes('as_of=2026-08-01'))).toBe(true);
     expect(screen.getByText('Studies as of Sat 1 Aug')).toBeInTheDocument();
   });
 });
