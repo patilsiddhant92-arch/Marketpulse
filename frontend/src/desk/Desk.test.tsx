@@ -117,7 +117,7 @@ afterEach(() => {
 describe('Desk', () => {
   it('renders queues with NULL as "—", breadth fallback, diff and groups', async () => {
     setup();
-    renderApp('/desk');
+    renderApp('/desk?view=setups');
     const table = await screen.findByRole('grid', { name: 'Darvas Squeeze queue' });
     expect(await within(table).findByText('AAA')).toBeInTheDocument();
     const bbbRow = within(table).getByText('BBB').closest('tr') as HTMLElement;
@@ -135,7 +135,7 @@ describe('Desk', () => {
 
   it('clicking a row opens Stock 360 in the sidecar; W watches via the server', async () => {
     const { puts } = setup();
-    const router = renderApp('/desk');
+    const router = renderApp('/desk?view=setups');
     const table = await screen.findByRole('grid', { name: 'Darvas Squeeze queue' });
     fireEvent.click(await within(table).findByText('AAA'));
     await waitFor(() => expect(router.state.location.search).toContain('sym=AAA'));
@@ -154,7 +154,7 @@ describe('Desk', () => {
   it('adopts the server watchlist and migrates a local-only list once', async () => {
     window.localStorage.setItem('mp.watchlist.v1', JSON.stringify(['LOCAL1']));
     const { puts } = setup({ serverWatch: [] });
-    renderApp('/desk');
+    renderApp('/desk?view=setups');
     await waitFor(() => expect(puts).toEqual([{ symbols: ['LOCAL1'] }]));
   });
 });

@@ -1,6 +1,6 @@
 /** The six tabs (spec D4 / 7.1). Order = keyboard shortcut 1-6. */
 export const TABS = [
-  { id: 'desk', label: 'Desk', path: '/desk', key: '1', hint: 'Environment, queues, sizer' },
+  { id: 'desk', label: 'Pulse', path: '/desk', key: '1', hint: 'Market mood vs history, breadth, money flow' },
   { id: 'screener', label: 'Screener', path: '/screener', key: '2', hint: 'Presets, Momentum + VCP' },
   { id: 'groups', label: 'Groups', path: '/groups', key: '3', hint: 'Sectors, industries, flow' },
   { id: 'deals', label: 'Deals', path: '/deals', key: '4', hint: 'Bulk / block deal plays' },
