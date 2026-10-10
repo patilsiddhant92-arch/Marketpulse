@@ -13,7 +13,7 @@ import { fmtCr, fmtDateWithDay, fmtNum, fmtSignedPct, isNum } from '../../lib/fm
 import type { OHLCBar } from '../../lib/indicators';
 import { useShell } from '../../shell/ShellContext';
 import { VERDICT_TEXT } from '../../shell/environment';
-import { Chart } from '../../ui/Chart';
+import { ChartV2 } from '../../charts/ChartV2';
 import { Chip } from '../../ui/Chip';
 import { Drawer } from '../../ui/Drawer';
 import { Skeleton } from '../../ui/Skeleton';
@@ -60,23 +60,12 @@ function PricePath({ row }: { row: BigMoveRow }) {
   const date = row.event_date ?? '';
   const bars = useApiQuery('stock/{sym}/bars', { params: { sym }, query: { tf: 'D' } }, { enabled: !!sym && !!date });
   const windowed = useMemo(() => eventWindow(toBars(bars.data?.rows ?? []), date), [bars.data, date]);
+  const focus = useMemo(() => ({ date, label: 'T' }), [date]);
   const extras = bigMoveExtras(row);
 
   if (bars.isPending) return <Skeleton height={260} />;
   if (windowed.length > 1) {
-    return (
-      <div className="h-[280px]">
-        <Chart
-          bars={windowed}
-          resample={false}
-          emaPeriods={[10, 50]}
-          markers={[{ time: date, kind: 'custom', text: 'T' }]}
-          initialBars={windowed.length}
-          label={`${sym} price path around the ${date} move`}
-          className="h-full"
-        />
-      </div>
-    );
+    return <ChartV2 symbol={sym} header={false} compact chartHeight={300} focus={focus} initialBars={windowed.length} />;
   }
   // Bars unavailable: fall back to the served close path (starts at path_start_offset), if any.
   if (extras.path_pct) {

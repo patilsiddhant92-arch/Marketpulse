@@ -2,14 +2,15 @@
  * Charts toolbar controls (HarkPro/09-tab-charts.md §3-§7): price style, Indicators ▾ (the global
  * chart settings), Draw ▾ (horizontal / trend line, saved per symbol) and the event legend.
  */
-import { ChevronDown, Minus, PenLine, Trash2, X } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, ChevronDown, GitCompare, History, Minus, PenLine, Ruler, Square, Trash2, Waves, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { EMA_CHOICES, useChartPrefs } from '../lib/chartPrefs';
 import { cn } from '../lib/cn';
 import { fmtNum } from '../lib/fmt';
 import { useEscapeLayer } from '../lib/layers';
 import { DIV_TOKENS, type ChartLayers } from './chartLayers';
-import { clearDrawings, removeDrawing, useDrawings, type DrawTool } from './drawings';
+import { useChartSettings } from './chartSettings';
+import { clearDrawings, removeDrawing, useDrawings, type Drawing, type DrawTool } from './drawings';
 import { EVENT_COLORS, EVENT_GROUPS, type EventKey } from './eventCandles';
 
 export const segBtn = (on: boolean) =>
@@ -160,6 +161,21 @@ export function IndicatorsMenu() {
   );
 }
 
+const DRAWING_LABEL: Record<Drawing['kind'], string> = {
+  hline: 'Line',
+  trend: 'Trend',
+  rect: 'Rectangle',
+  long: 'Long',
+  short: 'Short',
+  avwap: 'VWAP from',
+};
+
+function drawingText(d: Drawing): string {
+  if (d.kind === 'hline') return fmtNum(d.a.price);
+  if (d.kind === 'avwap') return d.a.time;
+  return `${fmtNum(d.a.price)} → ${fmtNum(d.b.price)}`;
+}
+
 /** Draw ▾ — tool picker + this symbol's drawings. */
 export function DrawMenu({ symbol, tool, onTool }: { symbol: string | null; tool: DrawTool; onTool: (t: DrawTool) => void }) {
   const drawings = useDrawings(symbol ?? '');
@@ -192,10 +208,8 @@ export function DrawMenu({ symbol, tool, onTool }: { symbol: string | null; tool
           <ul className="space-y-0.5">
             {drawings.map((d) => (
               <li key={d.id} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-surface-3">
-                <span className="text-fg-2">{d.kind === 'hline' ? 'Line' : 'Trend'}</span>
-                <span className="num truncate text-fg">
-                  {d.kind === 'hline' ? fmtNum(d.a.price) : `${fmtNum(d.a.price)} → ${fmtNum(d.b.price)}`}
-                </span>
+                <span className="text-fg-2">{DRAWING_LABEL[d.kind]}</span>
+                <span className="num truncate text-fg">{drawingText(d)}</span>
                 <button type="button" aria-label="Delete drawing" onClick={() => removeDrawing(symbol, d.id)} className="ml-auto text-fg-3 hover:text-down">
                   <X className="h-3 w-3" />
                 </button>
@@ -251,6 +265,210 @@ export function EventLegend({ layers, className }: { layers: ChartLayers; classN
         </span>
       )}
       <span className="ml-auto">Hover a candle for what happened.</span>
+    </div>
+  );
+}
+
+// ====================================================================== Chart v2 controls
+const pill = (on: boolean) =>
+  cn('h-7 rounded px-2.5 text-xs font-semibold transition-colors', on ? 'bg-surface-3 text-fg' : 'text-fg-3 hover:bg-surface-3/60 hover:text-fg-2');
+
+function Group({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5">
+      {children}
+    </div>
+  );
+}
+
+/** Clean · Info (global). */
+export function ModeToggle() {
+  const [s, set] = useChartSettings();
+  return (
+    <Group label="Chart mode">
+      <button type="button" aria-pressed={s.mode === 'clean'} onClick={() => set({ mode: 'clean' })} className={pill(s.mode === 'clean')} title="Clean: EMAs, Darvas, volume, RSI">
+        Clean
+      </button>
+      <button type="button" aria-pressed={s.mode === 'info'} onClick={() => set({ mode: 'info' })} className={pill(s.mode === 'info')} title="Info: + events, deals, levels and the read">
+        Info
+      </button>
+    </Group>
+  );
+}
+
+/** Candles · Line · Vol candles (global, lib/chartPrefs). */
+export function StyleToggleV2() {
+  const [prefs, setPrefs] = useChartPrefs();
+  const opts = [
+    { id: 'candles', label: 'Candles', title: 'Candlesticks' },
+    { id: 'line', label: 'Line', title: 'Close line' },
+    { id: 'volume', label: 'Vol candles', title: 'Volume candles: width = volume vs its 20-bar average (0.35-3×)' },
+  ] as const;
+  return (
+    <Group label="Price style">
+      {opts.map((o) => (
+        <button key={o.id} type="button" aria-pressed={prefs.style === o.id} title={o.title} onClick={() => setPrefs({ style: o.id })} className={pill(prefs.style === o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </Group>
+  );
+}
+
+export function TfToggle({ tf, onChange }: { tf: 'D' | 'W' | 'M'; onChange: (tf: 'D' | 'W' | 'M') => void }) {
+  return (
+    <Group label="Timeframe">
+      {(['D', 'W', 'M'] as const).map((t) => (
+        <button key={t} type="button" aria-pressed={tf === t} onClick={() => onChange(t)} className={cn(pill(tf === t), 'font-mono')} title={t === 'D' ? 'Daily' : t === 'W' ? 'Weekly' : 'Monthly'}>
+          {t}
+        </button>
+      ))}
+    </Group>
+  );
+}
+
+/** Events · Normal candle colours (global; used in Info mode). */
+export function ColourToggle() {
+  const [s, set] = useChartSettings();
+  return (
+    <Group label="Candle colours">
+      <button type="button" aria-pressed={s.colours === 'events'} onClick={() => set({ colours: 'events' })} className={pill(s.colours === 'events')} title="Deal and box-break candles take the event colour">
+        Events
+      </button>
+      <button type="button" aria-pressed={s.colours === 'normal'} onClick={() => set({ colours: 'normal' })} className={pill(s.colours === 'normal')} title="Green / red candles">
+        Normal
+      </button>
+    </Group>
+  );
+}
+
+/** EMA 10 / 20 / 50 / 200 toggles (global). */
+export function EmaToggles() {
+  const [prefs, setPrefs] = useChartPrefs();
+  return (
+    <Group label="EMAs">
+      {EMA_CHOICES.map((p) => {
+        const on = prefs.emas.includes(p);
+        return (
+          <button
+            key={p}
+            type="button"
+            aria-pressed={on}
+            title={`EMA ${p}`}
+            onClick={() => setPrefs({ emas: EMA_CHOICES.filter((x) => (x === p ? !on : prefs.emas.includes(x))) })}
+            className={cn(pill(on), 'flex items-center gap-1 px-2 font-mono')}
+          >
+            <span className="inline-block h-0.5 w-2.5 rounded" style={{ background: `rgb(var(--c-ema-${p}))`, opacity: on ? 1 : 0.35 }} />
+            {p}
+          </button>
+        );
+      })}
+    </Group>
+  );
+}
+
+const TOOLS: { id: DrawTool; label: string; title: string; icon: ReactNode }[] = [
+  { id: 'hline', label: 'Line', title: 'Horizontal line: click a price', icon: <Minus className="h-3.5 w-3.5" /> },
+  { id: 'trend', label: 'Trend', title: 'Trend line: click two points', icon: <PenLine className="h-3.5 w-3.5" /> },
+  { id: 'rect', label: 'Rectangle', title: 'Rectangle: click two corners', icon: <Square className="h-3.5 w-3.5" /> },
+  { id: 'measure', label: 'Measure', title: 'Measure: click two points (% and bars). Not saved', icon: <Ruler className="h-3.5 w-3.5" /> },
+  { id: 'long', label: 'Long', title: 'Long position: click the entry, then the stop (target = 2R)', icon: <ArrowUpRight className="h-3.5 w-3.5" /> },
+  { id: 'short', label: 'Short', title: 'Short position: click the entry, then the stop (target = 2R)', icon: <ArrowDownRight className="h-3.5 w-3.5" /> },
+  { id: 'avwap', label: 'VWAP', title: 'Anchored VWAP: click the anchor bar', icon: <Waves className="h-3.5 w-3.5" /> },
+  { id: 'replay', label: 'Replay', title: 'Bar replay: click the bar to start from', icon: <History className="h-3.5 w-3.5" /> },
+];
+
+/** Chart tools: drawings, measure, positions, anchored VWAP, replay; compare opens a symbol box. No line alerts. */
+export function ToolBar({
+  symbol,
+  tool,
+  onTool,
+  compare,
+  onCompare,
+}: {
+  symbol: string | null;
+  tool: DrawTool;
+  onTool: (t: DrawTool) => void;
+  compare: string | null;
+  onCompare: (sym: string | null) => void;
+}) {
+  const drawings = useDrawings(symbol ?? '');
+  const [cmpOpen, setCmpOpen] = useState(false);
+  const [text, setText] = useState('');
+  return (
+    <div className="flex items-center gap-1">
+      <Group label="Chart tools">
+        {TOOLS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            aria-pressed={tool === t.id}
+            aria-label={t.label}
+            disabled={!symbol}
+            title={t.title}
+            onClick={() => onTool(tool === t.id ? 'none' : t.id)}
+            className={cn(pill(tool === t.id), 'px-1.5', tool === t.id && 'text-accent')}
+          >
+            {t.icon}
+          </button>
+        ))}
+        <div className="relative">
+          <button
+            type="button"
+            aria-pressed={!!compare}
+            aria-label="Compare"
+            disabled={!symbol}
+            title={compare ? `Comparing with ${compare} (% scale). Click to change` : 'Compare: overlay a second symbol in %'}
+            onClick={() => setCmpOpen((o) => !o)}
+            className={cn(pill(!!compare), 'px-1.5', compare && 'text-accent')}
+          >
+            <GitCompare className="h-3.5 w-3.5" />
+          </button>
+          {cmpOpen && (
+            <form
+              className="absolute right-0 top-full z-40 mt-1 flex w-56 items-center gap-1 rounded-md border border-line-strong bg-surface-2 p-2 text-xs shadow-2xl"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const v = text.trim().toUpperCase().replace(/^NSE:/, '');
+                onCompare(v || null);
+                setCmpOpen(false);
+              }}
+            >
+              <input
+                autoFocus
+                aria-label="Compare symbol"
+                placeholder="Symbol, e.g. HAL"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                className="h-7 min-w-0 flex-1 rounded border border-line bg-surface px-2 font-mono text-fg"
+              />
+              {compare && (
+                <button type="button" onClick={() => (onCompare(null), setCmpOpen(false))} className="rounded px-1.5 py-1 text-fg-3 hover:text-down" title="Stop comparing">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </form>
+          )}
+        </div>
+      </Group>
+      {symbol && drawings.length > 0 && (
+        <Menu label={<span className="num">{drawings.length}</span>} title={`Drawings on ${symbol}`} width={250}>
+          <ul className="space-y-0.5">
+            {drawings.map((d) => (
+              <li key={d.id} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-surface-3">
+                <span className="text-fg-2">{DRAWING_LABEL[d.kind]}</span>
+                <span className="num truncate text-fg">{drawingText(d)}</span>
+                <button type="button" aria-label="Delete drawing" onClick={() => removeDrawing(symbol, d.id)} className="ml-auto text-fg-3 hover:text-down">
+                  <X className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => clearDrawings(symbol)} className="mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-fg-3 hover:text-down">
+            <Trash2 className="h-3 w-3" /> Clear all on {symbol}
+          </button>
+        </Menu>
+      )}
     </div>
   );
 }

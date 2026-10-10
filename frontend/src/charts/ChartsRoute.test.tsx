@@ -8,21 +8,32 @@ import { createMemoryRouter } from 'react-router';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { routes } from '../routes';
+import { resetChartSettingsCache } from './chartSettings';
 
 vi.mock('../components/MarketBreadthDrawer', () => ({ MarketBreadthDrawer: () => null }));
-// lightweight-charts needs a canvas: expose the props the Charts tab passes instead.
-vi.mock('../ui/Chart', () => ({
-  Chart: (p: { label: string; candleColors?: unknown[]; rsi?: unknown; emaPeriods?: number[]; segments?: { id: string }[] }) => (
+// lightweight-charts needs a canvas: expose the props Chart v2 hands its engine instead.
+vi.mock('./ChartEngine', () => ({
+  canvasSupported: () => false,
+  ChartEngine: (p: {
+    label: string;
+    candleColors?: Map<number, string>;
+    rsi?: unknown;
+    lines?: { id: string }[];
+    tags?: { id: string; title: string }[];
+    children?: unknown;
+  }) => (
     <div
       role="img"
       aria-label={p.label}
-      data-candles={JSON.stringify(p.candleColors ?? [])}
+      data-candles={JSON.stringify([...(p.candleColors?.values() ?? [])])}
       data-rsi={p.rsi ? '1' : '0'}
-      data-emas={(p.emaPeriods ?? []).join(',')}
-      data-segments={(p.segments ?? []).map((s) => s.id).join('|')}
+      data-lines={(p.lines ?? []).map((l) => l.id).join(',')}
+      data-tags={(p.tags ?? []).map((t) => `${t.id}:${t.title}`).join('|')}
     />
   ),
 }));
+// The grid tiles still use ui/Chart.
+vi.mock('../ui/Chart', () => ({ Chart: (p: { label: string }) => <div role="img" aria-label={p.label} /> }));
 
 const FRESH = { status: 'fresh', latest_session: '2026-09-25', expected_session: '2026-09-25', sessions_behind: 0, history_mode: false };
 const envelope = (rows: unknown[]) => ({ as_of: '2026-09-25', freshness: FRESH, total: rows.length, returned: rows.length, rows, meta: { status: 'ok', offset: 0, limit: 500 } });
@@ -62,6 +73,8 @@ describe('Charts tab', () => {
   beforeAll(() => document.documentElement.style.setProperty('--c-ev-buy', '20 184 166'));
   it('main chart + list rail; J moves through the list; deal candle colour and RSI reach the chart; I opens Stock 360', async () => {
     mockApi();
+    localStorage.setItem('mp.chartv2.v1', JSON.stringify({ mode: 'info', colours: 'events', tf: 'D' }));
+    resetChartSettingsCache();
     const router = createMemoryRouter(routes, { initialEntries: ['/charts?src=list&syms=AAA,BBB'] });
     render(<App router={router} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
 
@@ -69,8 +82,12 @@ describe('Charts tab', () => {
     expect(screen.getByRole('listbox', { name: /Symbols/ })).toBeInTheDocument();
     await waitFor(() => expect(chart.getAttribute('data-candles')).toContain('rgba(20, 184, 166, 1)'), { timeout: 5000 });
     expect(chart.getAttribute('data-rsi')).toBe('1');
-    expect(chart.getAttribute('data-emas')).toBe('10,20,200');
-    expect(chart.getAttribute('data-segments')).toContain(`deal-${dates[50]}-B`);
+    expect(chart.getAttribute('data-lines')).toBe('ema10,ema20,ema200');
+    // Info mode: the deal price gets a right-axis tag.
+    expect(chart.getAttribute('data-tags')).toContain('deal-50-B:Deal');
+    // The read (rule-generated) and the key levels sit under the chart.
+    expect(screen.getByRole('region', { name: 'The read' })).toHaveTextContent('What to do:');
+    expect(screen.getByRole('region', { name: 'Key levels' })).toHaveTextContent('EMA 20');
 
     fireEvent.keyDown(window, { key: 'j' });
     expect(await screen.findByRole('img', { name: 'BBB daily chart' })).toBeInTheDocument();
