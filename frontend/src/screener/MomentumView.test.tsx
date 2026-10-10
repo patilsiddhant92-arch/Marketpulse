@@ -69,7 +69,7 @@ const context = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Screener → Momentum', () => {
-  it('is the default mode with the old defaults, buckets, leaders and TradingView copy', async () => {
+  it('opens (mode=momentum) with the old defaults, buckets, leaders and TradingView copy', async () => {
     const calls: string[] = [];
     const copied: string[] = [];
     vi.stubGlobal(
@@ -88,7 +88,7 @@ describe('Screener → Momentum', () => {
       value: { writeText: async (t: string) => void copied.push(t) },
       configurable: true,
     });
-    const router = createMemoryRouter(routes, { initialEntries: ['/screener?as_of=2026-09-25'] });
+    const router = createMemoryRouter(routes, { initialEntries: ['/screener?mode=momentum&as_of=2026-09-25'] });
     render(<App router={router} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
 
     expect(await screen.findByRole('tab', { name: 'Momentum' })).toHaveAttribute('aria-selected', 'true');

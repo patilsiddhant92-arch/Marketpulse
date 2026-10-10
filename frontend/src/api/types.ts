@@ -103,6 +103,10 @@ export type WhyBullet = Schemas['WhyBullet'];
 export type CompareRow = Schemas['CompareRow'];
 export type RotationRow = Schemas['RotationRow'];
 export type RotationCell = Schemas['RotationCell'];
+// Setups tab (/api/v2/setups/*)
+export type SetupBoardRow = Schemas['SetupBoardRow'];
+export type SetupNearMissRow = Schemas['SetupNearMissRow'];
+export type SetupDroppedRow = Schemas['SetupDroppedRow'];
 
 /** Verdict words (spec 6.1.1). The schema types verdict as string; UI narrows. */
 export type Verdict = 'Favourable' | 'Constructive' | 'Mixed' | 'Weak' | 'Danger';
