@@ -52,8 +52,9 @@ export function ProChart({ symbol, item, tf, onTimeframeChange, tool, onToolDone
     setPending(null);
   }
   const limit = PRO_BARS[tf];
-  const bars = useApiQuery('stock/{sym}/bars', { params: { sym: symbol }, query: { tf, limit } });
-  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym: symbol }, query: { tf, limit } });
+  // keepPrevious: J / K swaps the data under the same chart (zoom and panes stay), no skeleton flash.
+  const bars = useApiQuery('stock/{sym}/bars', { params: { sym: symbol }, query: { tf, limit } }, { keepPrevious: true });
+  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym: symbol }, query: { tf, limit } }, { keepPrevious: true });
   const rs = useApiQuery('stock/{sym}/rs', { params: { sym: symbol }, query: { limit: 5000 } }, { enabled: prefs.rsPane && tf === 'D' });
 
   const chartBars = useMemo(() => barsToOHLC(bars.data?.rows ?? []), [bars.data]);
@@ -119,6 +120,7 @@ export function ProChart({ symbol, item, tf, onTimeframeChange, tool, onToolDone
         initialBars={INITIAL[tf]}
         onPriceClick={onPriceClick}
         barNote={layers.barNote}
+        keepRange
         syncGroup="charts-main"
         label={`${symbol} ${tf === 'D' ? 'daily' : tf === 'W' ? 'weekly' : 'monthly'} chart`}
         className="min-h-0 flex-1"

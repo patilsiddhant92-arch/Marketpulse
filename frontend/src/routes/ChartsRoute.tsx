@@ -228,7 +228,6 @@ export default function ChartsRoute() {
   ) : single ? (
     cur ? (
       <ProChart
-        key={cur}
         symbol={cur}
         item={curItem}
         tf={tf}

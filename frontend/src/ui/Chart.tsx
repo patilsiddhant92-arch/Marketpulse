@@ -149,6 +149,11 @@ export interface ChartProps {
   onPriceClick?: (p: { time: string; price: number }) => void;
   /** Extra legend text for the hovered (or last) bar, e.g. the event on it. */
   barNote?: (time: string) => string | null;
+  /**
+   * Keep the zoom when the bars change (a new symbol from J / K): the same number of bars stays
+   * visible, anchored on the latest bar. The first data of a chart still uses `initialBars`.
+   */
+  keepRange?: boolean;
   logScale?: boolean;
   /** Lower pane heights in px (defaults: volume 90 / 70 with RS, RS 80, RSI 90). */
   paneHeights?: { volume?: number; rs?: number; rsi?: number };
@@ -328,6 +333,7 @@ export function Chart({
   levels,
   onPriceClick,
   barNote,
+  keepRange = false,
 }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -348,6 +354,7 @@ export function Chart({
   const levelRefs = useRef<IPriceLine[]>([]);
   const onPriceClickRef = useRef(onPriceClick);
   const [structureSeq, setStructureSeq] = useState(0);
+  const rangeSetRef = useRef(false);
   const syncIdRef = useRef(syncSeq++);
   const suppressRef = useRef(false);
   const onCrosshairRef = useRef(onCrosshairTime);
@@ -666,6 +673,7 @@ export function Chart({
       rsMarkersRef.current = null;
       darvasRefs.current = null;
     };
+    rangeSetRef.current = false;
     setStructureSeq((n) => n + 1);
     // Rebuild only on structural change; data flows through the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -852,8 +860,13 @@ export function Chart({
     const chart = chartRef.current;
     const n = shown.length;
     // Charts with Darvas projections leave room for the 5 future (candle-less) points.
-    if (chart && n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + (withFuture ? 7 : 3) });
-  }, [shown, initialBars, withFuture, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs, paneHeights?.rsi, volumeAvg, hasRsi]);
+    if (!chart || n === 0) return;
+    const pad = withFuture ? 7 : 3;
+    const cur = keepRange && rangeSetRef.current ? chart.timeScale().getVisibleLogicalRange() : null;
+    const width = cur ? Math.max(10, cur.to - cur.from - pad) : initialBars;
+    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - width), to: n + pad });
+    rangeSetRef.current = true;
+  }, [shown, initialBars, withFuture, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs, paneHeights?.rsi, volumeAvg, hasRsi, keepRange]);
 
   return (
     <div className={cn('relative flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>
