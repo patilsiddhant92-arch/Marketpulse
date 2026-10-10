@@ -5,11 +5,12 @@
 import type { SetupBoardRow } from '../../api/types';
 import type { ChipTone } from '../../ui/Chip';
 import { formatTradingViewList, type TvSection } from '../../lib/tradingview';
+import { DIVERGENCE_DEFAULTS } from './divergenceModel';
 
 export type ScreenerId = 'darvas_squeeze' | 'darvas_10ema' | 'vcp' | 'momentum';
 export type GroupState = 'Favour' | 'Neutral' | 'Caution';
 export type TvGroupBy = 'screener' | 'sector' | 'industry' | 'bucket';
-export type SetupsView = 'board' | 'grid' | 'near' | 'dropped';
+export type SetupsView = 'board' | 'grid' | 'near' | 'dropped' | 'div';
 
 export const SCREENERS: { id: ScreenerId; label: string; short: string }[] = [
   { id: 'darvas_squeeze', label: 'Darvas Squeeze', short: 'SQZ' },
@@ -28,6 +29,7 @@ export const SETUPS_DEFAULTS = {
   vg: 'day', // momentum volume gate: day | avg20d
   rn: '10', // results within N sessions
   tvg: 'screener', // Copy for TradingView sections
+  ...DIVERGENCE_DEFAULTS, // Divergences view: dtf / dside / dtypes / dwin
 };
 export type SetupsState = typeof SETUPS_DEFAULTS;
 
@@ -71,7 +73,7 @@ export interface DetailContext {
   on_board?: boolean;
   peers?: PeerRow[];
   deal_markers?: { time: string; kind: string; value_cr: number | null }[];
-  rsi_divergences?: { time: string; kind: string }[];
+  rsi_divergences?: { time: string; kind: string; type?: string | null }[];
   data_gaps?: string[];
 }
 

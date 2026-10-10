@@ -2,7 +2,7 @@
  * Setups (HarkPro/06-tab2-setups.md, LOCKED 2026-10-09) — Siddhant's analysis tab.
  * One board, one row per stock, screener tags show confluence. Header: screener filter,
  * group-state filter, momentum template + volume gate, Copy for TradingView. Read-out and
- * scan-count history. Views: Board · Chart grid · Near-miss · Dropped. Detail panel on row open.
+ * scan-count history. Views: Board · Chart grid · Near-miss · Dropped · Divergences. Detail panel on row open.
  * The tab never sizes or places trades.
  */
 import { Copy } from 'lucide-react';
@@ -35,6 +35,7 @@ import {
   type TvGroupBy,
 } from './model';
 import { ChartGrid, DataGaps, DetailPanel, DroppedView, NearMissView, ReadOut, ScanCounts } from './parts';
+import { DivergencesView } from './DivergencesView';
 
 const EMPTY: SetupBoardRow[] = [];
 const VIEWS = [
@@ -42,6 +43,7 @@ const VIEWS = [
   { id: 'grid', label: 'Chart grid' },
   { id: 'near', label: 'Near-miss' },
   { id: 'dropped', label: 'Dropped' },
+  { id: 'div', label: 'Divergences' },
 ] as const;
 const TV_GROUPS: { id: TvGroupBy; label: string }[] = [
   { id: 'screener', label: 'by screener' },
@@ -224,7 +226,9 @@ export default function SetupsView() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {view === 'near' ? (
+        {view === 'div' ? (
+          <DivergencesView state={state} setState={setState} search={deferred} onOpen={(s) => shell.openSymbol(s)} />
+        ) : view === 'near' ? (
           <NearMissView onPick={open} />
         ) : view === 'dropped' ? (
           <DroppedView query={detailQuery} onPick={open} />

@@ -274,7 +274,7 @@ export function DetailPanel({
           {(ctx.rsi_divergences?.length ?? 0) > 0 && (
             <div className="text-2xs text-fg-3">
               RSI divergences (regular):{' '}
-              {ctx.rsi_divergences!.slice(-4).map((d) => `${fmtDate(d.time)} ${d.kind.replace('regular_', '')}`).join(' · ')}
+              {ctx.rsi_divergences!.slice(-4).map((d) => `${fmtDate(d.time)} ${d.type ?? d.kind.replace('regular_', '')}`).join(' · ')}
             </div>
           )}
           <DataGaps gaps={ctx.data_gaps} />
