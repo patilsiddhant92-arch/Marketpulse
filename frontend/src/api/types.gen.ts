@@ -984,6 +984,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/charts/{sym}/deal-candles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart Deal Candles
+         * @description Deal-day candles for one stock: one row per deal session (B/S/P/T/C letter from deal_session_net.event_type), deal price (raw and adjusted), top non-PROP buyer / seller, and holding / lost status for the 3 latest B/S/P deal-price lines.
+         */
+        get: operations["chart_deal_candles_api_v2_charts__sym__deal_candles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1228,6 +1248,63 @@ export interface components {
              * @description Dotted EMA10 projection: ema10 + slope * k on the last bar (k=0) + projected rows
              */
             ema_10_projection?: number | null;
+        };
+        /** DealCandleRow */
+        DealCandleRow: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Letter */
+            letter?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Event Type */
+            event_type?: string | null;
+            /** Event Rule */
+            event_rule?: string | null;
+            /** Net Cr */
+            net_cr?: number | null;
+            /** Buy Cr */
+            buy_cr?: number | null;
+            /** Sell Cr */
+            sell_cr?: number | null;
+            /** Gross Cr */
+            gross_cr?: number | null;
+            /** Prop Cr */
+            prop_cr?: number | null;
+            /** Fii Net Cr */
+            fii_net_cr?: number | null;
+            /** Dii Net Cr */
+            dii_net_cr?: number | null;
+            /** Buying Houses */
+            buying_houses?: number | null;
+            /** Selling Houses */
+            selling_houses?: number | null;
+            /** Deal Types */
+            deal_types?: string | null;
+            /** Deal Price */
+            deal_price?: number | null;
+            /** Deal Price Adj */
+            deal_price_adj?: number | null;
+            /** Top Buyer */
+            top_buyer?: string | null;
+            /** Top Buyer Class */
+            top_buyer_class?: string | null;
+            /** Top Buyer Cr */
+            top_buyer_cr?: number | null;
+            /** Top Seller */
+            top_seller?: string | null;
+            /** Top Seller Class */
+            top_seller_class?: string | null;
+            /** Top Seller Cr */
+            top_seller_cr?: number | null;
+            /** Close As Of */
+            close_as_of?: number | null;
+            /** Status */
+            status?: string | null;
+            /** Show Line */
+            show_line?: boolean | null;
         };
         /** DealHolding */
         DealHolding: {
@@ -1787,6 +1864,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DarvasRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealCandleRow] */
+        Envelope_DealCandleRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealCandleRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DealLeaderRow] */
@@ -6574,6 +6664,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_Note_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_deal_candles_api_v2_charts__sym__deal_candles_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DealCandleRow_"];
                 };
             };
             /** @description Validation Error */

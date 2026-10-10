@@ -4993,6 +4993,77 @@
           }
         }
       }
+    },
+    "/api/v2/charts/{sym}/deal-candles": {
+      "get": {
+        "summary": "Chart Deal Candles",
+        "description": "Deal-day candles for one stock: one row per deal session (B/S/P/T/C letter from deal_session_net.event_type), deal price (raw and adjusted), top non-PROP buyer / seller, and holding / lost status for the 3 latest B/S/P deal-price lines.",
+        "operationId": "chart_deal_candles_api_v2_charts__sym__deal_candles_get",
+        "parameters": [
+          {
+            "name": "sym",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sym"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 2000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DealCandleRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5966,6 +6037,310 @@
         "type": "object",
         "title": "DarvasRow",
         "description": "One bar of the Pine Darvas indicator; `projected` rows are future calendar periods (no candle)."
+      },
+      "DealCandleRow": {
+        "properties": {
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "letter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Letter"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "event_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Rule"
+          },
+          "net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Cr"
+          },
+          "buy_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buy Cr"
+          },
+          "sell_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sell Cr"
+          },
+          "gross_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Cr"
+          },
+          "prop_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prop Cr"
+          },
+          "fii_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fii Net Cr"
+          },
+          "dii_net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dii Net Cr"
+          },
+          "buying_houses": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buying Houses"
+          },
+          "selling_houses": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selling Houses"
+          },
+          "deal_types": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Types"
+          },
+          "deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price"
+          },
+          "deal_price_adj": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price Adj"
+          },
+          "top_buyer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Buyer"
+          },
+          "top_buyer_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Buyer Class"
+          },
+          "top_buyer_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Buyer Cr"
+          },
+          "top_seller": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Seller"
+          },
+          "top_seller_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Seller Class"
+          },
+          "top_seller_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Seller Cr"
+          },
+          "close_as_of": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close As Of"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "show_line": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show Line"
+          }
+        },
+        "type": "object",
+        "title": "DealCandleRow"
       },
       "DealHolding": {
         "properties": {
@@ -8261,6 +8636,52 @@
           "meta"
         ],
         "title": "Envelope[DarvasRow]"
+      },
+      "Envelope_DealCandleRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealCandleRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealCandleRow]"
       },
       "Envelope_DealLeaderRow_": {
         "properties": {

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from App.api.v2.routes import API_VERSION, router
+import App.api.v2.routes_charts  # noqa: F401,E402  Charts tab: registers its router on `router`
 
 __all__ = ["router", "create_app", "API_VERSION"]
 
