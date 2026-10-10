@@ -8,6 +8,7 @@ from App.api.v2.routes import API_VERSION, router
 from App.api.v2.routes_pulse import router as _pulse_router; router.include_router(_pulse_router)  # noqa: E702 Pulse tab
 router.include_router(__import__("App.api.v2.routes_setups", fromlist=["router"]).router)  # Setups tab
 from App.api.v2 import routes_sectors  # noqa: E402,F401  Sector Intel (/api/v2/sectors/*)
+from App.api.v2.routes_deals import router as _deals_router; router.include_router(_deals_router)  # noqa: E402,E702  Deals tab
 
 __all__ = ["router", "create_app", "API_VERSION"]
 

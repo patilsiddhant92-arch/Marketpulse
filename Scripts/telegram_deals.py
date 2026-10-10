@@ -10,8 +10,13 @@ Config (environment or project-root .env):
 
 Usage:
   python Scripts/telegram_deals.py --setup          # find chat_id after you /start the bot
-  python Scripts/telegram_deals.py                 # send latest deals TV lists
+  python Scripts/telegram_deals.py                 # send the one-message deals digest
   python Scripts/telegram_deals.py --dry-run       # print only
+  python Scripts/telegram_deals.py --legacy        # old 6-message tier report (kept for the legacy pages)
+
+The digest (HarkPro/08-tab-deals.md 5.2) is ONE message of at most ~1,200 characters, built from the
+same verdicts as the Deals tab (Scripts/derived/deal_desk.py): transfers and churn are skipped (counted),
+only net buys can be "Confirms a setup", empty sections drop out.
 """
 from __future__ import annotations
 
@@ -917,6 +922,113 @@ def build_deals_telegram_report(
     }
 
 
+
+# --------------------------------------------------------------------------------------------------
+# One-message digest (HarkPro/08-tab-deals.md 5.2; same verdicts as the Deals tab)
+# --------------------------------------------------------------------------------------------------
+DIGEST_MAX_CHARS = 1200
+DIGEST_ITEMS = 4
+
+
+def _short_house(name: str) -> str:
+    return " ".join(str(name or "").split()[:3])
+
+
+def _cr(v: float | None) -> str:
+    if v is None:
+        return "–"
+    return f"₹{abs(float(v)):,.1f} Cr".replace(".0 Cr", " Cr")
+
+
+def _px(v: float | None) -> str:
+    return "–" if v is None else f"₹{float(v):,.2f}".rstrip("0").rstrip(".")
+
+
+def _pct(v: float | None) -> str:
+    return "–" if v is None else f"{float(v):+.1f}%"
+
+
+def format_deals_digest(core: dict, items: int = DIGEST_ITEMS) -> str:
+    """Render the digest from a deal_desk.build() result. Pure (no I/O)."""
+    if not core or core.get("missing"):
+        return f"📊 Deals · no data ({(core or {}).get('missing', 'deal tables missing')})"
+    today, watch = core.get("today") or [], core.get("watch") or []
+    day = pd.Timestamp(core.get("deal_session") or core.get("as_of")).strftime("%d %b")
+    head = f"📊 Deals · {day}"
+    if core.get("above50_pct") is not None:
+        head += f" · {core['above50_pct']:.0f}% of stocks above 50-day avg"
+    if core.get("deal_session") and core.get("as_of") and core["deal_session"] != core["as_of"]:
+        head += f" (no deals stored for {pd.Timestamp(core['as_of']).strftime('%d %b')})"
+
+    def is_buy(x: dict) -> bool:
+        return x.get("event_type") in ("fresh", "accumulate") and (x.get("net_cr") or 0) > 0
+
+    conf = [x for x in today if x.get("verdict") == "watch" and is_buy(x)]
+    place = [x for x in today if x.get("verdict") == "place"]
+    confirmed = [x for x in watch if x.get("verdict") == "confirm" and is_buy(x)]
+    absorbed = [x for x in watch if x.get("verdict") == "absorbed"]
+    day3 = [x for x in watch if x.get("sessions_since") == 3 and x.get("status") and x.get("event_type") in ("fresh", "accumulate", "placement")]
+    avoid = [x for x in today if x.get("verdict") == "avoid"]
+
+    def section(emoji: str, title: str, arr: list, fn) -> list[str]:
+        return [f"{emoji} {title}", *[fn(x) for x in arr[:items]]] if arr else []
+
+    def buyer(x: dict) -> str:
+        b = (x.get("buyers") or [{}])[0]
+        return _short_house(b.get("name", "")) if b else ""
+
+    lines = [head]
+    lines += section("✅", "Confirms a setup (watch day 3)", conf,
+                     lambda x: f"  {x['symbol']}  {_cr(x['net_cr'])} · {buyer(x)} · hold {_px(x.get('deal_price'))}".replace(" ·  · ", " · "))
+    lines += section("🏦", "Placement", place,
+                     lambda x: f"  {x['symbol']}  {_cr(x.get('gross_cr'))} @ {_px(x.get('deal_price'))}" + (" · strong chart" if x.get("strong_chart") else ""))
+    lines += section("🎯", "Confirmed (held 3 sessions)", confirmed,
+                     lambda x: f"  {x['symbol']}  {_pct(x.get('vs_deal_pct'))} over {_px(x.get('deal_price'))}")
+    lines += section("🔁", "Absorbed (sellers' price reclaimed)", absorbed,
+                     lambda x: f"  {x['symbol']}  sold @ {_px(x.get('deal_price'))}, now {_px(x.get('close'))}")
+    if day3:
+        lines.append("👀 Day 3: " + " · ".join(f"{x['symbol']} {x['status']} {_pct(x.get('vs_deal_pct'))}" for x in day3[: items + 1]))
+    if avoid:
+        lines.append("⚠️ Avoid: " + ", ".join(x["symbol"] for x in avoid[: items + 2]))
+    sk = core.get("skipped") or {}
+    gap = core.get("price_gap")
+    if gap:
+        lines.append(f"⚠️ Price data gap {pd.Timestamp(gap['from']).strftime('%d %b')} → {pd.Timestamp(gap['to']).strftime('%d %b')}: "
+                     "holding / lost states span it")
+    lines.append(f"Skipped: {sk.get('transfer', 0)} transfers, {sk.get('churn', 0)} churn, {sk.get('small', 0)} under ₹1,000 Cr")
+    tv: list[str] = []
+    for x in [*conf[:items], *place[:items], *absorbed[:items], *confirmed[:items]]:
+        sym = f"NSE:{tradingview_symbol(x['symbol']).replace('&', '_')}"
+        if sym not in tv:
+            tv.append(sym)
+    if tv:
+        lines.append("TV: " + ",".join(tv))
+    text = "\n".join(lines)
+    if len(text) > DIGEST_MAX_CHARS and items > 1:
+        return format_deals_digest(core, items - 1)
+    return text
+
+
+def build_deals_digest(db_path: Path | None = None, as_of=None) -> dict:
+    """Read-only: build the desk as of the latest price session (or `as_of`) and render the digest."""
+    try:
+        from derived import deal_desk  # type: ignore
+    except ModuleNotFoundError:
+        from Scripts.derived import deal_desk  # type: ignore
+    target = Path(db_path) if db_path is not None else DB_PATH
+    if not target.exists():
+        raise FileNotFoundError(f"Database not found: {target}")
+    with duckdb.connect(str(target), read_only=True) as con:
+        if as_of is None:
+            as_of = con.execute("SELECT max(trade_date) FROM indicators_daily").fetchone()[0]
+        if as_of is None:
+            return {"as_of": None, "text": "📊 Deals · no price sessions", "messages": ["📊 Deals · no price sessions"]}
+        core = deal_desk.build(con, pd.Timestamp(as_of).date())
+    text = format_deals_digest(core)
+    return {"as_of": core.get("as_of"), "deal_session": core.get("deal_session"), "text": text, "messages": [text],
+            "chars": len(text), "skipped": core.get("skipped"), "days": core.get("sessions10") or []}
+
+
 def query_deals_tv_lists(lookback_days: int = 20, min_mcap_cr: float = 900.0, db_path: Path | None = None) -> dict:
     """Retained for backward compatibility with external callers."""
     return build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=min_mcap_cr, db_path=db_path)
@@ -930,19 +1042,20 @@ def notify_deals(
     token: str | None = None,
     chat_id: str | None = None,
     db_path: Path | None = None,
+    legacy: bool = False,
 ) -> dict:
     """
-    Send structured Telegram report categorized by:
-    - 4+ deal days, 3 deal days, 2 deal days
-    - FII, DII, Others, PROP
-    - HIGHEST BUY / SELL turnover
-    Each section includes a TradingView paste list.
+    Send the one-message deals digest (format_deals_digest). `legacy=True` sends the old
+    multi-message tier report instead. lookback_days / min_mcap_cr only apply to legacy.
     """
     load_dotenv()
     token = token or os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-    payload = build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=min_mcap_cr, db_path=db_path)
+    if legacy:
+        payload = build_deals_telegram_report(lookback_days=lookback_days, min_mcap_cr=min_mcap_cr, db_path=db_path)
+    else:
+        payload = build_deals_digest(db_path=db_path)
     messages = payload.get("messages") or []
 
     if dry_run:
@@ -978,7 +1091,7 @@ def notify_deals(
 
     for m in messages:
         send_message(token, chat_id, m)
-    print(f"Telegram: sent {len(messages)} deal reports (as_of {payload.get('as_of')}, lookback {lookback_days})")
+    print(f"Telegram: sent {len(messages)} deal message(s) (as_of {payload.get('as_of')}{', legacy' if legacy else ''})")
     payload["sent"] = True
     payload["dry_run"] = False
     payload["message_count"] = len(messages)
@@ -1066,11 +1179,12 @@ def main() -> int:
         help="Number of recent deal sessions (default 20, newest first).",
     )
     parser.add_argument("--min-mcap", type=float, default=900.0, help="Min market cap Cr (default 900).")
+    parser.add_argument("--legacy", action="store_true", help="Send the old multi-message tier report.")
     args = parser.parse_args()
     try:
         if args.setup:
             return cmd_setup()
-        notify_deals(dry_run=args.dry_run, lookback_days=max(1, args.lookback), min_mcap_cr=args.min_mcap)
+        notify_deals(dry_run=args.dry_run, lookback_days=max(1, args.lookback), min_mcap_cr=args.min_mcap, legacy=args.legacy)
         return 0
     except Exception as exc:
         print(f"telegram_deals failed: {exc}", file=sys.stderr)
