@@ -93,6 +93,8 @@ export type RotationCell = Schemas['RotationCell'];
 // Setups tab (/api/v2/setups/*)
 export type SetupBoardRow = Schemas['SetupBoardRow'];
 export type SetupNearMissRow = Schemas['SetupNearMissRow'];
+export type DivergenceRow = Schemas['DivergenceRow'];
+export type DivergenceScanRow = Schemas['DivergenceScanRow'];
 export type SetupDroppedRow = Schemas['SetupDroppedRow'];
 // Deals tab (/api/v2/deals/tab/*, /deals/markers, /deals/flags)
 export type DealTabRow = Schemas['DealTabRow'];

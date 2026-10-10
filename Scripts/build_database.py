@@ -66,6 +66,10 @@ except (ModuleNotFoundError, ImportError):
         true_range,
     )
 try:
+    import rsi_divergence as _div
+except (ModuleNotFoundError, ImportError):
+    from Scripts import rsi_divergence as _div  # type: ignore
+try:
     from darvas_squeeze import weekly_ohlc
 except (ModuleNotFoundError, ImportError):
     from Scripts.darvas_squeeze import weekly_ohlc  # type: ignore
@@ -591,20 +595,29 @@ def calc_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     return rsi_wilder(close, period=period)
 
 
-def rsi_divergence_flags(price: pd.Series, rsi: pd.Series) -> tuple[pd.Series, pd.Series]:
-    swing_low = (price < price.shift(1)) & (price <= price.shift(-1))
-    swing_high = (price > price.shift(1)) & (price >= price.shift(-1))
-    low_price = price.where(swing_low)
-    low_rsi = rsi.where(swing_low)
-    high_price = price.where(swing_high)
-    high_rsi = rsi.where(swing_high)
-    prev_low_price = low_price.ffill().shift(1)
-    prev_low_rsi = low_rsi.ffill().shift(1)
-    prev_high_price = high_price.ffill().shift(1)
-    prev_high_rsi = high_rsi.ffill().shift(1)
-    bullish = swing_low & (price < prev_low_price) & (rsi > prev_low_rsi)
-    bearish = swing_high & (price > prev_high_price) & (rsi < prev_high_rsi)
-    return bullish.fillna(False), bearish.fillna(False)
+def rsi_divergence_flags(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    *,
+    rsi: pd.Series | None = None,
+    atr: pd.Series | None = None,
+    trend: pd.Series | None = None,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Per bar: (regular bull divergence confirmed on this bar, regular bear confirmed on this bar,
+    type label(s) of every divergence confirmed on this bar incl. Hidden, e.g. "Strong bull").
+
+    Uses the shared engine (Scripts/rsi_divergence.py, HarkPro/12-sprint2-plan.md contract):
+    3-bar pivots on low/high, confirmed 3 bars after the pivot - causal, a flag on bar t uses
+    bars <= t only. (The old close-swing version used shift(-1), i.e. the next bar.)
+    """
+    arr = lambda x: None if x is None else np.asarray(x, dtype=float)  # noqa: E731
+    bull, bear, typ = _div.confirm_flags(
+        np.asarray(high, dtype=float), np.asarray(low, dtype=float), np.asarray(close, dtype=float),
+        rsi=arr(rsi), atr=arr(atr), trend=arr(trend),
+    )
+    idx = close.index
+    return pd.Series(bull, index=idx), pd.Series(bear, index=idx), pd.Series(typ, index=idx, dtype=object)
 
 
 def candle_features(bars: pd.DataFrame) -> pd.DataFrame:
@@ -649,7 +662,9 @@ def resampled_timeframe_features(g: pd.DataFrame, rule: str) -> pd.DataFrame:
         return bars
     bars = candle_features(bars)
     bars["rsi_14"] = rsi_wilder(bars["close_price"])
-    bars["bullish_rsi_divergence"], bars["bearish_rsi_divergence"] = rsi_divergence_flags(bars["close_price"], bars["rsi_14"])
+    bars["bullish_rsi_divergence"], bars["bearish_rsi_divergence"], bars["rsi_divergence_type"] = rsi_divergence_flags(
+        bars["high_price"], bars["low_price"], bars["close_price"], rsi=bars["rsi_14"]
+    )
     return bars
 
 
@@ -679,7 +694,6 @@ def _daily_symbol_features(group: pd.DataFrame) -> pd.DataFrame:
     for name, window in RETURN_WINDOWS.items():
         g[name] = (close / close.shift(window) - 1) * 100
     g["rsi_14"] = rsi_wilder(close)
-    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"] = rsi_divergence_flags(close, g["rsi_14"])
     g["avg_volume_5d"] = g["volume"].rolling(5, min_periods=3).mean()
     g["avg_volume_10d"] = g["volume"].rolling(10, min_periods=3).mean()
     g["avg_volume_20d"] = g["volume"].rolling(20, min_periods=5).mean()
@@ -695,6 +709,10 @@ def _daily_symbol_features(group: pd.DataFrame) -> pd.DataFrame:
     g["atr_pct"] = g["atr_14"] / close * 100
     g["adr_20_pct"] = adr_pct(high, low, window=20)
     g["atr_14_wilder"] = atr_wilder(high, low, close, period=14)
+    # Confirmed RSI divergences (causal: flagged on the confirm bar = 2nd pivot + 3 bars).
+    g["bullish_rsi_divergence"], g["bearish_rsi_divergence"], g["rsi_divergence_type"] = rsi_divergence_flags(
+        high, low, close, rsi=g["rsi_14"], atr=g["atr_14_wilder"], trend=g["ema_50"]
+    )
     g["atr_pct_wilder"] = g["atr_14_wilder"] / close * 100
     # Primary risk volatility uses the standard Wilder smoothing. Keep
     # legacy ``atr_pct`` intact for compatibility with older snapshots.
@@ -1503,12 +1521,12 @@ def make_screener_results(indicators: pd.DataFrame, master: pd.DataFrame, deals:
         "Shooting Star D": ("Daily long upper wick after uptrend", latest["confirmed_shooting_star"].fillna(False)),
         "Shooting Star W": ("Weekly long upper wick after uptrend", latest["confirmed_shooting_star_w"].fillna(False)),
         "Shooting Star M": ("Monthly long upper wick after uptrend; lower confidence with short history", latest["confirmed_shooting_star_m"].fillna(False)),
-        "Bull RSI Div D": ("Daily price lower low with RSI higher low candidate", latest["bullish_rsi_divergence"].fillna(False)),
-        "Bear RSI Div D": ("Daily price higher high with RSI lower high candidate", latest["bearish_rsi_divergence"].fillna(False)),
-        "Bull RSI Div W": ("Weekly price lower low with RSI higher low candidate", latest["bullish_rsi_divergence_w"].fillna(False)),
-        "Bear RSI Div W": ("Weekly price higher high with RSI lower high candidate", latest["bearish_rsi_divergence_w"].fillna(False)),
-        "Bull RSI Div M": ("Monthly price lower low with RSI higher low candidate", latest["bullish_rsi_divergence_m"].fillna(False)),
-        "Bear RSI Div M": ("Monthly price higher high with RSI lower high candidate", latest["bearish_rsi_divergence_m"].fillna(False)),
+        "Bull RSI Div D": ("Daily regular bullish RSI divergence (Strong/Medium/Weak) confirmed 3 bars after the 2nd low", latest["bullish_rsi_divergence"].fillna(False)),
+        "Bear RSI Div D": ("Daily regular bearish RSI divergence (Strong/Medium/Weak) confirmed 3 bars after the 2nd high", latest["bearish_rsi_divergence"].fillna(False)),
+        "Bull RSI Div W": ("Weekly regular bullish RSI divergence (Strong/Medium/Weak) confirmed 3 bars after the 2nd low", latest["bullish_rsi_divergence_w"].fillna(False)),
+        "Bear RSI Div W": ("Weekly regular bearish RSI divergence (Strong/Medium/Weak) confirmed 3 bars after the 2nd high", latest["bearish_rsi_divergence_w"].fillna(False)),
+        "Bull RSI Div M": ("Monthly regular bullish RSI divergence (Strong/Medium/Weak) confirmed 3 bars after the 2nd low", latest["bullish_rsi_divergence_m"].fillna(False)),
+        "Bear RSI Div M": ("Monthly regular bearish RSI divergence (Strong/Medium/Weak) confirmed 3 bars after the 2nd high", latest["bearish_rsi_divergence_m"].fillna(False)),
         "Hammer": ("Confirmed hammer after pullback", latest["confirmed_hammer"].fillna(False)),
         "Bullish Engulfing": ("Bullish engulfing after short weakness", latest["confirmed_bullish_engulfing"].fillna(False)),
         "Inside Bar": ("Inside bar compression", latest["inside_bar"].fillna(False)),
