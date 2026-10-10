@@ -9,7 +9,7 @@
 import { useAsOf } from '../../shell/urlState';
 import { useShell } from '../../shell/ShellContext';
 import { useTabUrlState } from '../../lib/tabUrlState';
-import { Segmented } from '../groups/kit';
+import { Segmented } from '../../ui/Segmented';
 import { ExpansionLog, BreadthGrid, TrendChart } from './Breadth';
 import { useAnalogs, useBreadth, useExpansions, useFlow, useGroups, useInternals, useMovers, useSummary, type GroupLevel } from './data';
 import { Hero } from './Hero';

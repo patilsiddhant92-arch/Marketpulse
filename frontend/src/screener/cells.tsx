@@ -30,15 +30,8 @@ export function ZoneNum({
   );
 }
 
-/** Signed number coloured by sign (for changes without zones). */
-export function SignedNum({ value, format = 'signedPct', digits = 1 }: { value: unknown; format?: FormatKind; digits?: number }) {
-  const v = isNum(value) ? value : null;
-  return (
-    <span className={cn('num', v === null ? 'text-fg-3' : v > 0 ? 'text-up' : v < 0 ? 'text-down' : 'text-fg-2')}>
-      {fmtValue(v, format, digits)}
-    </span>
-  );
-}
+// SignedNum moved to the shared UI kit (one UI standard across tabs).
+export { SignedNum } from '../ui/SignedNum';
 
 /** Strength-rank path T-30 -> T-15 -> T-5 -> today (served rank history). */
 export function RankSpark({ t30, t15, t5, now }: { t30?: number | null; t15?: number | null; t5?: number | null; now?: number | null }) {

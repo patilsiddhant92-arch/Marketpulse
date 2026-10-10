@@ -9,10 +9,12 @@ import { fmtCr, fmtNum, fmtRatio } from '../../lib/fmt';
 import { tradingViewChartUrl } from '../../lib/tradingview';
 import { Chip } from '../../ui/Chip';
 import { DataWarningChip } from '../../ui/DataWarningChip';
+import { GroupStateChip } from '../../ui/GroupState';
 import type { DataTableColumn } from '../../ui/DataTable';
 import { Spark } from '../../ui/Spark';
 import { SignedNum, ZoneNum } from '../cells';
-import { chipTone, stateTone, tagTone } from './model';
+import { chipTone, tagTone } from './model';
+import { DealIcon } from '../../ui/DealIcon';
 
 type C = DataTableColumn<SetupBoardRow>;
 
@@ -44,6 +46,7 @@ export function boardColumns(): C[] {
             {r.symbol}
             <ExternalLink className="h-2.5 w-2.5 text-fg-3" aria-hidden />
           </a>
+          <DealIcon symbol={r.symbol} />
           {r.status === 'new' && (
             <Chip tone="accent" size="xs" title="New on this session">
               NEW
@@ -82,10 +85,8 @@ export function boardColumns(): C[] {
       width: 170,
       headerTitle: 'Industry group state from Pulse (Favour / Neutral / Caution); hover for the reason.',
       cell: (_v, r) => (
-        <span className="flex min-w-0 items-center gap-1" title={`${r.group_state}: ${r.group_reason}`}>
-          <Chip tone={stateTone(r.group_state)} variant="dot" size="xs">
-            {r.group_state}
-          </Chip>
+        <span className="flex min-w-0 items-center gap-1">
+          <GroupStateChip state={r.group_state} reason={r.group_reason} />
           <span className="truncate text-2xs text-fg-2">{r.industry ?? 'Unclassified'}</span>
         </span>
       ),

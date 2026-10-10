@@ -1,22 +1,27 @@
 /**
- * Charts source picker (spec 7.8): Desk queues · Screener presets / last custom
- * run · Groups at any level (searchable) · Deals · Research · Watchlist.
+ * Charts source picker (spec 7.8): Desk queues · Screener presets / last custom run · Setups views ·
+ * Groups at any level (searchable) · Pulse movers · Deals (session, Watch, History, house buys) ·
+ * Watchlist · Peers · Paste list. "Pre-move watch" was dropped (sprint 2 wiring).
  */
 import { ChevronDown } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useApiQuery } from '../api/query';
+import { apiQueryKey, useApiQuery } from '../api/query';
+import { getRawEnvelope } from '../api/raw';
 import { cn } from '../lib/cn';
 import { useEscapeLayer } from '../lib/layers';
 import { loadLastRun } from '../screener/model';
-import { LEVEL_LABELS, QUEUE_LABELS, parseSource, parseSymbolText, type ParsedSource } from './sources';
+import { useAsOf } from '../shell/urlState';
+import { DEALS_LABELS, LEVEL_LABELS, PULSE_MOVER_LABELS, QUEUE_LABELS, SETUPS_LABELS, parseSource, parseSymbolText, type ParsedSource } from './sources';
 
-type Cat = 'desk' | 'screener' | 'groups' | 'deals' | 'research' | 'watchlist' | 'peers' | 'paste';
+type Cat = 'desk' | 'screener' | 'setups' | 'groups' | 'pulse' | 'deals' | 'watchlist' | 'peers' | 'paste';
 const CATS: { id: Cat; label: string }[] = [
   { id: 'desk', label: 'Desk queues' },
   { id: 'screener', label: 'Screener' },
+  { id: 'setups', label: 'Setups' },
   { id: 'groups', label: 'Groups' },
+  { id: 'pulse', label: 'Pulse movers' },
   { id: 'deals', label: 'Deals' },
-  { id: 'research', label: 'Research' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'peers', label: 'Peers' },
   { id: 'paste', label: 'Paste list' },
@@ -30,8 +35,10 @@ function catOf(src: ParsedSource | null): Cat {
       return 'groups';
     case 'deals':
       return 'deals';
-    case 'research':
-      return 'research';
+    case 'pulse':
+      return 'pulse';
+    case 'setups':
+      return 'setups';
     case 'watchlist':
       return 'watchlist';
     case 'list':
@@ -87,6 +94,14 @@ export function SourcePicker({ value, label, count, watchCount, onChange, curren
       .sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
   }, [board.data, q]);
   const lastRun = open ? loadLastRun() : null;
+  const [asOf] = useAsOf();
+  const houses = useQuery({
+    queryKey: apiQueryKey('deals/tab/houses', null, { limit: 500 }, asOf),
+    queryFn: ({ signal }) => getRawEnvelope<{ house: string; bought_cr?: number | null; symbols?: string[] }>('deals/tab/houses', { limit: 500, ...(asOf ? { as_of: asOf } : {}) }, signal),
+    enabled: open && cat === 'deals',
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
 
   const pick = (src: string) => {
     onChange(src);
@@ -195,16 +210,29 @@ export function SourcePicker({ value, label, count, watchCount, onChange, curren
                 </div>
               </>
             )}
-            {cat === 'deals' && (
+            {cat === 'setups' && (
               <div className="overflow-auto">
-                {item('deals:buy', 'Net buying (session)')}
-                {item('deals:sell', 'Net selling (session)')}
-                <p className="px-2 pt-2 text-2xs text-fg-3">
-                  Accumulate / Fresh buyer / Distribute groupings need deal_session_net (not built yet).
-                </p>
+                {Object.entries(SETUPS_LABELS).map(([k, l]) => item(`setups:${k}`, l))}
+                <p className="px-2 pt-2 text-2xs text-fg-3">The Setups board with its default momentum template and volume gate.</p>
               </div>
             )}
-            {cat === 'research' && <div className="overflow-auto">{item('research:pre-move', 'Pre-move watch', 'research')}</div>}
+            {cat === 'pulse' && (
+              <div className="overflow-auto">
+                {Object.entries(PULSE_MOVER_LABELS).map(([k, l]) => item(`pulse:${k}`, l, 'top 20'))}
+                <p className="px-2 pt-2 text-2xs text-fg-3">Pulse "Stocks that moved" (≥ ₹1,000 Cr).</p>
+              </div>
+            )}
+            {cat === 'deals' && (
+              <div className="min-h-0 flex-1 overflow-auto">
+                {(['watch', 'history', 'houses', 'buy', 'sell'] as const).map((k) => item(`deals:${k}`, DEALS_LABELS[k]))}
+                <div className="mt-1 border-t border-line px-2 pb-0.5 pt-1.5 text-2xs uppercase tracking-wide text-fg-3">House buys · one house</div>
+                {houses.isLoading && <div className="px-2 py-1 text-xs text-fg-3">Loading houses…</div>}
+                {(houses.data?.rows ?? []).slice(0, 60).map((h) =>
+                  item(`deals:house:${h.house}`, h.house, `${(h.symbols ?? []).length} stock${(h.symbols ?? []).length === 1 ? '' : 's'}`),
+                )}
+                {!houses.isLoading && !houses.data?.rows.length && <div className="px-2 py-1 text-xs text-fg-3">No houses bought in the window.</div>}
+              </div>
+            )}
             {cat === 'watchlist' && <div className="overflow-auto">{item('watchlist', 'Watchlist', `${watchCount} stocks`)}</div>}
             {cat === 'peers' && (
               <div className="overflow-auto">

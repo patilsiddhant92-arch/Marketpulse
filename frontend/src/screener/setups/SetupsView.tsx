@@ -8,6 +8,8 @@
 import { Copy } from 'lucide-react';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useApiQuery } from '../../api/query';
+import { applyGroupState, useGroupState } from '../../context/groupState';
+import { Segmented } from '../../ui/Segmented';
 import type { SetupBoardRow } from '../../api/types';
 import { copyText } from '../../lib/clipboard';
 import { cn } from '../../lib/cn';
@@ -52,23 +54,9 @@ const TV_GROUPS: { id: TvGroupBy; label: string }[] = [
   { id: 'bucket', label: 'by momentum bucket' },
 ];
 
+/** The shared segmented control (ui/Segmented) with this view's {id, label} options. */
 function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: { id: T; label: string }[]; onChange: (v: T) => void; label: string }) {
-  return (
-    <div role="radiogroup" aria-label={label} className="flex items-center overflow-hidden rounded border border-line">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          role="radio"
-          aria-checked={value === o.id}
-          onClick={() => onChange(o.id)}
-          className={cn('h-6 px-2 text-xs', value === o.id ? 'bg-accent/15 text-accent' : 'text-fg-2 hover:text-fg')}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
+  return <Segmented label={label} value={value} onChange={onChange} options={options.map((o) => ({ value: o.id, label: o.label }))} />;
 }
 
 export default function SetupsView() {
@@ -82,7 +70,12 @@ export default function SetupsView() {
 
   const query = useMemo(() => boardQuery(state), [state]);
   const board = useApiQuery('setups/board', { query: query as never }, { keepPrevious: true });
-  const rows = board.data?.rows ?? EMPTY;
+  // Group state comes from the one Pulse-owned source (same rows Pulse and Sector Intel read).
+  const shared = useGroupState('industry');
+  const rows = useMemo(
+    () => applyGroupState(board.data?.rows ?? EMPTY, shared.map, (r) => r.industry, (r, g) => ({ ...r, group_state: g.state, group_reason: g.reason })),
+    [board.data, shared.map],
+  );
   const ctx = (board.data?.meta.context ?? {}) as BoardContext;
   const unavailable = board.data?.meta.status === 'unavailable';
 

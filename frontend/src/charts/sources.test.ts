@@ -3,12 +3,16 @@ import {
   barsToOHLC,
   chartsHref,
   clampPage,
+  fromDealTabRow,
+  fromMoverRow,
   gridShape,
+  houseBuysList,
   mergeItems,
   pageCount,
   pageSlice,
   parseSource,
   relativePerformance,
+  setupsViewRows,
   sortItems,
   sourceId,
   type ChartItem,
@@ -24,7 +28,18 @@ describe('chart sources', () => {
       'screener:minervini_8of8',
       'screener:custom',
       'deals:buy',
-      'research:pre-move',
+      'deals:watch',
+      'deals:history',
+      'deals:houses',
+      'deals:house:SOCIETE GENERALE',
+      'pulse:gainers',
+      'pulse:rvol',
+      'setups:all',
+      'setups:vcp',
+      'setups:favour',
+      'setups:confluence',
+      'setups:near',
+      'setups:dropped',
       'watchlist',
       'list',
     ]) {
@@ -35,6 +50,45 @@ describe('chart sources', () => {
     expect(parseSource('group:planet:X')).toBeNull();
     expect(parseSource('screener:DROP TABLE')).toBeNull();
     expect(parseSource(null)).toBeNull();
+    // "Pre-move watch" was dropped: old links fall back to the default source.
+    expect(parseSource('research:pre-move')).toBeNull();
+    expect(parseSource('pulse:nope')).toBeNull();
+    expect(parseSource('setups:nope')).toBeNull();
+    expect(parseSource('deals:house:')).toBeNull();
+    expect(parseSource('deals:house:A: B')).toEqual({ kind: 'deals', key: 'house', name: 'A: B' });
+  });
+
+  it('turns Pulse movers, Deals views and Setups views into chart lists', () => {
+    expect(fromMoverRow({ symbol: 'JUBLCPL', name: 'Jubilant', close: 2322.6, chg_1d_pct: 20, rs_percentile: 81, mcap_cr: 3519, chips: ['EXT'] })).toEqual({
+      symbol: 'JUBLCPL',
+      name: 'Jubilant',
+      industry: null,
+      close: 2322.6,
+      change_1d_pct: 20,
+      rs_percentile: 81,
+      market_cap_cr: 3519,
+      tags: ['EXT'],
+    });
+    expect(fromMoverRow({ symbol: null })).toBeNull();
+    expect(fromDealTabRow({ symbol: 'A', net_cr: 12, status: 'holding' })).toMatchObject({ symbol: 'A', net_cr: 12, tags: ['holding'] });
+    expect(fromDealTabRow({ symbol: 'B', bought_cr: 5, pattern_label: 'Repeat buying' })).toMatchObject({ net_cr: 5, tags: ['Repeat buying'] });
+    const hb = houseBuysList([
+      { house: 'H1', symbols: ['A', 'B'] },
+      { house: 'H2', symbols: ['B'] },
+    ]);
+    expect(hb.map((i) => [i.symbol, i.tags])).toEqual([
+      ['A', ['H1']],
+      ['B', ['H1', 'H2']],
+    ]);
+    const rows = [
+      { symbol: 'A', screeners: ['vcp'], group_state: 'Favour' },
+      { symbol: 'B', screeners: ['vcp', 'momentum'], group_state: 'Caution' },
+      { symbol: 'C', screeners: ['darvas_squeeze'], group_state: 'Neutral' },
+    ];
+    expect(setupsViewRows(rows, 'vcp').map((r) => r.symbol)).toEqual(['A', 'B']);
+    expect(setupsViewRows(rows, 'favour').map((r) => r.symbol)).toEqual(['A']);
+    expect(setupsViewRows(rows, 'confluence').map((r) => r.symbol)).toEqual(['B']);
+    expect(setupsViewRows(rows, 'all')).toHaveLength(3);
   });
 
   it('merges queue lists once per symbol, keeping every tag', () => {

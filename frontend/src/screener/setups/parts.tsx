@@ -9,14 +9,18 @@ import { cn } from '../../lib/cn';
 import { fmtDate, fmtNum } from '../../lib/fmt';
 import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
+import { DataGapList } from '../../ui/DataGap';
 import { DataWarningChip } from '../../ui/DataWarningChip';
 import { Drawer } from '../../ui/Drawer';
+import { GroupStateChip } from '../../ui/GroupState';
+import { useGroupState } from '../../context/groupState';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
 import { SignedNum } from '../cells';
-import { SCREENERS, countSeries, stateTone, tagTone, type BoardContext, type DetailContext } from './model';
+import { SCREENERS, countSeries, tagTone, type BoardContext, type DetailContext } from './model';
+import { DealIcon, SymbolWithDeal } from '../../ui/DealIcon';
 
 // ------------------------------------------------------------------ read-out + counts
 export function ReadOut({ ctx }: { ctx: BoardContext }) {
@@ -64,15 +68,9 @@ export function ScanCounts({ ctx }: { ctx: BoardContext }) {
   );
 }
 
+/** Served data gaps as warn chips: the shared ui/DataGap list. */
 export function DataGaps({ gaps }: { gaps?: string[] }) {
-  if (!gaps?.length) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1" aria-label="Data gaps">
-      {gaps.map((g) => (
-        <DataWarningChip key={g} warning={g} />
-      ))}
-    </div>
-  );
+  return <DataGapList gaps={gaps} />;
 }
 
 // ------------------------------------------------------------------ chart grid (9 per page, synced, J/K pages)
@@ -173,7 +171,12 @@ export function DetailPanel({
   onSelect: (s: string) => void;
 }) {
   const q = useApiQuery('setups/detail/{sym}', { params: { sym: symbol ?? '' }, query: query as never }, { enabled: !!symbol });
-  const row = q.data?.rows[0];
+  const shared = useGroupState('industry');
+  const raw = q.data?.rows[0];
+  const row = useMemo(() => {
+    const sg = raw?.industry ? shared.map.get(raw.industry) : undefined;
+    return raw && sg ? { ...raw, group_state: sg.state, group_reason: sg.reason } : raw;
+  }, [raw, shared.map]);
   const ctx = (q.data?.meta.context ?? {}) as DetailContext;
   const item = useMemo(() => (row ? toChartItem(row) : symbol ? { symbol, tags: [] } : null), [row, symbol]);
   return (
@@ -207,9 +210,7 @@ export function DetailPanel({
                   ))}
                 </div>
                 <Fact label="Group">
-                  <Chip tone={stateTone(row.group_state)} variant="dot" size="xs">
-                    {row.group_state}
-                  </Chip>
+                  <GroupStateChip state={row.group_state} reason={row.group_reason} />
                 </Fact>
                 <p className="py-0.5 text-2xs text-fg-2">{row.group_reason}</p>
                 <Fact label="Trigger / stop">
@@ -287,7 +288,10 @@ export function DetailPanel({
                 onClick={() => onSelect(p.symbol)}
                 className={cn('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-surface-3', p.symbol === symbol && 'text-accent')}
               >
-                <span className="w-24 font-mono">{p.symbol}</span>
+                <span className="inline-flex w-24 items-center gap-1 font-mono">
+                  {p.symbol}
+                  <DealIcon symbol={p.symbol} />
+                </span>
                 <span className="num w-10 text-right">{fmtNum(p.rs_percentile, 0)}</span>
                 <span className="w-16 text-right">
                   <SignedNum value={p.away_52w_high_pct} />
@@ -310,7 +314,7 @@ export function DetailPanel({
 
 // ------------------------------------------------------------------ near-miss + dropped
 const NEAR_COLS: DataTableColumn<SetupNearMissRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <span className="font-mono font-semibold">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'gate', header: 'Fails one gate', accessor: 'gate', width: 220, grow: true },
   { id: 'sq', header: 'Squeeze %', accessor: 'squeeze_pct', format: 'pct', digits: 1, width: 80 },
   { id: 'close', header: 'Close', accessor: 'close', format: 'num', width: 80 },
@@ -340,7 +344,7 @@ export function NearMissView({ onPick }: { onPick: (s: string) => void }) {
 }
 
 const DROP_COLS: DataTableColumn<SetupDroppedRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <span className="font-mono font-semibold">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'scr', header: 'Screener', accessor: 'screener_name', width: 130 },
   { id: 'why', header: 'Why dropped', accessor: 'why', width: 320, grow: true },
   { id: 'close', header: 'Close', accessor: 'close', format: 'num', width: 80 },

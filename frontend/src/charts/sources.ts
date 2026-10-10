@@ -1,22 +1,55 @@
 /**
  * Charts tab sources (spec 7.8): any list in the app becomes a grid of charts.
  * Source ids live in the URL (?src=): queue:<name>|queue:all, screener:<preset>|
- * screener:custom, group:<level>:<name>, deals:buy|deals:sell, research:pre-move,
- * watchlist, list (explicit ?syms=), peers:<SYM> (same industry, by strength). Pure — no React.
+ * screener:custom, group:<level>:<name>, pulse:<mover kind> (Pulse "Stocks that moved"),
+ * deals:buy|deals:sell (session net), deals:watch|deals:history|deals:houses (Deals tab views; houses = every
+ * stock a house bought) and deals:house:<house> (one house's buys), setups:<view> (Setups board: all, one
+ * screener, Favour groups, confluence, near-miss, dropped), watchlist, list (explicit ?syms=),
+ * peers:<SYM> (same industry, by strength). "Pre-move watch" (research:pre-move) was dropped. Pure — no React.
  */
-import type { BarRow, DealSessionRow, MemberRow, PeerRow, QueueRow, ScreenerRow } from '../api/types';
+import type { BarRow, DealSessionRow, MemberRow, PeerRow, QueueRow, ScreenerRow, SetupBoardRow } from '../api/types';
 import { isNum } from '../lib/fmt';
 import type { OHLCBar } from '../lib/indicators';
 
-export type SourceKind = 'queue' | 'screener' | 'group' | 'deals' | 'research' | 'watchlist' | 'list' | 'peers';
+export type SourceKind = 'queue' | 'screener' | 'group' | 'pulse' | 'deals' | 'setups' | 'watchlist' | 'list' | 'peers';
 
 export interface ParsedSource {
   kind: SourceKind;
-  /** queue name / preset id / level / buy|sell / research key. */
+  /** queue name / preset id / level / mover kind / deals view / setups view. */
   key: string;
-  /** Group name (group sources). */
+  /** Group name (group sources) or house name (deals:house). */
   name?: string;
 }
+
+/** Pulse "Stocks that moved" lists (GET /pulse/movers?kind=). */
+export const PULSE_MOVER_LABELS: Record<string, string> = {
+  gainers: 'Gainers',
+  losers: 'Losers',
+  turnover: 'Turnover',
+  delivered: 'Delivered ₹',
+  rvol: 'Volume surge',
+};
+/** Deals tab views usable as a chart list. */
+export const DEALS_LABELS: Record<string, string> = {
+  buy: 'Net buying (session)',
+  sell: 'Net selling (session)',
+  watch: 'Deal watch',
+  history: 'Deal history (10 sessions)',
+  houses: 'House buys (all houses)',
+  house: 'House buys',
+};
+/** Setups board views usable as a chart list. */
+export const SETUPS_LABELS: Record<string, string> = {
+  all: 'Board (all screeners)',
+  darvas_squeeze: 'Darvas Squeeze',
+  darvas_10ema: 'Darvas 10 EMA',
+  vcp: 'VCP',
+  momentum: 'Momentum',
+  favour: 'In Favour groups',
+  confluence: 'Confluence (2+ screeners)',
+  near: 'Near-miss (Squeeze)',
+  dropped: 'Dropped since last session',
+};
 
 export const QUEUE_LABELS: Record<string, string> = {
   darvas_squeeze: 'Darvas Squeeze',
@@ -44,10 +77,17 @@ export function parseSource(src: string | null | undefined): ParsedSource | null
       const name = rest.slice(1).join(':');
       return key in LEVEL_LABELS && name ? { kind, key, name } : null;
     }
-    case 'deals':
-      return key === 'buy' || key === 'sell' ? { kind, key } : null;
-    case 'research':
-      return key === 'pre-move' ? { kind, key } : null;
+    case 'pulse':
+      return key in PULSE_MOVER_LABELS ? { kind, key } : null;
+    case 'deals': {
+      if (key === 'house') {
+        const name = rest.slice(1).join(':');
+        return name ? { kind, key, name } : null;
+      }
+      return key in DEALS_LABELS ? { kind, key } : null;
+    }
+    case 'setups':
+      return key in SETUPS_LABELS ? { kind, key } : null;
     case 'watchlist':
       return { kind, key: '' };
     case 'list':
@@ -63,6 +103,8 @@ export function sourceId(p: ParsedSource): string {
   switch (p.kind) {
     case 'group':
       return `group:${p.key}:${p.name ?? ''}`;
+    case 'deals':
+      return p.key === 'house' ? `deals:house:${p.name ?? ''}` : `deals:${p.key}`;
     case 'watchlist':
     case 'list':
       return p.kind;
@@ -168,6 +210,102 @@ export function fromDealRow(r: DealSessionRow): ChartItem | null {
     market_cap_cr: r.market_cap_cr,
     tags: r.event_type ? [r.event_type] : [],
   };
+}
+
+/** Pulse mover row (GET /pulse/movers): free-form row. */
+export interface MoverLike {
+  symbol?: string | null;
+  name?: string | null;
+  industry?: string | null;
+  close?: number | null;
+  chg_1d_pct?: number | null;
+  rs_percentile?: number | null;
+  mcap_cr?: number | null;
+  chips?: string[] | null;
+}
+export function fromMoverRow(r: MoverLike): ChartItem | null {
+  if (!r.symbol) return null;
+  return {
+    symbol: r.symbol,
+    name: r.name ?? null,
+    industry: r.industry ?? null,
+    close: r.close ?? null,
+    change_1d_pct: r.chg_1d_pct ?? null,
+    rs_percentile: r.rs_percentile ?? null,
+    market_cap_cr: r.mcap_cr ?? null,
+    tags: r.chips ?? [],
+  };
+}
+
+/** Deals tab rows (watch / history / house buys): free-form rows. */
+export interface DealTabLike {
+  symbol?: string | null;
+  name?: string | null;
+  industry?: string | null;
+  close?: number | null;
+  net_cr?: number | null;
+  bought_cr?: number | null;
+  rs?: number | null;
+  mcap_cr?: number | null;
+  verdict?: string | null;
+  status?: string | null;
+  pattern_label?: string | null;
+}
+export function fromDealTabRow(r: DealTabLike, tag?: string | null): ChartItem | null {
+  if (!r.symbol) return null;
+  const t = tag ?? r.pattern_label ?? r.status ?? r.verdict ?? null;
+  return {
+    symbol: r.symbol,
+    name: r.name ?? null,
+    industry: r.industry ?? null,
+    close: r.close ?? null,
+    rs_percentile: r.rs ?? null,
+    net_cr: r.net_cr ?? r.bought_cr ?? null,
+    market_cap_cr: r.mcap_cr ?? null,
+    tags: t ? [t] : [],
+  };
+}
+
+/** Houses list (GET /deals/tab/houses) -> one item per bought symbol, tagged with every house that bought it. */
+export function houseBuysList(houses: readonly { house?: string | null; symbols?: string[] | null }[]): ChartItem[] {
+  return mergeItems(houses.map((h) => (h.symbols ?? []).map((s) => ({ symbol: s, tags: h.house ? [h.house] : [] }))));
+}
+
+/** Setups board row -> chart item (tags = the row's screener tags). */
+export function fromSetupRow(r: SetupBoardRow): ChartItem | null {
+  if (!r.symbol) return null;
+  return {
+    symbol: r.symbol,
+    name: r.name,
+    industry: r.industry,
+    close: r.close,
+    change_1d_pct: r.change_1d_pct,
+    rs_percentile: r.rs_percentile,
+    rs_delta_5: r.rs_delta_5d,
+    trigger_price: r.trigger,
+    stop_price: r.stop,
+    market_cap_cr: r.market_cap_cr,
+    setup_age_sessions: r.age,
+    data_warning: r.data_warning,
+    tags: r.tags,
+  };
+}
+
+/** Setups view filter (board rows): one screener, Favour groups, or confluence (2+ screeners). */
+export function setupsViewRows<T extends { screeners: string[]; group_state: string }>(rows: readonly T[], view: string): T[] {
+  switch (view) {
+    case 'darvas_squeeze':
+    case 'darvas_10ema':
+    case 'vcp':
+    case 'momentum':
+      return rows.filter((r) => r.screeners.includes(view));
+    case 'favour':
+      return rows.filter((r) => r.group_state === 'Favour');
+    case 'confluence':
+      return rows.filter((r) => r.screeners.length >= 2);
+    default:
+      return [...rows];
+  }
 }
 
 export function fromPeerRow(r: PeerRow): ChartItem | null {

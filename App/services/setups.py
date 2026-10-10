@@ -21,7 +21,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from App.services import common, data_gaps, db, momentum
+from App.services import common, data_gaps, db, group_state, momentum
 from App.services import setups_logic as L
 from App.services.common import Result, no_session, unavailable
 
@@ -62,19 +62,11 @@ def _sessions(con: Any, as_of: date, n: int) -> list[date]:
 
 # --------------------------------------------------------------------------- group state (all dates)
 def _group_frame(con: Any, as_of: date) -> pd.DataFrame:
-    gd = con.execute("""
-        SELECT trade_date d, group_name n, ret_ew_5d r5, ret_ew_21d r21, ret_ew_63d r63, pct_above_50ema a50,
-               turnover_share_pct sh, turnover_share_5d_avg sh5, turnover_share_20d_avg sh20,
-               ew_index ew, ew_index_ema50 ew50
-        FROM group_daily WHERE level = 'Industry' AND floor = 'all' AND trade_date <= ? ORDER BY d""", [as_of]).df()
+    """Industry group state on every session (the one Pulse-owned source, App.services.group_state)."""
+    gd = group_state.frame(con, as_of, "industry")
     if gd.empty:
         return gd
-    gd["d"] = pd.to_datetime(gd["d"])
-    gd["x21"] = gd.r21 - gd.groupby("d").r21.transform("median")
-    gd["x63"] = gd.r63 - gd.groupby("d").r63.transform("median")
-    st = [L.group_state(*v) for v in zip(gd.a50, gd.x21, gd.x63, gd.r5, gd.sh5, gd.sh20, gd.ew, gd.ew50)]
-    gd["state"] = [s[0] for s in st]
-    gd["why"] = [s[1] for s in st]
+    gd = gd.copy()
     gd["rank"] = gd.groupby("d").x63.rank(ascending=False)
     return gd
 

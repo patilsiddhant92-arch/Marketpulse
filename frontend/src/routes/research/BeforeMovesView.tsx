@@ -16,6 +16,7 @@ import { useResearchQuery } from './data';
 import { TRAIT_GROUPS, caveatOf, context, traitName, type BeforeMovesContext, type Bucket, type EarlyLiftRow, type Family, type TraitProfile } from './lab';
 import { Caveat, Muted, QuadrantChip, SimpleTable, Summary } from './LabParts';
 import { Panel, QueryState, SampleN } from './parts';
+import { SymbolWithDeal } from '../../ui/DealIcon';
 
 const FAMILIES: { id: Family; label: string; hint: string }[] = [
   { id: 'trend', label: 'Trend lifts', hint: 'Close above the 200 EMA at the lift' },
@@ -23,7 +24,7 @@ const FAMILIES: { id: Family; label: string; hint: string }[] = [
 ];
 
 const LIFT_COLUMNS: DataTableColumn<EarlyLiftRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, sticky: true, cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, sticky: true, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'name', header: 'Name', accessor: 'security_name', width: 170, cell: (v) => <span className="truncate text-fg-2">{String(v ?? '')}</span> },
   { id: 'date', header: 'Lift on', accessor: 'lift_date', format: 'date', width: 90 },
   {

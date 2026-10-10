@@ -20,6 +20,7 @@ import { Skeleton } from '../../ui/Skeleton';
 import { useFixtureMode, useResearchQuery } from './data';
 import { MIN_SAMPLE, VERDICT_ORDER, asVerdictWord, median } from './model';
 import { EvidencePending, Panel, QueryState, SampleN, Stat, Term } from './parts';
+import { SymbolWithDeal } from '../../ui/DealIcon';
 
 const QUEUES = [
   { id: 'darvas_squeeze', label: 'Darvas Squeeze' },
@@ -184,7 +185,7 @@ function StockAnalogs() {
         header: 'Symbol',
         accessor: 'symbol',
         width: 104,
-        cell: (v) => <span className="font-mono text-fg">{String(v)}</span>,
+        cell: (v) => <SymbolWithDeal symbol={String(v)} />,
       },
       { id: 'queue', header: 'Queue', accessor: 'queue', width: 96 },
       {
@@ -254,7 +255,7 @@ function StockAnalogs() {
             return (
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex flex-wrap items-center gap-4 border-b border-line px-3 py-2 text-xs">
-                  <span className="font-mono font-medium text-fg">{sym}</span>
+                  <SymbolWithDeal symbol={sym} />
                   <span className="text-fg-3">
                     <Term k="median_r">Median R</Term>{' '}
                     <Stat value={median(rs)} n={n} enforceMin={false} format={(v) => `${fmtSigned(v, 2)}R`} />

@@ -4,6 +4,7 @@
  */
 import type { SetupBoardRow } from '../../api/types';
 import type { ChipTone } from '../../ui/Chip';
+import { groupStateTone } from '../../ui/GroupState';
 import { formatTradingViewList, type TvSection } from '../../lib/tradingview';
 import { DIVERGENCE_DEFAULTS } from './divergenceModel';
 
@@ -136,9 +137,8 @@ export function tvText(rows: readonly SetupBoardRow[], by: TvGroupBy): { text: s
   return formatTradingViewList(tvSections(rows, by));
 }
 
-export function stateTone(state: string | null | undefined): ChipTone {
-  return state === 'Favour' ? 'positive' : state === 'Caution' ? 'negative' : 'neutral';
-}
+/** Group state tone: the shared one (ui/GroupState.tsx). */
+export const stateTone = groupStateTone;
 
 export function tagTone(tag: string): ChipTone {
   if (tag.startsWith('SQZ')) return 'accent';

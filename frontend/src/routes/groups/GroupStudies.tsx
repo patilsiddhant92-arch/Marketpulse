@@ -5,7 +5,7 @@
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
-import { SourceNote } from './kit';
+import { SourceNote } from '../../ui/SourceNote';
 import { useSectors, type MoodStudyRow, type ReadingsStudyRow, type SectorLevel } from './sectorApi';
 
 interface StudyCtx {

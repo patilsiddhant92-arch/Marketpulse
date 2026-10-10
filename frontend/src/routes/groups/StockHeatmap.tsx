@@ -7,7 +7,8 @@ import { tradingViewChartUrl } from '../../lib/tradingview';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
-import { Segmented, SourceNote } from './kit';
+import { Segmented } from '../../ui/Segmented';
+import { SourceNote } from '../../ui/SourceNote';
 import { useSectors, type HeatRow } from './sectorApi';
 import {
   HEAT_COLOURS,

@@ -2,9 +2,11 @@
 import { Check, ClipboardCopy } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { copyText } from '../../lib/clipboard';
-import { fmtNum, fmtSignedPct } from '../../lib/fmt';
+import { fmtNum } from '../../lib/fmt';
 import { cn } from '../../lib/cn';
+import { tokenColor } from '../../lib/tokens';
 import { Chip } from '../../ui/Chip';
+import { SignedNum } from '../../ui/SignedNum';
 import type { Candle, Grade, Marker, Side, Verdict } from './api';
 import { chipTone, gradeTone, SIDE_COLOR, SIDE_LABEL, statusTone, tvListText, tvSectionsText, VERDICT_META, type TvList } from './model';
 
@@ -49,10 +51,9 @@ export function Chips({ chips }: { chips: readonly string[] }) {
   );
 }
 
+/** Deals signed number: the shared ui/SignedNum (same colours and NULL "—" as every tab). */
 export function Signed({ value, digits = 1, pct = false }: { value: number | null | undefined; digits?: number; pct?: boolean }) {
-  if (value == null) return <span className="text-fg-3">–</span>;
-  const txt = pct ? fmtSignedPct(value, digits) : `${value > 0 ? '+' : value < 0 ? '−' : ''}${fmtNum(Math.abs(value), digits)}`;
-  return <span className={cn('num', value > 0 ? 'text-up' : value < 0 ? 'text-down' : 'text-fg-2')}>{txt}</span>;
+  return <SignedNum value={value} format={pct ? 'signedPct' : 'signed'} digits={digits} />;
 }
 
 function useFlash() {
@@ -188,7 +189,7 @@ export function DealCandles({ candles, markers, lines, width = 460, height = 200
         const X = 4 + i * bw + bw / 2;
         const m = mk.get(p.date);
         const tag = m?.side ?? null;
-        const col = tag ? SIDE_COLOR[tag] : p.close >= p.open ? '#22c55e' : '#ef4444';
+        const col = tag ? SIDE_COLOR[tag] : tokenColor(p.close >= p.open ? 'up' : 'down');
         const top = Math.min(Y(p.open), Y(p.close));
         return (
           <g key={p.date} data-deal={tag ?? undefined}>

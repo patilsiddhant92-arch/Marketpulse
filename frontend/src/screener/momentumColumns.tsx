@@ -10,6 +10,7 @@ import { DataWarningChip } from '../ui/DataWarningChip';
 import { Unclassified } from '../ui/Unclassified';
 import { SignedNum, ZoneNum } from './cells';
 import { coilTone } from './momentumModel';
+import { DealIcon } from '../ui/DealIcon';
 
 export type MRow = MomentumRow;
 
@@ -81,6 +82,7 @@ export function momentumColumns(ctx: MomentumColumnCtx): DataTableColumn<MRow>[]
       cell: (v, r) => (
         <span className="flex min-w-0 items-center gap-1" title={r.security_name ?? undefined}>
           <span className="truncate font-mono font-medium text-fg">{String(v)}</span>
+          <DealIcon symbol={String(v)} />
           {r.is_new && (
             <Chip tone="accent" size="xs" title="Listed today but not on the previous session">
               NEW

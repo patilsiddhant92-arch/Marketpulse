@@ -14,8 +14,10 @@ import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
 import { useSectors, type ChartRow, type MemberRow, type SectorRow, type WindowKey } from './sectorApi';
+import { GroupStateChip } from '../../ui/GroupState';
 import { StateDot } from './SectorBoard';
 import { groupReadout, win } from './sectorModel';
+import { DealIcon } from '../../ui/DealIcon';
 
 export const GRID_PAGE = 9;
 const EMAS = [10, 20, 50] as const;
@@ -145,6 +147,7 @@ const memberColumns = (onSymbol: (s: string) => void): DataTableColumn<MemberRow
         <button type="button" className="font-medium text-fg hover:text-accent" onClick={() => onSymbol(m.symbol)} title="Open Stock 360">
           {m.symbol}
         </button>
+        <DealIcon symbol={m.symbol} />
         <a
           className="text-2xs text-fg-3 hover:text-accent"
           href={tradingViewChartUrl(m.symbol)}
@@ -221,10 +224,7 @@ export function GroupPanel({
             {levelLabel} · {row.stocks} stocks
           </span>
         </div>
-        <span className="flex items-center gap-1 text-xs text-fg-2">
-          <StateDot state={row.state} reason={row.state_reason} />
-          {row.state ?? '—'}
-        </span>
+        <GroupStateChip state={row.state} reason={row.state_reason} size="sm" />
       </div>
       {row.state_reason && <div className="text-2xs text-fg-3">{row.state_reason}</div>}
       {chart.error ? (

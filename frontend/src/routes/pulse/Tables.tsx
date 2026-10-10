@@ -1,16 +1,20 @@
 /** §8 Groups table, §9 Stocks that moved, §10 Days like today. */
 import { useMemo, useState } from 'react';
+import { applyGroupState, useGroupState } from '../../context/groupState';
 import { useShell } from '../../shell/ShellContext';
 import { Chip, type ChipTone } from '../../ui/Chip';
 import { DataTable, type DataTableColumn, type SortSpec } from '../../ui/DataTable';
 import { DataWarningChip } from '../../ui/DataWarningChip';
+import { GroupStateChip } from '../../ui/GroupState';
 import { Panel } from '../../ui/Panel';
 import { Spark } from '../../ui/Spark';
-import { QuadrantChip, Segmented } from '../groups/kit';
+import { QuadrantChip } from '../groups/kit';
+import { Segmented } from '../../ui/Segmented';
 import type { GroupLevel, PulseResult } from './data';
 import { fixed, intIN, isNum, longDate, median, signed, sortBy, toneClass } from './model';
 import { Note, SectionBody } from './parts';
 import type { AnalogContext, AnalogRow, ChipCode, GroupRow, IndexRow, MoverKind, MoverRow } from './types';
+import { DealIcon } from '../../ui/DealIcon';
 
 const pctCell = (v: unknown) => <span className={toneClass(v as number)}>{signed(v as number, 1)}</span>;
 
@@ -25,6 +29,15 @@ export const GROUP_LEVELS = [
 
 const GROUP_COLUMNS: DataTableColumn<GroupRow>[] = [
   { id: 'name', header: 'Group', accessor: 'name', width: 180, sticky: true, grow: true },
+  {
+    id: 'state',
+    header: 'State',
+    accessor: (r) => (r.state === 'Favour' ? 0 : r.state === 'Neutral' ? 1 : r.state === 'Caution' ? 2 : null),
+    width: 84,
+    sortDescFirst: false,
+    headerTitle: 'Group state (Favour / Neutral / Caution), the one state every tab shows. Hover for the reason.',
+    cell: (_v, r) => <GroupStateChip state={r.state} reason={r.state_reason} />,
+  },
   { id: 'members', header: 'Stocks', accessor: 'members', format: 'int', width: 56 },
   { id: 'ret_1d_pct', header: '1D %', accessor: 'ret_1d_pct', width: 60, cell: pctCell },
   { id: 'ret_1w_pct', header: '1W %', accessor: 'ret_1w_pct', width: 60, cell: pctCell },
@@ -66,15 +79,18 @@ export function GroupsTable({ q, level, onLevel }: { q: PulseResult<GroupRow | I
   const isIndex = level === 'sectoral' || level === 'thematic';
   const [sorting, setSorting] = useState<SortSpec[]>([{ id: 'share_delta', desc: true }]);
   const [ixSorting, setIxSorting] = useState<SortSpec[]>([{ id: 'ret_1d_pct', desc: true }]);
+  // Pulse owns the group state: the same source Sector Intel and Setups read (context/groupState.ts).
+  const shared = useGroupState(isIndex ? null : level);
   const groupRows = useMemo(() => {
-    const rows = (q.rows ?? []) as GroupRow[];
-    if (isIndex || !rows.length || !('share_history' in rows[0])) return [];
+    const raw = (q.rows ?? []) as GroupRow[];
+    if (isIndex || !raw.length || !('share_history' in raw[0])) return [];
+    const rows = applyGroupState(raw, shared.map, (r) => r.name, (r, g) => ({ ...r, state: g.state, state_reason: g.reason }));
     const s = sorting[0];
     const col = GROUP_COLUMNS.find((c) => c.id === s?.id);
     const get = col && typeof col.accessor !== 'function' ? (r: GroupRow) => r[col.accessor as keyof GroupRow] : (r: GroupRow) => r.share_delta;
     const sorted = s ? sortBy(rows, get, s.desc ? -1 : 1) : rows;
     return level === 'industry' ? sorted.slice(0, 40) : sorted;
-  }, [q.rows, isIndex, sorting, level]);
+  }, [q.rows, isIndex, sorting, level, shared.map]);
   const indexRows = isIndex && q.rows?.length && 'close_history' in (q.rows[0] as IndexRow) ? (q.rows as IndexRow[]) : [];
   return (
     <Panel
@@ -130,6 +146,7 @@ function moverColumns(rules: Record<string, string> | undefined): DataTableColum
       <span className="flex min-w-0 flex-col leading-tight">
         <span className="inline-flex items-center gap-1">
           <b className="font-mono text-fg">{String(v)}</b>
+          <DealIcon symbol={String(v)} />
           <EventChips chips={r.chips} rules={rules} band={r.band_remark} />
         </span>
         <span className="truncate text-2xs text-fg-3">{r.name}</span>

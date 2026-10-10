@@ -57,6 +57,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
 import { Tooltip } from '../ui/Tooltip';
+import { DealIcon } from '../ui/DealIcon';
 
 const EMPTY_ROWS: SRow[] = [];
 const EMPTY_PRESETS: PresetRow[] = [];
@@ -387,7 +388,10 @@ function PresetsScreener() {
                       }}
                       className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-surface-3"
                     >
-                      <span className="w-24 font-mono text-fg">{d.symbol}</span>
+                      <span className="inline-flex w-24 items-center gap-1 font-mono text-fg">
+                        {d.symbol}
+                        <DealIcon symbol={d.symbol} />
+                      </span>
                       <span className="num w-10 text-right text-fg-2">{d.rs_percentile ?? '—'}</span>
                       <span className="truncate text-fg-3">{d.industry ?? '—'}</span>
                     </button>
