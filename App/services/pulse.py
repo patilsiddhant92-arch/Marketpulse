@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from App.services import db
+from App.services import db, group_state
 from App.services.common import Result, no_session, unavailable
 
 LOOKBACKS = (5, 10, 20, 60, 250)
@@ -746,7 +746,7 @@ def groups(as_of: date | None, level: str = "sector") -> Result:
             if not db.table_exists(con, "group_daily"):
                 return unavailable(d, "group_daily missing", ["group_daily"])
             g = _group_frame(con, d, GROUP_LEVELS[level], 63)
-            return _group_rows(g, d, level)
+            return _group_rows(g, d, level, group_state.states_on(con, d, level))
         if level in INDEX_LEVELS:
             if not db.table_exists(con, "index_daily"):
                 return unavailable(d, "index_daily missing", ["index_daily"])
@@ -754,7 +754,7 @@ def groups(as_of: date | None, level: str = "sector") -> Result:
     raise ValueError(f"level must be one of {[*GROUP_LEVELS, *INDEX_LEVELS]}")
 
 
-def _group_rows(g: pd.DataFrame, d: date, level: str) -> Result:
+def _group_rows(g: pd.DataFrame, d: date, level: str, states: dict[str, tuple[str, str]] | None = None) -> Result:
     if g.empty:
         return unavailable(d, "no group rows on or before as_of", ["group_daily"])
     g = g.copy()
@@ -764,8 +764,10 @@ def _group_rows(g: pd.DataFrame, d: date, level: str) -> Result:
         last = gg.iloc[-1]
         if last["d"] != d:
             continue
+        st = (states or {}).get(name)
         rows.append({
             "name": name, "members": clean(last["members"]),
+            "state": st[0] if st else None, "state_reason": st[1] if st else None,
             "ret_1d_pct": _pct100(last["ret_ew_1d"]), "ret_1w_pct": _pct100(last["ret_ew_5d"]),
             "ret_1m_pct": _pct100(last["ret_ew_21d"]), "ret_3m_pct": _pct100(last["ret_ew_63d"]),
             "turnover_cr": clean(last["turnover_cr"], 1), "share_pct": clean(last["turnover_share_pct"], 2),
@@ -778,7 +780,8 @@ def _group_rows(g: pd.DataFrame, d: date, level: str) -> Result:
             "deal_net_10s_cr": clean(last["deal_net_10s_cr"], 1),
             "share_history": [clean(v, 2) for v in gg["turnover_share_pct"].tail(63)],
         })
-    notes = ["Equal-weight group returns over all stocks (group_daily floor 'all')."]
+    notes = ["Equal-weight group returns over all stocks (group_daily floor 'all').",
+             "State (Favour / Neutral / Caution) is the one group state every tab shows: " + group_state.RULE]
     if level == "industry":
         notes.append("The table shows the top 40 industries by the sort column.")
     return Result(as_of=d, rows=rows, sources=["group_daily"], notes=notes, extra={"level": level})

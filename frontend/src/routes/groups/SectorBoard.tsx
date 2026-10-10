@@ -5,23 +5,15 @@ import { tradingViewChartUrl } from '../../lib/tradingview';
 import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { EmptyState } from '../../ui/EmptyState';
+import { GroupStateChip } from '../../ui/GroupState';
 import { WINDOW_LABEL, type IndexRow, type SectorRow, type WindowKey } from './sectorApi';
 import { RANK_CLASS, dealsCell, rankTone, win, type WinMetric } from './sectorModel';
 
 const DASH = <span className="text-fg-3">–</span>;
 
-export const STATE_DOT: Record<string, string> = { Favour: 'bg-up', Neutral: 'bg-fg-3', Caution: 'bg-down' };
-
+/** Board state dot: the shared GroupStateChip (ui/GroupState.tsx) in its dense form. */
 export function StateDot({ state, reason }: { state: string | null; reason?: string | null }) {
-  if (!state) return <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-surface-3" aria-label="no state" />;
-  return (
-    <span
-      className={cn('inline-block h-2 w-2 shrink-0 rounded-full', STATE_DOT[state])}
-      role="img"
-      aria-label={state}
-      title={`${state}: ${reason ?? ''}`}
-    />
-  );
+  return <GroupStateChip state={state} reason={reason} dotOnly />;
 }
 
 function Pct({ v }: { v: number | null | undefined }) {

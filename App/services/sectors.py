@@ -11,7 +11,8 @@ Readings per group (stocks >= Rs 1,000 Cr, current taxonomy, groups >= 3 members
   ret_W/rx_W= equal-weight return over the window / minus the median group's, points
   score_W   = mean of within-level percentile ranks of near, nh_W/members, ad_W, upd_W (0-100)
   pct_*     = today's value vs the group's own last ~2 years (504 sessions, >= 40 observations)
-State (Tab 2 definition): Favour / Neutral / Caution with its numeric reason.
+State: Favour / Neutral / Caution with its numeric reason, read from the one Pulse-owned source
+(App.services.group_state: group_daily, all stocks), so Pulse, Sector Intel and Setups agree.
 Mood (Pulse definition): mean expanding percentile of % > 10/50/200 EMA, up-turnover %, net new highs, TT pass %.
 "Working now" gauge: realised rank-IC of score_2W vs the forward 21-session excess return, averaged over the
 63 sessions that ended 21 sessions before as_of (only data known on the day).
@@ -33,7 +34,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from App.services import db
+from App.services import db, group_state
 from App.services.common import Result, no_session, unavailable
 
 LEVELS: dict[str, tuple[str, str]] = {  # api key -> (stocks_master column, label)
@@ -279,36 +280,14 @@ def _level(p: pd.DataFrame, lv: str, dates: pd.DatetimeIndex, tall: pd.Series) -
     return {"col": col, "w": out, "elig": elig}
 
 
-def _states(w: dict[str, pd.DataFrame], elig: pd.DataFrame, i: int) -> tuple[pd.Series, pd.Series]:
-    """Favour / Neutral / Caution at row i (Tab 2 definition) and its numeric reason."""
-    row = {k: v.iloc[i] for k, v in w.items() if isinstance(v, pd.DataFrame)}
-    e = elig.iloc[i]
-    med21 = row["ret_1M"].where(e).median()
-    med63 = row["ret_63"].where(e).median()
-    a50, r21, idx, e50, sh5, sh20, r63 = (row["a50"], row["ret_1M"], row["idx"], row["e50idx"], row["sh5"], row["sh20"], row["ret_63"])
-    fav = (a50 >= 60) & (r21 > med21) & (idx > e50)
-    cau = ((sh5 < 0.85 * sh20) & (r21 < 0)) | ((a50 < 40) & (r63 < med63))
-    state = pd.Series(np.where(fav, "Favour", np.where(cau, "Caution", "Neutral")), index=a50.index)
-    why = {}
-    for gname in a50.index:
-        a = a50.get(gname)
-        rx = (r21.get(gname) - med21) if pd.notna(r21.get(gname)) and pd.notna(med21) else None
-        s = state[gname]
-        if s == "Favour":
-            why[gname] = f"{a:.0f}% of members are above the 50 EMA. 1M return beats the median group by {rx:+.1f} pts. The index is above its 50 EMA."
-        elif s == "Caution" and pd.notna(a) and a < 40:
-            why[gname] = f"Only {a:.0f}% of members are above the 50 EMA. 3M return is below the median group."
-        elif s == "Caution":
-            ratio = sh5.get(gname) / sh20.get(gname) * 100 if sh20.get(gname) else float("nan")
-            why[gname] = f"Turnover share fell to {ratio:.0f}% of its 20D average. The group fell {r21.get(gname):.1f}% in 1M."
-        else:
-            parts = []
-            if pd.notna(a):
-                parts.append(f"{a:.0f}% of members are above the 50 EMA.")
-            if rx is not None:
-                parts.append(f"1M return vs the median group: {rx:+.1f} pts.")
-            why[gname] = " ".join(parts) or "Not enough data for a state."
-    return state, pd.Series(why)
+def _shared_states(states: dict[str, tuple[str, str]], names: list[str]) -> tuple[pd.Series, pd.Series]:
+    """Favour / Neutral / Caution + reason from the one Pulse-owned source (App.services.group_state).
+
+    A group the source has no row for on this session (not in group_daily) gets no state, never a local guess."""
+    state = pd.Series({g: states[g][0] if g in states else None for g in names}, dtype=object)
+    why = pd.Series({g: states[g][1] if g in states else "No group state for this session (group not in group_daily)."
+                     for g in names}, dtype=object)
+    return state, why
 
 
 def _reliability(w: dict[str, pd.DataFrame], elig: pd.DataFrame, dates: pd.DatetimeIndex) -> dict[str, Any]:
@@ -404,6 +383,8 @@ def _compute(as_of: date) -> dict[str, Any] | None:
         mood = _mood(con, resolved)
         dates = pd.DatetimeIndex(sorted(tall.index.unique()))
         deals, deal_reason = _deals(con, resolved, dates)
+        shared = {lv: group_state.states_on(con, resolved, lv) for lv in LEVELS} \
+            if db.table_exists(con, "group_daily") else {lv: {} for lv in LEVELS}
     if p.empty:
         return {"as_of": resolved, "empty": True, "mood": mood}
     p = _prepare(p, dates)
@@ -412,7 +393,7 @@ def _compute(as_of: date) -> dict[str, Any] | None:
     levels = {}
     for lv in LEVELS:
         L = _level(p, lv, dates, tall)
-        L["state"], L["why"] = _states(L["w"], L["elig"], i)
+        L["state"], L["why"] = _shared_states(shared[lv], list(L["w"]["n"].columns))
         L["rel"] = _reliability(L["w"], L["elig"], dates)
         levels[lv] = L
     return {"as_of": resolved, "empty": False, "dates": dates, "p_today": today, "levels": levels, "mood": mood,

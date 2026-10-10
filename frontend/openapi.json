@@ -5592,6 +5592,115 @@
         }
       }
     },
+    "/api/v2/pulse/group-state": {
+      "get": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Pulse Group State",
+        "description": "The one group state (Favour / Neutral / Caution + numeric reason) per group at a level. Pulse owns it; Sector Intel and Setups read the same rows. Universe: group_daily floor 'all'. groups=A|B filters by exact group name ('|'-separated: names contain commas). meta.context: split, rule.",
+        "operationId": "pulse_group_state_api_v2_pulse_group_state_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "broad_sector",
+                "sector",
+                "broad_industry",
+                "industry"
+              ],
+              "type": "string",
+              "default": "industry",
+              "title": "Level"
+            }
+          },
+          {
+            "name": "groups",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Groups"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_GroupStateRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/setups/board": {
       "get": {
         "tags": [
@@ -13064,6 +13173,52 @@
         ],
         "title": "Envelope[GroupRow]"
       },
+      "Envelope_GroupStateRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GroupStateRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[GroupStateRow]"
+      },
       "Envelope_GroupStudyRow_": {
         "properties": {
           "as_of": {
@@ -16113,6 +16268,155 @@
           "level"
         ],
         "title": "GroupRow"
+      },
+      "GroupStateRow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "'<level>:<group name>' (Sector Intel group id)"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "broad_sector",
+              "sector",
+              "broad_industry",
+              "industry"
+            ],
+            "title": "Level"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "Favour",
+              "Neutral",
+              "Caution"
+            ],
+            "title": "State"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "One plain-English numeric reason"
+          },
+          "members": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Members"
+          },
+          "pct_above_50ema": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Above 50Ema"
+          },
+          "vs_median_21d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Median 21D",
+            "description": "21D EW return minus the median group's, points"
+          },
+          "vs_median_63d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Median 63D",
+            "description": "63D EW return minus the median group's, points"
+          },
+          "ret_5d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret 5D Pct"
+          },
+          "share_5d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share 5D Pct"
+          },
+          "share_20d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share 20D Pct"
+          },
+          "ew_above_ema50": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ew Above Ema50"
+          },
+          "sessions_in_state": {
+            "type": "integer",
+            "title": "Sessions In State",
+            "description": "Consecutive sessions in this state, including as_of"
+          },
+          "state_since": {
+            "type": "string",
+            "title": "State Since",
+            "description": "First session of the current run in this state (YYYY-MM-DD)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "level",
+          "group_name",
+          "state",
+          "reason",
+          "sessions_in_state",
+          "state_since"
+        ],
+        "title": "GroupStateRow",
+        "description": "One group's state (the one source every tab reads: Pulse, Sector Intel, Setups)."
       },
       "GroupStudyRow": {
         "properties": {

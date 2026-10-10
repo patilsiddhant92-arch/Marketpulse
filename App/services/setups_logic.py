@@ -11,9 +11,9 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 
-# Spec: Pulse -> Setups group state (Industry level, all stocks).
-FAVOUR, NEUTRAL, CAUTION = "Favour", "Neutral", "Caution"
-STATE_ORDER = {FAVOUR: 0, NEUTRAL: 1, CAUTION: 2}
+# Spec: Pulse -> Setups group state (Industry level, all stocks). Pulse owns the rule: App/services/group_state.py.
+from App.services.group_state import CAUTION, FAVOUR, NEUTRAL, STATE_ORDER  # noqa: E402,F401
+from App.services.group_state import rule as group_state  # noqa: E402,F401
 
 QUEUE_TAG = {"darvas_squeeze": "SQZ", "darvas_10ema": "10E", "vcp": "VCP"}
 QUEUE_NAME = {"darvas_squeeze": "Darvas Squeeze", "darvas_10ema": "Darvas 10 EMA", "vcp": "VCP", "momentum": "Momentum"}
@@ -31,29 +31,6 @@ def fnum(x: Any, nd: int | None = None) -> float | None:
     if math.isnan(f) or math.isinf(f):
         return None
     return round(f, nd) if nd is not None else f
-
-
-# --------------------------------------------------------------------------- group state
-def group_state(a50: float | None, x21: float | None, x63: float | None, r5: float | None,
-                sh5: float | None, sh20: float | None, ew: float | None, ew50: float | None) -> tuple[str, str]:
-    """Favour / Neutral / Caution with one numeric reason (locked spec, 'Pulse -> Setups link').
-
-    Favour: >= 60% of members above the 50 EMA, beating the median industry over 21D, EW index above its 50 EMA.
-    Caution: turnover share 5D avg < 85% of its 20D avg while the group falls (money leaving),
-             or < 40% above the 50 EMA and lagging the median industry over 63D.
-    """
-    a50, x21, x63, r5 = fnum(a50), fnum(x21), fnum(x63), fnum(r5)
-    sh5, sh20, ew, ew50 = fnum(sh5), fnum(sh20), fnum(ew), fnum(ew50)
-    if x21 is None or a50 is None:
-        return NEUTRAL, "Not enough group history."
-    if sh20 and sh5 is not None and sh5 < 0.85 * sh20 and (r5 or 0) < 0:
-        return CAUTION, (f"Money leaving: turnover share {sh5:.2f}% vs {sh20:.2f}% 20D avg. "
-                         f"Group {r5:+.1f}% in 5D.")
-    if x21 > 0 and a50 >= 60 and ew is not None and ew50 is not None and ew > ew50:
-        return FAVOUR, f"Trending: {a50:.0f}% of stocks above 50 EMA. {x21:+.1f} pts vs median industry in 21D."
-    if (x63 or 0) < 0 and a50 < 40:
-        return CAUTION, f"Weak: {a50:.0f}% above 50 EMA. {x63:+.1f} pts vs median industry in 63D."
-    return NEUTRAL, f"{a50:.0f}% above 50 EMA. {x21:+.1f} pts vs median industry in 21D."
 
 
 # --------------------------------------------------------------------------- stock derivations

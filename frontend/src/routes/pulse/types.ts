@@ -163,6 +163,9 @@ export interface FlowContext {
 
 export interface GroupRow {
   name: string;
+  /** The one group state (Pulse-owned; Sector Intel and Setups show the same). */
+  state?: 'Favour' | 'Neutral' | 'Caution' | null;
+  state_reason?: string | null;
   members: N;
   ret_1d_pct: N;
   ret_1w_pct: N;

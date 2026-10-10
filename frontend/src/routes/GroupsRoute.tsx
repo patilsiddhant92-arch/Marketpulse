@@ -9,6 +9,7 @@
 import { CalendarClock, Check, ClipboardCopy } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { applyGroupState, useGroupState } from '../context/groupState';
 import { copyText } from '../lib/clipboard';
 import { useShell } from '../shell/ShellContext';
 import { useAsOf, useUrlParam } from '../shell/urlState';
@@ -76,10 +77,12 @@ export default function GroupsRoute() {
 
   const board = useSectors<SectorRow | IndexRow, BoardContext>('board', { level, limit: 5000 }, { keepPrevious: true });
   const ctx = board.data?.meta.context;
-  const rows = useMemo(
-    () => (isIndex || board.data?.meta.context?.level !== level ? EMPTY : ((board.data?.rows ?? EMPTY) as SectorRow[])),
-    [board.data, isIndex, level],
-  );
+  // Group state comes from the one Pulse-owned source (same rows Pulse and Setups read).
+  const shared = useGroupState(isIndex ? null : (level as SectorLevel));
+  const rows = useMemo(() => {
+    const raw = isIndex || board.data?.meta.context?.level !== level ? EMPTY : ((board.data?.rows ?? EMPTY) as SectorRow[]);
+    return applyGroupState(raw, shared.map, (r) => r.group_name, (r, s) => ({ ...r, state: s.state, state_reason: s.reason }));
+  }, [board.data, isIndex, level, shared.map]);
   const filtered = useMemo(() => sortByScore(filterRows(rows, stateF, text), w), [rows, stateF, text, w]);
   // The board's current sort order (the chart grid follows it); valid only for the same rows.
   const [sorted, setSorted] = useState<{ of: SectorRow[]; rows: SectorRow[] } | null>(null);

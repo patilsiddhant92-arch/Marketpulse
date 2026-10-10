@@ -8,6 +8,7 @@
 import { Copy } from 'lucide-react';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useApiQuery } from '../../api/query';
+import { applyGroupState, useGroupState } from '../../context/groupState';
 import type { SetupBoardRow } from '../../api/types';
 import { copyText } from '../../lib/clipboard';
 import { cn } from '../../lib/cn';
@@ -80,7 +81,12 @@ export default function SetupsView() {
 
   const query = useMemo(() => boardQuery(state), [state]);
   const board = useApiQuery('setups/board', { query: query as never }, { keepPrevious: true });
-  const rows = board.data?.rows ?? EMPTY;
+  // Group state comes from the one Pulse-owned source (same rows Pulse and Sector Intel read).
+  const shared = useGroupState('industry');
+  const rows = useMemo(
+    () => applyGroupState(board.data?.rows ?? EMPTY, shared.map, (r) => r.industry, (r, g) => ({ ...r, group_state: g.state, group_reason: g.reason })),
+    [board.data, shared.map],
+  );
   const ctx = (board.data?.meta.context ?? {}) as BoardContext;
   const unavailable = board.data?.meta.status === 'unavailable';
 

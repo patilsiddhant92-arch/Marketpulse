@@ -11,12 +11,14 @@ import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { DataWarningChip } from '../../ui/DataWarningChip';
 import { Drawer } from '../../ui/Drawer';
+import { GroupStateChip } from '../../ui/GroupState';
+import { useGroupState } from '../../context/groupState';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
 import { SignedNum } from '../cells';
-import { SCREENERS, countSeries, stateTone, tagTone, type BoardContext, type DetailContext } from './model';
+import { SCREENERS, countSeries, tagTone, type BoardContext, type DetailContext } from './model';
 
 // ------------------------------------------------------------------ read-out + counts
 export function ReadOut({ ctx }: { ctx: BoardContext }) {
@@ -173,7 +175,10 @@ export function DetailPanel({
   onSelect: (s: string) => void;
 }) {
   const q = useApiQuery('setups/detail/{sym}', { params: { sym: symbol ?? '' }, query: query as never }, { enabled: !!symbol });
-  const row = q.data?.rows[0];
+  const shared = useGroupState('industry');
+  const raw = q.data?.rows[0];
+  const sg = raw?.industry ? shared.map.get(raw.industry) : undefined;
+  const row = raw && sg ? { ...raw, group_state: sg.state, group_reason: sg.reason } : raw;
   const ctx = (q.data?.meta.context ?? {}) as DetailContext;
   const item = useMemo(() => (row ? toChartItem(row) : symbol ? { symbol, tags: [] } : null), [row, symbol]);
   return (
@@ -207,9 +212,7 @@ export function DetailPanel({
                   ))}
                 </div>
                 <Fact label="Group">
-                  <Chip tone={stateTone(row.group_state)} variant="dot" size="xs">
-                    {row.group_state}
-                  </Chip>
+                  <GroupStateChip state={row.group_state} reason={row.group_reason} />
                 </Fact>
                 <p className="py-0.5 text-2xs text-fg-2">{row.group_reason}</p>
                 <Fact label="Trigger / stop">

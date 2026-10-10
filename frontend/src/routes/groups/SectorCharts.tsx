@@ -14,6 +14,7 @@ import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
 import { useSectors, type ChartRow, type MemberRow, type SectorRow, type WindowKey } from './sectorApi';
+import { GroupStateChip } from '../../ui/GroupState';
 import { StateDot } from './SectorBoard';
 import { groupReadout, win } from './sectorModel';
 
@@ -221,10 +222,7 @@ export function GroupPanel({
             {levelLabel} · {row.stocks} stocks
           </span>
         </div>
-        <span className="flex items-center gap-1 text-xs text-fg-2">
-          <StateDot state={row.state} reason={row.state_reason} />
-          {row.state ?? '—'}
-        </span>
+        <GroupStateChip state={row.state} reason={row.state_reason} size="sm" />
       </div>
       {row.state_reason && <div className="text-2xs text-fg-3">{row.state_reason}</div>}
       {chart.error ? (

@@ -1144,6 +1144,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/pulse/group-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pulse Group State
+         * @description The one group state (Favour / Neutral / Caution + numeric reason) per group at a level. Pulse owns it; Sector Intel and Setups read the same rows. Universe: group_daily floor 'all'. groups=A|B filters by exact group name ('|'-separated: names contain commas). meta.context: split, rule.
+         */
+        get: operations["pulse_group_state_api_v2_pulse_group_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/setups/board": {
         parameters: {
             query?: never;
@@ -2998,6 +3018,19 @@ export interface components {
             rows: components["schemas"]["GroupRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[GroupStateRow] */
+        Envelope_GroupStateRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["GroupStateRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[GroupStudyRow] */
         Envelope_GroupStudyRow_: {
             /** As Of */
@@ -3827,6 +3860,66 @@ export interface components {
              * @description Equal-weight group index over ~1 year (every 5th session, oldest first), rebased to 100
              */
             index_spark_1y?: (number | null)[] | null;
+        };
+        /**
+         * GroupStateRow
+         * @description One group's state (the one source every tab reads: Pulse, Sector Intel, Setups).
+         */
+        GroupStateRow: {
+            /**
+             * Id
+             * @description '<level>:<group name>' (Sector Intel group id)
+             */
+            id: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "broad_sector" | "sector" | "broad_industry" | "industry";
+            /** Group Name */
+            group_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "Favour" | "Neutral" | "Caution";
+            /**
+             * Reason
+             * @description One plain-English numeric reason
+             */
+            reason: string;
+            /** Members */
+            members?: number | null;
+            /** Pct Above 50Ema */
+            pct_above_50ema?: number | null;
+            /**
+             * Vs Median 21D
+             * @description 21D EW return minus the median group's, points
+             */
+            vs_median_21d?: number | null;
+            /**
+             * Vs Median 63D
+             * @description 63D EW return minus the median group's, points
+             */
+            vs_median_63d?: number | null;
+            /** Ret 5D Pct */
+            ret_5d_pct?: number | null;
+            /** Share 5D Pct */
+            share_5d_pct?: number | null;
+            /** Share 20D Pct */
+            share_20d_pct?: number | null;
+            /** Ew Above Ema50 */
+            ew_above_ema50?: boolean | null;
+            /**
+             * Sessions In State
+             * @description Consecutive sessions in this state, including as_of
+             */
+            sessions_in_state: number;
+            /**
+             * State Since
+             * @description First session of the current run in this state (YYYY-MM-DD)
+             */
+            state_since: string;
         };
         /**
          * GroupStudyRow
@@ -8271,6 +8364,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_dict_str__Any__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pulse_group_state_api_v2_pulse_group_state_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "broad_sector" | "sector" | "broad_industry" | "industry";
+                groups?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_GroupStateRow_"];
                 };
             };
             /** @description Validation Error */
