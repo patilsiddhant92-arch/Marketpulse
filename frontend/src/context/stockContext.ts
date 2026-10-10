@@ -172,3 +172,6 @@ export function contextChips(
   }
   return out;
 }
+
+// ------------------------------------------------------------------ deal flags (cross-tab deal icon)
+export { dealFlagMap, dealTitle, dealTone, useDealFlags, type DealFlag, type DealFlagMap } from './dealFlags';

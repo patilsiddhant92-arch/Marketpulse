@@ -7,6 +7,7 @@ import type { DataTableColumn } from '../ui/DataTable';
 import { Unclassified } from '../ui/Unclassified';
 import { ZoneValue } from '../ui/ZoneValue';
 import type { QueueId } from './deskModel';
+import { DealIcon } from '../ui/DealIcon';
 
 const QUADRANT_TONE: Record<string, 'positive' | 'info' | 'warn' | 'negative'> = {
   Leading: 'positive',
@@ -22,6 +23,7 @@ function SymbolCell({ r, watched }: { r: QueueRow; watched: boolean }) {
       <span className="truncate font-mono font-semibold text-fg" title={r.security_name ?? undefined}>
         {r.symbol}
       </span>
+      <DealIcon symbol={r.symbol} />
       {r.is_new && (
         <Chip tone="accent" title="Entered this queue today (not in it on the previous session)">
           NEW

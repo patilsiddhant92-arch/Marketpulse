@@ -13,6 +13,7 @@ import type { GroupLevel, PulseResult } from './data';
 import { fixed, intIN, isNum, longDate, median, signed, sortBy, toneClass } from './model';
 import { Note, SectionBody } from './parts';
 import type { AnalogContext, AnalogRow, ChipCode, GroupRow, IndexRow, MoverKind, MoverRow } from './types';
+import { DealIcon } from '../../ui/DealIcon';
 
 const pctCell = (v: unknown) => <span className={toneClass(v as number)}>{signed(v as number, 1)}</span>;
 
@@ -144,6 +145,7 @@ function moverColumns(rules: Record<string, string> | undefined): DataTableColum
       <span className="flex min-w-0 flex-col leading-tight">
         <span className="inline-flex items-center gap-1">
           <b className="font-mono text-fg">{String(v)}</b>
+          <DealIcon symbol={String(v)} />
           <EventChips chips={r.chips} rules={rules} band={r.band_remark} />
         </span>
         <span className="truncate text-2xs text-fg-3">{r.name}</span>

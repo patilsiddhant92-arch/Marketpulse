@@ -22,6 +22,7 @@ import { DataTable, type DataTableColumn } from '../ui/DataTable';
 import { EmptyState } from '../ui/EmptyState';
 import { ChangeCell } from './parts';
 import { BREADTH_TONE, PARTICIPATION_TONE, PERSISTENCE_TONE, broadMoveScore, clauseText, filterGroupsText, withoutThinGroups, type RuleClause } from './todayModel';
+import { DealIcon } from '../ui/DealIcon';
 
 const EMPTY: TodayGroupRow[] = [];
 
@@ -192,6 +193,7 @@ function ContribList({ title, items, tone }: { title: string; items: readonly To
                 <button type="button" className="font-mono font-semibold text-fg hover:text-accent hover:underline" onClick={() => shell.openSymbol(c.symbol)} onDoubleClick={() => shell.openStockPage(c.symbol)}>
                   {c.symbol}
                 </button>
+                <DealIcon symbol={c.symbol} className="ml-1 align-middle" />
               </td>
               <td className="text-right">
                 <ChangeCell v={c.change_1d_pct} digits={1} />

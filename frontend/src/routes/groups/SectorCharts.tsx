@@ -17,6 +17,7 @@ import { useSectors, type ChartRow, type MemberRow, type SectorRow, type WindowK
 import { GroupStateChip } from '../../ui/GroupState';
 import { StateDot } from './SectorBoard';
 import { groupReadout, win } from './sectorModel';
+import { DealIcon } from '../../ui/DealIcon';
 
 export const GRID_PAGE = 9;
 const EMAS = [10, 20, 50] as const;
@@ -146,6 +147,7 @@ const memberColumns = (onSymbol: (s: string) => void): DataTableColumn<MemberRow
         <button type="button" className="font-medium text-fg hover:text-accent" onClick={() => onSymbol(m.symbol)} title="Open Stock 360">
           {m.symbol}
         </button>
+        <DealIcon symbol={m.symbol} />
         <a
           className="text-2xs text-fg-3 hover:text-accent"
           href={tradingViewChartUrl(m.symbol)}

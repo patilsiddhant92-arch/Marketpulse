@@ -47,6 +47,7 @@ import {
   type PresetId,
 } from './momentumModel';
 import { CopyButton, MomentumDebug, MomentumEvidenceTable, MomentumFilters, MomentumLeaders, evidenceLine } from './MomentumParts';
+import { DealIcon } from '../ui/DealIcon';
 
 const EMPTY_ROWS: MRow[] = [];
 const EMPTY_LEADERS: Leader[] = [];
@@ -319,7 +320,10 @@ export default function MomentumView() {
                     }}
                     className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-surface-3"
                   >
-                    <span className="w-24 font-mono text-fg">{d.symbol}</span>
+                    <span className="inline-flex w-24 items-center gap-1 font-mono text-fg">
+                      {d.symbol}
+                      <DealIcon symbol={d.symbol} />
+                    </span>
                     <span className="w-14 text-fg-3">{d.bucket ?? '—'}</span>
                     <span className="truncate text-fg-3">{d.industry ?? '—'}</span>
                   </button>

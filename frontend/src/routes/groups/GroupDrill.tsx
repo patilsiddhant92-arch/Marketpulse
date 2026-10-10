@@ -28,6 +28,7 @@ import { Spark } from '../../ui/Spark';
 import { FLOORS, levelLabel, parseGroupId, queueLabel, rankSparkValues, setupsByQueue, topMovers, type Floor } from './groupsModel';
 import { HealthCell, QuadrantWithNote, TrendArrow } from './health';
 import { MetricInline, RankDelta, SourceNote, ZoneNum } from './kit';
+import { DealIcon, SymbolWithDeal } from '../../ui/DealIcon';
 
 const EMPTY_M: MemberRow[] = [];
 const EMPTY_G: GroupRow[] = [];
@@ -62,6 +63,7 @@ function MoverList({ title, rows, fmt, onPick }: { title: string; rows: MemberRo
               <li key={r.symbol}>
                 <button type="button" onClick={() => r.symbol && onPick(r.symbol)} className="flex w-full items-center gap-1 rounded px-1 text-left text-2xs hover:bg-surface-3">
                   <span className="min-w-0 flex-1 truncate font-mono text-fg">{r.symbol}</span>
+                  <DealIcon symbol={r.symbol} />
                   <span className={cn('num', (v ?? 0) >= 0 ? 'text-up' : 'text-down')}>{fmtValue(v ?? null, 'signedPct', 1)}</span>
                 </button>
               </li>
@@ -80,7 +82,7 @@ interface Crumb {
 }
 
 const memberColumns: DataTableColumn<MemberRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 104, sticky: true, cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 104, sticky: true, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'name', header: 'Name', accessor: 'security_name', width: 180, cell: (v) => <span className="truncate text-fg-2">{String(v)}</span> },
   { id: 'mcap', header: 'Mcap ₹Cr', accessor: 'market_cap_cr', format: 'int', width: 76, metricKey: 'market_cap_cr' },
   { id: 'close', header: 'Close', accessor: 'close', format: 'inr', width: 76 },

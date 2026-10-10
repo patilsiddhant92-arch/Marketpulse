@@ -8,6 +8,7 @@ import { Chip } from '../ui/Chip';
 import { DataWarningChip } from '../ui/DataWarningChip';
 import { Unclassified } from '../ui/Unclassified';
 import { RankSpark, SignedNum, ZoneNum } from './cells';
+import { DealIcon } from '../ui/DealIcon';
 
 /** Rows from /screener/run: rule presets return ScreenerRow, Darvas/VCP presets return Desk queue rows. */
 export type SRow = ScreenerRow & Partial<QueueRow>;
@@ -61,6 +62,7 @@ const symbolCol: DataTableColumn<SRow> = {
   cell: (v, r) => (
     <span className="flex min-w-0 items-center gap-1" title={r.security_name ?? undefined}>
       <span className="truncate font-mono font-medium text-fg">{String(v)}</span>
+      <DealIcon symbol={String(v)} />
       {r.is_new && (
         <Chip tone="accent" size="xs" title="Matched today but not on the previous session">
           NEW

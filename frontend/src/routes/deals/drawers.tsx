@@ -8,6 +8,7 @@ import { Skeleton } from '../../ui/Skeleton';
 import { useDeals, type HouseContext, type HousePosition, type Party, type StockDetail } from './api';
 import { CandleLegend, Chips, DealCandles, DoLine, GradeChip, NotesLine, Signed, StatusChip, TvCopy, VerdictChip } from './kit';
 import { readFollowed, spreadSummary, toggleFollowed } from './model';
+import { DealIcon } from '../../ui/DealIcon';
 
 function KV({ k, children }: { k: string; children: React.ReactNode }) {
   return (
@@ -186,6 +187,7 @@ export function HouseDrawer({ house, onClose, onStock }: { house: string | null;
                         <button type="button" className="font-mono text-fg hover:underline" onClick={() => onStock(r.symbol)}>
                           {r.symbol}
                         </button>
+                        <DealIcon symbol={r.symbol} className="ml-1 align-middle" />
                         <span className="ml-1 text-2xs text-fg-3">{fmtDate(r.deal_date)}</span>
                       </td>
                       <td className="num text-right">{fmtNum(r.bought_cr, 1)}</td>

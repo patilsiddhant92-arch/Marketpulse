@@ -14,6 +14,7 @@ import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { useResearchQuery } from './data';
 import { MIN_SAMPLE, ctx, num, preMoveEdge, preMoveLift, str } from './model';
 import { Panel, QueryState, SampleN, Term } from './parts';
+import { SymbolWithDeal } from '../../ui/DealIcon';
 
 const EMPTY: PreMoveRow[] = [];
 
@@ -31,7 +32,7 @@ const COLUMNS: DataTableColumn<PreMoveRow>[] = [
     accessor: 'symbol',
     width: 112,
     sticky: true,
-    cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span>,
+    cell: (v) => <SymbolWithDeal symbol={String(v)} />,
   },
   {
     id: 'name',

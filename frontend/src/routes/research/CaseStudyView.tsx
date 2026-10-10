@@ -31,11 +31,12 @@ import {
 } from './lab';
 import { Caveat, Muted, SimpleTable, Summary } from './LabParts';
 import { Panel, QueryState, SampleN } from './parts';
+import { SymbolWithDeal } from '../../ui/DealIcon';
 
 const SYMBOL_RE = /^[A-Z0-9&\-_.]{1,20}$/;
 
 const MOVER_COLUMNS: DataTableColumn<CaseMoverRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, sticky: true, cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, sticky: true, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'gain', header: 'Low → peak', accessor: 'gain_pct', format: 'signedPct', digits: 0, width: 90 },
   { id: 'low', header: 'Low on', accessor: 'low_date', format: 'date', width: 92 },
   {

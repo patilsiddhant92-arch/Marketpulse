@@ -19,6 +19,7 @@ import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
 import { SignedNum } from '../cells';
 import { SCREENERS, countSeries, tagTone, type BoardContext, type DetailContext } from './model';
+import { DealIcon, SymbolWithDeal } from '../../ui/DealIcon';
 
 // ------------------------------------------------------------------ read-out + counts
 export function ReadOut({ ctx }: { ctx: BoardContext }) {
@@ -290,7 +291,10 @@ export function DetailPanel({
                 onClick={() => onSelect(p.symbol)}
                 className={cn('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-surface-3', p.symbol === symbol && 'text-accent')}
               >
-                <span className="w-24 font-mono">{p.symbol}</span>
+                <span className="inline-flex w-24 items-center gap-1 font-mono">
+                  {p.symbol}
+                  <DealIcon symbol={p.symbol} />
+                </span>
                 <span className="num w-10 text-right">{fmtNum(p.rs_percentile, 0)}</span>
                 <span className="w-16 text-right">
                   <SignedNum value={p.away_52w_high_pct} />
@@ -313,7 +317,7 @@ export function DetailPanel({
 
 // ------------------------------------------------------------------ near-miss + dropped
 const NEAR_COLS: DataTableColumn<SetupNearMissRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <span className="font-mono font-semibold">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'gate', header: 'Fails one gate', accessor: 'gate', width: 220, grow: true },
   { id: 'sq', header: 'Squeeze %', accessor: 'squeeze_pct', format: 'pct', digits: 1, width: 80 },
   { id: 'close', header: 'Close', accessor: 'close', format: 'num', width: 80 },
@@ -343,7 +347,7 @@ export function NearMissView({ onPick }: { onPick: (s: string) => void }) {
 }
 
 const DROP_COLS: DataTableColumn<SetupDroppedRow>[] = [
-  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <span className="font-mono font-semibold">{String(v)}</span> },
+  { id: 'symbol', header: 'Symbol', accessor: 'symbol', width: 110, cell: (v) => <SymbolWithDeal symbol={String(v)} /> },
   { id: 'scr', header: 'Screener', accessor: 'screener_name', width: 130 },
   { id: 'why', header: 'Why dropped', accessor: 'why', width: 320, grow: true },
   { id: 'close', header: 'Close', accessor: 'close', format: 'num', width: 80 },

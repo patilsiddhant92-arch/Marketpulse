@@ -29,6 +29,7 @@ import {
   type EvidenceTrait,
   type QualityRule,
 } from './todayModel';
+import { DealIcon } from '../ui/DealIcon';
 
 /** Navigate to a Groups drill-down (keeps as_of). */
 export function useGroupNav() {
@@ -177,6 +178,7 @@ export function stockColumns<T extends TodayStockRow>(o: StockColumnOpts): DataT
           <span className="truncate font-mono font-semibold text-fg" title={r.security_name ?? undefined}>
             {r.symbol}
           </span>
+          <DealIcon symbol={r.symbol} />
           {r.at_upper_circuit && <Chip tone="positive" title={`Closed at its upper price band (${fmtNum(r.circuit_band, 0)}%)`}>UC</Chip>}
           {r.at_lower_circuit && <Chip tone="negative" title={`Closed at its lower price band (${fmtNum(r.circuit_band, 0)}%)`}>LC</Chip>}
         </span>

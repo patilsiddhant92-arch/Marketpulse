@@ -25,6 +25,7 @@ import {
 } from './api';
 import { Chips, DoLine, GradeChip, NotesLine, Panel, SessionCells, Signed, StatusChip, TvCopy, TvCopyAll, VerdictChip } from './kit';
 import { filterText, NOISE, readFollowed, shownValue, splitNoise, spreadSummary, toggleFollowed, verdictRank, type TvList } from './model';
+import { SymbolWithDeal } from '../../ui/DealIcon';
 
 export interface ViewProps {
   text: string;
@@ -57,7 +58,7 @@ const symbolCol: DataTableColumn<DealRow> = {
   sticky: true,
   cell: (_v, r) => (
     <span className="flex min-w-0 flex-col leading-tight">
-      <span className="font-mono font-medium text-fg">{r.symbol}</span>
+      <SymbolWithDeal symbol={r.symbol} />
       <span className="truncate text-2xs text-fg-3">{r.industry ?? ''}</span>
     </span>
   ),
@@ -186,7 +187,7 @@ export function WatchView({ text, onStock }: ViewProps) {
   const counts = q.data?.meta.context?.filter_counts ?? {};
   const cols = useMemo<DataTableColumn<DealRow>[]>(
     () => [
-      { ...symbolCol, cell: (_v, r) => (<span className="flex flex-col leading-tight"><span className="font-mono font-medium text-fg">{r.symbol}</span><span className="text-2xs text-fg-3">{fmtDate(r.deal_date)} · {r.event_label}</span></span>) },
+      { ...symbolCol, cell: (_v, r) => (<span className="flex flex-col leading-tight"><SymbolWithDeal symbol={r.symbol} /><span className="text-2xs text-fg-3">{fmtDate(r.deal_date)} · {r.event_label}</span></span>) },
       verdictCol,
       { id: 'status', header: 'Status', accessor: 'status', width: 120, cell: (_v, r) => <StatusChip status={r.status} /> },
       { id: 'days', header: 'Days', accessor: 'sessions_since', format: 'int', width: 56, headerTitle: 'Price sessions since the deal' },
@@ -244,7 +245,7 @@ export function HistoryView({ text, onStock }: ViewProps) {
   const [sorted, setSorted] = useSorted(rows);
   const cols = useMemo<DataTableColumn<HistoryRow>[]>(
     () => [
-      { id: 'symbol', header: 'Stock', accessor: 'symbol', width: 130, sticky: true, cell: (_v, r) => (<span className="flex flex-col leading-tight"><span className="font-mono font-medium text-fg">{r.symbol}</span><span className="truncate text-2xs text-fg-3">{r.industry ?? ''}</span></span>) },
+      { id: 'symbol', header: 'Stock', accessor: 'symbol', width: 130, sticky: true, cell: (_v, r) => (<span className="flex flex-col leading-tight"><SymbolWithDeal symbol={r.symbol} /><span className="truncate text-2xs text-fg-3">{r.industry ?? ''}</span></span>) },
       { id: 'pattern', header: 'Pattern', accessor: 'pattern_label', width: 170 },
       { id: 'cells', header: 'Sessions', accessor: (r) => r.buy_sessions + r.sell_sessions, width: Number(n) > 10 ? 250 : 170, sortable: false, cell: (_v, r) => <SessionCells cells={r.cells} dates={dates} /> },
       { id: 'buy', header: 'Buy', accessor: 'buy_sessions', format: 'int', width: 50 },

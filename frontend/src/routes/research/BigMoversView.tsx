@@ -34,6 +34,7 @@ import {
   type LiftRow,
 } from './model';
 import { EvidencePending, FeatureName, Legend, Panel, PathChart, QueryState, SampleN, Stat, Term } from './parts';
+import { SymbolWithDeal } from '../../ui/DealIcon';
 
 const EMPTY: BigMoveRow[] = [];
 const MCAP_FLOORS = [
@@ -50,7 +51,7 @@ const COLUMNS: DataTableColumn<BigMoveRow>[] = [
     accessor: 'symbol',
     width: 100,
     sticky: true,
-    cell: (v) => <span className="font-mono font-medium text-fg">{String(v)}</span>,
+    cell: (v) => <SymbolWithDeal symbol={String(v)} />,
   },
   {
     id: 'trigger',

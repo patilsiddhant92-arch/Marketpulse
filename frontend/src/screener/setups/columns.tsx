@@ -14,6 +14,7 @@ import type { DataTableColumn } from '../../ui/DataTable';
 import { Spark } from '../../ui/Spark';
 import { SignedNum, ZoneNum } from '../cells';
 import { chipTone, tagTone } from './model';
+import { DealIcon } from '../../ui/DealIcon';
 
 type C = DataTableColumn<SetupBoardRow>;
 
@@ -45,6 +46,7 @@ export function boardColumns(): C[] {
             {r.symbol}
             <ExternalLink className="h-2.5 w-2.5 text-fg-3" aria-hidden />
           </a>
+          <DealIcon symbol={r.symbol} />
           {r.status === 'new' && (
             <Chip tone="accent" size="xs" title="New on this session">
               NEW

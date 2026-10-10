@@ -17,6 +17,7 @@ import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { EmptyState } from '../../ui/EmptyState';
 import { Unclassified } from '../../ui/Unclassified';
 import { SourceNote } from './kit';
+import { DealIcon } from '../../ui/DealIcon';
 
 const EMPTY: AccumulatorRow[] = [];
 
@@ -45,6 +46,7 @@ function columns(isWatched: (s: string) => boolean, toggleWatch: (s: string) => 
           <span className="truncate font-mono font-semibold text-fg" title={r.security_name ?? undefined}>
             {r.symbol}
           </span>
+          <DealIcon symbol={r.symbol} />
         </span>
       ),
     },
