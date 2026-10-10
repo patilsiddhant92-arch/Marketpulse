@@ -984,6 +984,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/setups/board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Board
+         * @description Setups board: every stock in Darvas Squeeze, Darvas 10 EMA, VCP or Momentum, one row each with screener tags, group state + reason and decision columns. meta.context carries counts, read-out, base rates and data gaps.
+         */
+        get: operations["setups_board_api_v2_setups_board_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/near-miss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Near Miss
+         * @description Darvas Squeeze near-miss: close in the zone, exactly one strict gate failed.
+         */
+        get: operations["setups_near_miss_api_v2_setups_near_miss_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/dropped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Dropped
+         * @description Why dropped: stocks that left a screener since the previous session.
+         */
+        get: operations["setups_dropped_api_v2_setups_dropped_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/detail/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Detail
+         * @description Detail panel: board row, top-RS peers in the industry, deal markers, stored RSI divergences.
+         */
+        get: operations["setups_detail_api_v2_setups_detail__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2242,6 +2322,45 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["ScreenerRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SetupBoardRow] */
+        Envelope_SetupBoardRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SetupBoardRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SetupDroppedRow] */
+        Envelope_SetupDroppedRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SetupDroppedRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SetupNearMissRow] */
+        Envelope_SetupNearMissRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SetupNearMissRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[StockAnalogRow] */
@@ -3708,6 +3827,215 @@ export interface components {
             is_new?: boolean | null;
         } & {
             [key: string]: unknown;
+        };
+        /** SetupBaseRate */
+        SetupBaseRate: {
+            /** N */
+            n?: number | null;
+            /** Win */
+            win?: number | null;
+            /** Median */
+            median?: number | null;
+            /** Scope */
+            scope?: string | null;
+            /** Horizon */
+            horizon?: number | null;
+            /** Insufficient */
+            insufficient?: boolean | null;
+        };
+        /** SetupBoardRow */
+        SetupBoardRow: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Tags */
+            tags: string[];
+            /** Screeners */
+            screeners: string[];
+            /** Status */
+            status: string;
+            /** Age */
+            age?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Change 1D Pct */
+            change_1d_pct?: number | null;
+            /** Trigger */
+            trigger?: number | null;
+            /** Stop */
+            stop?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Adr Pct */
+            adr_pct?: number | null;
+            /** Risk Adr */
+            risk_adr?: number | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Away 10Ema Pct */
+            away_10ema_pct?: number | null;
+            /** Away 50Ema Pct */
+            away_50ema_pct?: number | null;
+            /** Rs 21D */
+            rs_21d?: number | null;
+            /** Rs 63D */
+            rs_63d?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5D */
+            rs_delta_5d?: number | null;
+            /** Range 10D Pct */
+            range_10d_pct?: number | null;
+            /** Atr X */
+            atr_x?: number | null;
+            /** Volume Dryup Pct */
+            volume_dryup_pct?: number | null;
+            /** Squeeze Pct */
+            squeeze_pct?: number | null;
+            /** Vcp Footprint */
+            vcp_footprint?: string | null;
+            ten_ema?: components["schemas"]["SetupTenEma"] | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Delivery Avg 20D */
+            delivery_avg_20d?: number | null;
+            /**
+             * Delivery Streak
+             * @default 0
+             */
+            delivery_streak: number;
+            /**
+             * Delivery 5D
+             * @default []
+             */
+            delivery_5d: (number | null)[];
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+            /** Turnover 1D X */
+            turnover_1d_x?: number | null;
+            /** Turnover 1W X */
+            turnover_1w_x?: number | null;
+            /** Turnover 1M X */
+            turnover_1m_x?: number | null;
+            /** Turnover 3M Avg Cr */
+            turnover_3m_avg_cr?: number | null;
+            /** Group State */
+            group_state: string;
+            /** Group Reason */
+            group_reason: string;
+            /** Group Share Chg 1D */
+            group_share_chg_1d?: number | null;
+            /** Group Share Chg 1W */
+            group_share_chg_1w?: number | null;
+            /** Group Share Chg 1M */
+            group_share_chg_1m?: number | null;
+            /** Group Rank */
+            group_rank?: number | null;
+            /** Group Rank N */
+            group_rank_n?: number | null;
+            /** Group Rank Chg 5D */
+            group_rank_chg_5d?: number | null;
+            /** Room To Run Pct */
+            room_to_run_pct?: number | null;
+            /**
+             * Blue Sky
+             * @default false
+             */
+            blue_sky: boolean;
+            /**
+             * Breakouts Held 6M
+             * @default 0
+             */
+            breakouts_held_6m: number;
+            /**
+             * Breakouts Failed 6M
+             * @default 0
+             */
+            breakouts_failed_6m: number;
+            /** Weekly Above 10W */
+            weekly_above_10w?: boolean | null;
+            /** Weekly Tight */
+            weekly_tight?: boolean | null;
+            /** Weekly Spread 3W Pct */
+            weekly_spread_3w_pct?: number | null;
+            /**
+             * Chips
+             * @default []
+             */
+            chips: components["schemas"]["SetupChip"][];
+            /** Results Date */
+            results_date?: string | null;
+            /**
+             * Results Soon
+             * @default false
+             */
+            results_soon: boolean;
+            base_rate?: components["schemas"]["SetupBaseRate"] | null;
+            /** Data Warning */
+            data_warning?: string | null;
+            /** Peer Note */
+            peer_note?: string | null;
+        };
+        /** SetupChip */
+        SetupChip: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Title */
+            title?: string | null;
+        };
+        /** SetupDroppedRow */
+        SetupDroppedRow: {
+            /** Screener */
+            screener: string;
+            /** Screener Name */
+            screener_name: string;
+            /** Symbol */
+            symbol: string;
+            /** Code */
+            code: string;
+            /** Why */
+            why: string;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+        };
+        /** SetupNearMissRow */
+        SetupNearMissRow: {
+            /** Symbol */
+            symbol: string;
+            /** Industry */
+            industry?: string | null;
+            /** Gate */
+            gate: string;
+            /** Squeeze Pct */
+            squeeze_pct?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Box Top */
+            box_top?: number | null;
+            /** Ema 10 */
+            ema_10?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+        };
+        /** SetupTenEma */
+        SetupTenEma: {
+            /** Case */
+            case: string;
+            /** Tier */
+            tier?: number | null;
+            /** Flavor */
+            flavor?: string | null;
         };
         /**
          * StockAnalogRow
@@ -6574,6 +6902,162 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_Note_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_board_api_v2_setups_board_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200) */
+                template?: "ema" | "sma";
+                /** @description Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume) */
+                volume_mode?: "day" | "avg20d";
+                /** @description Momentum volume threshold (shares) */
+                min_volume?: number;
+                /** @description Highlight rows with results within N sessions */
+                results_n?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupBoardRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_near_miss_api_v2_setups_near_miss_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupNearMissRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_dropped_api_v2_setups_dropped_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200) */
+                template?: "ema" | "sma";
+                /** @description Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume) */
+                volume_mode?: "day" | "avg20d";
+                /** @description Momentum volume threshold (shares) */
+                min_volume?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupDroppedRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_detail_api_v2_setups_detail__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200) */
+                template?: "ema" | "sma";
+                /** @description Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume) */
+                volume_mode?: "day" | "avg20d";
+                /** @description Momentum volume threshold (shares) */
+                min_volume?: number;
+                /** @description Highlight rows with results within N sessions */
+                results_n?: number;
+            };
+            header?: never;
+            path: {
+                /** @description NSE symbol */
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupBoardRow_"];
                 };
             };
             /** @description Validation Error */

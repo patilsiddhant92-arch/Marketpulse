@@ -4993,6 +4993,427 @@
           }
         }
       }
+    },
+    "/api/v2/setups/board": {
+      "get": {
+        "tags": [
+          "setups"
+        ],
+        "summary": "Setups Board",
+        "description": "Setups board: every stock in Darvas Squeeze, Darvas 10 EMA, VCP or Momentum, one row each with screener tags, group state + reason and decision columns. meta.context carries counts, read-out, base rates and data gaps.",
+        "operationId": "setups_board_api_v2_setups_board_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "template",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ema",
+                "sma"
+              ],
+              "type": "string",
+              "description": "Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200)",
+              "default": "ema",
+              "title": "Template"
+            },
+            "description": "Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200)"
+          },
+          {
+            "name": "volume_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "day",
+                "avg20d"
+              ],
+              "type": "string",
+              "description": "Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume)",
+              "default": "day",
+              "title": "Volume Mode"
+            },
+            "description": "Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume)"
+          },
+          {
+            "name": "min_volume",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Momentum volume threshold (shares)",
+              "default": 1000000.0,
+              "title": "Min Volume"
+            },
+            "description": "Momentum volume threshold (shares)"
+          },
+          {
+            "name": "results_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 1,
+              "description": "Highlight rows with results within N sessions",
+              "default": 10,
+              "title": "Results N"
+            },
+            "description": "Highlight rows with results within N sessions"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SetupBoardRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/setups/near-miss": {
+      "get": {
+        "tags": [
+          "setups"
+        ],
+        "summary": "Setups Near Miss",
+        "description": "Darvas Squeeze near-miss: close in the zone, exactly one strict gate failed.",
+        "operationId": "setups_near_miss_api_v2_setups_near_miss_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 60,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SetupNearMissRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/setups/dropped": {
+      "get": {
+        "tags": [
+          "setups"
+        ],
+        "summary": "Setups Dropped",
+        "description": "Why dropped: stocks that left a screener since the previous session.",
+        "operationId": "setups_dropped_api_v2_setups_dropped_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "template",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ema",
+                "sma"
+              ],
+              "type": "string",
+              "description": "Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200)",
+              "default": "ema",
+              "title": "Template"
+            },
+            "description": "Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200)"
+          },
+          {
+            "name": "volume_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "day",
+                "avg20d"
+              ],
+              "type": "string",
+              "description": "Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume)",
+              "default": "day",
+              "title": "Volume Mode"
+            },
+            "description": "Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume)"
+          },
+          {
+            "name": "min_volume",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Momentum volume threshold (shares)",
+              "default": 1000000.0,
+              "title": "Min Volume"
+            },
+            "description": "Momentum volume threshold (shares)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SetupDroppedRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/setups/detail/{sym}": {
+      "get": {
+        "tags": [
+          "setups"
+        ],
+        "summary": "Setups Detail",
+        "description": "Detail panel: board row, top-RS peers in the industry, deal markers, stored RSI divergences.",
+        "operationId": "setups_detail_api_v2_setups_detail__sym__get",
+        "parameters": [
+          {
+            "name": "sym",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "NSE symbol",
+              "title": "Sym"
+            },
+            "description": "NSE symbol"
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "template",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ema",
+                "sma"
+              ],
+              "type": "string",
+              "description": "Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200)",
+              "default": "ema",
+              "title": "Template"
+            },
+            "description": "Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200)"
+          },
+          {
+            "name": "volume_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "day",
+                "avg20d"
+              ],
+              "type": "string",
+              "description": "Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume)",
+              "default": "day",
+              "title": "Volume Mode"
+            },
+            "description": "Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume)"
+          },
+          {
+            "name": "min_volume",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Momentum volume threshold (shares)",
+              "default": 1000000.0,
+              "title": "Min Volume"
+            },
+            "description": "Momentum volume threshold (shares)"
+          },
+          {
+            "name": "results_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 1,
+              "description": "Highlight rows with results within N sessions",
+              "default": 10,
+              "title": "Results N"
+            },
+            "description": "Highlight rows with results within N sessions"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SetupBoardRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9871,6 +10292,144 @@
           "meta"
         ],
         "title": "Envelope[ScreenerRow]"
+      },
+      "Envelope_SetupBoardRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SetupBoardRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[SetupBoardRow]"
+      },
+      "Envelope_SetupDroppedRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SetupDroppedRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[SetupDroppedRow]"
+      },
+      "Envelope_SetupNearMissRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SetupNearMissRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[SetupNearMissRow]"
       },
       "Envelope_StockAnalogRow_": {
         "properties": {
@@ -15656,6 +16215,878 @@
         "additionalProperties": true,
         "type": "object",
         "title": "ScreenerRow"
+      },
+      "SetupBaseRate": {
+        "properties": {
+          "n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N"
+          },
+          "win": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "horizon": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizon"
+          },
+          "insufficient": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insufficient"
+          }
+        },
+        "type": "object",
+        "title": "SetupBaseRate"
+      },
+      "SetupBoardRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "screeners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Screeners"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "change_1d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change 1D Pct"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop"
+          },
+          "risk_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Pct"
+          },
+          "adr_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adr Pct"
+          },
+          "risk_adr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Adr"
+          },
+          "away_52w_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 52W High Pct"
+          },
+          "away_10ema_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 10Ema Pct"
+          },
+          "away_50ema_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away 50Ema Pct"
+          },
+          "rs_21d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs 21D"
+          },
+          "rs_63d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs 63D"
+          },
+          "rs_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Percentile"
+          },
+          "rs_delta_5d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs Delta 5D"
+          },
+          "range_10d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range 10D Pct"
+          },
+          "atr_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Atr X"
+          },
+          "volume_dryup_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Dryup Pct"
+          },
+          "squeeze_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Squeeze Pct"
+          },
+          "vcp_footprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vcp Footprint"
+          },
+          "ten_ema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupTenEma"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delivery_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Pct"
+          },
+          "delivery_avg_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Avg 20D"
+          },
+          "delivery_streak": {
+            "type": "integer",
+            "title": "Delivery Streak",
+            "default": 0
+          },
+          "delivery_5d": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Delivery 5D",
+            "default": []
+          },
+          "turnover_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover Cr"
+          },
+          "turnover_1d_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover 1D X"
+          },
+          "turnover_1w_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover 1W X"
+          },
+          "turnover_1m_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover 1M X"
+          },
+          "turnover_3m_avg_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover 3M Avg Cr"
+          },
+          "group_state": {
+            "type": "string",
+            "title": "Group State"
+          },
+          "group_reason": {
+            "type": "string",
+            "title": "Group Reason"
+          },
+          "group_share_chg_1d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Share Chg 1D"
+          },
+          "group_share_chg_1w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Share Chg 1W"
+          },
+          "group_share_chg_1m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Share Chg 1M"
+          },
+          "group_rank": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Rank"
+          },
+          "group_rank_n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Rank N"
+          },
+          "group_rank_chg_5d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Rank Chg 5D"
+          },
+          "room_to_run_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room To Run Pct"
+          },
+          "blue_sky": {
+            "type": "boolean",
+            "title": "Blue Sky",
+            "default": false
+          },
+          "breakouts_held_6m": {
+            "type": "integer",
+            "title": "Breakouts Held 6M",
+            "default": 0
+          },
+          "breakouts_failed_6m": {
+            "type": "integer",
+            "title": "Breakouts Failed 6M",
+            "default": 0
+          },
+          "weekly_above_10w": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Above 10W"
+          },
+          "weekly_tight": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Tight"
+          },
+          "weekly_spread_3w_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Spread 3W Pct"
+          },
+          "chips": {
+            "items": {
+              "$ref": "#/components/schemas/SetupChip"
+            },
+            "type": "array",
+            "title": "Chips",
+            "default": []
+          },
+          "results_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results Date"
+          },
+          "results_soon": {
+            "type": "boolean",
+            "title": "Results Soon",
+            "default": false
+          },
+          "base_rate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupBaseRate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Warning"
+          },
+          "peer_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "tags",
+          "screeners",
+          "status",
+          "group_state",
+          "group_reason"
+        ],
+        "title": "SetupBoardRow"
+      },
+      "SetupChip": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "SetupChip"
+      },
+      "SetupDroppedRow": {
+        "properties": {
+          "screener": {
+            "type": "string",
+            "title": "Screener"
+          },
+          "screener_name": {
+            "type": "string",
+            "title": "Screener Name"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          }
+        },
+        "type": "object",
+        "required": [
+          "screener",
+          "screener_name",
+          "symbol",
+          "code",
+          "why"
+        ],
+        "title": "SetupDroppedRow"
+      },
+      "SetupNearMissRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "gate": {
+            "type": "string",
+            "title": "Gate"
+          },
+          "squeeze_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Squeeze Pct"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "box_top": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Box Top"
+          },
+          "ema_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ema 10"
+          },
+          "rvol": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rvol"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "gate"
+        ],
+        "title": "SetupNearMissRow"
+      },
+      "SetupTenEma": {
+        "properties": {
+          "case": {
+            "type": "string",
+            "title": "Case"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "flavor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flavor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case"
+        ],
+        "title": "SetupTenEma"
       },
       "StockAnalogRow": {
         "properties": {

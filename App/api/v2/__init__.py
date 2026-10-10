@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from App.api.v2.routes import API_VERSION, router
+router.include_router(__import__("App.api.v2.routes_setups", fromlist=["router"]).router)  # Setups tab
 
 __all__ = ["router", "create_app", "API_VERSION"]
 
