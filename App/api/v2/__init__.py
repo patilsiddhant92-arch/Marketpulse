@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from App.api.v2.routes import API_VERSION, router
+from App.api.v2 import routes_research  # noqa: E402,F401  Research tab endpoints (registers on router)
 
 __all__ = ["router", "create_app", "API_VERSION"]
 
