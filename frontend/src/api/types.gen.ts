@@ -984,6 +984,206 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/deals/tab/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Today
+         * @description Every deal stock (>= ₹1,000 Cr) of the latest deal session with its evidence verdict, 'what usually follows', deal price, status and chips. Sorted by verdict. meta.context: summary, skipped.
+         */
+        get: operations["tab_today_api_v2_deals_tab_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Watch
+         * @description Deal watch: one row per stock with a deal in the last 10 deal sessions (no churn / transfers): holding / lost / reclaimed vs the deal price, verdict upgraded after day 3.
+         */
+        get: operations["tab_watch_api_v2_deals_tab_watch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab History
+         * @description Every stock >= ₹1,000 Cr with a deal in the last 5 / 10 / 20 deal sessions incl. churn, prop desks and transfers: pattern, one cell per session, net, prop, avg deal price, now vs deal.
+         */
+        get: operations["tab_history_api_v2_deals_tab_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/houses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Houses
+         * @description Houses buying in the last 10 deal sessions: class, out-of-sample grade (FII/DII), spread across groups. meta.context: class_evidence, fund_groups (FII/DII money by industry).
+         */
+        get: operations["tab_houses_api_v2_deals_tab_houses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Groups
+         * @description Deals by industry over the last 10 deal sessions (transfers and churn out): buying / selling names, net ₹ Cr, symbols. Context only.
+         */
+        get: operations["tab_groups_api_v2_deals_tab_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/telegram": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Telegram
+         * @description Preview of the one-message Telegram digest (same text the sender posts).
+         */
+        get: operations["tab_telegram_api_v2_deals_tab_telegram_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/stock/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Stock
+         * @description Stock drawer: latest deal verdict (last 10 deal sessions, null if none), candles from 45 days before the deal, deal markers and the 3 latest deal-price lines.
+         */
+        get: operations["tab_stock_api_v2_deals_tab_stock__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/house/{house}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab House
+         * @description House drawer: class, grade, spread, and its buys over the last 20 deal sessions vs the equal-weight market since the next-open entry.
+         */
+        get: operations["tab_house_api_v2_deals_tab_house__house__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/markers/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deal Markers
+         * @description Cross-tab: per-symbol deal markers for chart deal candles. Rows: date, side (B net buy, S net sell, P placement, T transfer, C churn), price (deal level), event_type, net_cr, gross_cr.
+         */
+        get: operations["deal_markers_api_v2_deals_markers__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deal Flags
+         * @description Cross-tab: per-symbol 'has recent deal' flag (a deal within the last 10 deal sessions) with side and verdict, for the deal icon. symbols=A,B,C (max 500); omit for every flagged symbol.
+         */
+        get: operations["deal_flags_api_v2_deals_flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6574,6 +6774,370 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_Note_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_today_api_v2_deals_tab_today_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_watch_api_v2_deals_tab_watch_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                status?: "all" | "best" | "holding" | "lost" | "reclaimed";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_history_api_v2_deals_tab_history_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description 5, 10 or 20 deal sessions */
+                sessions?: number;
+                pattern?: "all" | "repeat_buy" | "single_buy" | "selling_only" | "mixed" | "churn_only" | "transfers_only";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_houses_api_v2_deals_tab_houses_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_groups_api_v2_deals_tab_groups_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_telegram_api_v2_deals_tab_telegram_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_stock_api_v2_deals_tab_stock__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_house_api_v2_deals_tab_house__house__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                house: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deal_markers_api_v2_deals_markers__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                lookback?: number;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deal_flags_api_v2_deals_flags_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                symbols?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

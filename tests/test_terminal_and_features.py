@@ -214,9 +214,11 @@ def test_telegram_deals_persistence_and_clientele_structure() -> None:
     assert "<1000 CR" not in msg2
     assert "<900 CR" not in msg2
 
-    # Dry-run execution
+    # Dry-run execution: the default is now the one-message digest (HarkPro/08-tab-deals.md 5.2)
     res = notify_deals(dry_run=True, lookback_days=5)
     assert res["sent"] is False
     assert res["dry_run"] is True
-    assert res["message_count"] >= 2
+    assert res["message_count"] == 1
+    legacy = notify_deals(dry_run=True, lookback_days=5, legacy=True)
+    assert legacy["message_count"] >= 2
 

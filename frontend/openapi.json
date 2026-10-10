@@ -4993,6 +4993,800 @@
           }
         }
       }
+    },
+    "/api/v2/deals/tab/today": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab Today",
+        "description": "Every deal stock (>= ₹1,000 Cr) of the latest deal session with its evidence verdict, 'what usually follows', deal price, status and chips. Sorted by verdict. meta.context: summary, skipped.",
+        "operationId": "tab_today_api_v2_deals_tab_today_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab Today Api V2 Deals Tab Today Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/watch": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab Watch",
+        "description": "Deal watch: one row per stock with a deal in the last 10 deal sessions (no churn / transfers): holding / lost / reclaimed vs the deal price, verdict upgraded after day 3.",
+        "operationId": "tab_watch_api_v2_deals_tab_watch_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "best",
+                "holding",
+                "lost",
+                "reclaimed"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab Watch Api V2 Deals Tab Watch Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/history": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab History",
+        "description": "Every stock >= ₹1,000 Cr with a deal in the last 5 / 10 / 20 deal sessions incl. churn, prop desks and transfers: pattern, one cell per session, net, prop, avg deal price, now vs deal.",
+        "operationId": "tab_history_api_v2_deals_tab_history_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "5, 10 or 20 deal sessions",
+              "default": 10,
+              "title": "Sessions"
+            },
+            "description": "5, 10 or 20 deal sessions"
+          },
+          {
+            "name": "pattern",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "repeat_buy",
+                "single_buy",
+                "selling_only",
+                "mixed",
+                "churn_only",
+                "transfers_only"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Pattern"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab History Api V2 Deals Tab History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/houses": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab Houses",
+        "description": "Houses buying in the last 10 deal sessions: class, out-of-sample grade (FII/DII), spread across groups. meta.context: class_evidence, fund_groups (FII/DII money by industry).",
+        "operationId": "tab_houses_api_v2_deals_tab_houses_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab Houses Api V2 Deals Tab Houses Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/groups": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab Groups",
+        "description": "Deals by industry over the last 10 deal sessions (transfers and churn out): buying / selling names, net ₹ Cr, symbols. Context only.",
+        "operationId": "tab_groups_api_v2_deals_tab_groups_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab Groups Api V2 Deals Tab Groups Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/telegram": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab Telegram",
+        "description": "Preview of the one-message Telegram digest (same text the sender posts).",
+        "operationId": "tab_telegram_api_v2_deals_tab_telegram_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab Telegram Api V2 Deals Tab Telegram Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/stock/{sym}": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab Stock",
+        "description": "Stock drawer: latest deal verdict (last 10 deal sessions, null if none), candles from 45 days before the deal, deal markers and the 3 latest deal-price lines.",
+        "operationId": "tab_stock_api_v2_deals_tab_stock__sym__get",
+        "parameters": [
+          {
+            "name": "sym",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sym"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab Stock Api V2 Deals Tab Stock  Sym  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/tab/house/{house}": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Tab House",
+        "description": "House drawer: class, grade, spread, and its buys over the last 20 deal sessions vs the equal-weight market since the next-open entry.",
+        "operationId": "tab_house_api_v2_deals_tab_house__house__get",
+        "parameters": [
+          {
+            "name": "house",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "House"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tab House Api V2 Deals Tab House  House  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/markers/{sym}": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Deal Markers",
+        "description": "Cross-tab: per-symbol deal markers for chart deal candles. Rows: date, side (B net buy, S net sell, P placement, T transfer, C churn), price (deal level), event_type, net_cr, gross_cr.",
+        "operationId": "deal_markers_api_v2_deals_markers__sym__get",
+        "parameters": [
+          {
+            "name": "sym",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sym"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2000,
+              "minimum": 1,
+              "default": 250,
+              "title": "Lookback"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Deal Markers Api V2 Deals Markers  Sym  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/deals/flags": {
+      "get": {
+        "tags": [
+          "deals-tab"
+        ],
+        "summary": "Deal Flags",
+        "description": "Cross-tab: per-symbol 'has recent deal' flag (a deal within the last 10 deal sessions) with side and verdict, for the deal icon. symbols=A,B,C (max 500); omit for every flagged symbol.",
+        "operationId": "deal_flags_api_v2_deals_flags_get",
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 12000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbols"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Deal Flags Api V2 Deals Flags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

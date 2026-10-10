@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from App.api.v2.routes import API_VERSION, router
+from App.api.v2.routes_deals import router as _deals_router; router.include_router(_deals_router)  # noqa: E402,E702  Deals tab
 
 __all__ = ["router", "create_app", "API_VERSION"]
 
