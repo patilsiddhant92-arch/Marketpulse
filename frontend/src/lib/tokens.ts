@@ -22,7 +22,17 @@ export type TokenName =
   | 'ema-10'
   | 'ema-20'
   | 'ema-50'
-  | 'ema-200';
+  | 'ema-200'
+  // Chart event candles + drawings (Charts tab).
+  | 'ev-results'
+  | 'ev-buy'
+  | 'ev-placement'
+  | 'ev-sell'
+  | 'ev-churn'
+  | 'ev-breakout'
+  | 'ev-breakdown'
+  | 'ev-gap'
+  | 'draw';
 
 /** Returns "rgba(r, g, b, a)" for a token, or a neutral grey if unresolved. */
 export function tokenColor(name: TokenName, alpha = 1): string {

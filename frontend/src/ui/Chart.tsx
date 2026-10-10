@@ -6,6 +6,12 @@
  * unless the caller supplies per-timeframe bars), corporate-action / results /
  * deal markers, date-synced crosshair across charts sharing `syncGroup`,
  * ResizeObserver sizing. Colours come from design tokens.
+ *
+ * Charts-tab additions (all optional, off by default, so existing callers are unchanged):
+ * per-bar candle colours (event candles), volume candles (priceStyle 'volume'), a 20-bar
+ * volume average line, an RSI pane, straight segments on the price / RSI pane (trend,
+ * divergence and deal-price lines), horizontal levels, coloured markers, a click callback
+ * for drawing tools and a per-bar note in the legend.
  */
 import {
   CandlestickSeries,
@@ -19,18 +25,21 @@ import {
   createChart,
   createSeriesMarkers,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type MouseEventParams,
   type SeriesMarker,
   type Time,
+  type WhitespaceData,
 } from 'lightweight-charts';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/cn';
 import { fmtCompactIN, fmtDate, fmtNum, fmtPct, fmtSignedPct } from '../lib/fmt';
-import { ema, resampleBars, type OHLCBar } from '../lib/indicators';
+import { ema, resampleBars, rsi as rsiCalc, sma, type OHLCBar } from '../lib/indicators';
 import { tokenColor, type TokenName } from '../lib/tokens';
 import type { DarvasLines, DarvasPoint } from './darvasModel';
+import { NARROW_CHART_PX, VolumeCandleSeries, volumeAlpha, volumeWidth, withAlpha, type VolumeCandleData } from './volumeCandleSeries';
 
 export type { DarvasLines } from './darvasModel';
 
@@ -51,6 +60,33 @@ export interface ChartMarker {
   kind: ChartMarkerKind;
   /** Short label drawn next to the marker (1-3 chars recommended). */
   text?: string;
+  /** Overrides for the kind's default style (event candles). */
+  color?: string;
+  position?: 'aboveBar' | 'belowBar' | 'inBar';
+  shape?: 'circle' | 'square' | 'arrowUp' | 'arrowDown';
+}
+
+/** A straight line between two points on the price or RSI pane. */
+export interface ChartSegment {
+  id: string;
+  pane: 'price' | 'rsi';
+  from: { time: string; value: number };
+  to: { time: string; value: number };
+  /** CSS colour. */
+  color: string;
+  dashed?: boolean;
+  width?: 1 | 2 | 3 | 4;
+  /** Show the end value + label on the price axis. */
+  axisLabel?: string;
+}
+
+/** A horizontal level drawn across the whole price pane (drawing tool / alert line). */
+export interface ChartLevel {
+  id: string;
+  price: number;
+  color: string;
+  title?: string;
+  dashed?: boolean;
 }
 
 export interface LinePoint {
@@ -94,11 +130,33 @@ export interface ChartProps {
   syncGroup?: string;
   /** Also sync pan / zoom (visible date range) across the group (old Tiles window "Sync ON"). */
   syncRange?: boolean;
-  /** 'line' draws a close line instead of candles (old Tiles window Candles / Line toggle). */
-  priceStyle?: 'candles' | 'line';
+  /**
+   * 'line' draws a close line instead of candles (old Tiles window Candles / Line toggle).
+   * 'volume' draws volume candles: body width ∝ volume vs its 20-bar average (TradingView style).
+   */
+  priceStyle?: 'candles' | 'line' | 'volume';
+  /** Whole-candle colours (event candles), snapped onto displayed bars; the first entry per bar wins. */
+  candleColors?: readonly { time: string; color: string }[];
+  /** 20-bar average volume line on the volume pane. */
+  volumeAvg?: boolean;
+  /** RSI pane (last pane), computed on displayed closes; 70 / 50 / 30 guide lines. */
+  rsi?: { period?: number } | null;
+  /** Straight segments (trend lines, divergence lines, deal-price lines). */
+  segments?: readonly ChartSegment[];
+  /** Horizontal levels across the price pane. */
+  levels?: readonly ChartLevel[];
+  /** Click on the price pane: nearest displayed bar time and the price under the cursor. */
+  onPriceClick?: (p: { time: string; price: number }) => void;
+  /** Extra legend text for the hovered (or last) bar, e.g. the event on it. */
+  barNote?: (time: string) => string | null;
+  /**
+   * Keep the zoom when the bars change (a new symbol from J / K): the same number of bars stays
+   * visible, anchored on the latest bar. The first data of a chart still uses `initialBars`.
+   */
+  keepRange?: boolean;
   logScale?: boolean;
-  /** Lower pane heights in px (defaults: volume 90 / 70 with RS, RS 80). */
-  paneHeights?: { volume?: number; rs?: number };
+  /** Lower pane heights in px (defaults: volume 90 / 70 with RS, RS 80, RSI 90). */
+  paneHeights?: { volume?: number; rs?: number; rsi?: number };
   /** Fixed height in px; default fills the parent. */
   height?: number;
   /** Visible bars on first render (default 150). */
@@ -268,6 +326,14 @@ export function Chart({
   onCrosshairTime,
   label,
   className,
+  candleColors,
+  volumeAvg = false,
+  rsi,
+  segments,
+  levels,
+  onPriceClick,
+  barNote,
+  keepRange = false,
 }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -281,6 +347,14 @@ export function Chart({
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const darvasRefs = useRef<Record<DarvasLineKey, ISeriesApi<'Line'>> | null>(null);
   const rsMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const volCandleRef = useRef<ISeriesApi<'Custom', Time, VolumeCandleData | WhitespaceData<Time>> | null>(null);
+  const volAvgRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const rsiRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const segmentRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const levelRefs = useRef<IPriceLine[]>([]);
+  const onPriceClickRef = useRef(onPriceClick);
+  const [structureSeq, setStructureSeq] = useState(0);
+  const rangeSetRef = useRef(false);
   const syncIdRef = useRef(syncSeq++);
   const suppressRef = useRef(false);
   const onCrosshairRef = useRef(onCrosshairTime);
@@ -288,6 +362,7 @@ export function Chart({
 
   useEffect(() => {
     onCrosshairRef.current = onCrosshairTime;
+    onPriceClickRef.current = onPriceClick;
   });
 
   const shown = useMemo(() => (resample ? resampleBars(bars, timeframe) : bars.slice()), [bars, timeframe, resample]);
@@ -319,6 +394,8 @@ export function Chart({
   const hasRs = !!rs;
   const withFuture = darvas !== undefined;
   const hasEma10 = emaPeriods.includes(10);
+  const hasRsi = !!rsi;
+  const rsiPeriod = rsi?.period ?? 14;
 
   // ---- create chart + series (structure changes rebuild)
   useEffect(() => {
@@ -345,7 +422,7 @@ export function Chart({
 
     // Line mode keeps the candle series (markers, boxes, crosshair and price scale live on it) but
     // makes it transparent, and draws the closes as a line on top.
-    const line = priceStyle === 'line';
+    const line = priceStyle === 'line' || priceStyle === 'volume';
     const clear = 'rgba(0,0,0,0)';
     candleRef.current = chart.addSeries(CandlestickSeries, {
       upColor: line ? clear : tokenColor('up'),
@@ -357,9 +434,14 @@ export function Chart({
       priceLineVisible: false,
       lastValueVisible: !line,
     });
-    closeLineRef.current = line
-      ? chart.addSeries(LineSeries, { color: tokenColor('info'), lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: true })
-      : null;
+    closeLineRef.current =
+      priceStyle === 'line'
+        ? chart.addSeries(LineSeries, { color: tokenColor('info'), lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: true })
+        : null;
+    volCandleRef.current =
+      priceStyle === 'volume'
+        ? chart.addCustomSeries(new VolumeCandleSeries(), { priceLineVisible: false, lastValueVisible: true, title: '' })
+        : null;
     markersRef.current = createSeriesMarkers(candleRef.current, []);
 
     emaRefs.current = new Map();
@@ -408,12 +490,27 @@ export function Chart({
     };
 
     volumeRef.current = null;
+    volAvgRef.current = null;
     if (volume) {
       volumeRef.current = chart.addSeries(
         HistogramSeries,
         { priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false },
         1,
       );
+      if (volumeAvg) {
+        volAvgRef.current = chart.addSeries(
+          LineSeries,
+          {
+            color: tokenColor('fg-2', 0.7),
+            lineWidth: 1,
+            priceFormat: { type: 'volume' },
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          },
+          1,
+        );
+      }
     }
     rsRef.current = null;
     rsMarkersRef.current = null;
@@ -425,9 +522,59 @@ export function Chart({
       );
       rsMarkersRef.current = createSeriesMarkers(rsRef.current, []);
     }
+    rsiRef.current = null;
+    const rsiPane = 1 + (volume ? 1 : 0) + (hasRs ? 1 : 0);
+    if (hasRsi) {
+      const r = chart.addSeries(
+        LineSeries,
+        {
+          color: tokenColor('violet'),
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          crosshairMarkerVisible: false,
+          priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+          autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+        },
+        rsiPane,
+      );
+      for (const [lvl, alpha] of [
+        [70, 0.6],
+        [50, 0.3],
+        [30, 0.6],
+      ] as const) {
+        r.createPriceLine({
+          price: lvl,
+          color: tokenColor('fg-3', alpha),
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: '',
+        });
+      }
+      rsiRef.current = r;
+    }
     const panes = chart.panes();
-    if (panes[1]) panes[1].setHeight(volume ? (paneHeights?.volume ?? (hasRs ? 70 : 90)) : (paneHeights?.rs ?? 80));
-    if (panes[2]) panes[2].setHeight(paneHeights?.rs ?? 80);
+    if (panes[1]) panes[1].setHeight(volume ? (paneHeights?.volume ?? (hasRs ? 70 : 90)) : hasRs ? (paneHeights?.rs ?? 80) : (paneHeights?.rsi ?? 90));
+    if (panes[2]) panes[2].setHeight(volume && hasRs ? (paneHeights?.rs ?? 80) : (paneHeights?.rsi ?? 90));
+    if (panes[3]) panes[3].setHeight(paneHeights?.rsi ?? 90);
+
+    // ---- click on the price pane (drawing tools)
+    const onClick = (param: MouseEventParams<Time>) => {
+      const cb = onPriceClickRef.current;
+      const series = candleRef.current;
+      if (!cb || !series || !param.point || (param.paneIndex ?? 0) !== 0) return;
+      const price = series.coordinateToPrice(param.point.y);
+      const data = shownRef.current;
+      let iso = timeToISO(param.time);
+      if (!iso && param.logical != null && data.length) {
+        const i = Math.max(0, Math.min(data.length - 1, Math.round(param.logical)));
+        iso = data[i].time;
+      }
+      if (price == null || !iso) return;
+      cb({ time: iso, price: Number(price) });
+    };
+    chart.subscribeClick(onClick);
 
     // ---- crosshair: legend + sync
     const onMove = (param: MouseEventParams<Time>) => {
@@ -510,7 +657,13 @@ export function Chart({
       leaveRange?.();
       if (syncGroup && syncRange) chart.timeScale().unsubscribeVisibleTimeRangeChange(onRange);
       chart.unsubscribeCrosshairMove(onMove);
+      chart.unsubscribeClick(onClick);
       chart.remove();
+      volCandleRef.current = null;
+      volAvgRef.current = null;
+      rsiRef.current = null;
+      segmentRefs.current = [];
+      levelRefs.current = [];
       chartRef.current = null;
       candleRef.current = null;
       closeLineRef.current = null;
@@ -520,9 +673,11 @@ export function Chart({
       rsMarkersRef.current = null;
       darvasRefs.current = null;
     };
+    rangeSetRef.current = false;
+    setStructureSeq((n) => n + 1);
     // Rebuild only on structural change; data flows through the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
+  }, [emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs, paneHeights?.rsi, volumeAvg, hasRsi]);
 
   // ---- log / linear without rebuild
   useEffect(() => {
@@ -533,7 +688,52 @@ export function Chart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !candleRef.current) return;
-    candleRef.current.setData(shown.map((b) => ({ time: b.time as Time, open: b.open, high: b.high, low: b.low, close: b.close })));
+    // Event candle colours: snap each entry onto its displayed bar; the first entry per bar wins.
+    const paint = new Map<string, string>();
+    for (const c of candleColors ?? []) {
+      const i = firstBarAtOrAfter(shown, c.time);
+      if (i >= 0 && !paint.has(shown[i].time)) paint.set(shown[i].time, c.color);
+    }
+    const painted = priceStyle === 'candles';
+    candleRef.current.setData(
+      shown.map((b) => {
+        const c = painted ? paint.get(b.time) : undefined;
+        const base = { time: b.time as Time, open: b.open, high: b.high, low: b.low, close: b.close };
+        return c ? { ...base, color: c, borderColor: c, wickColor: c } : base;
+      }),
+    );
+    if (volCandleRef.current) {
+      const vavg = sma(shown.map((b) => b.volume ?? null), 20);
+      // Narrow charts (phones, small tiles): colour intensity instead of width (09-tab-charts §4).
+      const narrow = (containerRef.current?.clientWidth ?? NARROW_CHART_PX) < NARROW_CHART_PX;
+      volCandleRef.current.setData(
+        shown.map((b, i) => {
+          // Average of the 20 bars before this one (a spike does not dilute its own baseline).
+          const avg = i > 0 ? vavg[i - 1] : null;
+          const base = paint.get(b.time) ?? tokenColor(b.close >= b.open ? 'up' : 'down');
+          return {
+            time: b.time as Time,
+            open: b.open,
+            high: b.high,
+            low: b.low,
+            close: b.close,
+            width: narrow ? 0.7 : volumeWidth(b.volume, avg),
+            color: narrow ? withAlpha(base, volumeAlpha(b.volume, avg)) : base,
+          };
+        }),
+      );
+    }
+    if (volAvgRef.current) {
+      const vavg = sma(shown.map((b) => b.volume ?? null), 20);
+      volAvgRef.current.setData(shown.flatMap((b, i) => (vavg[i] == null ? [] : [{ time: b.time as Time, value: vavg[i] as number }])));
+    }
+    if (rsiRef.current) {
+      const r = rsiCalc(
+        shown.map((b) => b.close),
+        rsiPeriod,
+      );
+      rsiRef.current.setData(shown.flatMap((b, i) => (r[i] == null ? [] : [{ time: b.time as Time, value: r[i] as number }])));
+    }
     closeLineRef.current?.setData(shown.map((b) => ({ time: b.time as Time, value: b.close })));
 
     const closes = shown.map((b) => b.close);
@@ -573,9 +773,9 @@ export function Chart({
       const s = markerStyle(m.kind);
       snapped.push({
         time: shown[i].time as Time,
-        position: s.position,
-        shape: s.shape,
-        color: s.color,
+        position: m.position ?? s.position,
+        shape: m.shape ?? s.shape,
+        color: m.color ?? s.color,
         text: m.text ?? s.text,
       } as SeriesMarker<Time>);
     }
@@ -590,7 +790,69 @@ export function Chart({
       lines.topExtension.setData(pts(darvas?.topExtension));
       lines.emaProjection.setData(hasEma10 ? pts(darvas?.emaProjection) : []);
     }
-  }, [shown, overlays, darvas, hasEma10, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
+  }, [shown, overlays, darvas, hasEma10, rs, markers, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs, candleColors, rsiPeriod, structureSeq]);
+
+  // ---- segments (trend / divergence / deal-price lines) and levels: re-drawn on change, no rebuild
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const s of segmentRefs.current) {
+      try {
+        chart.removeSeries(s);
+      } catch {
+        /* chart rebuilt */
+      }
+    }
+    segmentRefs.current = [];
+    const rsiPane = 1 + (volume ? 1 : 0) + (hasRs ? 1 : 0);
+    for (const seg of segments ?? []) {
+      if (seg.pane === 'rsi' && !hasRsi) continue;
+      const a = firstBarAtOrAfter(shown, seg.from.time);
+      const b = firstBarAtOrAfter(shown, seg.to.time);
+      if (a < 0 || b < 0 || b <= a) continue;
+      const line = chart.addSeries(
+        LineSeries,
+        {
+          color: seg.color,
+          lineWidth: seg.width ?? 1,
+          lineStyle: seg.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: !!seg.axisLabel,
+          title: seg.axisLabel ?? '',
+          crosshairMarkerVisible: false,
+          autoscaleInfoProvider: () => null,
+        },
+        seg.pane === 'rsi' ? rsiPane : 0,
+      );
+      line.setData([
+        { time: shown[a].time as Time, value: seg.from.value },
+        { time: shown[b].time as Time, value: seg.to.value },
+      ]);
+      segmentRefs.current.push(line);
+    }
+  }, [segments, shown, structureSeq, volume, hasRs, hasRsi]);
+
+  useEffect(() => {
+    const series = candleRef.current;
+    if (!series) return;
+    for (const l of levelRefs.current) {
+      try {
+        series.removePriceLine(l);
+      } catch {
+        /* chart rebuilt */
+      }
+    }
+    levelRefs.current = (levels ?? []).map((l) =>
+      series.createPriceLine({
+        price: l.price,
+        color: l.color,
+        lineWidth: 1,
+        lineStyle: l.dashed ? LineStyle.Dashed : LineStyle.Solid,
+        axisLabelVisible: true,
+        title: l.title ?? '',
+      }),
+    );
+  }, [levels, structureSeq]);
 
   // ---- initial visible range: only when the bars (or chart structure) change, so toggling
   // overlays / boxes keeps the user's zoom.
@@ -598,8 +860,13 @@ export function Chart({
     const chart = chartRef.current;
     const n = shown.length;
     // Charts with Darvas projections leave room for the 5 future (candle-less) points.
-    if (chart && n > 0) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - initialBars), to: n + (withFuture ? 7 : 3) });
-  }, [shown, initialBars, withFuture, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs]);
+    if (!chart || n === 0) return;
+    const pad = withFuture ? 7 : 3;
+    const cur = keepRange && rangeSetRef.current ? chart.timeScale().getVisibleLogicalRange() : null;
+    const width = cur ? Math.max(10, cur.to - cur.from - pad) : initialBars;
+    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - width), to: n + pad });
+    rangeSetRef.current = true;
+  }, [shown, initialBars, withFuture, emaKey, overlayKey, volume, hasRs, syncGroup, syncRange, priceStyle, paneHeights?.volume, paneHeights?.rs, paneHeights?.rsi, volumeAvg, hasRsi, keepRange]);
 
   return (
     <div className={cn('relative flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>
@@ -649,6 +916,10 @@ export function Chart({
                 </span>
               )}
               {emaPeriods.length > 0 && <span className="hidden xl:inline">EMA {emaPeriods.join('/')}</span>}
+              {barNote && (() => {
+                const note = barNote(legend.bar.time);
+                return note ? <span className="truncate text-fg-2">{note}</span> : null;
+              })()}
             </div>
           )}
         </div>

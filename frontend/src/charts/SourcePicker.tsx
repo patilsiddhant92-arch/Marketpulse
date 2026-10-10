@@ -8,9 +8,9 @@ import { useApiQuery } from '../api/query';
 import { cn } from '../lib/cn';
 import { useEscapeLayer } from '../lib/layers';
 import { loadLastRun } from '../screener/model';
-import { LEVEL_LABELS, QUEUE_LABELS, parseSource, type ParsedSource } from './sources';
+import { LEVEL_LABELS, QUEUE_LABELS, parseSource, parseSymbolText, type ParsedSource } from './sources';
 
-type Cat = 'desk' | 'screener' | 'groups' | 'deals' | 'research' | 'watchlist';
+type Cat = 'desk' | 'screener' | 'groups' | 'deals' | 'research' | 'watchlist' | 'peers' | 'paste';
 const CATS: { id: Cat; label: string }[] = [
   { id: 'desk', label: 'Desk queues' },
   { id: 'screener', label: 'Screener' },
@@ -18,6 +18,8 @@ const CATS: { id: Cat; label: string }[] = [
   { id: 'deals', label: 'Deals' },
   { id: 'research', label: 'Research' },
   { id: 'watchlist', label: 'Watchlist' },
+  { id: 'peers', label: 'Peers' },
+  { id: 'paste', label: 'Paste list' },
 ];
 
 function catOf(src: ParsedSource | null): Cat {
@@ -31,8 +33,11 @@ function catOf(src: ParsedSource | null): Cat {
     case 'research':
       return 'research';
     case 'watchlist':
-    case 'list':
       return 'watchlist';
+    case 'list':
+      return 'paste';
+    case 'peers':
+      return 'peers';
     default:
       return 'desk';
   }
@@ -44,9 +49,15 @@ export interface SourcePickerProps {
   count: number | null;
   watchCount: number;
   onChange: (src: string) => void;
+  /** Current chart symbol (Peers of …). */
+  current?: string | null;
+  /** Pasted symbols (TradingView export or one per line) -> an editable list. */
+  onPaste?: (symbols: string[]) => void;
 }
 
-export function SourcePicker({ value, label, count, watchCount, onChange }: SourcePickerProps) {
+export function SourcePicker({ value, label, count, watchCount, onChange, current, onPaste }: SourcePickerProps) {
+  const [pasteText, setPasteText] = useState('');
+  const pasted = useMemo(() => parseSymbolText(pasteText), [pasteText]);
   const [open, setOpen] = useState(false);
   const parsed = parseSource(value);
   const [cat, setCat] = useState<Cat>(catOf(parsed));
@@ -195,6 +206,37 @@ export function SourcePicker({ value, label, count, watchCount, onChange }: Sour
             )}
             {cat === 'research' && <div className="overflow-auto">{item('research:pre-move', 'Pre-move watch', 'research')}</div>}
             {cat === 'watchlist' && <div className="overflow-auto">{item('watchlist', 'Watchlist', `${watchCount} stocks`)}</div>}
+            {cat === 'peers' && (
+              <div className="overflow-auto">
+                {current ? item(`peers:${current}`, `Peers of ${current}`, 'same industry, by strength') : null}
+                <p className="px-2 pt-2 text-2xs text-fg-3">
+                  {current ? 'The stock first, then its industry peers (≥ ₹1,000 Cr), strongest first.' : 'Open a stock first.'}
+                </p>
+              </div>
+            )}
+            {cat === 'paste' && (
+              <div className="flex min-h-0 flex-1 flex-col gap-1 p-1">
+                <textarea
+                  aria-label="Paste symbols"
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={'NSE:HAL,NSE:BEL or one symbol per line\n(a TradingView export works as-is)'}
+                  className="min-h-0 flex-1 resize-none rounded border border-line bg-surface p-1.5 font-mono text-xs text-fg focus:border-accent focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={!pasted.length || !onPaste}
+                  onClick={() => {
+                    onPaste?.(pasted);
+                    setPasteText('');
+                    setOpen(false);
+                  }}
+                  className="h-7 shrink-0 rounded border border-line bg-accent/15 px-2 text-xs text-accent disabled:opacity-40"
+                >
+                  Open {pasted.length} symbol{pasted.length === 1 ? '' : 's'} as a list
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -78,3 +78,54 @@ export function resampleBars(bars: readonly OHLCBar[], tf: 'D' | 'W' | 'M'): OHL
   flush();
   return out;
 }
+
+/** Simple moving average; null until `period` values exist. NULL / non-finite inputs break the window (stay null). */
+export function sma(values: readonly (number | null | undefined)[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array<number | null>(values.length).fill(null);
+  if (period <= 0) return out;
+  let sum = 0;
+  let run = 0;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v == null || !Number.isFinite(v)) {
+      sum = 0;
+      run = 0;
+      continue;
+    }
+    sum += v;
+    run++;
+    if (run > period) {
+      sum -= values[i - period] as number;
+      run = period;
+    }
+    if (run === period) out[i] = sum / period;
+  }
+  return out;
+}
+
+/**
+ * Wilder RSI (TradingView `ta.rsi`): RMA of gains / losses seeded with the SMA of the
+ * first `period` changes. null for the first `period` bars. 100 when there are no losses.
+ */
+export function rsi(closes: readonly number[], period = 14): (number | null)[] {
+  const out: (number | null)[] = new Array<number | null>(closes.length).fill(null);
+  if (period <= 0 || closes.length <= period) return out;
+  let gain = 0;
+  let loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gain += d;
+    else loss -= d;
+  }
+  gain /= period;
+  loss /= period;
+  const val = (g: number, l: number) => (l === 0 ? (g === 0 ? 50 : 100) : 100 - 100 / (1 + g / l));
+  out[period] = val(gain, loss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    gain = (gain * (period - 1) + Math.max(d, 0)) / period;
+    loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = val(gain, loss);
+  }
+  return out;
+}

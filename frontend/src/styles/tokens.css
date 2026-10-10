@@ -48,6 +48,17 @@
   --c-ema-50: 174 150 250;
   --c-ema-200: 172 183 199;
 
+  /* Chart event candles + drawings (HarkPro/09-tab-charts §5; deal colours from 08-tab-deals §5.6). Canvas only. */
+  --c-ev-results: 168 85 247;
+  --c-ev-buy: 20 184 166;
+  --c-ev-placement: 59 130 246;
+  --c-ev-sell: 249 115 22;
+  --c-ev-churn: 139 147 161;
+  --c-ev-breakout: 34 229 94;
+  --c-ev-breakdown: 242 85 44;
+  --c-ev-gap: 234 179 8;
+  --c-draw: 56 189 248;
+
   /* Elevation — cards sit on bg with a hairline + soft drop; popovers lift further. */
   --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 1px 2px 0 rgb(0 0 0 / 0.35);
   --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 6px 0 rgb(0 0 0 / 0.4);

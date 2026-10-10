@@ -9,6 +9,8 @@ import { toDarvasLines } from '../ui/darvasModel';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
+import { useChartLayers } from '../charts/chartLayers';
+import { EventLegend } from '../charts/ChartControls';
 import { FULL_HISTORY, type Stock360Data } from './useStock360';
 import {
   adjustmentToMarker,
@@ -39,7 +41,7 @@ export interface StockChartPanelProps {
   /** Log price scale. */
   logScale?: boolean;
   /** Volume / RS pane heights (big chart gives them more room). */
-  paneHeights?: { volume?: number; rs?: number };
+  paneHeights?: { volume?: number; rs?: number; rsi?: number };
 }
 
 const seg = (on: boolean) =>
@@ -72,20 +74,32 @@ export function StockChartPanel({
   const shown = useMemo(() => barsFor(daily, tf), [daily, tf]);
   const times = useMemo(() => shown.map((b) => b.time), [shown]);
 
+  // Global chart settings (09-tab-charts §4): EMAs, price style, event candles + deal lines, RSI, drawings.
+  const layers = useChartLayers(symbol, shown, tf, { darvas: darvas.data?.rows });
+  const { rsPane } = prefs;
+
   const rsLine = useMemo(() => {
+    if (!rsPane) return null;
     const pts = rsSeries(rs.data?.rows ?? [], bm);
     if (!pts.some((p) => p.value != null)) return null;
     return { label: `${RS_LABEL[bm]} (rebased 100)`, data: tf === 'D' ? pts : snapPoints(pts, times) };
-  }, [rs.data, bm, tf, times]);
+  }, [rs.data, bm, tf, times, rsPane]);
 
+  // With event candles on, results / ex-dates / deals come from the event layer (one letter per bar);
+  // adjustments (split / bonus) stay as their own markers.
   const markers = useMemo<ChartMarker[]>(
     () =>
-      [
-        ...(events.data?.rows ?? []).map(eventToMarker),
-        ...(header.data?.rows[0]?.adjustments ?? []).map(adjustmentToMarker),
-        ...dealMarkers(deals.data?.rows ?? []),
-      ].filter((m): m is ChartMarker => m !== null),
-    [events.data, header.data, deals.data],
+      prefs.events
+        ? [
+            ...layers.markers,
+            ...(header.data?.rows[0]?.adjustments ?? []).map(adjustmentToMarker).filter((m): m is ChartMarker => m !== null),
+          ]
+        : [
+            ...(events.data?.rows ?? []).map(eventToMarker),
+            ...(header.data?.rows[0]?.adjustments ?? []).map(adjustmentToMarker),
+            ...dealMarkers(deals.data?.rows ?? []),
+          ].filter((m): m is ChartMarker => m !== null),
+    [events.data, header.data, deals.data, prefs.events, layers.markers],
   );
 
   const overlays = useMemo(() => {
@@ -109,6 +123,9 @@ export function StockChartPanel({
         ))}
       </div>
       <div className="flex shrink-0 overflow-hidden rounded border border-line" role="group" aria-label="RS benchmark">
+        <button type="button" aria-pressed={rsPane} onClick={() => setPrefs({ rsPane: !rsPane })} className={seg(rsPane)} title="RS line pane (global chart setting)">
+          RS
+        </button>
         <button type="button" aria-pressed={bm === 'midsml400'} onClick={() => setPrefs({ bm: 'midsml400' })} className={seg(bm === 'midsml400')}>
           RS MS400
         </button>
@@ -155,7 +172,7 @@ export function StockChartPanel({
         className="ml-auto min-w-0 truncate"
         title="Markers: R results · B/S bonus/split · X ex-date · ▲▼ institutional deals · dots on RS = new RS high · dotted lines = 5-bar projections (top box extension, EMA10)"
       >
-        R results · ▲▼ inst. deals · ● RS high · ┈ projections
+        {prefs.events ? 'event candles · ● RS high · ┈ projections' : 'R results · ▲▼ inst. deals · ● RS high · ┈ projections'}
       </span>
     </div>
   );
@@ -175,6 +192,15 @@ export function StockChartPanel({
         darvas={darvasLines}
         rs={rsLine}
         markers={markers}
+        emaPeriods={layers.emaPeriods}
+        priceStyle={layers.priceStyle}
+        volume={layers.volume}
+        volumeAvg={layers.volumeAvg}
+        rsi={layers.rsi}
+        candleColors={layers.candleColors}
+        segments={layers.segments}
+        levels={layers.levels}
+        barNote={layers.barNote}
         logScale={logScale}
         paneHeights={paneHeights}
         syncGroup={`stock360-${symbol}`}
@@ -188,6 +214,7 @@ export function StockChartPanel({
     <div className={cn('flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>
       {toolbar}
       {body}
+      {daily.length > 0 && <EventLegend layers={layers} className="shrink-0 border-t border-line px-2 py-0.5" />}
     </div>
   );
 }
