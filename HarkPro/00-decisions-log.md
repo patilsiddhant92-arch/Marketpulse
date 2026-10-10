@@ -82,3 +82,4 @@ Newest at the bottom. Each line: date · decision · reason.
 - Choppy: two-axis regime (index range/trend × breakouts paying/failing), tested locally (§11 of 10-tab-research.md). In chop, the next breakouts held 40% of the time vs 52% in trend + paying.
 - Research 1c: big-move case studies (MTARTECH/STLTECH + 226 doublers). Early-structure presets (delivery thrust, EMAs converge, VCP) fire ~30 pts nearer the low than 8/8. Precision only 13-14% vs a 9.5% base, so re-entry + risk control is the edge. Desk look-ahead bug: today's band excludes BE stocks from all history.
 - Research 1d: runner vs fizzle study (756 early lifts, 30 D/W/M/accumulation/improvement traits). Two families (turnaround vs trend); lift force + early weekly stage matter; EOD accumulation counts weak; regime dominates (7.5%-40% by quarter). Desk band patch in HarkPro/patches.
+- 2026-10-10: setup_daily band look-ahead fix applied on hark/harkpro (user OK). Tests pass.

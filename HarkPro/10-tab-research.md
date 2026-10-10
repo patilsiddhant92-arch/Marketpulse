@@ -248,4 +248,4 @@ The scripts are `tools/bigmove_study/premove.py` + `premove_split.py`.
   - the regime quadrant as a multiplier.
 - Case study per stock (section 12): a D/W/M strip showing which traits were on in the 13 weeks before the lift, plus the entry ladder.
 
-**Desk look-ahead fix**: `HarkPro/patches/setup_daily-band-lookahead.patch`. Before the reference band exists, it uses the series traded that day (BE/BZ → 5%, else unknown) and never back-fills today's band. The main app is not edited (HarkPro-only rule). Apply it, then rebuild setup_daily.
+**Desk look-ahead fix**: `HarkPro/patches/setup_daily-band-lookahead.patch`. Before the reference band exists, it uses the series traded that day (BE/BZ → 5%, else unknown) and never back-fills today's band. Applied on branch hark/harkpro with the user's OK (2026-10-10). 15/15 setup_daily tests pass. Spot check: MTARTECH now enters the Desk 10 EMA queue on 2025-09-12 and STLTECH has 147 rows (both 0 before); RELIANCE is unchanged. Run a full setup_daily rebuild after pulling.
