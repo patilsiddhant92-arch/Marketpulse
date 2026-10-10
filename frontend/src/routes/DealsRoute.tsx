@@ -12,7 +12,7 @@
 import type { ReactNode } from 'react';
 import { useAsOf, useUrlParam } from '../shell/urlState';
 import { fmtDate } from '../lib/fmt';
-import { Segmented } from './groups/kit';
+import { Segmented } from '../ui/Segmented';
 import { HouseDrawer, StockDrawer } from './deals/drawers';
 import { viewFromParam, VIEWS, type DealsView } from './deals/model';
 import { GroupsView, HistoryView, HousesView, TodayView, WatchView, type ViewProps } from './deals/views';

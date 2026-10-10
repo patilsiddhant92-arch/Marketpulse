@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { DataWarningChip } from '../../ui/DataWarningChip';
 import { Panel } from '../../ui/Panel';
-import { Segmented } from '../groups/kit';
+import { Segmented } from '../../ui/Segmented';
 import type { PulseResult } from './data';
 import { TREEMAP_SCALE, fixed, intIN, isNum, returnFill, shortDate, signed, squarify, toneClass, type TreemapPeriod } from './model';
 import { Legend, Note, SectionBody } from './parts';

@@ -6,7 +6,7 @@
  * the Pulse mood + "working now" gauge beside the score, a 9-card chart grid, the group panel, the
  * TradingView-style stock heatmap and the group studies (moved here from Research). No setup references here.
  */
-import { CalendarClock, Check, ClipboardCopy } from 'lucide-react';
+import { Check, ClipboardCopy } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { applyGroupState, useGroupState } from '../context/groupState';
@@ -14,9 +14,11 @@ import { copyText } from '../lib/clipboard';
 import { useShell } from '../shell/ShellContext';
 import { useAsOf, useUrlParam } from '../shell/urlState';
 import { Chip } from '../ui/Chip';
+import { DataGapBanner } from '../ui/DataGap';
 import { EmptyState } from '../ui/EmptyState';
 import { GroupStudies } from './groups/GroupStudies';
-import { Segmented, SourceNote } from './groups/kit';
+import { Segmented } from '../ui/Segmented';
+import { SourceNote } from '../ui/SourceNote';
 import { WINDOWS, useSectors, type BoardContext, type IndexRow, type SectorLevel, type SectorRow } from './groups/sectorApi';
 import { IndexBoard, SectorBoard } from './groups/SectorBoard';
 import { GroupPanel, SectorChartGrid } from './groups/SectorCharts';
@@ -173,21 +175,18 @@ export default function GroupsRoute() {
         <div className="shrink-0 space-y-1.5 px-2 pt-2">
           <SectorContext ctx={shownCtx} loading={board.isLoading || ctxQuery.isLoading} />
           {gaps.length > 0 && (
-            <div
-              role="status"
-              className="flex flex-wrap items-center gap-2 rounded border border-warn/40 bg-warn/10 px-3 py-1.5 text-xs text-fg"
+            <DataGapBanner
+              action={
+                lastClean && lastClean !== board.data?.as_of ? (
+                  <button type="button" className="text-accent hover:underline" onClick={() => setAsOf(lastClean)}>
+                    Show {lastClean}, the latest good session
+                  </button>
+                ) : undefined
+              }
             >
-              <CalendarClock className="h-3.5 w-3.5 text-warn" />
-              <span>
-                Data gap: the {gaps.join(', ')} {gaps.length === 1 ? 'window spans' : 'windows span'} missing sessions on{' '}
-                {board.data?.as_of}, so those readings are blank.
-              </span>
-              {lastClean && lastClean !== board.data?.as_of && (
-                <button type="button" className="text-accent hover:underline" onClick={() => setAsOf(lastClean)}>
-                  Show {lastClean}, the latest good session
-                </button>
-              )}
-            </div>
+              Data gap: the {gaps.join(', ')} {gaps.length === 1 ? 'window spans' : 'windows span'} missing sessions on {board.data?.as_of}, so those readings are
+              blank.
+            </DataGapBanner>
           )}
           {!isIndex && (
             <div className="flex flex-wrap items-center gap-2 text-2xs text-fg-3">

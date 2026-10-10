@@ -16,7 +16,7 @@ import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
 import { EmptyState } from '../../ui/EmptyState';
 import { Unclassified } from '../../ui/Unclassified';
-import { SourceNote } from './kit';
+import { SourceNote } from '../../ui/SourceNote';
 import { DealIcon } from '../../ui/DealIcon';
 
 const EMPTY: AccumulatorRow[] = [];

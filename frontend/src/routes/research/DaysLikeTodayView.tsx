@@ -31,6 +31,7 @@ import {
 } from './lab';
 import { Caveat, Muted, QuadrantChip, SimpleTable, Summary } from './LabParts';
 import { PathChart, Panel, QueryState, SampleN } from './parts';
+import { DataGapBanner } from '../../ui/DataGap';
 
 const pctile = (v: number | null | undefined) => (isNum(v) ? `${Math.round(v * 100)}th pct` : '—');
 
@@ -225,9 +226,9 @@ export function DaysLikeTodayView() {
           <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-3">
             <Caveat text={caveatOf(env.meta)} />
             {c.dropped_sessions && c.dropped_sessions.length > 0 && (
-              <div role="note" className="rounded border border-warn/40 bg-warn/5 px-3 py-1 text-2xs text-fg-2">
+              <DataGapBanner role="note" compact>
                 Studies end on {fmtDate(c.study_end ?? null)}. {c.dropped_sessions.length} later session(s) sit after a data gap and are not studied.
-              </div>
+              </DataGapBanner>
             )}
             <GlanceBand label="Market now">
               <KpiTile

@@ -13,7 +13,8 @@ import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { squarify, type Floor, type Level } from './groupsModel';
-import { Segmented, SourceNote } from './kit';
+import { Segmented } from '../../ui/Segmented';
+import { SourceNote } from '../../ui/SourceNote';
 
 export type MapColour = 'health' | 'ret21';
 type LeafLevel = Exclude<Level, 'broad_sector'>;

@@ -6,10 +6,11 @@ import { useMemo, useState } from 'react';
 import { fmtDate, fmtNum } from '../../lib/fmt';
 import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
+import { StaticTable } from '../../ui/StaticTable';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
-import { Segmented } from '../groups/kit';
+import { Segmented } from '../../ui/Segmented';
 import {
   useDeals,
   type DealRow,
@@ -390,26 +391,18 @@ export function HousesView({ text, onStock, onHouse }: ViewProps) {
         <TvCopyAll lists={[fundList, houseList]} />
       </div>
       <Panel title="Who is buying matters more than their record" sub="Buys of ₹5 Cr or more, 20 sessions later vs the market, NSE history Apr 2024 to Jul 2026.">
-        <table className="w-full max-w-xl text-table">
-          <thead>
-            <tr className="text-left text-2xs uppercase tracking-wide text-fg-3">
-              <th className="px-3 py-1 font-medium">Buyer class</th>
-              <th className="px-3 text-right font-medium">Deals</th>
-              <th className="px-3 text-right font-medium">vs market</th>
-              <th className="px-3 text-right font-medium">Beat %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(ctx?.class_evidence ?? []).map((c) => (
-              <tr key={c.buyer_class} className="border-t border-line/60">
-                <td className="px-3 py-1">{c.buyer_class}</td>
-                <td className="num px-3 text-right">{c.n.toLocaleString('en-IN')}</td>
-                <td className="px-3 text-right"><Signed value={c.vs_market_pct} pct /></td>
-                <td className="num px-3 text-right">{c.beat_pct}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <StaticTable
+          className="max-w-xl"
+          label="Buyer class record"
+          rows={ctx?.class_evidence ?? []}
+          rowKey={(c) => c.buyer_class}
+          columns={[
+            { id: 'cls', header: 'Buyer class', cell: (c) => c.buyer_class },
+            { id: 'n', header: 'Deals', align: 'right', cell: (c) => c.n.toLocaleString('en-IN') },
+            { id: 'vs', header: 'vs market', align: 'right', cell: (c) => <Signed value={c.vs_market_pct} pct /> },
+            { id: 'beat', header: 'Beat %', align: 'right', cell: (c) => `${c.beat_pct}%` },
+          ]}
+        />
         <div className="p-3">
           <DoLine>
             Grades show for FII/DII only, from finished trades before the as-of date. {ctx?.graded_houses ?? 0} houses are graded from {ctx?.finished_bets ?? 0} finished

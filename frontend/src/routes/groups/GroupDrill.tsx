@@ -27,7 +27,8 @@ import { Skeleton } from '../../ui/Skeleton';
 import { Spark } from '../../ui/Spark';
 import { FLOORS, levelLabel, parseGroupId, queueLabel, rankSparkValues, setupsByQueue, topMovers, type Floor } from './groupsModel';
 import { HealthCell, QuadrantWithNote, TrendArrow } from './health';
-import { MetricInline, RankDelta, SourceNote, ZoneNum } from './kit';
+import { MetricInline, RankDelta, ZoneNum } from './kit';
+import { SourceNote } from '../../ui/SourceNote';
 import { DealIcon, SymbolWithDeal } from '../../ui/DealIcon';
 
 const EMPTY_M: MemberRow[] = [];

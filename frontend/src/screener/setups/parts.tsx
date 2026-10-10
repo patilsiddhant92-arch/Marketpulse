@@ -9,6 +9,7 @@ import { cn } from '../../lib/cn';
 import { fmtDate, fmtNum } from '../../lib/fmt';
 import { Chip } from '../../ui/Chip';
 import { DataTable, type DataTableColumn } from '../../ui/DataTable';
+import { DataGapList } from '../../ui/DataGap';
 import { DataWarningChip } from '../../ui/DataWarningChip';
 import { Drawer } from '../../ui/Drawer';
 import { GroupStateChip } from '../../ui/GroupState';
@@ -67,15 +68,9 @@ export function ScanCounts({ ctx }: { ctx: BoardContext }) {
   );
 }
 
+/** Served data gaps as warn chips: the shared ui/DataGap list. */
 export function DataGaps({ gaps }: { gaps?: string[] }) {
-  if (!gaps?.length) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1" aria-label="Data gaps">
-      {gaps.map((g) => (
-        <DataWarningChip key={g} warning={g} />
-      ))}
-    </div>
-  );
+  return <DataGapList gaps={gaps} />;
 }
 
 // ------------------------------------------------------------------ chart grid (9 per page, synced, J/K pages)
@@ -178,8 +173,10 @@ export function DetailPanel({
   const q = useApiQuery('setups/detail/{sym}', { params: { sym: symbol ?? '' }, query: query as never }, { enabled: !!symbol });
   const shared = useGroupState('industry');
   const raw = q.data?.rows[0];
-  const sg = raw?.industry ? shared.map.get(raw.industry) : undefined;
-  const row = raw && sg ? { ...raw, group_state: sg.state, group_reason: sg.reason } : raw;
+  const row = useMemo(() => {
+    const sg = raw?.industry ? shared.map.get(raw.industry) : undefined;
+    return raw && sg ? { ...raw, group_state: sg.state, group_reason: sg.reason } : raw;
+  }, [raw, shared.map]);
   const ctx = (q.data?.meta.context ?? {}) as DetailContext;
   const item = useMemo(() => (row ? toChartItem(row) : symbol ? { symbol, tags: [] } : null), [row, symbol]);
   return (

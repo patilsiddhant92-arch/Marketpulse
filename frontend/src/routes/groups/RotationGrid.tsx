@@ -12,7 +12,8 @@ import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { heatStyle } from '../../ui/DataTable';
 import { SkeletonRows } from '../../ui/Skeleton';
-import { Segmented, SourceNote } from './kit';
+import { Segmented } from '../../ui/Segmented';
+import { SourceNote } from '../../ui/SourceNote';
 import type { Floor, Level } from './groupsModel';
 
 const EMPTY: RotationRow[] = [];
