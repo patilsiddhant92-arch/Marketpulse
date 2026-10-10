@@ -106,6 +106,8 @@ export type RotationCell = Schemas['RotationCell'];
 // Setups tab (/api/v2/setups/*)
 export type SetupBoardRow = Schemas['SetupBoardRow'];
 export type SetupNearMissRow = Schemas['SetupNearMissRow'];
+export type DivergenceRow = Schemas['DivergenceRow'];
+export type DivergenceScanRow = Schemas['DivergenceScanRow'];
 export type SetupDroppedRow = Schemas['SetupDroppedRow'];
 
 /** Verdict words (spec 6.1.1). The schema types verdict as string; UI narrows. */

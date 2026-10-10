@@ -1724,6 +1724,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/charts/{sym}/divergences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart Divergences
+         * @description RSI(14) divergences of one stock on D/W/M bars up to as_of, oldest confirm first: 8 types (Strong/Medium/Weak/Hidden x bull/bear), 3-bar pivots confirmed 3 bars later (no look-ahead), trigger / stop and status (watching / triggered / failed) as of the date. meta.context.rules spells out the rules.
+         */
+        get: operations["chart_divergences_api_v2_charts__sym__divergences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/divergences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Divergences
+         * @description Divergences confirmed in the last `window` bars (default 5; 1 = on the as-of bar) across the >= Rs 1,000 Cr universe, with industry group + Pulse group state, distance to trigger and RSI. meta.context.counts has the count per side:type before the side/types/status filters.
+         */
+        get: operations["setups_divergences_api_v2_setups_divergences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2599,6 +2639,140 @@ export interface components {
             /** Industry */
             industry?: string | null;
         };
+        /** DivergenceRow */
+        DivergenceRow: {
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "bull" | "bear";
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "Strong" | "Medium" | "Weak" | "Hidden";
+            /**
+             * P1 Date
+             * Format: date
+             */
+            p1_date: string;
+            /**
+             * P2 Date
+             * Format: date
+             */
+            p2_date: string;
+            /** P1 Price */
+            p1_price: number;
+            /** P2 Price */
+            p2_price: number;
+            /** P1 Rsi */
+            p1_rsi: number;
+            /** P2 Rsi */
+            p2_rsi: number;
+            /**
+             * Confirm Date
+             * Format: date
+             */
+            confirm_date: string;
+            /** Trigger Price */
+            trigger_price: number;
+            /** Stop Price */
+            stop_price: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "watching" | "triggered" | "failed";
+            /** Status Date */
+            status_date?: string | null;
+            /** Bars Apart */
+            bars_apart: number;
+            /**
+             * Tf
+             * @enum {string}
+             */
+            tf: "D" | "W" | "M";
+        };
+        /** DivergenceScanRow */
+        DivergenceScanRow: {
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "bull" | "bear";
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "Strong" | "Medium" | "Weak" | "Hidden";
+            /**
+             * P1 Date
+             * Format: date
+             */
+            p1_date: string;
+            /**
+             * P2 Date
+             * Format: date
+             */
+            p2_date: string;
+            /** P1 Price */
+            p1_price: number;
+            /** P2 Price */
+            p2_price: number;
+            /** P1 Rsi */
+            p1_rsi: number;
+            /** P2 Rsi */
+            p2_rsi: number;
+            /**
+             * Confirm Date
+             * Format: date
+             */
+            confirm_date: string;
+            /** Trigger Price */
+            trigger_price: number;
+            /** Stop Price */
+            stop_price: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "watching" | "triggered" | "failed";
+            /** Status Date */
+            status_date?: string | null;
+            /** Bars Apart */
+            bars_apart: number;
+            /**
+             * Tf
+             * @enum {string}
+             */
+            tf: "D" | "W" | "M";
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Group */
+            group?: string | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Bars Since Confirm */
+            bars_since_confirm: number;
+            /** Close */
+            close?: number | null;
+            /** Distance To Trigger Pct */
+            distance_to_trigger_pct?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Rsi */
+            rsi?: number | null;
+            /** Group State */
+            group_state?: string | null;
+            /** Group Reason */
+            group_reason?: string | null;
+        };
         /** DrawdownRow */
         DrawdownRow: {
             /** Peak Date */
@@ -2892,6 +3066,32 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DiffRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DivergenceRow] */
+        Envelope_DivergenceRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DivergenceRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DivergenceScanRow] */
+        Envelope_DivergenceScanRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DivergenceScanRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DrawdownRow] */
@@ -9315,6 +9515,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_DrawdownRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_divergences_api_v2_charts__sym__divergences_get: {
+        parameters: {
+            query?: {
+                /** @description Bar timeframe: D (daily), W (W-FRI weeks), M (calendar months); W/M use completed bars only */
+                tf?: "D" | "W" | "M";
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description NSE symbol */
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DivergenceRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_divergences_api_v2_setups_divergences_get: {
+        parameters: {
+            query?: {
+                /** @description Bar timeframe: D (daily), W (W-FRI weeks), M (calendar months); W/M use completed bars only */
+                tf?: "D" | "W" | "M";
+                /** @description bull or bear (default both) */
+                side?: ("bull" | "bear") | null;
+                /** @description Comma list of Strong, Medium, Weak, Hidden (default all) */
+                types?: string | null;
+                /** @description Comma list of watching, triggered, failed (default all) */
+                status?: string | null;
+                /** @description Confirmed within the last N bars of tf */
+                window?: number;
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DivergenceScanRow_"];
                 };
             };
             /** @description Validation Error */

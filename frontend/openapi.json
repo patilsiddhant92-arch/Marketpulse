@@ -7944,6 +7944,252 @@
           }
         }
       }
+    },
+    "/api/v2/charts/{sym}/divergences": {
+      "get": {
+        "tags": [
+          "divergences"
+        ],
+        "summary": "Chart Divergences",
+        "description": "RSI(14) divergences of one stock on D/W/M bars up to as_of, oldest confirm first: 8 types (Strong/Medium/Weak/Hidden x bull/bear), 3-bar pivots confirmed 3 bars later (no look-ahead), trigger / stop and status (watching / triggered / failed) as of the date. meta.context.rules spells out the rules.",
+        "operationId": "chart_divergences_api_v2_charts__sym__divergences_get",
+        "parameters": [
+          {
+            "name": "sym",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "NSE symbol",
+              "title": "Sym"
+            },
+            "description": "NSE symbol"
+          },
+          {
+            "name": "tf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "D",
+                "W",
+                "M"
+              ],
+              "type": "string",
+              "description": "Bar timeframe: D (daily), W (W-FRI weeks), M (calendar months); W/M use completed bars only",
+              "default": "D",
+              "title": "Tf"
+            },
+            "description": "Bar timeframe: D (daily), W (W-FRI weeks), M (calendar months); W/M use completed bars only"
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DivergenceRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/setups/divergences": {
+      "get": {
+        "tags": [
+          "divergences"
+        ],
+        "summary": "Setups Divergences",
+        "description": "Divergences confirmed in the last `window` bars (default 5; 1 = on the as-of bar) across the >= Rs 1,000 Cr universe, with industry group + Pulse group state, distance to trigger and RSI. meta.context.counts has the count per side:type before the side/types/status filters.",
+        "operationId": "setups_divergences_api_v2_setups_divergences_get",
+        "parameters": [
+          {
+            "name": "tf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "D",
+                "W",
+                "M"
+              ],
+              "type": "string",
+              "description": "Bar timeframe: D (daily), W (W-FRI weeks), M (calendar months); W/M use completed bars only",
+              "default": "D",
+              "title": "Tf"
+            },
+            "description": "Bar timeframe: D (daily), W (W-FRI weeks), M (calendar months); W/M use completed bars only"
+          },
+          {
+            "name": "side",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "bull",
+                    "bear"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "bull or bear (default both)",
+              "title": "Side"
+            },
+            "description": "bull or bear (default both)"
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma list of Strong, Medium, Weak, Hidden (default all)",
+              "title": "Types"
+            },
+            "description": "Comma list of Strong, Medium, Weak, Hidden (default all)"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma list of watching, triggered, failed (default all)",
+              "title": "Status"
+            },
+            "description": "Comma list of watching, triggered, failed (default all)"
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 1,
+              "description": "Confirmed within the last N bars of tf",
+              "default": 5,
+              "title": "Window"
+            },
+            "description": "Confirmed within the last N bars of tf"
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DivergenceScanRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11635,6 +11881,363 @@
         ],
         "title": "DiffRow"
       },
+      "DivergenceRow": {
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "bull",
+              "bear"
+            ],
+            "title": "Side"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Strong",
+              "Medium",
+              "Weak",
+              "Hidden"
+            ],
+            "title": "Type"
+          },
+          "p1_date": {
+            "type": "string",
+            "format": "date",
+            "title": "P1 Date"
+          },
+          "p2_date": {
+            "type": "string",
+            "format": "date",
+            "title": "P2 Date"
+          },
+          "p1_price": {
+            "type": "number",
+            "title": "P1 Price"
+          },
+          "p2_price": {
+            "type": "number",
+            "title": "P2 Price"
+          },
+          "p1_rsi": {
+            "type": "number",
+            "title": "P1 Rsi"
+          },
+          "p2_rsi": {
+            "type": "number",
+            "title": "P2 Rsi"
+          },
+          "confirm_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Confirm Date"
+          },
+          "trigger_price": {
+            "type": "number",
+            "title": "Trigger Price"
+          },
+          "stop_price": {
+            "type": "number",
+            "title": "Stop Price"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "watching",
+              "triggered",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "status_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Date"
+          },
+          "bars_apart": {
+            "type": "integer",
+            "title": "Bars Apart"
+          },
+          "tf": {
+            "type": "string",
+            "enum": [
+              "D",
+              "W",
+              "M"
+            ],
+            "title": "Tf"
+          }
+        },
+        "type": "object",
+        "required": [
+          "side",
+          "type",
+          "p1_date",
+          "p2_date",
+          "p1_price",
+          "p2_price",
+          "p1_rsi",
+          "p2_rsi",
+          "confirm_date",
+          "trigger_price",
+          "stop_price",
+          "status",
+          "bars_apart",
+          "tf"
+        ],
+        "title": "DivergenceRow"
+      },
+      "DivergenceScanRow": {
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "bull",
+              "bear"
+            ],
+            "title": "Side"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Strong",
+              "Medium",
+              "Weak",
+              "Hidden"
+            ],
+            "title": "Type"
+          },
+          "p1_date": {
+            "type": "string",
+            "format": "date",
+            "title": "P1 Date"
+          },
+          "p2_date": {
+            "type": "string",
+            "format": "date",
+            "title": "P2 Date"
+          },
+          "p1_price": {
+            "type": "number",
+            "title": "P1 Price"
+          },
+          "p2_price": {
+            "type": "number",
+            "title": "P2 Price"
+          },
+          "p1_rsi": {
+            "type": "number",
+            "title": "P1 Rsi"
+          },
+          "p2_rsi": {
+            "type": "number",
+            "title": "P2 Rsi"
+          },
+          "confirm_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Confirm Date"
+          },
+          "trigger_price": {
+            "type": "number",
+            "title": "Trigger Price"
+          },
+          "stop_price": {
+            "type": "number",
+            "title": "Stop Price"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "watching",
+              "triggered",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "status_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Date"
+          },
+          "bars_apart": {
+            "type": "integer",
+            "title": "Bars Apart"
+          },
+          "tf": {
+            "type": "string",
+            "enum": [
+              "D",
+              "W",
+              "M"
+            ],
+            "title": "Tf"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          },
+          "bars_since_confirm": {
+            "type": "integer",
+            "title": "Bars Since Confirm"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "distance_to_trigger_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance To Trigger Pct"
+          },
+          "risk_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Pct"
+          },
+          "rsi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rsi"
+          },
+          "group_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group State"
+          },
+          "group_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "side",
+          "type",
+          "p1_date",
+          "p2_date",
+          "p1_price",
+          "p2_price",
+          "p1_rsi",
+          "p2_rsi",
+          "confirm_date",
+          "trigger_price",
+          "stop_price",
+          "status",
+          "bars_apart",
+          "tf",
+          "symbol",
+          "bars_since_confirm"
+        ],
+        "title": "DivergenceScanRow"
+      },
       "DrawdownRow": {
         "properties": {
           "peak_date": {
@@ -12695,6 +13298,98 @@
           "meta"
         ],
         "title": "Envelope[DiffRow]"
+      },
+      "Envelope_DivergenceRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DivergenceRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DivergenceRow]"
+      },
+      "Envelope_DivergenceScanRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DivergenceScanRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DivergenceScanRow]"
       },
       "Envelope_DrawdownRow_": {
         "properties": {

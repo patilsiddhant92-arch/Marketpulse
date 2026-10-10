@@ -617,12 +617,17 @@ def detail(symbol: str, as_of: date | None, p: BoardParams = BoardParams()) -> R
                 markers.append({"time": db.to_date(d), "kind": "deal_buy" if buy else "deal_sell",
                                 "text": "D", "value_cr": L.fnum(val, 1)})
         divs = []
-        for d, b, s in con.execute("""SELECT trade_date, bullish_rsi_divergence, bearish_rsi_divergence FROM indicators_daily
+        typed = "rsi_divergence_type" in set(db.table_columns(con, "indicators_daily"))
+        type_sql = "rsi_divergence_type" if typed else "NULL"
+        cond = "(bullish_rsi_divergence OR bearish_rsi_divergence" + (" OR rsi_divergence_type IS NOT NULL)" if typed else ")")
+        for d, b, s, t in con.execute(f"""SELECT trade_date, bullish_rsi_divergence, bearish_rsi_divergence, {type_sql}
+                                      FROM indicators_daily
                                       WHERE symbol = ? AND trade_date BETWEEN ? AND ? AND series = 'EQ'
-                                        AND (bullish_rsi_divergence OR bearish_rsi_divergence) ORDER BY 1""",
+                                        AND {cond} ORDER BY 1""",
                                    [symbol, start, res.as_of]).fetchall():
-            divs.append({"time": db.to_date(d), "kind": "regular_bullish" if b else "regular_bearish"})
+            kind = "regular_bullish" if b else "regular_bearish" if s else "hidden_bullish" if "Hidden bull" in (t or "") else "hidden_bearish"
+            divs.append({"time": db.to_date(d), "kind": kind, "type": db.text(t)})
+    gaps = [] if typed else ["Hidden RSI divergences are not stored in this database yet (regular only; rebuild needed)."]
     return Result(as_of=res.as_of, rows=[row] if row else [], sources=SOURCES,
                   extra={"symbol": symbol, "industry": industry, "on_board": row is not None, "peers": peers,
-                         "deal_markers": markers, "rsi_divergences": divs,
-                         "data_gaps": ["Hidden RSI divergences are not stored yet (regular only)."]})
+                         "deal_markers": markers, "rsi_divergences": divs, "data_gaps": gaps})
