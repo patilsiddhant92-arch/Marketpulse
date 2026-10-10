@@ -71,7 +71,7 @@ function Seg<T extends string>({ value, options, onChange, label }: { value: T; 
 
 export default function SetupsView() {
   const shell = useShell();
-  const [state, setState] = useTabUrlState('/screener', SETUPS_DEFAULTS, 'setups');
+  const [state, setState] = useTabUrlState('/setups', SETUPS_DEFAULTS, 'setups');
   const [search, setSearch] = useState('');
   const deferred = useDeferredValue(search);
   const [detail, setDetail] = useState<string | null>(null);

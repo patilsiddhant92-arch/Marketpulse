@@ -307,7 +307,7 @@ def bullets(ctx: dict[str, Any], snap: dict[str, Any], deliv_qty_x: float | None
         text += "."
         if desc:
             text += f" Rule: {desc}"
-        add("setup", "accent", text, f"/desk?view=setups&queue={s['queue']}", queue=s["queue"], age=age, flavor=s.get("flavor"))
+        add("setup", "accent", text, f"/setups?sq={s['queue']}", queue=s["queue"], age=age, flavor=s.get("flavor"))
         trig, stop, dist, risk = s.get("trigger_price"), s.get("stop_price"), s.get("distance_to_trigger_pct"), s.get("risk_pct")
         if trig is not None:
             t = f"Trigger ₹{trig:,.2f}"

@@ -1,11 +1,12 @@
 /**
- * Screener (spec 7.3) — three modes behind one switch (?mode=, default Setups):
+ * Setups tab (was "Screener"; tab id 'setups', path /setups, old /screener links redirect) — three modes
+ * behind one switch (?mode=, default Setups):
  *
  * Setups (default, HarkPro/06-tab2-setups.md locked spec): one board of every stock in
  * Darvas Squeeze / Darvas 10 EMA / VCP / Momentum with group state and decision columns —
  * see screener/setups/SetupsView.tsx.
  *
- * Momentum (default): the user's main scanner, restored with the old
+ * Momentum: the user's main scanner, restored with the old
  * workspace's filters, defaults, coil buckets, leaders and TradingView copy
  * buttons — see screener/MomentumView.tsx.
  *
@@ -88,7 +89,7 @@ const MODE_DEFAULTS = { mode: 'setups' };
 type Mode = (typeof MODES)[number]['id'];
 
 export default function ScreenerRoute() {
-  const [modeState, setMode] = useTabUrlState('/screener', MODE_DEFAULTS, 'mode');
+  const [modeState, setMode] = useTabUrlState('/setups', MODE_DEFAULTS, 'mode');
   const [, setParams] = useSearchParams();
   const mode: Mode = modeState.mode === 'presets' ? 'presets' : modeState.mode === 'momentum' ? 'momentum' : 'setups';
   const switchTo = (next: Mode) => {
@@ -111,7 +112,7 @@ export default function ScreenerRoute() {
   };
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1.5 px-2 pt-1.5" role="tablist" aria-label="Screener mode">
+      <div className="flex shrink-0 items-center gap-1.5 px-2 pt-1.5" role="tablist" aria-label="Setups mode">
         {MODES.map((m) => (
           <Tooltip key={m.id} content={<div className="max-w-xs">{m.hint}</div>}>
             <button
@@ -150,7 +151,7 @@ function PresetsScreener() {
   const shell = useShell();
   const navigate = useNavigate();
   const location = useLocation();
-  const [state, setState] = useTabUrlState('/screener', SCREENER_DEFAULTS);
+  const [state, setState] = useTabUrlState('/setups', SCREENER_DEFAULTS);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [debugOpen, setDebugOpen] = useState(false);
@@ -180,7 +181,7 @@ function PresetsScreener() {
   const ctx = (run.data?.meta.context ?? {}) as RunContext;
   const unavailable = run.data?.meta.status === 'unavailable';
 
-  // Custom rules or non-default floors: remember the run so Charts can show it ("Screener · last custom run").
+  // Custom rules or non-default floors: remember the run so Charts can show it (Charts source "last custom run").
   const tweaked =
     custom || (['mcap', 'price', 'vol', 'avgvol', 'lb', 'ipo', 'level', 'group'] as const).some((k) => state[k] !== SCREENER_DEFAULTS[k]);
   useEffect(() => {
@@ -235,7 +236,7 @@ function PresetsScreener() {
   );
 
   const copyTv = async () => {
-    const title = custom ? 'Screener custom' : (preset?.label ?? 'Screener');
+    const title = custom ? 'Setups custom' : (preset?.label ?? 'Setups');
     const { text, count } = formatTradingViewList([{ title, symbols: sorted.map((r) => r.symbol) }]);
     const ok = await copyText(text);
     setCopied(ok ? `Copied ${count} symbols` : 'Copy failed');
@@ -279,7 +280,7 @@ function PresetsScreener() {
       <div
         className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5"
         role="tablist"
-        aria-label="Screener presets"
+        aria-label="Setups presets"
       >
         {presetsQ.isLoading && <Skeleton width={480} height={18} />}
         {presetsQ.error && <ErrorState error={presetsQ.error} onRetry={() => void presetsQ.refetch()} compact />}
@@ -323,7 +324,7 @@ function PresetsScreener() {
         fields={fields}
         custom={custom}
         disabled={queuePresetActive}
-        disabledNote={`${preset?.label ?? ''} uses the Desk queue's own predicate (${preset?.description ?? ''}) — not editable here. Use the debugger to see why a stock is in or out.`}
+        disabledNote={`${preset?.label ?? ''} uses the setup queue's own predicate (${preset?.description ?? ''}) — not editable here. Use the debugger to see why a stock is in or out.`}
         onChange={setRules}
         onReset={() => setState({ rules: null })}
       />
@@ -333,7 +334,7 @@ function PresetsScreener() {
       <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1 text-xs">
         {run.isLoading ? (
           <span className="text-fg-3">
-            Running{queuePresetActive ? ' — the first Desk-queue call of a session computes live and can take 10–30 s' : '…'}
+            Running{queuePresetActive ? ' — the first setup-queue call of a session computes live and can take 10–30 s' : '…'}
           </span>
         ) : run.data && !unavailable ? (
           <>
@@ -466,7 +467,7 @@ function PresetsScreener() {
           <EmptyState title="Not available" detail={run.data?.meta.reason ?? 'This preset is not available.'} />
         ) : (
           <DataTable<SRow>
-            label={`Screener: ${preset?.label ?? state.preset}`}
+            label={`Setups: ${preset?.label ?? state.preset}`}
             columns={columns}
             rows={filtered}
             getRowId={(r, i) => r.symbol ?? `row-${i}`}

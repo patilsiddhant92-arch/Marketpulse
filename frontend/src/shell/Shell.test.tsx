@@ -128,16 +128,15 @@ describe('Shell', () => {
         );
       return undefined;
     });
-    renderApp('/desk?view=setups');
+    renderApp('/desk');
 
     const nav = screen.getByRole('navigation', { name: 'Tabs' });
     expect(
       within(nav)
         .getAllByRole('link')
         .map((a) => a.textContent?.replace(/^\d/, '')),
-    ).toEqual(['Pulse', 'Screener', 'Sector Intel', 'Deals', 'Charts', 'Research']);
-    expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
-    // Verdict shows in the strip and in the Desk environment panel.
+    ).toEqual(['Pulse', 'Setups', 'Sector Intel', 'Deals', 'Charts', 'Research']);
+    // Verdict shows in the strip.
     expect((await screen.findAllByText('Constructive')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('improved from Mixed on Mon · 4th day').length).toBeGreaterThan(0);
     expect(await screen.findByText('Fri 25 Sep')).toBeInTheDocument();
@@ -164,7 +163,7 @@ describe('Shell', () => {
         return json({ status: 'healthy', actionable: true, database_date: '2026-09-24', expected_session: '2026-09-25', detail: 'stale' });
       return undefined;
     });
-    renderApp('/desk?view=setups');
+    renderApp('/desk');
     expect(await screen.findByText(/not available yet \(API v2 pending\)/)).toBeInTheDocument();
     expect(await screen.findByText('Thu 24 Sep')).toBeInTheDocument();
     // No API-down banner (panels may show their own "not available yet" states).
@@ -178,7 +177,7 @@ describe('Shell', () => {
       if (url.pathname === '/api/v2/health') return new Response('', { status: 502 });
       return undefined;
     });
-    renderApp('/desk?view=setups');
+    renderApp('/desk');
     expect(await screen.findByText(/Market environment unavailable/)).toBeInTheDocument();
     expect(screen.getAllByText(/regime_daily not built yet/).length).toBeGreaterThan(0);
     expect(await screen.findByText('API unreachable')).toBeInTheDocument();
@@ -189,10 +188,13 @@ describe('Shell', () => {
       if (url.pathname === '/api/v2/market/regime') return json(envelope(regimeRows));
       return undefined;
     });
-    renderApp('/screener?as_of=2026-03-12');
+    // The old /screener URL redirects to the renamed Setups tab and keeps its params.
+    const router = renderApp('/screener?as_of=2026-03-12');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/setups'));
+    expect(router.state.location.search).toContain('as_of=2026-03-12');
     expect(await screen.findByText('History mode')).toBeInTheDocument();
     await waitFor(() => expect(fetchFn).toHaveBeenCalledWith('/api/v2/market/regime?as_of=2026-03-12', expect.anything()));
-    // The Screener opens on the Setups board, whose scan is bounded by as_of.
+    // The Setups tab opens on the Setups board, whose scan is bounded by as_of.
     await waitFor(() =>
       expect(fetchFn.mock.calls.some(([u]) => String(u).startsWith('/api/v2/setups/board?') && String(u).includes('as_of=2026-03-12'))).toBe(true),
     );
@@ -202,20 +204,20 @@ describe('Shell', () => {
 
   it('switches tabs with number keys and keeps visited tabs mounted', async () => {
     mockFetch(() => undefined);
-    const router = renderApp('/desk?view=setups');
-    expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
+    const router = renderApp('/desk');
+    expect(await screen.findByTestId('pulse-view')).toBeInTheDocument();
     act(() => {
       fireEvent.keyDown(window, { key: '4' });
     });
     await waitFor(() => expect(router.state.location.pathname).toBe('/deals'));
     expect(await screen.findByRole('heading', { name: 'Deals' })).toBeVisible();
-    expect(screen.getByRole('region', { name: 'Desk queues', hidden: true })).not.toBeVisible();
+    expect(screen.getByTestId('pulse-view')).not.toBeVisible();
   });
 
   it('opens the command palette with Ctrl+K and opens a typed symbol in the sidecar', async () => {
     mockFetch(() => undefined);
-    const router = renderApp('/desk?view=setups');
-    await screen.findByRole('region', { name: 'Desk queues' });
+    const router = renderApp('/desk');
+    await screen.findByTestId('pulse-view');
     act(() => {
       fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     });

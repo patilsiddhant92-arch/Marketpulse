@@ -8,6 +8,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { createMemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../App';
+import { legacyDeskRedirect } from '../DeskRoute';
 import { routes } from '../index';
 import fixtures from './fixtures.json';
 
@@ -112,11 +113,30 @@ describe('Pulse tab', () => {
     await waitFor(() => expect(fetchFn.mock.calls.some(([u]) => String(u).includes('as_of=2026-08-13'))).toBe(true));
   });
 
-  it('keeps the legacy Desk views one click away', async () => {
+  it('sends old legacy-view links to their new homes', async () => {
     setup();
-    const router = renderApp('/desk');
+    const router = renderApp('/desk?view=setups&queue=vcp&as_of=2026-08-13');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/setups'));
+    expect(router.state.location.search).toContain('sq=vcp');
+    expect(router.state.location.search).toContain('as_of=2026-08-13');
+    expect(router.state.location.search).not.toContain('view=');
+  });
+
+  it('drops the old ?view=today and stays on Pulse', async () => {
+    setup();
+    const router = renderApp('/desk?view=today');
     await screen.findByTestId('pulse-view');
-    fireEvent.click(screen.getByRole('radio', { name: 'Setups (legacy)' }));
-    await waitFor(() => expect(router.state.location.search).toContain('view=setups'));
+    await waitFor(() => expect(router.state.location.search).not.toContain('view=today'));
+    expect(router.state.location.pathname).toBe('/desk');
+  });
+});
+
+describe('legacyDeskRedirect', () => {
+  it('maps the legacy views and leaves other links alone', () => {
+    expect(legacyDeskRedirect('?view=setups&queue=darvas_squeeze&tf=W')).toEqual({ pathname: '/setups', search: '?sq=darvas_squeeze' });
+    expect(legacyDeskRedirect('?view=setups')).toEqual({ pathname: '/setups', search: '' });
+    expect(legacyDeskRedirect('?view=today&as_of=2026-08-13')).toEqual({ pathname: '/desk', search: '?as_of=2026-08-13' });
+    expect(legacyDeskRedirect('?as_of=2026-08-13')).toBeNull();
+    expect(legacyDeskRedirect('')).toBeNull();
   });
 });

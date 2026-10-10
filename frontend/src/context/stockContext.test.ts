@@ -43,7 +43,7 @@ describe('stock context', () => {
     expect(chips.map((c) => c.label)).toEqual(['H71 Lead ↓', 'VCP 2.5%', 'Deals +12.3', 'Res 5d']);
     expect(chips[0].tone).toBe('positive');
     expect(chips[0].href).toBe('/groups?group=industry%3AHeavy%20Electrical');
-    expect(chips[1].href).toBe('/desk?view=setups&queue=vcp');
+    expect(chips[1].href).toBe('/setups?sq=vcp');
     expect(chips[2].href).toBe(dealsHref('AAA'));
     expect(chips[0].title).toContain('falling');
   });

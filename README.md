@@ -5,8 +5,8 @@ pipeline downloads the day's NSE reports, appends them to a local DuckDB databas
 recomputes indicators, groups, setups and deal flow. A React UI served by FastAPI reads
 that database read-only.
 
-- **UI**: React + Vite (`frontend/`), six tabs (Desk, Screener, Groups, Deals, Charts,
-  Research) plus a Stock 360 page. Served by `App/api/server.py` from `frontend/dist`;
+- **UI**: React + Vite (`frontend/`), six tabs (Pulse, Setups, Sector Intel, Deals, Charts,
+  Research; old `/screener` links redirect to `/setups`) plus a Stock 360 page. Served by `App/api/server.py` from `frontend/dist`;
   data comes from `/api/v2` (`App/api/v2`, `App/services`).
 - **Pipeline**: `Scripts/daily_pipeline.py` (download, append, Telegram), full rebuild via
   `Scripts/safe_rebuild.py`.

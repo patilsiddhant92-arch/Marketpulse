@@ -1,4 +1,4 @@
-/** Screener → Momentum (default mode): parity controls, bucket grouping, leaders, copy buttons. */
+/** Setups → Momentum: parity controls, bucket grouping, leaders, copy buttons. */
 import { QueryClient } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
@@ -68,7 +68,7 @@ const context = {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('Screener → Momentum', () => {
+describe('Setups → Momentum', () => {
   it('opens (mode=momentum) with the old defaults, buckets, leaders and TradingView copy', async () => {
     const calls: string[] = [];
     const copied: string[] = [];
@@ -88,7 +88,7 @@ describe('Screener → Momentum', () => {
       value: { writeText: async (t: string) => void copied.push(t) },
       configurable: true,
     });
-    const router = createMemoryRouter(routes, { initialEntries: ['/screener?mode=momentum&as_of=2026-09-25'] });
+    const router = createMemoryRouter(routes, { initialEntries: ['/setups?mode=momentum&as_of=2026-09-25'] });
     render(<App router={router} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
 
     expect(await screen.findByRole('tab', { name: 'Momentum' })).toHaveAttribute('aria-selected', 'true');

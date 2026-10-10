@@ -43,6 +43,16 @@ function sameParams(a: TabParams, b: TabParams): boolean {
   return ka.every((k) => a[k] === b[k]);
 }
 
+/** Tabs whose path changed: saved state under the old path is read once when the new key is empty. */
+const LEGACY_TAB_PATHS: Record<string, string> = { '/setups': '/screener' };
+
+function readStored<T>(key: string, tabPath: string, suffix: string): T {
+  const cur = readJSON<T | null>(key, null);
+  if (cur !== null) return cur;
+  const old = LEGACY_TAB_PATHS[tabPath];
+  return readJSON<T>(old ? `mp.tabstate${old}${suffix}` : key, {} as T);
+}
+
 export function useTabUrlState<D extends TabParams>(
   tabPath: string,
   defaults: D,
@@ -55,7 +65,7 @@ export function useTabUrlState<D extends TabParams>(
   const storageKey = `mp.tabstate${tabPath}${storageSuffix ? `:${storageSuffix}` : ''}`;
   const defaultsRef = useRef(defaults);
   const [state, setState] = useState<D>(() => {
-    const stored = readJSON<Partial<D>>(storageKey, {});
+    const stored = readStored<Partial<D>>(storageKey, tabPath, storageSuffix ? `:${storageSuffix}` : '');
     const base = { ...defaults } as D;
     for (const k of Object.keys(defaults) as (keyof D)[]) {
       const v = stored[k];

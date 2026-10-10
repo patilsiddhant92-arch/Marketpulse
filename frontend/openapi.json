@@ -308,67 +308,6 @@
         }
       }
     },
-    "/api/v2/desk/queues": {
-      "get": {
-        "summary": "Desk Queues",
-        "operationId": "desk_queues_api_v2_desk_queues_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "all_timeframes",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "description": "Also count W/M (slow until setup_daily exists)",
-              "default": false,
-              "title": "All Timeframes"
-            },
-            "description": "Also count W/M (slow until setup_daily exists)"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_QueueSummaryRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v2/desk/queue/{name}": {
       "get": {
         "summary": "Desk Queue",
@@ -490,261 +429,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Envelope_QueueRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/desk/watchlist": {
-      "get": {
-        "summary": "Desk Watchlist",
-        "operationId": "desk_watchlist_api_v2_desk_watchlist_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "symbols",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 25000,
-              "description": "Comma-separated symbols, in display order",
-              "default": "",
-              "title": "Symbols"
-            },
-            "description": "Comma-separated symbols, in display order"
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 5000,
-              "minimum": 1,
-              "default": 500,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_DeskWatchRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/desk/diff": {
-      "get": {
-        "summary": "Desk Diff",
-        "operationId": "desk_diff_api_v2_desk_diff_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "queue",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "darvas_squeeze",
-                    "darvas_10ema",
-                    "vcp"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Queue"
-            }
-          },
-          {
-            "name": "tf",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "D",
-                "W",
-                "M"
-              ],
-              "type": "string",
-              "default": "D",
-              "title": "Tf"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 5000,
-              "minimum": 1,
-              "default": 500,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_DiffRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/desk/compare": {
-      "get": {
-        "summary": "Desk Compare",
-        "description": "Now vs N sessions ago: queue counts, breadth, verdict and top groups by Health.",
-        "operationId": "desk_compare_api_v2_desk_compare_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "sessions",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 60,
-              "minimum": 1,
-              "default": 5,
-              "title": "Sessions"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_CompareRow_"
                 }
               }
             }
@@ -2553,319 +2237,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Envelope_GroupRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/today/market": {
-      "get": {
-        "summary": "Today Market",
-        "description": "Market today strip: index moves, advancers/decliners, 52W highs/lows vs 5-day avg, turnover and delivery vs 20-day avg, VIX.",
-        "operationId": "today_market_api_v2_today_market_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_TodayMarketRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/today/movers": {
-      "get": {
-        "summary": "Today Movers",
-        "description": "Top gainers and losers (side) with RVOL, delivery, turnover, queues, deals, catalysts and the quality-of-move label (rules in meta.context.quality_rules).",
-        "operationId": "today_movers_api_v2_today_movers_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "min_mcap_cr",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "default": 1000.0,
-              "title": "Min Mcap Cr"
-            }
-          },
-          {
-            "name": "n",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "description": "Rows per side",
-              "default": 30,
-              "title": "N"
-            },
-            "description": "Rows per side"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_TodayMoverRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/today/breakouts": {
-      "get": {
-        "summary": "Today Breakouts",
-        "description": "Breakouts today (52W highs, setup triggers, 20-day highs on RVOL, gap-ups) and delivery footprints (accumulation / distribution). Rule ids in meta.context.rules.",
-        "operationId": "today_breakouts_api_v2_today_breakouts_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "min_mcap_cr",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "default": 1000.0,
-              "title": "Min Mcap Cr"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 5000,
-              "minimum": 1,
-              "default": 500,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_TodayBreakoutRow_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/today/groups": {
-      "get": {
-        "summary": "Today Groups",
-        "description": "Every group at a level today: 1D EW return, breadth, turnover/delivery vs 20d, contributors, concentration, deals, catalysts, 5d/21d persistence and a fact-only 'why' sentence.",
-        "operationId": "today_groups_api_v2_today_groups_get",
-        "parameters": [
-          {
-            "name": "as_of",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
-              "title": "As Of"
-            },
-            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
-          },
-          {
-            "name": "level",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "broad_sector",
-                "sector",
-                "broad_industry",
-                "industry"
-              ],
-              "type": "string",
-              "default": "industry",
-              "title": "Level"
-            }
-          },
-          {
-            "name": "floor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "1000",
-                "all",
-                "watch"
-              ],
-              "type": "string",
-              "default": "1000",
-              "title": "Floor"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 5000,
-              "minimum": 1,
-              "default": 500,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_TodayGroupRow_"
                 }
               }
             }
@@ -6575,9 +5946,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab Today Api V2 Deals Tab Today Get"
+                  "$ref": "#/components/schemas/Envelope_DealTabRow_"
                 }
               }
             }
@@ -6670,9 +6039,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab Watch Api V2 Deals Tab Watch Get"
+                  "$ref": "#/components/schemas/Envelope_DealTabRow_"
                 }
               }
             }
@@ -6779,9 +6146,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab History Api V2 Deals Tab History Get"
+                  "$ref": "#/components/schemas/Envelope_DealHistoryRow_"
                 }
               }
             }
@@ -6857,9 +6222,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab Houses Api V2 Deals Tab Houses Get"
+                  "$ref": "#/components/schemas/Envelope_DealHouseRow_"
                 }
               }
             }
@@ -6935,9 +6298,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab Groups Api V2 Deals Tab Groups Get"
+                  "$ref": "#/components/schemas/Envelope_DealGroupRow_"
                 }
               }
             }
@@ -6990,9 +6351,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab Telegram Api V2 Deals Tab Telegram Get"
+                  "$ref": "#/components/schemas/Envelope_DealTelegramRow_"
                 }
               }
             }
@@ -7054,9 +6413,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab Stock Api V2 Deals Tab Stock  Sym  Get"
+                  "$ref": "#/components/schemas/Envelope_DealStockDetail_"
                 }
               }
             }
@@ -7120,9 +6477,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tab House Api V2 Deals Tab House  House  Get"
+                  "$ref": "#/components/schemas/Envelope_DealHousePosition_"
                 }
               }
             }
@@ -7196,9 +6551,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Deal Markers Api V2 Deals Markers  Sym  Get"
+                  "$ref": "#/components/schemas/Envelope_DealMarker_"
                 }
               }
             }
@@ -7291,9 +6644,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Deal Flags Api V2 Deals Flags Get"
+                  "$ref": "#/components/schemas/Envelope_DealFlagRow_"
                 }
               }
             }
@@ -8874,86 +8225,6 @@
         ],
         "title": "CaseMoverRow"
       },
-      "CompareRow": {
-        "properties": {
-          "key": {
-            "type": "string",
-            "title": "Key"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "group": {
-            "type": "string",
-            "enum": [
-              "Queues",
-              "Breadth"
-            ],
-            "title": "Group"
-          },
-          "unit": {
-            "type": "string",
-            "title": "Unit"
-          },
-          "better": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "up",
-                  "down"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Better"
-          },
-          "now": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Now"
-          },
-          "then": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Then"
-          },
-          "delta": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "key",
-          "label",
-          "group",
-          "unit"
-        ],
-        "title": "CompareRow"
-      },
       "ContextEvent": {
         "properties": {
           "event_type": {
@@ -9266,6 +8537,68 @@
         "title": "DarvasRow",
         "description": "One bar of the Pine Darvas indicator; `projected` rows are future calendar periods (no candle)."
       },
+      "DealCandle": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "open": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "date",
+          "open",
+          "high",
+          "low",
+          "close"
+        ],
+        "title": "DealCandle"
+      },
       "DealCandleRow": {
         "properties": {
           "trade_date": {
@@ -9570,6 +8903,425 @@
         "type": "object",
         "title": "DealCandleRow"
       },
+      "DealEarlier": {
+        "properties": {
+          "deal_date": {
+            "type": "string",
+            "title": "Deal Date"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "accumulate",
+              "placement",
+              "distribute",
+              "churn",
+              "transfer_interse"
+            ],
+            "title": "Event Type"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "B",
+                  "S",
+                  "P",
+                  "T",
+                  "C"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "net_cr": {
+            "type": "number",
+            "title": "Net Cr"
+          },
+          "deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "confirm",
+                  "watch",
+                  "place",
+                  "absorbed",
+                  "supply",
+                  "none",
+                  "churn",
+                  "avoid",
+                  "ignore"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "deal_date",
+          "event_type",
+          "side",
+          "net_cr",
+          "deal_price"
+        ],
+        "title": "DealEarlier",
+        "description": "An earlier deal session of the same stock inside the watch window."
+      },
+      "DealFlagRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "has_recent_deal": {
+            "type": "boolean",
+            "title": "Has Recent Deal"
+          },
+          "last_deal_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Deal Date"
+          },
+          "deal_sessions_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Sessions Ago"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "B",
+                  "S",
+                  "P",
+                  "T",
+                  "C"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "fresh",
+                  "accumulate",
+                  "placement",
+                  "distribute",
+                  "churn",
+                  "transfer_interse"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "deal_sessions_in_window": {
+            "type": "integer",
+            "title": "Deal Sessions In Window"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "confirm",
+                  "watch",
+                  "place",
+                  "absorbed",
+                  "supply",
+                  "none",
+                  "churn",
+                  "avoid",
+                  "ignore"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "verdict_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Title"
+          },
+          "deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "vs_deal_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Deal Pct"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "symbol",
+          "has_recent_deal",
+          "last_deal_date",
+          "deal_sessions_ago",
+          "side",
+          "event_type",
+          "deal_sessions_in_window",
+          "verdict",
+          "verdict_title",
+          "deal_price",
+          "status",
+          "vs_deal_pct"
+        ],
+        "title": "DealFlagRow"
+      },
+      "DealGroupRow": {
+        "properties": {
+          "industry": {
+            "type": "string",
+            "title": "Industry"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "buying_names": {
+            "type": "integer",
+            "title": "Buying Names"
+          },
+          "selling_names": {
+            "type": "integer",
+            "title": "Selling Names"
+          },
+          "flow_cr": {
+            "type": "number",
+            "title": "Flow Cr"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "three_plus_buyers": {
+            "type": "boolean",
+            "title": "Three Plus Buyers"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "industry",
+          "sector",
+          "buying_names",
+          "selling_names",
+          "flow_cr",
+          "symbols",
+          "three_plus_buyers"
+        ],
+        "title": "DealGroupRow"
+      },
+      "DealHistoryRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "pattern": {
+            "type": "string",
+            "enum": [
+              "repeat_buy",
+              "single_buy",
+              "selling_only",
+              "mixed",
+              "churn_only",
+              "transfers_only"
+            ],
+            "title": "Pattern"
+          },
+          "pattern_label": {
+            "type": "string",
+            "title": "Pattern Label"
+          },
+          "buy_sessions": {
+            "type": "integer",
+            "title": "Buy Sessions"
+          },
+          "sell_sessions": {
+            "type": "integer",
+            "title": "Sell Sessions"
+          },
+          "churn_sessions": {
+            "type": "integer",
+            "title": "Churn Sessions"
+          },
+          "net_cr": {
+            "type": "number",
+            "title": "Net Cr"
+          },
+          "prop_cr": {
+            "type": "number",
+            "title": "Prop Cr"
+          },
+          "avg_deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Deal Price"
+          },
+          "close": {
+            "type": "number",
+            "title": "Close"
+          },
+          "vs_deal_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Deal Pct"
+          },
+          "cells": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "B",
+                    "S",
+                    "P",
+                    "T",
+                    "C"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Cells",
+            "description": "One cell per deal session, oldest first"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "symbol",
+          "industry",
+          "pattern",
+          "pattern_label",
+          "buy_sessions",
+          "sell_sessions",
+          "churn_sessions",
+          "net_cr",
+          "prop_cr",
+          "avg_deal_price",
+          "close",
+          "vs_deal_pct",
+          "cells"
+        ],
+        "title": "DealHistoryRow"
+      },
       "DealHolding": {
         "properties": {
           "symbol": {
@@ -9654,6 +9406,241 @@
           "prints"
         ],
         "title": "DealHolding"
+      },
+      "DealHousePosition": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "deal_date": {
+            "type": "string",
+            "title": "Deal Date"
+          },
+          "bought_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bought Cr"
+          },
+          "deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price"
+          },
+          "buyer_class": {
+            "type": "string",
+            "title": "Buyer Class"
+          },
+          "entry_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Date"
+          },
+          "since_entry_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since Entry Pct"
+          },
+          "market_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Pct"
+          },
+          "vs_market_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Market Pct"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "confirm",
+                  "watch",
+                  "place",
+                  "absorbed",
+                  "supply",
+                  "none",
+                  "churn",
+                  "avoid",
+                  "ignore"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "verdict_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Title"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "symbol",
+          "deal_date",
+          "bought_cr",
+          "deal_price",
+          "buyer_class",
+          "entry_date",
+          "since_entry_pct",
+          "market_pct",
+          "vs_market_pct",
+          "verdict",
+          "verdict_title",
+          "status"
+        ],
+        "title": "DealHousePosition"
+      },
+      "DealHouseRow": {
+        "properties": {
+          "house": {
+            "type": "string",
+            "title": "House"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "buyer_class": {
+            "type": "string",
+            "title": "Buyer Class"
+          },
+          "bought_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bought Cr"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "grade": {
+            "type": "string",
+            "enum": [
+              "good",
+              "mixed",
+              "poor",
+              "ungraded"
+            ],
+            "title": "Grade"
+          },
+          "record_n": {
+            "type": "integer",
+            "title": "Record N"
+          },
+          "record_avg_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Avg Pct"
+          },
+          "record_beat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Beat Pct"
+          },
+          "spread": {
+            "items": {
+              "$ref": "#/components/schemas/DealSpreadItem"
+            },
+            "type": "array",
+            "title": "Spread"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "house",
+          "name",
+          "buyer_class",
+          "bought_cr",
+          "symbols",
+          "grade",
+          "record_n",
+          "record_avg_pct",
+          "record_beat_pct",
+          "spread"
+        ],
+        "title": "DealHouseRow"
       },
       "DealLeaderRow": {
         "properties": {
@@ -9848,6 +9835,134 @@
           "ranked"
         ],
         "title": "DealLeaderRow"
+      },
+      "DealMarker": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "B",
+                  "S",
+                  "P",
+                  "T",
+                  "C"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "accumulate",
+              "placement",
+              "distribute",
+              "churn",
+              "transfer_interse"
+            ],
+            "title": "Event Type"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "net_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Cr"
+          },
+          "gross_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Cr"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "date",
+          "side",
+          "event_type",
+          "price",
+          "net_cr",
+          "gross_cr"
+        ],
+        "title": "DealMarker"
+      },
+      "DealParty": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "house": {
+            "type": "string",
+            "title": "House"
+          },
+          "buyer_class": {
+            "type": "string",
+            "title": "Buyer Class"
+          },
+          "value_cr": {
+            "type": "number",
+            "title": "Value Cr"
+          },
+          "grade": {
+            "type": "string",
+            "enum": [
+              "good",
+              "mixed",
+              "poor",
+              "ungraded"
+            ],
+            "title": "Grade"
+          },
+          "record_n": {
+            "type": "integer",
+            "title": "Record N"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "name",
+          "house",
+          "buyer_class",
+          "value_cr",
+          "grade",
+          "record_n"
+        ],
+        "title": "DealParty",
+        "description": "A buyer or seller of the deal session (non-PROP), with its house record."
       },
       "DealPrintRow": {
         "properties": {
@@ -10550,6 +10665,38 @@
         "type": "object",
         "title": "DealSessionRow"
       },
+      "DealSpreadItem": {
+        "properties": {
+          "industry": {
+            "type": "string",
+            "title": "Industry"
+          },
+          "value_cr": {
+            "type": "number",
+            "title": "Value Cr"
+          },
+          "share_pct": {
+            "type": "number",
+            "title": "Share Pct"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "industry",
+          "value_cr",
+          "share_pct",
+          "symbols"
+        ],
+        "title": "DealSpreadItem"
+      },
       "DealStarRow": {
         "properties": {
           "symbol": {
@@ -10755,6 +10902,382 @@
           "house"
         ],
         "title": "DealStarRow"
+      },
+      "DealStockDetail": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DealTabRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candles": {
+            "items": {
+              "$ref": "#/components/schemas/DealCandle"
+            },
+            "type": "array",
+            "title": "Candles"
+          },
+          "markers": {
+            "items": {
+              "$ref": "#/components/schemas/DealMarker"
+            },
+            "type": "array",
+            "title": "Markers"
+          },
+          "price_lines": {
+            "items": {
+              "$ref": "#/components/schemas/DealMarker"
+            },
+            "type": "array",
+            "title": "Price Lines"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "symbol",
+          "deal",
+          "candles",
+          "markers",
+          "price_lines"
+        ],
+        "title": "DealStockDetail"
+      },
+      "DealTabRow": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "deal_date": {
+            "type": "string",
+            "title": "Deal Date"
+          },
+          "sessions_since": {
+            "type": "integer",
+            "title": "Sessions Since"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "accumulate",
+              "placement",
+              "distribute",
+              "churn",
+              "transfer_interse"
+            ],
+            "title": "Event Type"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "B",
+                  "S",
+                  "P",
+                  "T",
+                  "C"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "event_label": {
+            "type": "string",
+            "title": "Event Label"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "confirm",
+              "watch",
+              "place",
+              "absorbed",
+              "supply",
+              "none",
+              "churn",
+              "avoid",
+              "ignore"
+            ],
+            "title": "Verdict"
+          },
+          "verdict_title": {
+            "type": "string",
+            "title": "Verdict Title"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "next_action": {
+            "type": "string",
+            "title": "Next Action"
+          },
+          "net_cr": {
+            "type": "number",
+            "title": "Net Cr",
+            "description": "Net ₹ Cr ex-PROP"
+          },
+          "bought_cr": {
+            "type": "number",
+            "title": "Bought Cr"
+          },
+          "gross_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Cr"
+          },
+          "prop_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prop Cr"
+          },
+          "deal_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Price",
+            "description": "Buy VWAP (sell VWAP for net sells); the deal level"
+          },
+          "close": {
+            "type": "number",
+            "title": "Close"
+          },
+          "vs_deal_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vs Deal Pct"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "day 0 / holding / lost / reclaimed / below seller"
+          },
+          "strong_chart": {
+            "type": "boolean",
+            "title": "Strong Chart"
+          },
+          "rs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rs"
+          },
+          "from_high_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From High Pct"
+          },
+          "month_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month Pct"
+          },
+          "rvol": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rvol"
+          },
+          "mcap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcap Cr"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "buyers": {
+            "items": {
+              "$ref": "#/components/schemas/DealParty"
+            },
+            "type": "array",
+            "title": "Buyers"
+          },
+          "sellers": {
+            "items": {
+              "$ref": "#/components/schemas/DealParty"
+            },
+            "type": "array",
+            "title": "Sellers"
+          },
+          "chips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Chips"
+          },
+          "earlier": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DealEarlier"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earlier"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "symbol",
+          "name",
+          "deal_date",
+          "sessions_since",
+          "event_type",
+          "side",
+          "event_label",
+          "verdict",
+          "verdict_title",
+          "why",
+          "next_action",
+          "net_cr",
+          "bought_cr",
+          "gross_cr",
+          "prop_cr",
+          "deal_price",
+          "close",
+          "vs_deal_pct",
+          "status",
+          "strong_chart",
+          "rs",
+          "from_high_pct",
+          "month_pct",
+          "rvol",
+          "mcap_cr",
+          "industry",
+          "sector",
+          "buyers",
+          "sellers",
+          "chips"
+        ],
+        "title": "DealTabRow",
+        "description": "One stock-session with its evidence verdict (Today, Deal watch, stock drawer)."
+      },
+      "DealTelegramRow": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "chars": {
+            "type": "integer",
+            "title": "Chars"
+          },
+          "max_chars": {
+            "type": "integer",
+            "title": "Max Chars"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "text",
+          "chars",
+          "max_chars"
+        ],
+        "title": "DealTelegramRow"
       },
       "DealWindowRow": {
         "properties": {
@@ -11243,397 +11766,6 @@
           "passed"
         ],
         "title": "DebugRow"
-      },
-      "DeskWatchRow": {
-        "properties": {
-          "symbol": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Symbol"
-          },
-          "security_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Security Name"
-          },
-          "broad_sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broad Sector"
-          },
-          "sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sector"
-          },
-          "broad_industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broad Industry"
-          },
-          "industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Industry"
-          },
-          "close": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Close"
-          },
-          "change_1d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Change 1D Pct",
-            "description": "Close vs previous close, %"
-          },
-          "rvol": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rvol"
-          },
-          "delivery_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Pct"
-          },
-          "deliv_pct_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Pct X",
-            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
-          },
-          "rs_percentile": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Percentile"
-          },
-          "rs_delta_5": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Delta 5"
-          },
-          "excess_vs_midsml400_63d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Excess Vs Midsml400 63D"
-          },
-          "market_cap_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Market Cap Cr"
-          },
-          "adv_cr_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Adv Cr 20D"
-          },
-          "data_warning": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data Warning",
-            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
-          },
-          "trade_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Trade Date"
-          },
-          "has_data": {
-            "type": "boolean",
-            "title": "Has Data",
-            "default": false
-          },
-          "queues": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Queues",
-            "description": "Daily Desk queues the stock is in on as_of"
-          },
-          "primary_queue": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Primary Queue"
-          },
-          "trigger_price": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Trigger Price"
-          },
-          "stop_price": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stop Price"
-          },
-          "distance_to_trigger_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Distance To Trigger Pct"
-          },
-          "risk_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Risk Pct"
-          },
-          "away_52w_high_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Away 52W High Pct"
-          },
-          "results_within_10": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Results Within 10"
-          },
-          "next_event": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/NextEvent"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "title": "DeskWatchRow"
-      },
-      "DiffRow": {
-        "properties": {
-          "queue": {
-            "type": "string",
-            "title": "Queue"
-          },
-          "timeframe": {
-            "type": "string",
-            "title": "Timeframe"
-          },
-          "change": {
-            "type": "string",
-            "enum": [
-              "new",
-              "dropped"
-            ],
-            "title": "Change"
-          },
-          "symbol": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Symbol"
-          },
-          "session": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Session"
-          },
-          "close": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Close"
-          },
-          "rs_percentile": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Percentile"
-          },
-          "industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Industry"
-          }
-        },
-        "type": "object",
-        "required": [
-          "queue",
-          "timeframe",
-          "change"
-        ],
-        "title": "DiffRow"
       },
       "DrawdownRow": {
         "properties": {
@@ -12190,52 +12322,6 @@
         ],
         "title": "Envelope[CaseMoverRow]"
       },
-      "Envelope_CompareRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/CompareRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[CompareRow]"
-      },
       "Envelope_DarvasRow_": {
         "properties": {
           "as_of": {
@@ -12328,6 +12414,236 @@
         ],
         "title": "Envelope[DealCandleRow]"
       },
+      "Envelope_DealFlagRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealFlagRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealFlagRow]"
+      },
+      "Envelope_DealGroupRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealGroupRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealGroupRow]"
+      },
+      "Envelope_DealHistoryRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealHistoryRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealHistoryRow]"
+      },
+      "Envelope_DealHousePosition_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealHousePosition"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealHousePosition]"
+      },
+      "Envelope_DealHouseRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealHouseRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealHouseRow]"
+      },
       "Envelope_DealLeaderRow_": {
         "properties": {
           "as_of": {
@@ -12373,6 +12689,52 @@
           "meta"
         ],
         "title": "Envelope[DealLeaderRow]"
+      },
+      "Envelope_DealMarker_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealMarker"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealMarker]"
       },
       "Envelope_DealPrintRow_": {
         "properties": {
@@ -12512,6 +12874,144 @@
         ],
         "title": "Envelope[DealStarRow]"
       },
+      "Envelope_DealStockDetail_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealStockDetail"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealStockDetail]"
+      },
+      "Envelope_DealTabRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealTabRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealTabRow]"
+      },
+      "Envelope_DealTelegramRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DealTelegramRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[DealTelegramRow]"
+      },
       "Envelope_DealWindowRow_": {
         "properties": {
           "as_of": {
@@ -12603,98 +13103,6 @@
           "meta"
         ],
         "title": "Envelope[DebugRow]"
-      },
-      "Envelope_DeskWatchRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/DeskWatchRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[DeskWatchRow]"
-      },
-      "Envelope_DiffRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/DiffRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[DiffRow]"
       },
       "Envelope_DrawdownRow_": {
         "properties": {
@@ -13754,52 +14162,6 @@
         ],
         "title": "Envelope[QueueRow]"
       },
-      "Envelope_QueueSummaryRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/QueueSummaryRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[QueueSummaryRow]"
-      },
       "Envelope_RegimeDayRow_": {
         "properties": {
           "as_of": {
@@ -14535,190 +14897,6 @@
           "meta"
         ],
         "title": "Envelope[SymbolSearchRow]"
-      },
-      "Envelope_TodayBreakoutRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/TodayBreakoutRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[TodayBreakoutRow]"
-      },
-      "Envelope_TodayGroupRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/TodayGroupRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[TodayGroupRow]"
-      },
-      "Envelope_TodayMarketRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/TodayMarketRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[TodayMarketRow]"
-      },
-      "Envelope_TodayMoverRow_": {
-        "properties": {
-          "as_of": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "As Of"
-          },
-          "freshness": {
-            "$ref": "#/components/schemas/Freshness"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "returned": {
-            "type": "integer",
-            "title": "Returned"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/TodayMoverRow"
-            },
-            "type": "array",
-            "title": "Rows"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "freshness",
-          "total",
-          "returned",
-          "rows",
-          "meta"
-        ],
-        "title": "Envelope[TodayMoverRow]"
       },
       "Envelope_WatchlistItem_": {
         "properties": {
@@ -19143,63 +19321,6 @@
         ],
         "title": "QueueRow"
       },
-      "QueueSummaryRow": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description"
-          },
-          "timeframes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Timeframes"
-          },
-          "counts": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": "object",
-            "title": "Counts"
-          },
-          "count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Count"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "label",
-          "description",
-          "timeframes",
-          "counts"
-        ],
-        "title": "QueueSummaryRow"
-      },
       "RegimeDayRow": {
         "properties": {
           "trade_date": {
@@ -22763,1780 +22884,6 @@
           "level"
         ],
         "title": "TaxonomyNode"
-      },
-      "TodayBreakoutRow": {
-        "properties": {
-          "symbol": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Symbol"
-          },
-          "security_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Security Name"
-          },
-          "broad_sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broad Sector"
-          },
-          "sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sector"
-          },
-          "broad_industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broad Industry"
-          },
-          "industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Industry"
-          },
-          "close": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Close"
-          },
-          "change_1d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Change 1D Pct",
-            "description": "Close vs previous close, %"
-          },
-          "rvol": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rvol"
-          },
-          "delivery_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Pct"
-          },
-          "deliv_pct_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Pct X",
-            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
-          },
-          "rs_percentile": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Percentile"
-          },
-          "rs_delta_5": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Delta 5"
-          },
-          "excess_vs_midsml400_63d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Excess Vs Midsml400 63D"
-          },
-          "market_cap_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Market Cap Cr"
-          },
-          "adv_cr_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Adv Cr 20D"
-          },
-          "data_warning": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data Warning",
-            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
-          },
-          "turnover_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Cr"
-          },
-          "turnover_vs_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Vs 20D",
-            "description": "Turnover ÷ average traded value of the prior 20 sessions"
-          },
-          "deliv_qty_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Qty X",
-            "description": "Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
-          },
-          "delivery_spike": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Spike",
-            "description": "Delivered shares > 2 × their 20-day average"
-          },
-          "away_52w_high_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Away 52W High Pct"
-          },
-          "is_52w_high": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is 52W High"
-          },
-          "circuit_band": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Circuit Band",
-            "description": "Price band %, point-in-time where available"
-          },
-          "at_upper_circuit": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "At Upper Circuit"
-          },
-          "at_lower_circuit": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "At Lower Circuit"
-          },
-          "gap_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gap Pct",
-            "description": "Open vs previous close, %"
-          },
-          "queues": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Queues",
-            "description": "Daily Desk queues the stock is in on as_of"
-          },
-          "deal_prints_today": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Prints Today"
-          },
-          "deal_net_cr_today": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Net Cr Today",
-            "description": "Bulk/block net today, PROP excluded, ₹ Cr"
-          },
-          "deal_event_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Event Type",
-            "description": "deal_session_net event type (accumulate / distribute / churn …)"
-          },
-          "results_nearby": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TodayEvent"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Results board meeting / financial results within ±5 sessions"
-          },
-          "corp_action_nearby": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TodayEvent"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "news_today": {
-            "items": {
-              "$ref": "#/components/schemas/TodayNews"
-            },
-            "type": "array",
-            "title": "News Today"
-          },
-          "quality": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality",
-            "description": "Quality of move label (meta.context.quality_rules)"
-          },
-          "quality_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality Id"
-          },
-          "quality_tone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality Tone"
-          },
-          "traits": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Traits",
-            "description": "Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5"
-          },
-          "kinds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Kinds",
-            "description": "Rule ids from meta.context.rules"
-          },
-          "setup_queue": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Setup Queue"
-          },
-          "setup_trigger": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Setup Trigger",
-            "description": "Trigger carried on the previous session that the close crossed"
-          }
-        },
-        "type": "object",
-        "title": "TodayBreakoutRow"
-      },
-      "TodayContributor": {
-        "properties": {
-          "symbol": {
-            "type": "string",
-            "title": "Symbol"
-          },
-          "change_1d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Change 1D Pct"
-          },
-          "contribution": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contribution",
-            "description": "Points of the equal-weight group return"
-          },
-          "share_of_move_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Share Of Move Pct"
-          },
-          "weight_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Weight Pct"
-          },
-          "rvol": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rvol"
-          },
-          "deliv_qty_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Qty X",
-            "description": "Delivered qty ×20d: delivered shares ÷ prior 20-session average"
-          }
-        },
-        "type": "object",
-        "required": [
-          "symbol"
-        ],
-        "title": "TodayContributor"
-      },
-      "TodayEvent": {
-        "properties": {
-          "event_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Event Type"
-          },
-          "event_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Event Date"
-          },
-          "when": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "past",
-                  "today",
-                  "upcoming"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "When"
-          },
-          "headline": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Headline"
-          }
-        },
-        "type": "object",
-        "title": "TodayEvent"
-      },
-      "TodayGroupRow": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "level": {
-            "type": "string",
-            "title": "Level"
-          },
-          "group_name": {
-            "type": "string",
-            "title": "Group Name"
-          },
-          "stocks": {
-            "type": "integer",
-            "title": "Stocks"
-          },
-          "stocks_with_return": {
-            "type": "integer",
-            "title": "Stocks With Return"
-          },
-          "return_1d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return 1D",
-            "description": "Equal-weight mean 1D change of members, %"
-          },
-          "advancers": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Advancers"
-          },
-          "decliners": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decliners"
-          },
-          "pct_up": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pct Up"
-          },
-          "pct_down": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pct Down"
-          },
-          "pct_up_2": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pct Up 2",
-            "description": "% of members up more than 2%"
-          },
-          "pct_down_2": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pct Down 2"
-          },
-          "turnover_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Cr"
-          },
-          "turnover_vs_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Vs 20D"
-          },
-          "deliv_qty_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Qty X",
-            "description": "Members' delivered shares ÷ their prior 20-session average (Delivered qty ×20d)"
-          },
-          "top_contributors": {
-            "items": {
-              "$ref": "#/components/schemas/TodayContributor"
-            },
-            "type": "array",
-            "title": "Top Contributors"
-          },
-          "top_detractors": {
-            "items": {
-              "$ref": "#/components/schemas/TodayContributor"
-            },
-            "type": "array",
-            "title": "Top Detractors"
-          },
-          "top1_share_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Top1 Share Pct",
-            "description": "Largest contributor's share of the group move, %"
-          },
-          "breadth_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Breadth Label",
-            "description": "broad | mixed | one-stock | flat | thin"
-          },
-          "participation_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Participation Id"
-          },
-          "participation": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Participation"
-          },
-          "deal_stocks": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Stocks"
-          },
-          "deal_buyers": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Buyers"
-          },
-          "deal_sellers": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Sellers"
-          },
-          "deal_net_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Net Cr"
-          },
-          "results_nearby_n": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Results Nearby N"
-          },
-          "news_today_n": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "News Today N"
-          },
-          "news_types": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "News Types"
-          },
-          "return_5d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return 5D"
-          },
-          "return_21d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return 21D"
-          },
-          "rank": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank",
-            "description": "group_daily rank (mean 21d/63d excess vs MidSml400)"
-          },
-          "rank_delta_5": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank Delta 5"
-          },
-          "rank_n": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank N"
-          },
-          "rank_1d": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank 1D",
-            "description": "Rank by today's return among groups with >= 3 members"
-          },
-          "rank_1d_n": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank 1D N"
-          },
-          "context_source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Context Source"
-          },
-          "persistence_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Persistence Id"
-          },
-          "persistence": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Persistence"
-          },
-          "persistence_phrase": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Persistence Phrase"
-          },
-          "symbols": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Symbols",
-            "description": "Members in move order (for charts / copy)"
-          },
-          "why": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Why",
-            "description": "Plain-language sentence built only from the facts in this row"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "level",
-          "group_name",
-          "stocks",
-          "stocks_with_return"
-        ],
-        "title": "TodayGroupRow"
-      },
-      "TodayIndex": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "close": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Close"
-          },
-          "return_1d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return 1D Pct"
-          },
-          "return_5d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return 5D Pct"
-          },
-          "return_20d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return 20D Pct"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "label"
-        ],
-        "title": "TodayIndex"
-      },
-      "TodayMarketRow": {
-        "properties": {
-          "trade_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Trade Date"
-          },
-          "indices": {
-            "items": {
-              "$ref": "#/components/schemas/TodayIndex"
-            },
-            "type": "array",
-            "title": "Indices"
-          },
-          "india_vix": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "India Vix"
-          },
-          "vix_change_1d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vix Change 1D Pct"
-          },
-          "advancers": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Advancers"
-          },
-          "decliners": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decliners"
-          },
-          "unchanged": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unchanged"
-          },
-          "advance_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Advance Pct"
-          },
-          "new_52w_highs": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "New 52W Highs"
-          },
-          "new_52w_lows": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "New 52W Lows"
-          },
-          "new_52w_highs_5d_avg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "New 52W Highs 5D Avg",
-            "description": "Average of the prior 5 sessions"
-          },
-          "new_52w_lows_5d_avg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "New 52W Lows 5D Avg"
-          },
-          "up_5pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Up 5Pct",
-            "description": "Stocks up >= 5% on the session"
-          },
-          "down_5pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Down 5Pct"
-          },
-          "turnover_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Cr",
-            "description": "Sum of every stock's traded value, ₹ Cr"
-          },
-          "turnover_20d_avg_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover 20D Avg Cr",
-            "description": "Average of the prior 20 sessions, ₹ Cr"
-          },
-          "turnover_vs_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Vs 20D"
-          },
-          "delivery_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Pct",
-            "description": "Delivered value ÷ traded value (EQ series), %"
-          },
-          "delivery_pct_20d_avg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Pct 20D Avg"
-          },
-          "deliv_pct_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Pct X",
-            "description": "Market delivery % ÷ its prior 20-session average"
-          }
-        },
-        "type": "object",
-        "title": "TodayMarketRow"
-      },
-      "TodayMoverRow": {
-        "properties": {
-          "symbol": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Symbol"
-          },
-          "security_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Security Name"
-          },
-          "broad_sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broad Sector"
-          },
-          "sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sector"
-          },
-          "broad_industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broad Industry"
-          },
-          "industry": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Industry"
-          },
-          "close": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Close"
-          },
-          "change_1d_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Change 1D Pct",
-            "description": "Close vs previous close, %"
-          },
-          "rvol": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rvol"
-          },
-          "delivery_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Pct"
-          },
-          "deliv_pct_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Pct X",
-            "description": "Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)"
-          },
-          "rs_percentile": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Percentile"
-          },
-          "rs_delta_5": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rs Delta 5"
-          },
-          "excess_vs_midsml400_63d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Excess Vs Midsml400 63D"
-          },
-          "market_cap_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Market Cap Cr"
-          },
-          "adv_cr_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Adv Cr 20D"
-          },
-          "data_warning": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data Warning",
-            "description": "Unexplained price gap inside a metric window; those metrics are served NULL"
-          },
-          "turnover_cr": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Cr"
-          },
-          "turnover_vs_20d": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Turnover Vs 20D",
-            "description": "Turnover ÷ average traded value of the prior 20 sessions"
-          },
-          "deliv_qty_x": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliv Qty X",
-            "description": "Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)"
-          },
-          "delivery_spike": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delivery Spike",
-            "description": "Delivered shares > 2 × their 20-day average"
-          },
-          "away_52w_high_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Away 52W High Pct"
-          },
-          "is_52w_high": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is 52W High"
-          },
-          "circuit_band": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Circuit Band",
-            "description": "Price band %, point-in-time where available"
-          },
-          "at_upper_circuit": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "At Upper Circuit"
-          },
-          "at_lower_circuit": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "At Lower Circuit"
-          },
-          "gap_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gap Pct",
-            "description": "Open vs previous close, %"
-          },
-          "queues": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Queues",
-            "description": "Daily Desk queues the stock is in on as_of"
-          },
-          "deal_prints_today": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Prints Today"
-          },
-          "deal_net_cr_today": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Net Cr Today",
-            "description": "Bulk/block net today, PROP excluded, ₹ Cr"
-          },
-          "deal_event_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deal Event Type",
-            "description": "deal_session_net event type (accumulate / distribute / churn …)"
-          },
-          "results_nearby": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TodayEvent"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Results board meeting / financial results within ±5 sessions"
-          },
-          "corp_action_nearby": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TodayEvent"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "news_today": {
-            "items": {
-              "$ref": "#/components/schemas/TodayNews"
-            },
-            "type": "array",
-            "title": "News Today"
-          },
-          "quality": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality",
-            "description": "Quality of move label (meta.context.quality_rules)"
-          },
-          "quality_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality Id"
-          },
-          "quality_tone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quality Tone"
-          },
-          "traits": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Traits",
-            "description": "Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5"
-          },
-          "side": {
-            "type": "string",
-            "enum": [
-              "gainer",
-              "loser"
-            ],
-            "title": "Side"
-          },
-          "rank": {
-            "type": "integer",
-            "title": "Rank"
-          }
-        },
-        "type": "object",
-        "required": [
-          "side",
-          "rank"
-        ],
-        "title": "TodayMoverRow"
-      },
-      "TodayNews": {
-        "properties": {
-          "event_type": {
-            "type": "string",
-            "title": "Event Type"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "headline": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Headline"
-          }
-        },
-        "type": "object",
-        "required": [
-          "event_type",
-          "label"
-        ],
-        "title": "TodayNews"
       },
       "TrailPoint": {
         "properties": {

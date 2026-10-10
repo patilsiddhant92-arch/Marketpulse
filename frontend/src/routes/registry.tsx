@@ -11,7 +11,7 @@ import ScreenerRoute from './ScreenerRoute';
 
 export const TAB_COMPONENTS: Record<TabId, ComponentType | LazyExoticComponent<ComponentType>> = {
   desk: DeskRoute,
-  screener: ScreenerRoute,
+  setups: ScreenerRoute,
   groups: GroupsRoute,
   deals: DealsRoute,
   charts: lazy(() => import('./ChartsRoute')),

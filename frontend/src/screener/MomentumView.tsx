@@ -1,5 +1,5 @@
 /**
- * Screener → Momentum: the user's main scanner, restored with the old
+ * Setups → Momentum: the user's main scanner, restored with the old
  * workspace's controls, defaults and outputs (GET /api/v2/screener/momentum):
  * preset buttons, lookback 1–30D, min mcap, volume gate (day / 20D avg / off
  * with 5L–50L presets), 52W distances, EMA / SMA / OHLC / delivery / NR7 /
@@ -55,7 +55,7 @@ const EMPTY_EVIDENCE: MomentumEvidenceRow[] = [];
 export default function MomentumView() {
   const shell = useShell();
   const [asOf] = useAsOf();
-  const [state, setState] = useTabUrlState('/screener', MOMENTUM_DEFAULTS, 'momentum');
+  const [state, setState] = useTabUrlState('/setups', MOMENTUM_DEFAULTS, 'momentum');
   const [debugInput, setDebugInput] = useState('');
   const [debugSym, setDebugSym] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);

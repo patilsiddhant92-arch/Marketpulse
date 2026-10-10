@@ -75,23 +75,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/desk/queues": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Desk Queues */
-        get: operations["desk_queues_api_v2_desk_queues_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/desk/queue/{name}": {
         parameters: {
             query?: never;
@@ -101,60 +84,6 @@ export interface paths {
         };
         /** Desk Queue */
         get: operations["desk_queue_api_v2_desk_queue__name__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/desk/watchlist": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Desk Watchlist */
-        get: operations["desk_watchlist_api_v2_desk_watchlist_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/desk/diff": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Desk Diff */
-        get: operations["desk_diff_api_v2_desk_diff_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/desk/compare": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Desk Compare
-         * @description Now vs N sessions ago: queue counts, breadth, verdict and top groups by Health.
-         */
-        get: operations["desk_compare_api_v2_desk_compare_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -420,86 +349,6 @@ export interface paths {
          * @description Group drill-down history (newest first). group_id = '<level>:<name>'.
          */
         get: operations["groups_detail_api_v2_groups__group_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/today/market": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Today Market
-         * @description Market today strip: index moves, advancers/decliners, 52W highs/lows vs 5-day avg, turnover and delivery vs 20-day avg, VIX.
-         */
-        get: operations["today_market_api_v2_today_market_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/today/movers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Today Movers
-         * @description Top gainers and losers (side) with RVOL, delivery, turnover, queues, deals, catalysts and the quality-of-move label (rules in meta.context.quality_rules).
-         */
-        get: operations["today_movers_api_v2_today_movers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/today/breakouts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Today Breakouts
-         * @description Breakouts today (52W highs, setup triggers, 20-day highs on RVOL, gap-ups) and delivery footprints (accumulation / distribution). Rule ids in meta.context.rules.
-         */
-        get: operations["today_breakouts_api_v2_today_breakouts_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/today/groups": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Today Groups
-         * @description Every group at a level today: 1D EW return, breadth, turnover/delivery vs 20d, contributors, concentration, deals, catalysts, 5d/21d persistence and a fact-only 'why' sentence.
-         */
-        get: operations["today_groups_api_v2_today_groups_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1941,28 +1790,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** CompareRow */
-        CompareRow: {
-            /** Key */
-            key: string;
-            /** Label */
-            label: string;
-            /**
-             * Group
-             * @enum {string}
-             */
-            group: "Queues" | "Breadth";
-            /** Unit */
-            unit: string;
-            /** Better */
-            better?: ("up" | "down") | null;
-            /** Now */
-            now?: number | null;
-            /** Then */
-            then?: number | null;
-            /** Delta */
-            delta?: number | null;
-        };
         /** ContextEvent */
         ContextEvent: {
             /** Event Type */
@@ -2047,6 +1874,21 @@ export interface components {
              */
             ema_10_projection?: number | null;
         };
+        /** DealCandle */
+        DealCandle: {
+            /** Date */
+            date: string;
+            /** Open */
+            open: number | null;
+            /** High */
+            high: number | null;
+            /** Low */
+            low: number | null;
+            /** Close */
+            close: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** DealCandleRow */
         DealCandleRow: {
             /** Trade Date */
@@ -2104,6 +1946,114 @@ export interface components {
             /** Show Line */
             show_line?: boolean | null;
         };
+        /**
+         * DealEarlier
+         * @description An earlier deal session of the same stock inside the watch window.
+         */
+        DealEarlier: {
+            /** Deal Date */
+            deal_date: string;
+            /**
+             * Event Type
+             * @enum {string}
+             */
+            event_type: "fresh" | "accumulate" | "placement" | "distribute" | "churn" | "transfer_interse";
+            /** Side */
+            side: ("B" | "S" | "P" | "T" | "C") | null;
+            /** Net Cr */
+            net_cr: number;
+            /** Deal Price */
+            deal_price: number | null;
+            /** Verdict */
+            verdict?: ("confirm" | "watch" | "place" | "absorbed" | "supply" | "none" | "churn" | "avoid" | "ignore") | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DealFlagRow */
+        DealFlagRow: {
+            /** Symbol */
+            symbol: string;
+            /** Has Recent Deal */
+            has_recent_deal: boolean;
+            /** Last Deal Date */
+            last_deal_date: string | null;
+            /** Deal Sessions Ago */
+            deal_sessions_ago: number | null;
+            /** Side */
+            side: ("B" | "S" | "P" | "T" | "C") | null;
+            /** Event Type */
+            event_type: ("fresh" | "accumulate" | "placement" | "distribute" | "churn" | "transfer_interse") | null;
+            /** Deal Sessions In Window */
+            deal_sessions_in_window: number;
+            /** Verdict */
+            verdict: ("confirm" | "watch" | "place" | "absorbed" | "supply" | "none" | "churn" | "avoid" | "ignore") | null;
+            /** Verdict Title */
+            verdict_title: string | null;
+            /** Deal Price */
+            deal_price: number | null;
+            /** Status */
+            status: string | null;
+            /** Vs Deal Pct */
+            vs_deal_pct: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DealGroupRow */
+        DealGroupRow: {
+            /** Industry */
+            industry: string;
+            /** Sector */
+            sector: string | null;
+            /** Buying Names */
+            buying_names: number;
+            /** Selling Names */
+            selling_names: number;
+            /** Flow Cr */
+            flow_cr: number;
+            /** Symbols */
+            symbols: string[];
+            /** Three Plus Buyers */
+            three_plus_buyers: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DealHistoryRow */
+        DealHistoryRow: {
+            /** Symbol */
+            symbol: string;
+            /** Industry */
+            industry: string | null;
+            /**
+             * Pattern
+             * @enum {string}
+             */
+            pattern: "repeat_buy" | "single_buy" | "selling_only" | "mixed" | "churn_only" | "transfers_only";
+            /** Pattern Label */
+            pattern_label: string;
+            /** Buy Sessions */
+            buy_sessions: number;
+            /** Sell Sessions */
+            sell_sessions: number;
+            /** Churn Sessions */
+            churn_sessions: number;
+            /** Net Cr */
+            net_cr: number;
+            /** Prop Cr */
+            prop_cr: number;
+            /** Avg Deal Price */
+            avg_deal_price: number | null;
+            /** Close */
+            close: number;
+            /** Vs Deal Pct */
+            vs_deal_pct: number | null;
+            /**
+             * Cells
+             * @description One cell per deal session, oldest first
+             */
+            cells: (("B" | "S" | "P" | "T" | "C") | null)[];
+        } & {
+            [key: string]: unknown;
+        };
         /** DealHolding */
         DealHolding: {
             /** Symbol */
@@ -2122,6 +2072,63 @@ export interface components {
             last_side?: string | null;
             /** Last Price */
             last_price?: number | null;
+        };
+        /** DealHousePosition */
+        DealHousePosition: {
+            /** Symbol */
+            symbol: string;
+            /** Deal Date */
+            deal_date: string;
+            /** Bought Cr */
+            bought_cr: number | null;
+            /** Deal Price */
+            deal_price: number | null;
+            /** Buyer Class */
+            buyer_class: string;
+            /** Entry Date */
+            entry_date: string | null;
+            /** Since Entry Pct */
+            since_entry_pct: number | null;
+            /** Market Pct */
+            market_pct: number | null;
+            /** Vs Market Pct */
+            vs_market_pct: number | null;
+            /** Verdict */
+            verdict: ("confirm" | "watch" | "place" | "absorbed" | "supply" | "none" | "churn" | "avoid" | "ignore") | null;
+            /** Verdict Title */
+            verdict_title: string | null;
+            /** Status */
+            status: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DealHouseRow */
+        DealHouseRow: {
+            /** House */
+            house: string;
+            /** Name */
+            name: string;
+            /** Buyer Class */
+            buyer_class: string;
+            /** Bought Cr */
+            bought_cr: number | null;
+            /** Symbols */
+            symbols: string[];
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "good" | "mixed" | "poor" | "ungraded";
+            /** Record N */
+            record_n: number;
+            /** Record Avg Pct */
+            record_avg_pct: number | null;
+            /** Record Beat Pct */
+            record_beat_pct: number | null;
+            /** Spread */
+            spread: components["schemas"]["DealSpreadItem"][];
+        } & {
+            [key: string]: unknown;
         };
         /** DealLeaderRow */
         DealLeaderRow: {
@@ -2180,6 +2187,49 @@ export interface components {
             net_long_count: number;
             /** Holdings */
             holdings?: components["schemas"]["DealHolding"][];
+        };
+        /** DealMarker */
+        DealMarker: {
+            /** Date */
+            date: string;
+            /** Side */
+            side: ("B" | "S" | "P" | "T" | "C") | null;
+            /**
+             * Event Type
+             * @enum {string}
+             */
+            event_type: "fresh" | "accumulate" | "placement" | "distribute" | "churn" | "transfer_interse";
+            /** Price */
+            price: number | null;
+            /** Net Cr */
+            net_cr: number | null;
+            /** Gross Cr */
+            gross_cr: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DealParty
+         * @description A buyer or seller of the deal session (non-PROP), with its house record.
+         */
+        DealParty: {
+            /** Name */
+            name: string;
+            /** House */
+            house: string;
+            /** Buyer Class */
+            buyer_class: string;
+            /** Value Cr */
+            value_cr: number;
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "good" | "mixed" | "poor" | "ungraded";
+            /** Record N */
+            record_n: number;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * DealPrintRow
@@ -2327,6 +2377,19 @@ export interface components {
             /** Within 15Pct Of High */
             within_15pct_of_high?: boolean | null;
         };
+        /** DealSpreadItem */
+        DealSpreadItem: {
+            /** Industry */
+            industry: string;
+            /** Value Cr */
+            value_cr: number;
+            /** Share Pct */
+            share_pct: number;
+            /** Symbols */
+            symbols: string[];
+        } & {
+            [key: string]: unknown;
+        };
         /** DealStarRow */
         DealStarRow: {
             /** Symbol */
@@ -2367,6 +2430,116 @@ export interface components {
             market_cap_cr?: number | null;
             /** Sector */
             sector?: string | null;
+        };
+        /** DealStockDetail */
+        DealStockDetail: {
+            /** Symbol */
+            symbol: string;
+            deal: components["schemas"]["DealTabRow"] | null;
+            /** Candles */
+            candles: components["schemas"]["DealCandle"][];
+            /** Markers */
+            markers: components["schemas"]["DealMarker"][];
+            /** Price Lines */
+            price_lines: components["schemas"]["DealMarker"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DealTabRow
+         * @description One stock-session with its evidence verdict (Today, Deal watch, stock drawer).
+         */
+        DealTabRow: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name: string;
+            /** Deal Date */
+            deal_date: string;
+            /** Sessions Since */
+            sessions_since: number;
+            /**
+             * Event Type
+             * @enum {string}
+             */
+            event_type: "fresh" | "accumulate" | "placement" | "distribute" | "churn" | "transfer_interse";
+            /** Side */
+            side: ("B" | "S" | "P" | "T" | "C") | null;
+            /** Event Label */
+            event_label: string;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "confirm" | "watch" | "place" | "absorbed" | "supply" | "none" | "churn" | "avoid" | "ignore";
+            /** Verdict Title */
+            verdict_title: string;
+            /** Why */
+            why: string;
+            /** Next Action */
+            next_action: string;
+            /**
+             * Net Cr
+             * @description Net ₹ Cr ex-PROP
+             */
+            net_cr: number;
+            /** Bought Cr */
+            bought_cr: number;
+            /** Gross Cr */
+            gross_cr: number | null;
+            /** Prop Cr */
+            prop_cr: number | null;
+            /**
+             * Deal Price
+             * @description Buy VWAP (sell VWAP for net sells); the deal level
+             */
+            deal_price: number | null;
+            /** Close */
+            close: number;
+            /** Vs Deal Pct */
+            vs_deal_pct: number | null;
+            /**
+             * Status
+             * @description day 0 / holding / lost / reclaimed / below seller
+             */
+            status: string | null;
+            /** Strong Chart */
+            strong_chart: boolean;
+            /** Rs */
+            rs: number | null;
+            /** From High Pct */
+            from_high_pct: number | null;
+            /** Month Pct */
+            month_pct: number | null;
+            /** Rvol */
+            rvol: number | null;
+            /** Mcap Cr */
+            mcap_cr: number | null;
+            /** Industry */
+            industry: string | null;
+            /** Sector */
+            sector: string | null;
+            /** Buyers */
+            buyers: components["schemas"]["DealParty"][];
+            /** Sellers */
+            sellers: components["schemas"]["DealParty"][];
+            /** Chips */
+            chips: string[];
+            /** Earlier */
+            earlier?: components["schemas"]["DealEarlier"][] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DealTelegramRow */
+        DealTelegramRow: {
+            /** Text */
+            text: string;
+            /** Chars */
+            chars: number;
+            /** Max Chars */
+            max_chars: number;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * DealWindowRow
@@ -2503,101 +2676,6 @@ export interface components {
             missing_input?: boolean | null;
             /** Detail */
             detail?: string | null;
-        };
-        /** DeskWatchRow */
-        DeskWatchRow: {
-            /** Symbol */
-            symbol?: string | null;
-            /** Security Name */
-            security_name?: string | null;
-            /** Broad Sector */
-            broad_sector?: string | null;
-            /** Sector */
-            sector?: string | null;
-            /** Broad Industry */
-            broad_industry?: string | null;
-            /** Industry */
-            industry?: string | null;
-            /** Close */
-            close?: number | null;
-            /**
-             * Change 1D Pct
-             * @description Close vs previous close, %
-             */
-            change_1d_pct?: number | null;
-            /** Rvol */
-            rvol?: number | null;
-            /** Delivery Pct */
-            delivery_pct?: number | null;
-            /**
-             * Deliv Pct X
-             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
-             */
-            deliv_pct_x?: number | null;
-            /** Rs Percentile */
-            rs_percentile?: number | null;
-            /** Rs Delta 5 */
-            rs_delta_5?: number | null;
-            /** Excess Vs Midsml400 63D */
-            excess_vs_midsml400_63d?: number | null;
-            /** Market Cap Cr */
-            market_cap_cr?: number | null;
-            /** Adv Cr 20D */
-            adv_cr_20d?: number | null;
-            /**
-             * Data Warning
-             * @description Unexplained price gap inside a metric window; those metrics are served NULL
-             */
-            data_warning?: string | null;
-            /** Trade Date */
-            trade_date?: string | null;
-            /**
-             * Has Data
-             * @default false
-             */
-            has_data: boolean;
-            /**
-             * Queues
-             * @description Daily Desk queues the stock is in on as_of
-             */
-            queues?: string[];
-            /** Primary Queue */
-            primary_queue?: string | null;
-            /** Trigger Price */
-            trigger_price?: number | null;
-            /** Stop Price */
-            stop_price?: number | null;
-            /** Distance To Trigger Pct */
-            distance_to_trigger_pct?: number | null;
-            /** Risk Pct */
-            risk_pct?: number | null;
-            /** Away 52W High Pct */
-            away_52w_high_pct?: number | null;
-            /** Results Within 10 */
-            results_within_10?: boolean | null;
-            next_event?: components["schemas"]["NextEvent"] | null;
-        };
-        /** DiffRow */
-        DiffRow: {
-            /** Queue */
-            queue: string;
-            /** Timeframe */
-            timeframe: string;
-            /**
-             * Change
-             * @enum {string}
-             */
-            change: "new" | "dropped";
-            /** Symbol */
-            symbol?: string | null;
-            /** Session */
-            session?: string | null;
-            /** Close */
-            close?: number | null;
-            /** Rs Percentile */
-            rs_percentile?: number | null;
-            /** Industry */
-            industry?: string | null;
         };
         /** DrawdownRow */
         DrawdownRow: {
@@ -2751,19 +2829,6 @@ export interface components {
             rows: components["schemas"]["CaseMoverRow"][];
             meta: components["schemas"]["Meta"];
         };
-        /** Envelope[CompareRow] */
-        Envelope_CompareRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["CompareRow"][];
-            meta: components["schemas"]["Meta"];
-        };
         /** Envelope[DarvasRow] */
         Envelope_DarvasRow_: {
             /** As Of */
@@ -2790,6 +2855,71 @@ export interface components {
             rows: components["schemas"]["DealCandleRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[DealFlagRow] */
+        Envelope_DealFlagRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealFlagRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealGroupRow] */
+        Envelope_DealGroupRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealGroupRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealHistoryRow] */
+        Envelope_DealHistoryRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealHistoryRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealHousePosition] */
+        Envelope_DealHousePosition_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealHousePosition"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealHouseRow] */
+        Envelope_DealHouseRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealHouseRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[DealLeaderRow] */
         Envelope_DealLeaderRow_: {
             /** As Of */
@@ -2801,6 +2931,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DealLeaderRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealMarker] */
+        Envelope_DealMarker_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealMarker"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DealPrintRow] */
@@ -2842,6 +2985,45 @@ export interface components {
             rows: components["schemas"]["DealStarRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[DealStockDetail] */
+        Envelope_DealStockDetail_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealStockDetail"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealTabRow] */
+        Envelope_DealTabRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealTabRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealTelegramRow] */
+        Envelope_DealTelegramRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealTelegramRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[DealWindowRow] */
         Envelope_DealWindowRow_: {
             /** As Of */
@@ -2866,32 +3048,6 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DebugRow"][];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[DeskWatchRow] */
-        Envelope_DeskWatchRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["DeskWatchRow"][];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[DiffRow] */
-        Envelope_DiffRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["DiffRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DrawdownRow] */
@@ -3193,19 +3349,6 @@ export interface components {
             rows: components["schemas"]["QueueRow"][];
             meta: components["schemas"]["Meta"];
         };
-        /** Envelope[QueueSummaryRow] */
-        Envelope_QueueSummaryRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["QueueSummaryRow"][];
-            meta: components["schemas"]["Meta"];
-        };
         /** Envelope[RegimeDayRow] */
         Envelope_RegimeDayRow_: {
             /** As Of */
@@ -3412,58 +3555,6 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["SymbolSearchRow"][];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[TodayBreakoutRow] */
-        Envelope_TodayBreakoutRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["TodayBreakoutRow"][];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[TodayGroupRow] */
-        Envelope_TodayGroupRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["TodayGroupRow"][];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[TodayMarketRow] */
-        Envelope_TodayMarketRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["TodayMarketRow"][];
-            meta: components["schemas"]["Meta"];
-        };
-        /** Envelope[TodayMoverRow] */
-        Envelope_TodayMoverRow_: {
-            /** As Of */
-            as_of?: string | null;
-            freshness: components["schemas"]["Freshness"];
-            /** Total */
-            total: number;
-            /** Returned */
-            returned: number;
-            /** Rows */
-            rows: components["schemas"]["TodayMoverRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[WatchlistItem] */
@@ -4588,23 +4679,6 @@ export interface components {
             /** Status */
             status?: string | null;
         };
-        /** QueueSummaryRow */
-        QueueSummaryRow: {
-            /** Name */
-            name: string;
-            /** Label */
-            label: string;
-            /** Description */
-            description: string;
-            /** Timeframes */
-            timeframes: string[];
-            /** Counts */
-            counts: {
-                [key: string]: number | null;
-            };
-            /** Count */
-            count?: number | null;
-        };
         /** RegimeDayRow */
         RegimeDayRow: {
             /** Trade Date */
@@ -5444,492 +5518,6 @@ export interface components {
             /** Id */
             id?: string | null;
         };
-        /** TodayBreakoutRow */
-        TodayBreakoutRow: {
-            /** Symbol */
-            symbol?: string | null;
-            /** Security Name */
-            security_name?: string | null;
-            /** Broad Sector */
-            broad_sector?: string | null;
-            /** Sector */
-            sector?: string | null;
-            /** Broad Industry */
-            broad_industry?: string | null;
-            /** Industry */
-            industry?: string | null;
-            /** Close */
-            close?: number | null;
-            /**
-             * Change 1D Pct
-             * @description Close vs previous close, %
-             */
-            change_1d_pct?: number | null;
-            /** Rvol */
-            rvol?: number | null;
-            /** Delivery Pct */
-            delivery_pct?: number | null;
-            /**
-             * Deliv Pct X
-             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
-             */
-            deliv_pct_x?: number | null;
-            /** Rs Percentile */
-            rs_percentile?: number | null;
-            /** Rs Delta 5 */
-            rs_delta_5?: number | null;
-            /** Excess Vs Midsml400 63D */
-            excess_vs_midsml400_63d?: number | null;
-            /** Market Cap Cr */
-            market_cap_cr?: number | null;
-            /** Adv Cr 20D */
-            adv_cr_20d?: number | null;
-            /**
-             * Data Warning
-             * @description Unexplained price gap inside a metric window; those metrics are served NULL
-             */
-            data_warning?: string | null;
-            /** Turnover Cr */
-            turnover_cr?: number | null;
-            /**
-             * Turnover Vs 20D
-             * @description Turnover ÷ average traded value of the prior 20 sessions
-             */
-            turnover_vs_20d?: number | null;
-            /**
-             * Deliv Qty X
-             * @description Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
-             */
-            deliv_qty_x?: number | null;
-            /**
-             * Delivery Spike
-             * @description Delivered shares > 2 × their 20-day average
-             */
-            delivery_spike?: boolean | null;
-            /** Away 52W High Pct */
-            away_52w_high_pct?: number | null;
-            /** Is 52W High */
-            is_52w_high?: boolean | null;
-            /**
-             * Circuit Band
-             * @description Price band %, point-in-time where available
-             */
-            circuit_band?: number | null;
-            /** At Upper Circuit */
-            at_upper_circuit?: boolean | null;
-            /** At Lower Circuit */
-            at_lower_circuit?: boolean | null;
-            /**
-             * Gap Pct
-             * @description Open vs previous close, %
-             */
-            gap_pct?: number | null;
-            /**
-             * Queues
-             * @description Daily Desk queues the stock is in on as_of
-             */
-            queues?: string[];
-            /** Deal Prints Today */
-            deal_prints_today?: number | null;
-            /**
-             * Deal Net Cr Today
-             * @description Bulk/block net today, PROP excluded, ₹ Cr
-             */
-            deal_net_cr_today?: number | null;
-            /**
-             * Deal Event Type
-             * @description deal_session_net event type (accumulate / distribute / churn …)
-             */
-            deal_event_type?: string | null;
-            /** @description Results board meeting / financial results within ±5 sessions */
-            results_nearby?: components["schemas"]["TodayEvent"] | null;
-            corp_action_nearby?: components["schemas"]["TodayEvent"] | null;
-            /** News Today */
-            news_today?: components["schemas"]["TodayNews"][];
-            /**
-             * Quality
-             * @description Quality of move label (meta.context.quality_rules)
-             */
-            quality?: string | null;
-            /** Quality Id */
-            quality_id?: string | null;
-            /** Quality Tone */
-            quality_tone?: string | null;
-            /**
-             * Traits
-             * @description Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5
-             */
-            traits?: string[];
-            /**
-             * Kinds
-             * @description Rule ids from meta.context.rules
-             */
-            kinds?: string[];
-            /** Setup Queue */
-            setup_queue?: string | null;
-            /**
-             * Setup Trigger
-             * @description Trigger carried on the previous session that the close crossed
-             */
-            setup_trigger?: number | null;
-        };
-        /** TodayContributor */
-        TodayContributor: {
-            /** Symbol */
-            symbol: string;
-            /** Change 1D Pct */
-            change_1d_pct?: number | null;
-            /**
-             * Contribution
-             * @description Points of the equal-weight group return
-             */
-            contribution?: number | null;
-            /** Share Of Move Pct */
-            share_of_move_pct?: number | null;
-            /** Weight Pct */
-            weight_pct?: number | null;
-            /** Rvol */
-            rvol?: number | null;
-            /**
-             * Deliv Qty X
-             * @description Delivered qty ×20d: delivered shares ÷ prior 20-session average
-             */
-            deliv_qty_x?: number | null;
-        };
-        /** TodayEvent */
-        TodayEvent: {
-            /** Event Type */
-            event_type?: string | null;
-            /** Event Date */
-            event_date?: string | null;
-            /** When */
-            when?: ("past" | "today" | "upcoming") | null;
-            /** Headline */
-            headline?: string | null;
-        };
-        /** TodayGroupRow */
-        TodayGroupRow: {
-            /** Id */
-            id: string;
-            /** Level */
-            level: string;
-            /** Group Name */
-            group_name: string;
-            /** Stocks */
-            stocks: number;
-            /** Stocks With Return */
-            stocks_with_return: number;
-            /**
-             * Return 1D
-             * @description Equal-weight mean 1D change of members, %
-             */
-            return_1d?: number | null;
-            /** Advancers */
-            advancers?: number | null;
-            /** Decliners */
-            decliners?: number | null;
-            /** Pct Up */
-            pct_up?: number | null;
-            /** Pct Down */
-            pct_down?: number | null;
-            /**
-             * Pct Up 2
-             * @description % of members up more than 2%
-             */
-            pct_up_2?: number | null;
-            /** Pct Down 2 */
-            pct_down_2?: number | null;
-            /** Turnover Cr */
-            turnover_cr?: number | null;
-            /** Turnover Vs 20D */
-            turnover_vs_20d?: number | null;
-            /**
-             * Deliv Qty X
-             * @description Members' delivered shares ÷ their prior 20-session average (Delivered qty ×20d)
-             */
-            deliv_qty_x?: number | null;
-            /** Top Contributors */
-            top_contributors?: components["schemas"]["TodayContributor"][];
-            /** Top Detractors */
-            top_detractors?: components["schemas"]["TodayContributor"][];
-            /**
-             * Top1 Share Pct
-             * @description Largest contributor's share of the group move, %
-             */
-            top1_share_pct?: number | null;
-            /**
-             * Breadth Label
-             * @description broad | mixed | one-stock | flat | thin
-             */
-            breadth_label?: string | null;
-            /** Participation Id */
-            participation_id?: string | null;
-            /** Participation */
-            participation?: string | null;
-            /** Deal Stocks */
-            deal_stocks?: number | null;
-            /** Deal Buyers */
-            deal_buyers?: number | null;
-            /** Deal Sellers */
-            deal_sellers?: number | null;
-            /** Deal Net Cr */
-            deal_net_cr?: number | null;
-            /** Results Nearby N */
-            results_nearby_n?: number | null;
-            /** News Today N */
-            news_today_n?: number | null;
-            /** News Types */
-            news_types?: {
-                [key: string]: number;
-            };
-            /** Return 5D */
-            return_5d?: number | null;
-            /** Return 21D */
-            return_21d?: number | null;
-            /**
-             * Rank
-             * @description group_daily rank (mean 21d/63d excess vs MidSml400)
-             */
-            rank?: number | null;
-            /** Rank Delta 5 */
-            rank_delta_5?: number | null;
-            /** Rank N */
-            rank_n?: number | null;
-            /**
-             * Rank 1D
-             * @description Rank by today's return among groups with >= 3 members
-             */
-            rank_1d?: number | null;
-            /** Rank 1D N */
-            rank_1d_n?: number | null;
-            /** Context Source */
-            context_source?: string | null;
-            /** Persistence Id */
-            persistence_id?: string | null;
-            /** Persistence */
-            persistence?: string | null;
-            /** Persistence Phrase */
-            persistence_phrase?: string | null;
-            /**
-             * Symbols
-             * @description Members in move order (for charts / copy)
-             */
-            symbols?: string[];
-            /**
-             * Why
-             * @description Plain-language sentence built only from the facts in this row
-             */
-            why?: string | null;
-        };
-        /** TodayIndex */
-        TodayIndex: {
-            /** Name */
-            name: string;
-            /** Label */
-            label: string;
-            /** Close */
-            close?: number | null;
-            /** Return 1D Pct */
-            return_1d_pct?: number | null;
-            /** Return 5D Pct */
-            return_5d_pct?: number | null;
-            /** Return 20D Pct */
-            return_20d_pct?: number | null;
-        };
-        /** TodayMarketRow */
-        TodayMarketRow: {
-            /** Trade Date */
-            trade_date?: string | null;
-            /** Indices */
-            indices?: components["schemas"]["TodayIndex"][];
-            /** India Vix */
-            india_vix?: number | null;
-            /** Vix Change 1D Pct */
-            vix_change_1d_pct?: number | null;
-            /** Advancers */
-            advancers?: number | null;
-            /** Decliners */
-            decliners?: number | null;
-            /** Unchanged */
-            unchanged?: number | null;
-            /** Advance Pct */
-            advance_pct?: number | null;
-            /** New 52W Highs */
-            new_52w_highs?: number | null;
-            /** New 52W Lows */
-            new_52w_lows?: number | null;
-            /**
-             * New 52W Highs 5D Avg
-             * @description Average of the prior 5 sessions
-             */
-            new_52w_highs_5d_avg?: number | null;
-            /** New 52W Lows 5D Avg */
-            new_52w_lows_5d_avg?: number | null;
-            /**
-             * Up 5Pct
-             * @description Stocks up >= 5% on the session
-             */
-            up_5pct?: number | null;
-            /** Down 5Pct */
-            down_5pct?: number | null;
-            /**
-             * Turnover Cr
-             * @description Sum of every stock's traded value, ₹ Cr
-             */
-            turnover_cr?: number | null;
-            /**
-             * Turnover 20D Avg Cr
-             * @description Average of the prior 20 sessions, ₹ Cr
-             */
-            turnover_20d_avg_cr?: number | null;
-            /** Turnover Vs 20D */
-            turnover_vs_20d?: number | null;
-            /**
-             * Delivery Pct
-             * @description Delivered value ÷ traded value (EQ series), %
-             */
-            delivery_pct?: number | null;
-            /** Delivery Pct 20D Avg */
-            delivery_pct_20d_avg?: number | null;
-            /**
-             * Deliv Pct X
-             * @description Market delivery % ÷ its prior 20-session average
-             */
-            deliv_pct_x?: number | null;
-        };
-        /** TodayMoverRow */
-        TodayMoverRow: {
-            /** Symbol */
-            symbol?: string | null;
-            /** Security Name */
-            security_name?: string | null;
-            /** Broad Sector */
-            broad_sector?: string | null;
-            /** Sector */
-            sector?: string | null;
-            /** Broad Industry */
-            broad_industry?: string | null;
-            /** Industry */
-            industry?: string | null;
-            /** Close */
-            close?: number | null;
-            /**
-             * Change 1D Pct
-             * @description Close vs previous close, %
-             */
-            change_1d_pct?: number | null;
-            /** Rvol */
-            rvol?: number | null;
-            /** Delivery Pct */
-            delivery_pct?: number | null;
-            /**
-             * Deliv Pct X
-             * @description Delivery % ×20d: today's delivery % ÷ the stock's own 20-day average delivery % (its delivery habit)
-             */
-            deliv_pct_x?: number | null;
-            /** Rs Percentile */
-            rs_percentile?: number | null;
-            /** Rs Delta 5 */
-            rs_delta_5?: number | null;
-            /** Excess Vs Midsml400 63D */
-            excess_vs_midsml400_63d?: number | null;
-            /** Market Cap Cr */
-            market_cap_cr?: number | null;
-            /** Adv Cr 20D */
-            adv_cr_20d?: number | null;
-            /**
-             * Data Warning
-             * @description Unexplained price gap inside a metric window; those metrics are served NULL
-             */
-            data_warning?: string | null;
-            /** Turnover Cr */
-            turnover_cr?: number | null;
-            /**
-             * Turnover Vs 20D
-             * @description Turnover ÷ average traded value of the prior 20 sessions
-             */
-            turnover_vs_20d?: number | null;
-            /**
-             * Deliv Qty X
-             * @description Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)
-             */
-            deliv_qty_x?: number | null;
-            /**
-             * Delivery Spike
-             * @description Delivered shares > 2 × their 20-day average
-             */
-            delivery_spike?: boolean | null;
-            /** Away 52W High Pct */
-            away_52w_high_pct?: number | null;
-            /** Is 52W High */
-            is_52w_high?: boolean | null;
-            /**
-             * Circuit Band
-             * @description Price band %, point-in-time where available
-             */
-            circuit_band?: number | null;
-            /** At Upper Circuit */
-            at_upper_circuit?: boolean | null;
-            /** At Lower Circuit */
-            at_lower_circuit?: boolean | null;
-            /**
-             * Gap Pct
-             * @description Open vs previous close, %
-             */
-            gap_pct?: number | null;
-            /**
-             * Queues
-             * @description Daily Desk queues the stock is in on as_of
-             */
-            queues?: string[];
-            /** Deal Prints Today */
-            deal_prints_today?: number | null;
-            /**
-             * Deal Net Cr Today
-             * @description Bulk/block net today, PROP excluded, ₹ Cr
-             */
-            deal_net_cr_today?: number | null;
-            /**
-             * Deal Event Type
-             * @description deal_session_net event type (accumulate / distribute / churn …)
-             */
-            deal_event_type?: string | null;
-            /** @description Results board meeting / financial results within ±5 sessions */
-            results_nearby?: components["schemas"]["TodayEvent"] | null;
-            corp_action_nearby?: components["schemas"]["TodayEvent"] | null;
-            /** News Today */
-            news_today?: components["schemas"]["TodayNews"][];
-            /**
-             * Quality
-             * @description Quality of move label (meta.context.quality_rules)
-             */
-            quality?: string | null;
-            /** Quality Id */
-            quality_id?: string | null;
-            /** Quality Tone */
-            quality_tone?: string | null;
-            /**
-             * Traits
-             * @description Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5
-             */
-            traits?: string[];
-            /**
-             * Side
-             * @enum {string}
-             */
-            side: "gainer" | "loser";
-            /** Rank */
-            rank: number;
-        };
-        /** TodayNews */
-        TodayNews: {
-            /** Event Type */
-            event_type: string;
-            /** Label */
-            label: string;
-            /** Headline */
-            headline?: string | null;
-        };
         /** TrailPoint */
         TrailPoint: {
             /** Trade Date */
@@ -6154,40 +5742,6 @@ export interface operations {
             };
         };
     };
-    desk_queues_api_v2_desk_queues_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                /** @description Also count W/M (slow until setup_daily exists) */
-                all_timeframes?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_QueueSummaryRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     desk_queue_api_v2_desk_queue__name__get: {
         parameters: {
             query?: {
@@ -6214,111 +5768,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_QueueRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    desk_watchlist_api_v2_desk_watchlist_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                /** @description Comma-separated symbols, in display order */
-                symbols?: string;
-                offset?: number;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_DeskWatchRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    desk_diff_api_v2_desk_diff_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                queue?: ("darvas_squeeze" | "darvas_10ema" | "vcp") | null;
-                tf?: "D" | "W" | "M";
-                offset?: number;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_DiffRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    desk_compare_api_v2_desk_compare_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                sessions?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_CompareRow_"];
                 };
             };
             /** @description Validation Error */
@@ -6859,144 +6308,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_GroupRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    today_market_api_v2_today_market_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_TodayMarketRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    today_movers_api_v2_today_movers_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                min_mcap_cr?: number;
-                /** @description Rows per side */
-                n?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_TodayMoverRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    today_breakouts_api_v2_today_breakouts_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                min_mcap_cr?: number;
-                offset?: number;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_TodayBreakoutRow_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    today_groups_api_v2_today_groups_get: {
-        parameters: {
-            query?: {
-                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
-                as_of?: string | null;
-                level?: "broad_sector" | "sector" | "broad_industry" | "industry";
-                floor?: "1000" | "all" | "watch";
-                offset?: number;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Envelope_TodayGroupRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8678,9 +7989,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealTabRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8715,9 +8024,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealTabRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8754,9 +8061,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealHistoryRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8790,9 +8095,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealHouseRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8826,9 +8129,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealGroupRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8860,9 +8161,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealTelegramRow_"];
                 };
             };
             /** @description Validation Error */
@@ -8896,9 +8195,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealStockDetail_"];
                 };
             };
             /** @description Validation Error */
@@ -8932,9 +8229,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealHousePosition_"];
                 };
             };
             /** @description Validation Error */
@@ -8969,9 +8264,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealMarker_"];
                 };
             };
             /** @description Validation Error */
@@ -9006,9 +8299,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["Envelope_DealFlagRow_"];
                 };
             };
             /** @description Validation Error */

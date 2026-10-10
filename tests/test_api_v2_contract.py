@@ -55,8 +55,8 @@ def _ok(client, url, status=200):
 # Envelope shape on every read endpoint
 # --------------------------------------------------------------------------
 READ_URLS = [
-    "/api/v2/market/regime", "/api/v2/market/health", "/api/v2/desk/queues", "/api/v2/desk/queue/darvas_squeeze",
-    "/api/v2/desk/queue/darvas_10ema", "/api/v2/desk/queue/vcp", "/api/v2/desk/diff", "/api/v2/screener/presets",
+    "/api/v2/market/regime", "/api/v2/market/health", "/api/v2/desk/queue/darvas_squeeze",
+    "/api/v2/desk/queue/darvas_10ema", "/api/v2/desk/queue/vcp", "/api/v2/screener/presets",
     "/api/v2/screener/run?preset=minervini_8of8", "/api/v2/screener/debug?symbol=AAA&preset=minervini_8of8",
     "/api/v2/groups/board", "/api/v2/groups/rrg", "/api/v2/groups/industry:Heavy Electrical",
     "/api/v2/groups/industry:Heavy Electrical/members", "/api/v2/deals/session", "/api/v2/deals/house/GOOD FUND LP",
@@ -65,7 +65,7 @@ READ_URLS = [
     "/api/v2/stock/AAA/bars?tf=M", "/api/v2/stock/AAA/rs", "/api/v2/stock/AAA/events", "/api/v2/stock/AAA/deals",
     "/api/v2/stock/AAA/analogs", "/api/v2/evidence/vcp", "/api/v2/research/analogs", "/api/v2/research/big-moves",
     "/api/v2/research/big-moves/abc", "/api/v2/research/pre-move", "/api/v2/metrics/dictionary", "/api/v2/watchlist",
-    "/api/v2/notes/AAA", "/api/v2/context/stocks?symbols=AAA,SMALL", "/api/v2/context/groups", "/api/v2/desk/compare",
+    "/api/v2/notes/AAA", "/api/v2/context/stocks?symbols=AAA,SMALL", "/api/v2/context/groups",
     "/api/v2/groups/rotation", "/api/v2/stock/AAA/why", "/api/v2/stock/AAA/profile", "/api/v2/stock/AAA/peers",
     "/api/v2/market/accumulators", "/api/v2/screener/momentum",
     "/api/v2/screener/momentum?debug_symbol=AAA", "/api/v2/screener/momentum/evidence",

@@ -12,7 +12,7 @@ describe('WhyList', () => {
           element: (
             <WhyList
               rows={[
-                { kind: 'setup', tone: 'accent', text: 'In the VCP queue for 4 sessions.', link: '/desk?view=setups&queue=vcp', facts: {} },
+                { kind: 'setup', tone: 'accent', text: 'In the VCP queue for 4 sessions.', link: '/setups?sq=vcp', facts: {} },
                 { kind: 'footprint', tone: 'positive', text: 'Footprint: RVOL 2.00 — real participation.', link: null, facts: {} },
               ]}
             />
@@ -24,6 +24,6 @@ describe('WhyList', () => {
     render(<RouterProvider router={router} />);
     expect(screen.getByText('In the VCP queue for 4 sessions.')).toBeInTheDocument();
     expect(screen.getByText(/real participation/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'open →' })).toHaveAttribute('href', '/desk?view=setups&queue=vcp&as_of=2026-09-25');
+    expect(screen.getByRole('link', { name: 'open →' })).toHaveAttribute('href', '/setups?sq=vcp&as_of=2026-09-25');
   });
 });

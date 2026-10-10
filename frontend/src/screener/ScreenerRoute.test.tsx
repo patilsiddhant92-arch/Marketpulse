@@ -1,4 +1,4 @@
-/** Smoke render of the rebuilt Screener against a fixture API. */
+/** Smoke render of the Setups tab's Presets mode (was the Screener) against a fixture API. */
 import { QueryClient } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
@@ -112,7 +112,7 @@ describe('ScreenerRoute', () => {
         return new Response('', { status: 404 });
       }),
     );
-    const router = createMemoryRouter(routes, { initialEntries: ['/screener?mode=presets&as_of=2026-09-25'] });
+    const router = createMemoryRouter(routes, { initialEntries: ['/setups?mode=presets&as_of=2026-09-25'] });
     render(<App router={router} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
 
     expect(await screen.findByRole('tab', { name: 'Minervini 8/8' })).toHaveAttribute('aria-selected', 'true');

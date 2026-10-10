@@ -12,6 +12,12 @@ function RedirectToDesk() {
   return <Navigate to={{ pathname: '/desk', search }} replace />;
 }
 
+/** The Screener tab was renamed Setups (sprint 2): old /screener links keep their params. */
+function RedirectToSetups() {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: '/setups', search }} replace />;
+}
+
 export const routes: RouteObject[] = [
   {
     path: '/',
@@ -19,6 +25,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <RedirectToDesk /> },
       ...TABS.map((t) => ({ path: t.path.slice(1), element: null })),
+      { path: 'screener', element: <RedirectToSetups /> },
       { path: 'stock/:sym', element: <StockPage /> },
       { path: '*', element: <RedirectToDesk /> },
     ],

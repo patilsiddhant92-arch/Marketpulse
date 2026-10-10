@@ -118,18 +118,6 @@ def test_why_bullets_are_pure_and_fail_closed():
     assert any(b["kind"] == "evidence" and "too few" in b["text"] and "n=12" in b["text"] for b in out)
 
 
-def test_desk_compare_now_vs_five_sessions_ago(rich):
-    c, days = rich
-    body = _ok(c, "/api/v2/desk/compare?sessions=5")
-    rows = {r["key"]: r for r in body["rows"]}
-    assert rows["queue_vcp"]["now"] == 1 and rows["queue_vcp"]["then"] == 1 and rows["queue_vcp"]["delta"] == 0
-    assert rows["queue_darvas_squeeze"]["now"] == 0 and rows["queue_darvas_squeeze"]["then"] == 1
-    assert rows["net_new_highs"]["delta"] == 5
-    ctx = body["meta"]["context"]
-    assert ctx["then_date"] == days[-6].isoformat() and ctx["verdict_now"] == "Mixed" and ctx["verdict_then"] == "Weak"
-    assert [g["group_name"] for g in ctx["top_groups_now"]] == ["Heavy Electrical"]
-
-
 def test_groups_rotation_grid_weekly_health(rich):
     c, days = rich
     body = _ok(c, "/api/v2/groups/rotation?level=industry&weeks=4")
@@ -168,8 +156,6 @@ def test_context_endpoints_unavailable_without_tables(tmp_path, monkeypatch):
     c = TestClient(create_app())
     rot = _ok(c, "/api/v2/groups/rotation")
     assert rot["meta"]["status"] == "unavailable"
-    cmp_ = _ok(c, "/api/v2/desk/compare")
-    assert cmp_["meta"]["status"] == "partial"
     ctx = _ok(c, "/api/v2/context/stocks?symbols=AAA")
     assert ctx["rows"][0]["setups"] == [] and ctx["meta"]["status"] == "partial"
     db.clear_cache()

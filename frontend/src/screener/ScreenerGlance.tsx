@@ -1,4 +1,4 @@
-/** Screener "at a glance" band — built from the run the tab already loaded. */
+/** Setups → Presets "at a glance" band — built from the run the tab already loaded. */
 import { useMemo } from 'react';
 import type { EvidenceRow } from '../api/types';
 import { countWhere, medianOf, topCount } from '../lib/glance';
@@ -38,7 +38,7 @@ export function ScreenerGlance({
   const n = rows.length;
   const ev = custom || !evidence ? null : evidence.insufficient_sample ? null : evidence.hit_rate_2r;
   return (
-    <GlanceBand label="Screener at a glance">
+    <GlanceBand label="Presets at a glance">
       <KpiTile
         hero
         tone="accent"

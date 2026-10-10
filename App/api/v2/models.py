@@ -151,13 +151,6 @@ class StockBase(BaseModel):
 # --------------------------------------------------------------------------
 # Desk
 # --------------------------------------------------------------------------
-class QueueSummaryRow(BaseModel):
-    name: str
-    label: str
-    description: str
-    timeframes: list[str]
-    counts: dict[str, Optional[int]]
-    count: Optional[int] = None
 
 
 class Contraction(BaseModel):
@@ -202,31 +195,6 @@ class QueueRow(StockBase):
     vcp_depth_pct: Optional[float] = None
     vdu_ratio: Optional[float] = None
     status: Optional[str] = None
-
-
-class DeskWatchRow(StockBase):
-    trade_date: Optional[date] = None
-    has_data: bool = False
-    queues: list[str] = Field(default_factory=list, description="Daily Desk queues the stock is in on as_of")
-    primary_queue: Optional[str] = None
-    trigger_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    distance_to_trigger_pct: Optional[float] = None
-    risk_pct: Optional[float] = None
-    away_52w_high_pct: Optional[float] = None
-    results_within_10: Optional[bool] = None
-    next_event: Optional[NextEvent] = None
-
-
-class DiffRow(BaseModel):
-    queue: str
-    timeframe: str
-    change: Literal["new", "dropped"]
-    symbol: Optional[str] = None
-    session: Optional[date] = None
-    close: Optional[float] = None
-    rs_percentile: Optional[float] = None
-    industry: Optional[str] = None
 
 
 # --------------------------------------------------------------------------
@@ -981,144 +949,6 @@ class NotePut(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Today (what moved, breakouts, groups today + why)
-# --------------------------------------------------------------------------
-class TodayIndex(BaseModel):
-    name: str
-    label: str
-    close: Optional[float] = None
-    return_1d_pct: Optional[float] = None
-    return_5d_pct: Optional[float] = None
-    return_20d_pct: Optional[float] = None
-
-
-class TodayMarketRow(BaseModel):
-    trade_date: Optional[date] = None
-    indices: list[TodayIndex] = Field(default_factory=list)
-    india_vix: Optional[float] = None
-    vix_change_1d_pct: Optional[float] = None
-    advancers: Optional[int] = None
-    decliners: Optional[int] = None
-    unchanged: Optional[int] = None
-    advance_pct: Optional[float] = None
-    new_52w_highs: Optional[int] = None
-    new_52w_lows: Optional[int] = None
-    new_52w_highs_5d_avg: Optional[float] = Field(None, description="Average of the prior 5 sessions")
-    new_52w_lows_5d_avg: Optional[float] = None
-    up_5pct: Optional[int] = Field(None, description="Stocks up >= 5% on the session")
-    down_5pct: Optional[int] = None
-    turnover_cr: Optional[float] = Field(None, description="Sum of every stock's traded value, ₹ Cr")
-    turnover_20d_avg_cr: Optional[float] = Field(None, description="Average of the prior 20 sessions, ₹ Cr")
-    turnover_vs_20d: Optional[float] = None
-    delivery_pct: Optional[float] = Field(None, description="Delivered value ÷ traded value (EQ series), %")
-    delivery_pct_20d_avg: Optional[float] = None
-    deliv_pct_x: Optional[float] = Field(None, description="Market delivery % ÷ its prior 20-session average")
-
-
-class TodayEvent(BaseModel):
-    event_type: Optional[str] = None
-    event_date: Optional[date] = None
-    when: Optional[Literal["past", "today", "upcoming"]] = None
-    headline: Optional[str] = None
-
-
-class TodayNews(BaseModel):
-    event_type: str
-    label: str
-    headline: Optional[str] = None
-
-
-class TodayStockRow(StockBase):
-    turnover_cr: Optional[float] = None
-    turnover_vs_20d: Optional[float] = Field(None, description="Turnover ÷ average traded value of the prior 20 sessions")
-    deliv_qty_x: Optional[float] = Field(
-        None, description="Delivered qty ×20d: delivered shares ÷ average delivered shares of the prior 20 sessions (drives quality / footprints)")
-    delivery_spike: Optional[bool] = Field(None, description="Delivered shares > 2 × their 20-day average")
-    away_52w_high_pct: Optional[float] = None
-    is_52w_high: Optional[bool] = None
-    circuit_band: Optional[float] = Field(None, description="Price band %, point-in-time where available")
-    at_upper_circuit: Optional[bool] = None
-    at_lower_circuit: Optional[bool] = None
-    gap_pct: Optional[float] = Field(None, description="Open vs previous close, %")
-    queues: list[str] = Field(default_factory=list, description="Daily Desk queues the stock is in on as_of")
-    deal_prints_today: Optional[int] = None
-    deal_net_cr_today: Optional[float] = Field(None, description="Bulk/block net today, PROP excluded, ₹ Cr")
-    deal_event_type: Optional[str] = Field(None, description="deal_session_net event type (accumulate / distribute / churn …)")
-    results_nearby: Optional[TodayEvent] = Field(None, description="Results board meeting / financial results within ±5 sessions")
-    corp_action_nearby: Optional[TodayEvent] = None
-    news_today: list[TodayNews] = Field(default_factory=list)
-    quality: Optional[str] = Field(None, description="Quality of move label (meta.context.quality_rules)")
-    quality_id: Optional[str] = None
-    quality_tone: Optional[str] = None
-    traits: list[str] = Field(default_factory=list, description="Evidence pre-move traits present: delivery_spike, rvol_1_5, results_5")
-
-
-class TodayMoverRow(TodayStockRow):
-    side: Literal["gainer", "loser"]
-    rank: int
-
-
-class TodayBreakoutRow(TodayStockRow):
-    kinds: list[str] = Field(default_factory=list, description="Rule ids from meta.context.rules")
-    setup_queue: Optional[str] = None
-    setup_trigger: Optional[float] = Field(None, description="Trigger carried on the previous session that the close crossed")
-
-
-class TodayContributor(BaseModel):
-    symbol: str
-    change_1d_pct: Optional[float] = None
-    contribution: Optional[float] = Field(None, description="Points of the equal-weight group return")
-    share_of_move_pct: Optional[float] = None
-    weight_pct: Optional[float] = None
-    rvol: Optional[float] = None
-    deliv_qty_x: Optional[float] = Field(None, description="Delivered qty ×20d: delivered shares ÷ prior 20-session average")
-
-
-class TodayGroupRow(BaseModel):
-    id: str
-    level: str
-    group_name: str
-    stocks: int
-    stocks_with_return: int
-    return_1d: Optional[float] = Field(None, description="Equal-weight mean 1D change of members, %")
-    advancers: Optional[int] = None
-    decliners: Optional[int] = None
-    pct_up: Optional[float] = None
-    pct_down: Optional[float] = None
-    pct_up_2: Optional[float] = Field(None, description="% of members up more than 2%")
-    pct_down_2: Optional[float] = None
-    turnover_cr: Optional[float] = None
-    turnover_vs_20d: Optional[float] = None
-    deliv_qty_x: Optional[float] = Field(None, description="Members' delivered shares ÷ their prior 20-session average (Delivered qty ×20d)")
-    top_contributors: list[TodayContributor] = Field(default_factory=list)
-    top_detractors: list[TodayContributor] = Field(default_factory=list)
-    top1_share_pct: Optional[float] = Field(None, description="Largest contributor's share of the group move, %")
-    breadth_label: Optional[str] = Field(None, description="broad | mixed | one-stock | flat | thin")
-    participation_id: Optional[str] = None
-    participation: Optional[str] = None
-    deal_stocks: Optional[int] = None
-    deal_buyers: Optional[int] = None
-    deal_sellers: Optional[int] = None
-    deal_net_cr: Optional[float] = None
-    results_nearby_n: Optional[int] = None
-    news_today_n: Optional[int] = None
-    news_types: dict[str, int] = Field(default_factory=dict)
-    return_5d: Optional[float] = None
-    return_21d: Optional[float] = None
-    rank: Optional[int] = Field(None, description="group_daily rank (mean 21d/63d excess vs MidSml400)")
-    rank_delta_5: Optional[int] = None
-    rank_n: Optional[int] = None
-    rank_1d: Optional[int] = Field(None, description="Rank by today's return among groups with >= 3 members")
-    rank_1d_n: Optional[int] = None
-    context_source: Optional[str] = None
-    persistence_id: Optional[str] = None
-    persistence: Optional[str] = None
-    persistence_phrase: Optional[str] = None
-    symbols: list[str] = Field(default_factory=list, description="Members in move order (for charts / copy)")
-    why: Optional[str] = Field(None, description="Plain-language sentence built only from the facts in this row")
-
-
-# --------------------------------------------------------------------------
 # Cross-tab context (connect the dots) and history views
 # --------------------------------------------------------------------------
 class GroupContext(BaseModel):
@@ -1176,17 +1006,6 @@ class WhyBullet(BaseModel):
     text: str = Field(..., description="Plain-language sentence restating stored facts")
     link: Optional[str] = Field(None, description="In-app path for the underlying view")
     facts: dict[str, Any] = Field(default_factory=dict)
-
-
-class CompareRow(BaseModel):
-    key: str
-    label: str
-    group: Literal["Queues", "Breadth"]
-    unit: str
-    better: Optional[Literal["up", "down"]] = None
-    now: Optional[float] = None
-    then: Optional[float] = None
-    delta: Optional[float] = None
 
 
 class RotationCell(BaseModel):

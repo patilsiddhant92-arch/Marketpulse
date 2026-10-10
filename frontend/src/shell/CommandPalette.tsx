@@ -1,5 +1,5 @@
 /**
- * Ctrl+K command palette (cmdk): symbols, tabs, screener presets, actions.
+ * Ctrl+K command palette (cmdk): symbols, tabs, Setups presets, actions.
  * There is no symbol-list endpoint in v2, so any valid NSE symbol typed is
  * offered directly; watchlist and recent symbols are listed for recall.
  */
@@ -112,7 +112,7 @@ export function CommandPalette() {
         </Command.Group>
 
         {(presets.data?.rows.length ?? 0) > 0 && (
-          <Command.Group heading="Screener presets" className={groupCls}>
+          <Command.Group heading="Setups presets" className={groupCls}>
             {presets.data!.rows.map((p) => (
               <Command.Item
                 key={p.id}
@@ -121,7 +121,7 @@ export function CommandPalette() {
                 onSelect={run(() => {
                   const sp = new URLSearchParams(globalSearch);
                   sp.set('preset', p.id);
-                  navigate(`/screener?${sp.toString()}`);
+                  navigate(`/setups?${sp.toString()}`);
                 })}
                 className={itemCls}
               >

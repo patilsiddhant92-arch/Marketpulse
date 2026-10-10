@@ -296,7 +296,7 @@ function PresetRows({ buckets, metric, by }: { buckets: string[]; metric: (typeo
     return (
       <tr>
         <td colSpan={buckets.length + 2} className="px-3 py-2 text-2xs text-fg-3">
-          Screener presets unavailable.
+          Setups presets unavailable.
         </td>
       </tr>
     );

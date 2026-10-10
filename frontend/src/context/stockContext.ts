@@ -1,6 +1,6 @@
 /**
  * Cross-tab stock context (GET /api/v2/context/stocks): one batched request per ≤ 200 symbols,
- * shared by every table that shows stocks (Desk queues, Today, Screener, Deals, Charts, Stock 360).
+ * shared by every table that shows stocks (Pulse, Setups, Sector Intel, Deals, Charts, Stock 360).
  * Pure helpers here; React pieces in StockContextChips.tsx.
  */
 import { useQueries } from '@tanstack/react-query';
@@ -108,7 +108,7 @@ function setupChip(s: ContextSetup, symbol: string): ContextChip {
     title: `${symbol} is in the ${s.label} queue${s.setup_age_sessions != null ? ` (${s.setup_age_sessions} sessions)` : ''}${
       s.trigger_price != null ? ` · trigger ₹${s.trigger_price.toFixed(2)}${d != null ? `, ${d.toFixed(1)}% from the close` : ''}` : ''
     }${s.risk_pct != null ? ` · risk ${s.risk_pct.toFixed(1)}%` : ''}`,
-    href: `/desk?view=setups&queue=${s.queue}`,
+    href: `/setups?sq=${s.queue}`,
   };
 }
 

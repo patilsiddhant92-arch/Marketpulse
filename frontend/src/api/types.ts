@@ -44,10 +44,7 @@ export type HealthResponse = Schemas['HealthResponse'];
 export type HealthCheck = Schemas['HealthCheck'];
 export type MetricDef = Schemas['MetricEntry'];
 export type MetricZone = Schemas['MetricZone'];
-export type QueueSummaryRow = Schemas['QueueSummaryRow'];
 export type QueueRow = Schemas['QueueRow'];
-export type DiffRow = Schemas['DiffRow'];
-export type DeskWatchRow = Schemas['DeskWatchRow'];
 export type PresetRow = Schemas['PresetRow'];
 export type ScreenerRule = Schemas['Rule'];
 export type ScreenerRow = Schemas['ScreenerRow'];
@@ -87,26 +84,30 @@ export type WatchlistItem = Schemas['WatchlistItem'];
 export type WatchlistPut = Schemas['WatchlistPut'];
 export type Note = Schemas['Note'];
 export type NotePut = Schemas['NotePut'];
-export type TodayMarketRow = Schemas['TodayMarketRow'];
-export type TodayIndex = Schemas['TodayIndex'];
-/** Columns shared by movers and breakouts. */
-export type TodayStockRow = Omit<Schemas['TodayMoverRow'], 'side' | 'rank'>;
-export type TodayMoverRow = Schemas['TodayMoverRow'];
-export type TodayBreakoutRow = Schemas['TodayBreakoutRow'];
-export type TodayGroupRow = Schemas['TodayGroupRow'];
-export type TodayContributor = Schemas['TodayContributor'];
-export type TodayEvent = Schemas['TodayEvent'];
 export type GroupContext = Schemas['GroupContext'];
 export type StockContextRow = Schemas['StockContextRow'];
 export type ContextSetup = Schemas['ContextSetup'];
 export type WhyBullet = Schemas['WhyBullet'];
-export type CompareRow = Schemas['CompareRow'];
 export type RotationRow = Schemas['RotationRow'];
 export type RotationCell = Schemas['RotationCell'];
 // Setups tab (/api/v2/setups/*)
 export type SetupBoardRow = Schemas['SetupBoardRow'];
 export type SetupNearMissRow = Schemas['SetupNearMissRow'];
 export type SetupDroppedRow = Schemas['SetupDroppedRow'];
+// Deals tab (/api/v2/deals/tab/*, /deals/markers, /deals/flags)
+export type DealTabRow = Schemas['DealTabRow'];
+export type DealParty = Schemas['DealParty'];
+export type DealEarlier = Schemas['DealEarlier'];
+export type DealHistoryRow = Schemas['DealHistoryRow'];
+export type DealSpreadItem = Schemas['DealSpreadItem'];
+export type DealHouseRow = Schemas['DealHouseRow'];
+export type DealGroupRow = Schemas['DealGroupRow'];
+export type DealTelegramRow = Schemas['DealTelegramRow'];
+export type DealCandle = Schemas['DealCandle'];
+export type DealMarker = Schemas['DealMarker'];
+export type DealStockDetail = Schemas['DealStockDetail'];
+export type DealHousePosition = Schemas['DealHousePosition'];
+export type DealFlagRow = Schemas['DealFlagRow'];
 
 /** Verdict words (spec 6.1.1). The schema types verdict as string; UI narrows. */
 export type Verdict = 'Favourable' | 'Constructive' | 'Mixed' | 'Weak' | 'Danger';
