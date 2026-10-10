@@ -214,3 +214,45 @@ def deal_candles(as_of: date | None, symbol: str) -> Result:
                "Top buyer / seller exclude PROP desks; bulk ∩ block duplicate prints count once."],
         metric_keys=["deal_net_cr"],
     )
+
+
+SEARCH_MAX = 25
+
+
+def search_symbols(as_of: date | None, q: str, limit: int = 12) -> Result:
+    """Symbol / company-name search for the chart's symbol box (stocks_master, read-only).
+    Order: exact symbol, symbol prefix, name word prefix, then anything containing q; ties by market cap."""
+    q = (q or "").strip()
+    limit = max(1, min(int(limit), SEARCH_MAX))
+    if not q:
+        return Result(as_of=None, rows=[], sources=["stocks_master"])
+    if len(q) > 40:
+        raise ValueError("q is too long (max 40 characters)")
+    with db.market_conn() as con:
+        resolved = db.resolve_as_of(con, as_of)
+        if not db.table_exists(con, "stocks_master"):
+            return unavailable(resolved, "no stocks_master table", ["stocks_master"])
+        cols = set(db.table_columns(con, "stocks_master"))
+        mcap = "market_cap_cr" if "market_cap_cr" in cols else "NULL"
+        ind = "industry" if "industry" in cols else "NULL"
+        uq = q.upper()
+        rows = db.records(
+            con,
+            f"""
+            SELECT symbol, security_name, {ind} AS industry, {mcap} AS market_cap_cr,
+                   CASE WHEN UPPER(symbol) = ? THEN 0
+                        WHEN UPPER(symbol) LIKE ? THEN 1
+                        WHEN UPPER(security_name) LIKE ? OR UPPER(security_name) LIKE ? THEN 2
+                        ELSE 3 END AS rk
+            FROM stocks_master
+            WHERE symbol IS NOT NULL AND UPPER(symbol) <> 'TOTAL'
+              AND (UPPER(symbol) LIKE ? OR UPPER(COALESCE(security_name, '')) LIKE ?)
+            ORDER BY rk, market_cap_cr DESC NULLS LAST, symbol
+            LIMIT ?
+            """,
+            [uq, f"{uq}%", f"{uq}%", f"% {uq}%", f"%{uq}%", f"%{uq}%", limit],
+        )
+    out = [{"symbol": db.text(r["symbol"]), "security_name": db.text(r["security_name"]),
+            "industry": db.text(r["industry"]), "market_cap_cr": db.num(r["market_cap_cr"], 0)} for r in rows]
+    return Result(as_of=resolved, rows=out, sources=["stocks_master"], extra={"q": q},
+                  notes=["Market cap is the latest value in stocks_master (data gap #7)."])

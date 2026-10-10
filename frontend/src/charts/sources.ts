@@ -2,13 +2,13 @@
  * Charts tab sources (spec 7.8): any list in the app becomes a grid of charts.
  * Source ids live in the URL (?src=): queue:<name>|queue:all, screener:<preset>|
  * screener:custom, group:<level>:<name>, deals:buy|deals:sell, research:pre-move,
- * watchlist, list (explicit ?syms=). Pure — no React.
+ * watchlist, list (explicit ?syms=), peers:<SYM> (same industry, by strength). Pure — no React.
  */
-import type { BarRow, DealSessionRow, MemberRow, QueueRow, ScreenerRow } from '../api/types';
+import type { BarRow, DealSessionRow, MemberRow, PeerRow, QueueRow, ScreenerRow } from '../api/types';
 import { isNum } from '../lib/fmt';
 import type { OHLCBar } from '../lib/indicators';
 
-export type SourceKind = 'queue' | 'screener' | 'group' | 'deals' | 'research' | 'watchlist' | 'list';
+export type SourceKind = 'queue' | 'screener' | 'group' | 'deals' | 'research' | 'watchlist' | 'list' | 'peers';
 
 export interface ParsedSource {
   kind: SourceKind;
@@ -52,6 +52,8 @@ export function parseSource(src: string | null | undefined): ParsedSource | null
       return { kind, key: '' };
     case 'list':
       return { kind, key: '' };
+    case 'peers':
+      return /^[A-Z0-9&\-_.]{1,20}$/.test(key) ? { kind, key } : null;
     default:
       return null;
   }
@@ -64,6 +66,8 @@ export function sourceId(p: ParsedSource): string {
     case 'watchlist':
     case 'list':
       return p.kind;
+    case 'peers':
+      return `peers:${p.key}`;
     default:
       return `${p.kind}:${p.key}`;
   }
@@ -166,6 +170,58 @@ export function fromDealRow(r: DealSessionRow): ChartItem | null {
   };
 }
 
+export function fromPeerRow(r: PeerRow): ChartItem | null {
+  if (!r.symbol) return null;
+  return {
+    symbol: r.symbol,
+    name: r.security_name,
+    industry: r.industry,
+    close: r.close,
+    change_1d_pct: r.change_1d_pct,
+    rs_percentile: r.rs_percentile,
+    rs_delta_5: r.rs_delta_5,
+    market_cap_cr: r.market_cap_cr,
+    data_warning: r.data_warning ?? null,
+    tags: r.is_target ? ['THIS'] : [],
+  };
+}
+
+/** Peers list: the stock first, then peers ≥ ₹1,000 Cr by strength rank (highest first). */
+export function peersList(rows: readonly PeerRow[], target: string, floorCr = 1000): ChartItem[] {
+  const items = rows.map(fromPeerRow).filter((x): x is ChartItem => x !== null);
+  const self = items.find((i) => i.symbol === target) ?? fromSymbol(target);
+  const others = items
+    .filter((i) => i.symbol !== target && (i.market_cap_cr ?? 0) >= floorCr)
+    .sort((a, b) => (b.rs_percentile ?? -1) - (a.rs_percentile ?? -1));
+  return [{ ...self, tags: ['THIS'] }, ...others];
+}
+
+/** TradingView symbols that held '&' (TV writes them with '_'); the rest map '_' back to '-'. */
+const TV_AMP: Record<string, string> = { M_M: 'M&M', M_MFIN: 'M&MFIN', J_KBANK: 'J&KBANK', GMRP_UI: 'GMRP&UI', S_SPOWER: 'S&SPOWER' };
+
+/**
+ * Pasted text -> symbols. Accepts a TradingView export (`###Title,NSE:A,NSE:B`), commas,
+ * spaces or one per line, with or without the NSE:/BSE: prefix. `###` section titles are skipped.
+ * Order kept, duplicates dropped.
+ */
+export function parseSymbolText(text: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of text.split(/[\s,;]+/)) {
+    let t = raw.trim().toUpperCase();
+    if (!t || t.startsWith('###')) continue;
+    if (t.includes(':')) {
+      const [ex, sym] = t.split(':', 2);
+      if (ex !== 'NSE') continue;
+      t = TV_AMP[sym] ?? sym.replace(/_/g, '-');
+    }
+    if (!/^[A-Z0-9&\-_.]{1,20}$/.test(t) || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 export function fromSymbol(symbol: string): ChartItem {
   return { symbol, tags: [] };
 }
@@ -229,6 +285,8 @@ export function sortItems(items: readonly ChartItem[], sort: string): ChartItem[
 
 /** 1 / 2 / 8 / 12 restored from the old Tiles window (1, 2, 2x2, 2x3, 2x4, 3x3, 3x4). */
 export const TILE_COUNTS = [1, 2, 4, 6, 8, 9, 12] as const;
+/** Layouts offered by the Charts toolbar (09-tab-charts §3): 1 is the main chart + list rail. */
+export const LAYOUTS = [1, 2, 4, 6, 9] as const;
 
 export function pageCount(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / Math.max(1, perPage)));

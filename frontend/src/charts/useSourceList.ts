@@ -16,6 +16,7 @@ import {
   fromScreenerRow,
   fromSymbol,
   mergeItems,
+  peersList,
   type ChartItem,
   type ParsedSource,
 } from './sources';
@@ -69,6 +70,11 @@ export function useSourceList(
 
   const deals = useApiQuery('deals/session', { query: { limit: 5000 } }, { enabled: kind === 'deals' });
   const pre = useApiQuery('research/pre-move', { query: { limit: 5000 } }, { enabled: kind === 'research' });
+  const peers = useApiQuery(
+    'stock/{sym}/peers',
+    { params: { sym: kind === 'peers' && key ? key : '_' }, query: { limit: 500 } },
+    { enabled: kind === 'peers' && !!key },
+  );
   const { watchlist, syms, presetLabel } = opts;
 
   return useMemo<SourceList>(() => {
@@ -175,6 +181,22 @@ export function useSourceList(
         };
       case 'list':
         return { ...base, items: syms.map(fromSymbol), total: syms.length, label: 'Selected symbols' };
+      case 'peers': {
+        const d = peers.data;
+        const items = d ? peersList(d.rows, src.key) : [];
+        return {
+          items,
+          total: items.length,
+          label: `Peers of ${src.key}`,
+          asOf: d?.as_of ?? null,
+          loading: peers.isLoading,
+          error: peers.error,
+          status: d?.meta.status ?? null,
+          reason: d?.meta.reason ?? null,
+          note: 'Same industry, market cap ≥ ₹1,000 Cr, strongest first. The stock itself leads.',
+          refetch: () => void peers.refetch(),
+        };
+      }
     }
-  }, [src, q1, q2, q3, scr, grp, deals, pre, lastRun, watchlist, syms, presetLabel]);
+  }, [src, q1, q2, q3, scr, grp, deals, pre, peers, lastRun, watchlist, syms, presetLabel]);
 }

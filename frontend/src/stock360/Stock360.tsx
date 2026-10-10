@@ -57,8 +57,12 @@ function useChartFraction(): [number, (f: number) => void] {
   return [frac, set];
 }
 
-/** Body of the Stock 360 sidecar (the frame — resize/pin/close — is StockSidecar). */
-export function Stock360Sidecar({ symbol }: { symbol: string }) {
+/**
+ * Body of the Stock 360 sidecar (the frame — resize/pin/close — is StockSidecar).
+ * `hideChart`: the Charts tab side panel (09-tab-charts §2) — the chart beside it is the chart,
+ * so the panel keeps the header, setups, profile, peers, events, deals and notes only.
+ */
+export function Stock360Sidecar({ symbol, hideChart = false }: { symbol: string; hideChart?: boolean }) {
   const shell = useShell();
   const data = useStock360(symbol);
   const { header } = data;
@@ -74,6 +78,30 @@ export function Stock360Sidecar({ symbol }: { symbol: string }) {
     const r = bodyRef.current.getBoundingClientRect();
     if (r.height > 0) setFrac((e.clientY - r.top) / r.height);
   };
+  const blocks = (
+    <>
+      <WhyCard symbol={symbol} compact className="rounded border border-line bg-surface p-2" />
+      <SetupsBlock setups={s?.setups} loading={header.isLoading} />
+      {s && <StrengthBlock s={s} />}
+      {s && <TrendBlock s={s} />}
+      <ProfileBlock symbol={symbol} />
+      {s && <DeliveryBlock values={s.delivery_spark_60} />}
+      <PeersBlock symbol={symbol} />
+      <EventsBlock q={data.events} />
+      <DealsBlock q={data.deals} />
+      <NotesBlock symbol={symbol} />
+    </>
+  );
+  if (hideChart)
+    return (
+      <div className="flex h-full min-h-0 flex-col" data-testid="stock360-panel">
+        <div className="shrink-0 border-b border-line px-3 pb-1 pt-1.5">
+          <StockHeader row={s} loading={header.isLoading} asOf={header.data?.as_of} compact />
+          <StockContextLine symbol={symbol} className="mt-1" />
+        </div>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">{blocks}</div>
+      </div>
+    );
   return (
     <div ref={bodyRef} className="flex h-full min-h-0 flex-col" data-testid="stock360-sidecar">
       <div className="shrink-0 px-3 pb-1 pt-1.5">
@@ -115,18 +143,7 @@ export function Stock360Sidecar({ symbol }: { symbol: string }) {
       >
         <span className="h-0.5 w-10 rounded bg-line-strong group-hover:bg-accent" />
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-      <WhyCard symbol={symbol} compact className="rounded border border-line bg-surface p-2" />
-      <SetupsBlock setups={s?.setups} loading={header.isLoading} />
-      {s && <StrengthBlock s={s} />}
-      {s && <TrendBlock s={s} />}
-      <ProfileBlock symbol={symbol} />
-      {s && <DeliveryBlock values={s.delivery_spark_60} />}
-      <PeersBlock symbol={symbol} />
-      <EventsBlock q={data.events} />
-      <DealsBlock q={data.deals} />
-      <NotesBlock symbol={symbol} />
-      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">{blocks}</div>
     </div>
   );
 }

@@ -113,3 +113,15 @@ def test_deal_candles_unavailable_without_table(tmp_path, monkeypatch):
     db.clear_cache()
     res = charts.deal_candles(None, "AAA")
     assert res.status == "unavailable" and res.rows == []
+
+
+def test_symbol_search(client):
+    c, _ = client
+    rows = c.get("/api/v2/charts/search", params={"q": "aa"}).json()["rows"]
+    assert rows[0]["symbol"] == "AAA" and rows[0]["security_name"] == "Aaa Ltd"
+    names = [r["symbol"] for r in c.get("/api/v2/charts/search", params={"q": "listing"}).json()["rows"]]
+    assert names == ["NULLRS"]
+    # The TOTAL aggregate row never appears; empty / too long q is rejected.
+    assert all(r["symbol"] != "TOTAL" for r in c.get("/api/v2/charts/search", params={"q": "t"}).json()["rows"])
+    assert c.get("/api/v2/charts/search", params={"q": ""}).status_code == 422
+    assert c.get("/api/v2/charts/search", params={"q": "x" * 41}).status_code == 422

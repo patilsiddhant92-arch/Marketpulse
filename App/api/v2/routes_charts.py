@@ -59,5 +59,20 @@ def chart_deal_candles(sym: str, as_of: Optional[date] = AsOf,
     return envelope(res, 0, limit)
 
 
+class SymbolSearchRow(BaseModel):
+    symbol: Optional[str] = None
+    security_name: Optional[str] = None
+    industry: Optional[str] = None
+    market_cap_cr: Optional[float] = None
+
+
+@router.get("/charts/search", response_model=m.Envelope[SymbolSearchRow],
+            description="Symbol / company-name search for the chart symbol box (exact symbol, symbol prefix, "
+                        "name prefix, then contains; ties by market cap).")
+def chart_search(q: str = Query(..., min_length=1, max_length=40), as_of: Optional[date] = AsOf,
+                 limit: int = Query(12, ge=1, le=charts.SEARCH_MAX)) -> dict[str, Any]:
+    return envelope(_call(charts.search_symbols, as_of, q, limit), 0, limit)
+
+
 # Mounted on the main v2 router when App.api.v2 imports this module (one line in __init__.py).
 v2_router.include_router(router)

@@ -5064,6 +5064,79 @@
           }
         }
       }
+    },
+    "/api/v2/charts/search": {
+      "get": {
+        "summary": "Chart Search",
+        "description": "Symbol / company-name search for the chart symbol box (exact symbol, symbol prefix, name prefix, then contains; ties by market cap).",
+        "operationId": "chart_search_api_v2_charts_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)",
+              "title": "As Of"
+            },
+            "description": "Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 25,
+              "minimum": 1,
+              "default": 12,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SymbolSearchRow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10522,6 +10595,52 @@
           "meta"
         ],
         "title": "Envelope[StockProfileRow]"
+      },
+      "Envelope_SymbolSearchRow_": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SymbolSearchRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freshness",
+          "total",
+          "returned",
+          "rows",
+          "meta"
+        ],
+        "title": "Envelope[SymbolSearchRow]"
       },
       "Envelope_TodayBreakoutRow_": {
         "properties": {
@@ -17362,6 +17481,56 @@
         ],
         "title": "StockProfileRow",
         "description": "Old Inspector sidecar blocks: Minervini checklist, institutional footprint, 5-session trail."
+      },
+      "SymbolSearchRow": {
+        "properties": {
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "security_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Name"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "market_cap_cr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Cr"
+          }
+        },
+        "type": "object",
+        "title": "SymbolSearchRow"
       },
       "TaxonomyNode": {
         "properties": {

@@ -19,6 +19,7 @@ import { toDarvasLines } from '../ui/darvasModel';
 import { DataWarningChip } from '../ui/DataWarningChip';
 import { ErrorState } from '../ui/ErrorState';
 import { Skeleton } from '../ui/Skeleton';
+import { useChartLayers } from './chartLayers';
 import { barsToOHLC, relativePerformance, type ChartItem } from './sources';
 
 export const REL_WINDOWS = [
@@ -63,8 +64,10 @@ export interface ChartTileProps {
   onOpenBig?: (sym: string) => void;
   /** Cross-tab context (group Health, setups, deals 10s, events). */
   context?: StockContextRow;
-  /** Grid-wide price style; the tile can override it (old Tiles window per-tile toggle). */
-  priceStyle?: 'candles' | 'line';
+  /** Grid-wide price style (global chart setting); the tile can override it (old Tiles window per-tile toggle). */
+  priceStyle?: 'candles' | 'line' | 'volume';
+  /** Click on the symbol opens the Stock 360 side panel instead of `onInspect` when given. */
+  onSymbol?: (sym: string) => void;
   /** Sync pan / zoom across the grid by date. */
   syncRange?: boolean;
   /** Remove this symbol from an editable (typed) list. */
@@ -87,8 +90,9 @@ export function ChartTile({
   priceStyle = 'candles',
   syncRange = false,
   onRemove,
+  onSymbol,
 }: ChartTileProps) {
-  const [styleOverride, setStyleOverride] = useState<'candles' | 'line' | null>(null);
+  const [styleOverride, setStyleOverride] = useState<'candles' | 'line' | 'volume' | null>(null);
   const [lastGridStyle, setLastGridStyle] = useState(priceStyle);
   if (lastGridStyle !== priceStyle) {
     // A grid-wide switch resets per-tile overrides (as the old Tiles window did).
@@ -128,6 +132,11 @@ export function ChartTile({
     return [...line('trigger', 'Trigger', item.trigger_price, 'accent'), ...line('stop', 'Stop', item.stop_price, 'down', true)];
   }, [chartBars, item.trigger_price, item.stop_price, timeframe]);
 
+  // Global chart settings (EMAs, event candles, deal lines, RSI + divergences, drawings).
+  const layers = useChartLayers(sym, chartBars, timeframe, { enabled: inView, darvas: darvas.data?.rows });
+  // Lower panes only where the tile has room (the route turns `volume` on for <= 4 tiles or an expanded tile).
+  const panes = volume;
+
   const darvasLines = useMemo(
     () => toDarvasLines(darvas.data?.rows, chartBars.map((b) => b.time), { boxes: prefs.darvas }),
     [prefs.darvas, darvas.data, chartBars],
@@ -144,7 +153,7 @@ export function ChartTile({
       <div className="flex h-7 shrink-0 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-line px-2 text-2xs">
         <button
           type="button"
-          onClick={() => onInspect(sym)}
+          onClick={() => (onSymbol ? onSymbol(sym) : onInspect(sym))}
           title={`${item.name ?? sym} — open Stock 360 in the sidecar`}
           aria-label={`${sym}: open Stock 360`}
           className="font-mono text-xs font-semibold text-fg hover:text-accent"
@@ -256,7 +265,15 @@ export function ChartTile({
             resample={false}
             overlays={overlays}
             darvas={darvasLines}
-            volume={volume}
+            emaPeriods={layers.emaPeriods}
+            volume={panes && layers.volume}
+            volumeAvg={panes && layers.volumeAvg}
+            rsi={panes ? layers.rsi : null}
+            candleColors={layers.candleColors}
+            markers={layers.markers}
+            segments={panes ? layers.segments : layers.segments.filter((x) => x.pane === 'price')}
+            levels={layers.levels}
+            barNote={layers.barNote}
             syncGroup={syncGroup}
             syncRange={syncRange}
             priceStyle={style}

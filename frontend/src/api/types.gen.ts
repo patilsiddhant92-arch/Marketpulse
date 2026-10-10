@@ -1004,6 +1004,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/charts/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart Search
+         * @description Symbol / company-name search for the chart symbol box (exact symbol, symbol prefix, name prefix, then contains; ties by market cap).
+         */
+        get: operations["chart_search_api_v2_charts_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2397,6 +2417,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["StockProfileRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SymbolSearchRow] */
+        Envelope_SymbolSearchRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SymbolSearchRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[TodayBreakoutRow] */
@@ -4101,6 +4134,17 @@ export interface components {
             nr7?: boolean | null;
             /** Trail */
             trail: components["schemas"]["TrailPoint"][];
+        };
+        /** SymbolSearchRow */
+        SymbolSearchRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
         };
         /** TaxonomyNode */
         TaxonomyNode: {
@@ -6699,6 +6743,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_DealCandleRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_search_api_v2_charts_search_get: {
+        parameters: {
+            query: {
+                q: string;
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SymbolSearchRow_"];
                 };
             };
             /** @description Validation Error */
