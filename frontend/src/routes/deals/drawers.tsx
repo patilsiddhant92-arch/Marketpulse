@@ -7,7 +7,8 @@ import { ErrorState } from '../../ui/ErrorState';
 import { Skeleton } from '../../ui/Skeleton';
 import { useDeals, type HouseContext, type HousePosition, type Party, type StockDetail } from './api';
 import { CandleLegend, Chips, DealCandles, DoLine, GradeChip, NotesLine, Signed, StatusChip, TvCopy, VerdictChip } from './kit';
-import { readFollowed, spreadSummary, toggleFollowed } from './model';
+import { useFollowedHouses } from './follows';
+import { spreadSummary } from './model';
 import { DealIcon } from '../../ui/DealIcon';
 
 function KV({ k, children }: { k: string; children: React.ReactNode }) {
@@ -115,10 +116,10 @@ export function StockDrawer({ symbol, onClose, onHouse }: { symbol: string | nul
 
 export function HouseDrawer({ house, onClose, onStock }: { house: string | null; onClose: () => void; onStock: (s: string) => void }) {
   const q = useDeals<HousePosition, HouseContext>(`deals/tab/house/${encodeURIComponent(house ?? '')}`, {}, { enabled: !!house });
-  const [followed, setFollowed] = useState<string[]>(() => readFollowed());
+  const follows = useFollowedHouses();
   const h = q.data?.meta.context?.house;
   const rows = q.data?.rows ?? [];
-  const isF = !!house && followed.includes(house);
+  const isF = !!house && follows.isFollowed(house);
   return (
     <Drawer
       open={!!house}
@@ -126,7 +127,7 @@ export function HouseDrawer({ house, onClose, onStock }: { house: string | null;
       title={h?.name ?? house ?? 'House'}
       actions={
         house ? (
-          <button type="button" className="rounded border border-line px-2 py-0.5 text-xs text-fg-2 hover:bg-surface-3" onClick={() => setFollowed(toggleFollowed(house))}>
+          <button type="button" className="rounded border border-line px-2 py-0.5 text-xs text-fg-2 hover:bg-surface-3" onClick={() => follows.toggle(house, h?.name)}>
             {isF ? 'Following' : 'Follow'}
           </button>
         ) : undefined

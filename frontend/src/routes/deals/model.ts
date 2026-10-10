@@ -3,7 +3,7 @@
  *  - verdict / side / grade display meta
  *  - TradingView copy: `###<list title>,NSE:SYM,...`, '-' and '&' -> '_' (NSE:BAJAJ_AUTO, NSE:M_M)
  *  - "Copy every list (sections)": one ### section per list
- *  - Today noise split, Watch filters, legacy ?view= mapping, follow storage
+ *  - Today noise split, Watch filters, legacy ?view= mapping, legacy follow storage (moved to the server)
  */
 import { formatTradingViewList } from '../../lib/tradingview';
 import type { ChipTone } from '../../ui/Chip';
@@ -135,10 +135,11 @@ export function tvSectionsText(lists: readonly TvList[]): { text: string; count:
   return { text: parts.join('\n'), count, lists: parts.length };
 }
 
-// ------------------------------------------------------------------ follow (client-side for now)
+// ------------------------------------------------------------------ follow (legacy browser storage)
+// Follows live in the user DB now (follows.ts). Older builds kept them here; they are moved once.
 const FOLLOW_KEY = 'mp.deals.followedHouses';
 
-export function readFollowed(): string[] {
+export function readLegacyFollowed(): string[] {
   try {
     const raw = window.localStorage.getItem(FOLLOW_KEY);
     const v = raw ? (JSON.parse(raw) as unknown) : [];
@@ -148,15 +149,12 @@ export function readFollowed(): string[] {
   }
 }
 
-export function toggleFollowed(house: string): string[] {
-  const cur = readFollowed();
-  const next = cur.includes(house) ? cur.filter((h) => h !== house) : [...cur, house];
+export function clearLegacyFollowed(): void {
   try {
-    window.localStorage.setItem(FOLLOW_KEY, JSON.stringify(next));
+    window.localStorage.removeItem(FOLLOW_KEY);
   } catch {
-    /* blocked storage: follow lasts this session only */
+    /* blocked storage */
   }
-  return next;
 }
 
 /** Spread cell: "3 groups" + top-3 industry shares (first word of the industry). */

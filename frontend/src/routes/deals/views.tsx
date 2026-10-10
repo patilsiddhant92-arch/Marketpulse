@@ -25,7 +25,8 @@ import {
   type WatchContext,
 } from './api';
 import { Chips, DoLine, GradeChip, NotesLine, Panel, SessionCells, Signed, StatusChip, TvCopy, TvCopyAll, VerdictChip } from './kit';
-import { filterText, NOISE, readFollowed, shownValue, splitNoise, spreadSummary, toggleFollowed, verdictRank, type TvList } from './model';
+import { useFollowedHouses } from './follows';
+import { filterText, NOISE, shownValue, splitNoise, spreadSummary, verdictRank, type TvList } from './model';
 import { SymbolWithDeal } from '../../ui/DealIcon';
 
 export interface ViewProps {
@@ -304,7 +305,9 @@ export function HistoryView({ text, onStock }: ViewProps) {
 export function HousesView({ text, onStock, onHouse }: ViewProps) {
   const q = useDeals<HouseRow, HousesContext>('deals/tab/houses');
   const ctx = q.data?.meta.context ?? undefined;
-  const [followed, setFollowed] = useState<string[]>(() => readFollowed());
+  const follows = useFollowedHouses();
+  const followed = follows.followed;
+  const toggleFollow = follows.toggle;
   const [onlyFollowed, setOnlyFollowed] = useState(false);
   const s = text.trim().toUpperCase();
   const rows = useMemo(() => {
@@ -348,13 +351,13 @@ export function HousesView({ text, onStock, onHouse }: ViewProps) {
         width: 86,
         sortable: false,
         cell: (_v, r) => (
-          <button type="button" className="rounded border border-line px-2 py-0.5 text-2xs text-fg-2 hover:bg-surface-3" onClick={(e) => { e.stopPropagation(); setFollowed(toggleFollowed(r.house)); }}>
+          <button type="button" className="rounded border border-line px-2 py-0.5 text-2xs text-fg-2 hover:bg-surface-3" onClick={(e) => { e.stopPropagation(); toggleFollow(r.house, r.name); }}>
             {followed.includes(r.house) ? 'Following' : 'Follow'}
           </button>
         ),
       },
     ],
-    [followed, onHouse],
+    [followed, toggleFollow, onHouse],
   );
   const fundCols = useMemo<DataTableColumn<FundGroupRow>[]>(
     () => [
@@ -406,7 +409,7 @@ export function HousesView({ text, onStock, onHouse }: ViewProps) {
         <div className="p-3">
           <DoLine>
             Grades show for FII/DII only, from finished trades before the as-of date. {ctx?.graded_houses ?? 0} houses are graded from {ctx?.finished_bets ?? 0} finished
-            trades in this database (deal history from {fmtDate(ctx?.first_deal ?? null)}). Alerts fire when a good-record or followed FII/DII house buys a strong chart.
+            trades in this database (deal history from {fmtDate(ctx?.first_deal ?? null)}). Telegram alerts fire only when a followed FII/DII house with a good record buys a strong chart (day 0, then day 3 holding or lost).
           </DoLine>
         </div>
       </Panel>
@@ -417,7 +420,7 @@ export function HousesView({ text, onStock, onHouse }: ViewProps) {
       </Panel>
       <Panel
         title="Houses buying in the window"
-        sub={`${followed.length} followed. Follow is saved in this browser.`}
+        sub={`${followed.length} followed. Follows are saved on this machine and drive the Telegram “Followed houses” alerts (good-record FII/DII buying a strong chart only).`}
         actions={
           <>
             <Segmented size="xs" label="Houses shown" value={onlyFollowed ? 'followed' : 'all'} onChange={(v) => setOnlyFollowed(v === 'followed')} options={[{ value: 'all', label: 'All' }, { value: 'followed', label: `Followed ${followed.length}` }]} />

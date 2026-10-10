@@ -41,7 +41,10 @@ function serveFixtures(url: URL): Response | undefined {
   let endpoint = path;
   let params: Record<string, string> | undefined;
   let m: RegExpMatchArray | null;
-  if ((m = path.match(/^research\/case-study\/(.+)$/))) {
+  if ((m = path.match(/^research\/case-study\/([^/]+)\/traits$/))) {
+    endpoint = 'research/case-study/{sym}/traits';
+    params = { sym: decodeURIComponent(m[1]) };
+  } else if ((m = path.match(/^research\/case-study\/(.+)$/))) {
     endpoint = 'research/case-study/{sym}';
     params = { sym: decodeURIComponent(m[1]) };
   } else if ((m = path.match(/^research\/big-moves\/(.+)$/))) {

@@ -16,7 +16,9 @@ Usage:
 
 The digest (HarkPro/08-tab-deals.md 5.2) is ONE message of at most ~1,200 characters, built from the
 same verdicts as the Deals tab (Scripts/derived/deal_desk.py): transfers and churn are skipped (counted),
-only net buys can be "Confirms a setup", empty sections drop out.
+only net buys can be "Confirms a setup", empty sections drop out. Followed houses (user DB table
+v2_followed_houses, set in the Deals tab) get one "⭐ Followed houses" section in the same message, only when
+the house is a good-record FII/DII that net-bought a strong chart (day 0, and day 3 holding / lost).
 """
 from __future__ import annotations
 
@@ -949,8 +951,53 @@ def _pct(v: float | None) -> str:
     return "–" if v is None else f"{float(v):+.1f}%"
 
 
-def format_deals_digest(core: dict, items: int = DIGEST_ITEMS) -> str:
-    """Render the digest from a deal_desk.build() result. Pure (no I/O)."""
+ALERT_CLASSES = ("FII", "DII")
+
+
+def followed_alerts(core: dict, followed: set[str] | frozenset[str] | None) -> dict:
+    """Followed-house alerts (08-tab-deals.md 5.1 / 5.3-4). Pure.
+
+    Alerts only per the evidence rule: the followed house is an FII/DII with a good out-of-sample record
+    (deal_desk grade "good") and it net-bought a strong chart (>200 EMA, RS >= 70, <= 15% off the high).
+      - day 0: such a buy on the latest deal session;
+      - day 3: such a buy three sessions ago, now holding or lost against the deal price.
+    Any other buy by a followed house (Corporate / Other, ungraded / mixed / poor, weak chart, churn,
+    transfer) is only counted, never alerted.
+    """
+    out: dict = {"day0": [], "day3": [], "skipped": 0}
+    if not core or not followed:
+        return out
+
+    def hits(x: dict) -> list[dict]:
+        return [b for b in (x.get("buyers") or []) if b.get("house") in followed]
+
+    def qualifies(x: dict, bs: list[dict]) -> list[dict]:
+        buy = x.get("event_type") in ("fresh", "accumulate") and (x.get("net_cr") or 0) > 0
+        if not (buy and x.get("strong_chart")):
+            return []
+        return [b for b in bs if b.get("buyer_class") in ALERT_CLASSES and b.get("grade") == "good"]
+
+    for x in core.get("today") or []:
+        bs = hits(x)
+        if not bs:
+            continue
+        good = qualifies(x, bs)
+        if good:
+            out["day0"].append({**x, "_houses": good})
+        else:
+            out["skipped"] += 1
+    for x in core.get("watch") or []:
+        if x.get("sessions_since") != 3 or x.get("status") not in ("holding", "lost", "reclaimed"):
+            continue
+        good = qualifies(x, hits(x))
+        if good:
+            out["day3"].append({**x, "_houses": good})
+    return out
+
+
+def format_deals_digest(core: dict, items: int = DIGEST_ITEMS, followed: set[str] | frozenset[str] | None = None) -> str:
+    """Render the digest from a deal_desk.build() result. Pure (no I/O). `followed` = followed house keys
+    (deal_desk.house_key); their alerts are one section of the same single message."""
     if not core or core.get("missing"):
         return f"📊 Deals · no data ({(core or {}).get('missing', 'deal tables missing')})"
     today, watch = core.get("today") or [], core.get("watch") or []
@@ -979,6 +1026,16 @@ def format_deals_digest(core: dict, items: int = DIGEST_ITEMS) -> str:
         return _short_house(b.get("name", "")) if b else ""
 
     lines = [head]
+    fa = followed_alerts(core, followed)
+    if fa["day0"] or fa["day3"]:
+        lines.append("⭐ Followed houses (good-record FII/DII, strong chart)")
+        for x in fa["day0"][:items]:
+            h = x["_houses"][0]
+            lines.append(f"  {x['symbol']}  {_cr(h.get('value_cr'))} · {_short_house(h.get('name', ''))} ({h.get('buyer_class')}) · "
+                         f"hold {_px(x.get('deal_price'))}")
+        if fa["day3"]:
+            lines.append("  Day 3: " + " · ".join(f"{x['symbol']} {x['status']} {_pct(x.get('vs_deal_pct'))}"
+                                                  for x in fa["day3"][:items]))
     lines += section("✅", "Confirms a setup (watch day 3)", conf,
                      lambda x: f"  {x['symbol']}  {_cr(x['net_cr'])} · {buyer(x)} · hold {_px(x.get('deal_price'))}".replace(" ·  · ", " · "))
     lines += section("🏦", "Placement", place,
@@ -996,9 +1053,12 @@ def format_deals_digest(core: dict, items: int = DIGEST_ITEMS) -> str:
     if gap:
         lines.append(f"⚠️ Price data gap {pd.Timestamp(gap['from']).strftime('%d %b')} → {pd.Timestamp(gap['to']).strftime('%d %b')}: "
                      "holding / lost states span it")
-    lines.append(f"Skipped: {sk.get('transfer', 0)} transfers, {sk.get('churn', 0)} churn, {sk.get('small', 0)} under ₹1,000 Cr")
+    skipped = f"Skipped: {sk.get('transfer', 0)} transfers, {sk.get('churn', 0)} churn, {sk.get('small', 0)} under ₹1,000 Cr"
+    if fa["skipped"]:
+        skipped += f", {fa['skipped']} followed-house buys (no alert rule)"
+    lines.append(skipped)
     tv: list[str] = []
-    for x in [*conf[:items], *place[:items], *absorbed[:items], *confirmed[:items]]:
+    for x in [*fa["day0"][:items], *conf[:items], *place[:items], *absorbed[:items], *confirmed[:items]]:
         sym = f"NSE:{tradingview_symbol(x['symbol'])}"
         if sym not in tv:
             tv.append(sym)
@@ -1006,12 +1066,35 @@ def format_deals_digest(core: dict, items: int = DIGEST_ITEMS) -> str:
         lines.append("TV: " + ",".join(tv))
     text = "\n".join(lines)
     if len(text) > DIGEST_MAX_CHARS and items > 1:
-        return format_deals_digest(core, items - 1)
+        return format_deals_digest(core, items - 1, followed)
     return text
 
 
-def build_deals_digest(db_path: Path | None = None, as_of=None) -> dict:
-    """Read-only: build the desk as of the latest price session (or `as_of`) and render the digest."""
+def load_followed(user_db_path: Path | None = None, market_db_path: Path | None = None) -> set[str]:
+    """Followed house keys from the user DB (read-only; MP_USER_DB_PATH, else marketpulse_user.duckdb next to
+    the market DB). Empty when there is no user DB or no follow table yet."""
+    if user_db_path is None:
+        env = os.environ.get("MP_USER_DB_PATH", "").strip()
+        user_db_path = Path(env) if env else Path(market_db_path or DB_PATH).parent / "marketpulse_user.duckdb"
+    p = Path(user_db_path)
+    if not p.exists():
+        return set()
+    try:
+        con = duckdb.connect(str(p), read_only=True)
+    except duckdb.Error:
+        return set()
+    try:
+        ok = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'v2_followed_houses'").fetchone()[0]
+        return {str(r[0]) for r in con.execute("SELECT house FROM v2_followed_houses").fetchall()} if ok else set()
+    except duckdb.Error:
+        return set()
+    finally:
+        con.close()
+
+
+def build_deals_digest(db_path: Path | None = None, as_of=None, followed: set[str] | None = None) -> dict:
+    """Read-only: build the desk as of the latest price session (or `as_of`) and render the digest.
+    `followed` defaults to the user DB's followed houses (load_followed)."""
     try:
         from derived import deal_desk  # type: ignore
     except ModuleNotFoundError:
@@ -1025,7 +1108,9 @@ def build_deals_digest(db_path: Path | None = None, as_of=None) -> dict:
         if as_of is None:
             return {"as_of": None, "text": "📊 Deals · no price sessions", "messages": ["📊 Deals · no price sessions"]}
         core = deal_desk.build(con, pd.Timestamp(as_of).date())
-    text = format_deals_digest(core)
+    if followed is None:
+        followed = load_followed(market_db_path=target)
+    text = format_deals_digest(core, followed=followed)
     return {"as_of": core.get("as_of"), "deal_session": core.get("deal_session"), "text": text, "messages": [text],
             "chars": len(text), "skipped": core.get("skipped"), "days": core.get("sessions10") or []}
 

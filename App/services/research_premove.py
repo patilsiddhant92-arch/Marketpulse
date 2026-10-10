@@ -80,7 +80,21 @@ def _days_from_low(cl: np.ndarray, starts: np.ndarray) -> np.ndarray:
 
 
 def compute_events(con: Any, end: date) -> pd.DataFrame:
-    d = lab.frame(con, end)
+    d, T, pos = trait_frame(lab.frame(con, end))
+    sel = d.event & (pos >= WARMUP)
+    E = d.loc[sel, ["symbol", "trade_date", "close_price", "fmax", "security_name", "industry", "mcap_now"]].copy()
+    for k, v in T.items():
+        E[k] = v[sel].astype(float).replace([np.inf, -np.inf], np.nan)
+    E["family"] = np.where(E.d_above_200ema.isna(), None, np.where(E.d_above_200ema < 0, "turnaround", "trend"))
+    up = E.fmax / E.close_price
+    E["outcome"] = np.where(E.fmax.isna(), None, np.where(up >= RUNNER, "runner", np.where(up < FIZZLE, "fizzle", "middle")))
+    E["max_gain_pct"] = (up - 1) * 100
+    return E.rename(columns={"close_price": "close", "mcap_now": "mcap_cr"}).reset_index(drop=True)
+
+
+def trait_frame(d: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, pd.Series], pd.Series]:
+    """(frame with event / fmax columns, the 30 trait series, position within symbol) for a research frame
+    (any set of symbols, sorted by symbol + date). Every trait uses data on or before its own session."""
     d = d[["symbol", "trade_date", "close_price", "high_price", "low_price", "volume", "delivery_pct",
            "avg_delivery_pct_20d", "ema_20", "ema_50", "ema_200", "wema_10", "wma_30", "mema_10", "rsi_14", "rsi_14_w",
            "rsi_14_m", "rs_percentile", "trend_template_pass_n", "away_52w_high_pct", "away_52w_low_pct", "atr_pct",
@@ -150,15 +164,7 @@ def compute_events(con: Any, end: date) -> pd.DataFrame:
     T["b_atr_vs_avg"] = d.atr_pct / d.atr_pct_avg_50d
     starts = np.flatnonzero(np.r_[True, d.symbol.to_numpy()[1:] != d.symbol.to_numpy()[:-1]])
     T["b_days_from_low"] = pd.Series(_days_from_low(cl.to_numpy(), starts), index=d.index)
-    sel = d.event & (pos >= WARMUP)
-    E = d.loc[sel, ["symbol", "trade_date", "close_price", "fmax", "security_name", "industry", "mcap_now"]].copy()
-    for k, v in T.items():
-        E[k] = v[sel].astype(float).replace([np.inf, -np.inf], np.nan)
-    E["family"] = np.where(E.d_above_200ema.isna(), None, np.where(E.d_above_200ema < 0, "turnaround", "trend"))
-    up = E.fmax / E.close_price
-    E["outcome"] = np.where(E.fmax.isna(), None, np.where(up >= RUNNER, "runner", np.where(up < FIZZLE, "fizzle", "middle")))
-    E["max_gain_pct"] = (up - 1) * 100
-    return E.rename(columns={"close_price": "close", "mcap_now": "mcap_cr"}).reset_index(drop=True)
+    return d, T, pos
 
 
 def events(con: Any, end: date) -> tuple[pd.DataFrame, str]:

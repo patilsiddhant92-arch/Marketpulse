@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from App.api.v2 import models as m
 from App.api.v2.routes import AsOf, Limit, Offset, _call, envelope, router, symbol_param
-from App.services import research_bigmove, research_lab, research_premove, research_regime
+from App.services import research_bigmove, research_lab, research_premove, research_regime, research_signals, research_traits
 from App.services.common import Result
 
 
@@ -138,6 +138,82 @@ class DrawdownRow(BaseModel):
     ongoing: bool = False
 
 
+class TraitStripRow(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    trait: str
+    label: str
+    group: str
+    group_label: Optional[str] = None
+    better_when: Optional[str] = None
+    cut: Optional[float] = None
+    lift: Optional[float] = None
+    score_trait: bool = False
+    values: list[Optional[float]] = []
+    on: list[Optional[bool]] = []
+    on_at_lift: Optional[bool] = None
+    weeks_on: int = 0
+    weeks_known: int = 0
+    runner_median: Optional[float] = None
+    fizzle_median: Optional[float] = None
+
+
+class SignalLogRow(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    setup_id: str
+    trade_date: Optional[date] = None
+    setup: str
+    setup_label: Optional[str] = None
+    queue: str
+    flavor: Optional[str] = None
+    symbol: str
+    signal_close: Optional[float] = None
+    trigger_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    risk_pct: Optional[float] = None
+    rs_percentile: Optional[float] = None
+    logged: Optional[str] = None
+    ret_5: Optional[float] = None
+    excess_5: Optional[float] = None
+    r_5: Optional[float] = None
+    stopped_5: Optional[bool] = None
+    triggered_5: Optional[bool] = None
+    ret_10: Optional[float] = None
+    excess_10: Optional[float] = None
+    r_10: Optional[float] = None
+    stopped_10: Optional[bool] = None
+    triggered_10: Optional[bool] = None
+    ret_20: Optional[float] = None
+    excess_20: Optional[float] = None
+    r_20: Optional[float] = None
+    stopped_20: Optional[bool] = None
+    triggered_20: Optional[bool] = None
+    grade_note: Optional[str] = None
+
+
+class SignalScoreRow(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    setup: str
+    setup_label: Optional[str] = None
+    queue: Optional[str] = None
+    signals: int = 0
+    graded_20: int = 0
+    hit_20_pct: Optional[float] = None
+    avg_excess_5: Optional[float] = None
+    avg_excess_10: Optional[float] = None
+    avg_excess_20: Optional[float] = None
+    avg_ret_20: Optional[float] = None
+    avg_r_20: Optional[float] = None
+    stopped_20_pct: Optional[float] = None
+    triggered_20_pct: Optional[float] = None
+    live: int = 0
+    first_signal: Optional[date] = None
+    last_signal: Optional[date] = None
+    recent_months: list[str] = []
+    recent_hit_20_pct: Optional[float] = None
+    recent_avg_excess_20: Optional[float] = None
+    not_working: bool = False
+
+
 def _research(fn: Callable[..., Result], *args: Any) -> Result:
     """Call a research service and make its rows / context JSON-safe (numpy, NaN, timestamps)."""
     res = _call(fn, *args)
@@ -181,6 +257,32 @@ def research_case_movers(as_of: Optional[date] = AsOf, min_gain_pct: float = Que
                         "fire, the first-fire table, the 20 EMA ladder and the precision context (meta.context).")
 def research_case_study(sym: str, as_of: Optional[date] = AsOf) -> dict[str, Any]:
     return envelope(_research(research_bigmove.case_study, as_of, symbol_param(sym)))
+
+
+@router.get("/research/case-study/{sym}/traits", response_model=m.Envelope[TraitStripRow],
+            description="Case study D/W/M trait strip: which 'Before the big moves' traits were on, week by week, in "
+                        "the 13 weeks before the stock's early lift (cuts from its family's runner vs fizzle profile).")
+def research_case_traits(sym: str, as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    return envelope(_research(research_traits.trait_strip, as_of, symbol_param(sym)))
+
+
+SignalSetup = Literal["darvas_squeeze", "darvas_10ema", "darvas_10ema:Pullback", "darvas_10ema:Trace-back",
+                      "darvas_10ema:Catch-up", "vcp"]
+
+
+@router.get("/research/signal-log", response_model=m.Envelope[SignalLogRow],
+            description="Live signal log: each Desk setup's first day in its queue, graded 5/10/20 sessions later "
+                        "(return, vs the EW market, R vs the stop, triggered). Written by Scripts/research_lab.py.")
+def research_signal_log(as_of: Optional[date] = AsOf, setup: Optional[SignalSetup] = None,
+                        days: int = Query(30, ge=1, le=3650), offset: int = Offset, limit: int = Limit) -> dict[str, Any]:
+    return envelope(_research(research_signals.signal_log, as_of, setup, days), offset, limit)
+
+
+@router.get("/research/signal-scorecard", response_model=m.Envelope[SignalScoreRow],
+            description="Log-and-grade scorecard: per Desk setup, hit rate and average excess vs the EW market at "
+                        "5/10/20 sessions, average R, stop-hit and trigger rates, by month, with the 'not working now' rule.")
+def research_signal_scorecard(as_of: Optional[date] = AsOf) -> dict[str, Any]:
+    return envelope(_research(research_signals.signal_scorecard, as_of))
 
 
 @router.get("/research/before-moves", response_model=m.Envelope[EarlyLiftRow],

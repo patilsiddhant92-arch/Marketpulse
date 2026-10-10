@@ -71,13 +71,29 @@ const HOUSES = [
   { house: 'SBI MUTUAL FUND', name: 'Sbi Mutual Fund', buyer_class: 'DII', bought_cr: 180, symbols: ['BAJAJ-AUTO', 'SEAMECLTD'], grade: 'good', record_n: 7, record_avg_pct: 2.1, record_beat_pct: 57, spread: [{ industry: 'Automobiles', value_cr: 150, share_pct: 83, symbols: ['BAJAJ-AUTO'] }, { industry: 'Shipping', value_cr: 30, share_pct: 17, symbols: ['SEAMECLTD'] }] },
 ];
 
+let follows: { house: string; name: string; added_at: string | null }[] = [];
+const followCalls: string[] = [];
+
 function mockFetch() {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, 'http://localhost');
       const p = decodeURIComponent(url.pathname);
       const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (p === '/api/v2/deals/follows') {
+        const method = init?.method ?? 'GET';
+        if (method === 'POST') {
+          const b = JSON.parse(String(init?.body)) as { house: string; name?: string };
+          followCalls.push(`POST ${b.house}`);
+          if (!follows.some((f) => f.house === b.house)) follows = [...follows, { house: b.house, name: b.name ?? b.house, added_at: null }];
+        } else if (method === 'DELETE') {
+          const h = url.searchParams.get('house') ?? '';
+          followCalls.push(`DELETE ${h}`);
+          follows = follows.filter((f) => f.house !== h);
+        }
+        return json(env(follows));
+      }
       if (p === '/api/v2/deals/tab/today')
         return json(env(TODAY, { deal_session: '2026-08-13', skipped: { transfer: 0, churn: 1, small: 15 }, above50_pct: 56, summary: { confirms: 1, placements: 1, supply: 0, avoid: 0, noise: 1 } }, ['Price data gap: none.']));
       if (p === '/api/v2/deals/tab/watch') {
@@ -124,6 +140,9 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   copied.length = 0;
+  follows = [];
+  followCalls.length = 0;
+  window.localStorage.removeItem('mp.deals.followedHouses');
   mockFetch();
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -176,15 +195,29 @@ describe('Deals tab', () => {
     renderAt('/deals?view=houses');
     expect(await screen.findByText('Sbi Mutual Fund', {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText('Automobiles 83%')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Follow' }));
-    expect(screen.getByRole('button', { name: 'Following' })).toBeInTheDocument();
-    expect(JSON.parse(window.localStorage.getItem('mp.deals.followedHouses') ?? '[]')).toEqual(['SBI MUTUAL FUND']);
+    fireEvent.click(await screen.findByRole('button', { name: 'Follow' }));
+    expect(await screen.findByRole('button', { name: 'Following' })).toBeInTheDocument();
+    await waitFor(() => expect(followCalls).toEqual(['POST SBI MUTUAL FUND']));
+    expect(follows.map((f) => f.house)).toEqual(['SBI MUTUAL FUND']);
+    expect(window.localStorage.getItem('mp.deals.followedHouses')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Copy every list/ }));
     await waitFor(() => expect(copied[0]).toBe('###Where FII DII money went by group,NSE:BAJAJ_AUTO\n###Houses buying in the window,NSE:BAJAJ_AUTO,NSE:SEAMECLTD'));
     fireEvent.click(screen.getByRole('button', { name: 'Sbi Mutual Fund' }));
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText('Alert on: buys a strong chart, and day 3 holding or lost.')).toBeInTheDocument();
     expect(within(dialog).getByText('entry next open')).toBeInTheDocument();
+  });
+
+  it('Houses: unfollow goes to the server; browser-only follows are moved once', async () => {
+    window.localStorage.setItem('mp.deals.followedHouses', JSON.stringify(['SBI MUTUAL FUND']));
+    renderAt('/deals?view=houses');
+    expect(await screen.findByRole('button', { name: 'Following' }, { timeout: 5000 })).toBeInTheDocument();
+    await waitFor(() => expect(followCalls).toEqual(['POST SBI MUTUAL FUND']));
+    await waitFor(() => expect(window.localStorage.getItem('mp.deals.followedHouses')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Following' }));
+    expect(await screen.findByRole('button', { name: 'Follow' })).toBeInTheDocument();
+    await waitFor(() => expect(followCalls).toEqual(['POST SBI MUTUAL FUND', 'DELETE SBI MUTUAL FUND']));
+    expect(follows).toEqual([]);
   });
 
   it('By group: 3+ buyers chip and copy', async () => {

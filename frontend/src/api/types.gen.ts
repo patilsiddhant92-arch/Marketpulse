@@ -1553,6 +1553,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/research/case-study/{sym}/traits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Case Traits
+         * @description Case study D/W/M trait strip: which 'Before the big moves' traits were on, week by week, in the 13 weeks before the stock's early lift (cuts from its family's runner vs fizzle profile).
+         */
+        get: operations["research_case_traits_api_v2_research_case_study__sym__traits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/signal-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Signal Log
+         * @description Live signal log: each Desk setup's first day in its queue, graded 5/10/20 sessions later (return, vs the EW market, R vs the stop, triggered). Written by Scripts/research_lab.py.
+         */
+        get: operations["research_signal_log_api_v2_research_signal_log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/signal-scorecard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Signal Scorecard
+         * @description Log-and-grade scorecard: per Desk setup, hit rate and average excess vs the EW market at 5/10/20 sessions, average R, stop-hit and trigger rates, by month, with the 'not working now' rule.
+         */
+        get: operations["research_signal_scorecard_api_v2_research_signal_scorecard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/research/before-moves": {
         parameters: {
             query?: never;
@@ -1628,6 +1688,34 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/follows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follows Get
+         * @description Followed deal houses (user DB). Telegram alerts on them only per the 08-tab-deals rule.
+         */
+        get: operations["follows_get_api_v2_deals_follows_get"];
+        put?: never;
+        /**
+         * Follows Post
+         * @description Follow a house (keyed like the Deals tab's house key). Idempotent; returns the list.
+         */
+        post: operations["follows_post_api_v2_deals_follows_post"];
+        /**
+         * Follows Delete
+         * @description Unfollow a house. Idempotent; returns the list.
+         */
+        delete: operations["follows_delete_api_v2_deals_follows_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3335,6 +3423,19 @@ export interface components {
             rows: components["schemas"]["FollowThroughRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[FollowedHouse] */
+        Envelope_FollowedHouse_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["FollowedHouse"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[GroupContext] */
         Envelope_GroupContext_: {
             /** As Of */
@@ -3712,6 +3813,32 @@ export interface components {
             rows: components["schemas"]["SetupNearMissRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[SignalLogRow] */
+        Envelope_SignalLogRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SignalLogRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SignalScoreRow] */
+        Envelope_SignalScoreRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SignalScoreRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[StockAnalogRow] */
         Envelope_StockAnalogRow_: {
             /** As Of */
@@ -3788,6 +3915,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["SymbolSearchRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[TraitStripRow] */
+        Envelope_TraitStripRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["TraitStripRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[WatchlistItem] */
@@ -3868,6 +4008,13 @@ export interface components {
             /** Mfe Pct */
             mfe_pct?: number | null;
         };
+        /** FollowPost */
+        FollowPost: {
+            /** House */
+            house: string;
+            /** Name */
+            name?: string | null;
+        };
         /** FollowThroughRow */
         FollowThroughRow: {
             /** Event Type */
@@ -3899,6 +4046,17 @@ export interface components {
             avg_excess_t5_pct?: number | null;
             /** Avg Excess T20 Pct */
             avg_excess_t20_pct?: number | null;
+        };
+        /** FollowedHouse */
+        FollowedHouse: {
+            /** House */
+            house: string;
+            /** Name */
+            name: string;
+            /** Added At */
+            added_at?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** Freshness */
         Freshness: {
@@ -5488,6 +5646,129 @@ export interface components {
             /** Flavor */
             flavor?: string | null;
         };
+        /** SignalLogRow */
+        SignalLogRow: {
+            /** Setup Id */
+            setup_id: string;
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Setup */
+            setup: string;
+            /** Setup Label */
+            setup_label?: string | null;
+            /** Queue */
+            queue: string;
+            /** Flavor */
+            flavor?: string | null;
+            /** Symbol */
+            symbol: string;
+            /** Signal Close */
+            signal_close?: number | null;
+            /** Trigger Price */
+            trigger_price?: number | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Logged */
+            logged?: string | null;
+            /** Ret 5 */
+            ret_5?: number | null;
+            /** Excess 5 */
+            excess_5?: number | null;
+            /** R 5 */
+            r_5?: number | null;
+            /** Stopped 5 */
+            stopped_5?: boolean | null;
+            /** Triggered 5 */
+            triggered_5?: boolean | null;
+            /** Ret 10 */
+            ret_10?: number | null;
+            /** Excess 10 */
+            excess_10?: number | null;
+            /** R 10 */
+            r_10?: number | null;
+            /** Stopped 10 */
+            stopped_10?: boolean | null;
+            /** Triggered 10 */
+            triggered_10?: boolean | null;
+            /** Ret 20 */
+            ret_20?: number | null;
+            /** Excess 20 */
+            excess_20?: number | null;
+            /** R 20 */
+            r_20?: number | null;
+            /** Stopped 20 */
+            stopped_20?: boolean | null;
+            /** Triggered 20 */
+            triggered_20?: boolean | null;
+            /** Grade Note */
+            grade_note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SignalScoreRow */
+        SignalScoreRow: {
+            /** Setup */
+            setup: string;
+            /** Setup Label */
+            setup_label?: string | null;
+            /** Queue */
+            queue?: string | null;
+            /**
+             * Signals
+             * @default 0
+             */
+            signals: number;
+            /**
+             * Graded 20
+             * @default 0
+             */
+            graded_20: number;
+            /** Hit 20 Pct */
+            hit_20_pct?: number | null;
+            /** Avg Excess 5 */
+            avg_excess_5?: number | null;
+            /** Avg Excess 10 */
+            avg_excess_10?: number | null;
+            /** Avg Excess 20 */
+            avg_excess_20?: number | null;
+            /** Avg Ret 20 */
+            avg_ret_20?: number | null;
+            /** Avg R 20 */
+            avg_r_20?: number | null;
+            /** Stopped 20 Pct */
+            stopped_20_pct?: number | null;
+            /** Triggered 20 Pct */
+            triggered_20_pct?: number | null;
+            /**
+             * Live
+             * @default 0
+             */
+            live: number;
+            /** First Signal */
+            first_signal?: string | null;
+            /** Last Signal */
+            last_signal?: string | null;
+            /**
+             * Recent Months
+             * @default []
+             */
+            recent_months: string[];
+            /** Recent Hit 20 Pct */
+            recent_hit_20_pct?: number | null;
+            /** Recent Avg Excess 20 */
+            recent_avg_excess_20?: number | null;
+            /**
+             * Not Working
+             * @default false
+             */
+            not_working: boolean;
+        } & {
+            [key: string]: unknown;
+        };
         /**
          * StockAnalogRow
          * @description Final shape (stub until the evidence engine).
@@ -5823,6 +6104,56 @@ export interface components {
             delivery_pct?: number | null;
             /** Turnover Cr */
             turnover_cr?: number | null;
+        };
+        /** TraitStripRow */
+        TraitStripRow: {
+            /** Trait */
+            trait: string;
+            /** Label */
+            label: string;
+            /** Group */
+            group: string;
+            /** Group Label */
+            group_label?: string | null;
+            /** Better When */
+            better_when?: string | null;
+            /** Cut */
+            cut?: number | null;
+            /** Lift */
+            lift?: number | null;
+            /**
+             * Score Trait
+             * @default false
+             */
+            score_trait: boolean;
+            /**
+             * Values
+             * @default []
+             */
+            values: (number | null)[];
+            /**
+             * On
+             * @default []
+             */
+            on: (boolean | null)[];
+            /** On At Lift */
+            on_at_lift?: boolean | null;
+            /**
+             * Weeks On
+             * @default 0
+             */
+            weeks_on: number;
+            /**
+             * Weeks Known
+             * @default 0
+             */
+            weeks_known: number;
+            /** Runner Median */
+            runner_median?: number | null;
+            /** Fizzle Median */
+            fizzle_median?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** TrendCriterion */
         TrendCriterion: {
@@ -8880,6 +9211,108 @@ export interface operations {
             };
         };
     };
+    research_case_traits_api_v2_research_case_study__sym__traits_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_TraitStripRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_signal_log_api_v2_research_signal_log_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                setup?: ("darvas_squeeze" | "darvas_10ema" | "darvas_10ema:Pullback" | "darvas_10ema:Trace-back" | "darvas_10ema:Catch-up" | "vcp") | null;
+                days?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SignalLogRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_signal_scorecard_api_v2_research_signal_scorecard_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SignalScoreRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     research_before_moves_api_v2_research_before_moves_get: {
         parameters: {
             query?: {
@@ -9016,6 +9449,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_DivergenceScanRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    follows_get_api_v2_deals_follows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_FollowedHouse_"];
+                };
+            };
+        };
+    };
+    follows_post_api_v2_deals_follows_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowPost"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_FollowedHouse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    follows_delete_api_v2_deals_follows_delete: {
+        parameters: {
+            query: {
+                house: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_FollowedHouse_"];
                 };
             };
             /** @description Validation Error */

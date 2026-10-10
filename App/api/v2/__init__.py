@@ -12,6 +12,7 @@ from App.api.v2.routes_deals import router as _deals_router; router.include_rout
 import App.api.v2.routes_charts  # noqa: F401,E402  Charts tab: registers its router on `router`
 from App.api.v2 import routes_research  # noqa: E402,F401  Research tab endpoints (registers on router)
 from App.api.v2 import routes_divergence  # noqa: E402,F401  RSI divergences (charts + setups scanner)
+from App.api.v2.routes_deals_follow import router as _follow_router; router.include_router(_follow_router)  # noqa: E402,E702  Deals follows
 
 __all__ = ["router", "create_app", "API_VERSION"]
 

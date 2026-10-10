@@ -5,8 +5,10 @@ Runs without prompts:
   1) Download latest published NSE session (--auto)
   2) Append database (skip full rebuild)
   3) Telegram BUY deals (if configured)
-  4) Write Database/status.json + Logs/pipeline_*.log (streamed while running)
-  5) Nightly backup of the user DB after a successful run (keeps 7)
+  4) Research lab precompute + Desk signal log/grades (Scripts/research_lab.py -> research_lab.duckdb,
+     never the market DB; --skip-research or MP_SKIP_RESEARCH_LAB=1 skips it)
+  5) Write Database/status.json + Logs/pipeline_*.log (streamed while running)
+  6) Nightly backup of the user DB after a successful run (keeps 7)
 
 Intended for Windows Task Scheduler at 20:00 IST.
 
@@ -261,6 +263,30 @@ def _run_append() -> dict:
     }
 
 
+def _run_research_lab() -> dict:
+    """Precompute the Research studies and log/grade the Desk signals (Scripts/research_lab.py).
+
+    Reads DB_PATH read-only (after the writer lock is released) and writes the research sidecar
+    (MP_RESEARCH_DB_PATH, else research_lab.duckdb next to DB_PATH). Never writes the market DB.
+    """
+    prev = os.environ.get("MP_DB_PATH")
+    os.environ["MP_DB_PATH"] = str(DB_PATH)
+    try:
+        import research_lab as rl  # Scripts/research_lab.py
+
+        out = rl.lab.sidecar_path()
+        t0 = time.time()
+        counts = rl.build(out)
+        return {"out": str(out), "seconds": round(time.time() - t0, 1),
+                "signals_added": counts.get("signals_added"), "signals_graded": counts.get("signals_graded"),
+                "signal_log": counts.get("research_signal_log")}
+    finally:
+        if prev is None:
+            os.environ.pop("MP_DB_PATH", None)
+        else:
+            os.environ["MP_DB_PATH"] = prev
+
+
 def _required_bhav_present(session_dir: Path | None, trading_date: str | None) -> tuple[bool, str]:
     """Fail-closed gate: bhavcopy must exist for the session (disk and/or daily)."""
     patterns = []
@@ -339,6 +365,7 @@ def run_pipeline(
     skip_append: bool = False,
     skip_telegram: bool = False,
     skip_taxonomy: bool = False,
+    skip_research: bool = False,
     date: datetime | None = None,
     lookback: int = 7,
 ) -> int:
@@ -547,6 +574,26 @@ def run_pipeline(
             elif skip_taxonomy:
                 status["steps"].append({"step": "sector_taxonomy", "ok": True, "skipped": True})
 
+            # Research lab: studies + the live Desk signal log (sidecar DB). Never fails the EOD job.
+            skip_research = skip_research or os.environ.get("MP_SKIP_RESEARCH_LAB", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            if not skip_append and not skip_research:
+                try:
+                    rl = _run_research_lab()
+                    status["steps"].append({"step": "research_lab", "ok": True, **rl})
+                    print(f"Research lab: {rl['signal_log']} signals logged (+{rl['signals_added']}), "
+                          f"written to {rl['out']} in {rl['seconds']}s")
+                except BaseException as exc:  # SystemExit from the script is caught too
+                    if isinstance(exc, KeyboardInterrupt):
+                        raise
+                    print(f"Research lab skipped/failed: {exc}")
+                    status["steps"].append({"step": "research_lab", "ok": False, "error": str(exc)})
+            else:
+                status["steps"].append({"step": "research_lab", "ok": True, "skipped": True})
+
             try:
                 user_backup = _backup_user_db()
                 status["steps"].append({"step": "user_db_backup", "ok": True, "backup": user_backup})
@@ -619,6 +666,11 @@ def main() -> int:
         help="Do not backfill missing sector/industry from screener.in.",
     )
     parser.add_argument(
+        "--skip-research",
+        action="store_true",
+        help="Do not run the Research lab precompute / Desk signal log (Scripts/research_lab.py).",
+    )
+    parser.add_argument(
         "--retries",
         type=int,
         default=DEFAULT_MAX_ATTEMPTS,
@@ -647,6 +699,7 @@ def main() -> int:
             skip_append=skip_append,
             skip_telegram=args.skip_telegram,
             skip_taxonomy=args.skip_taxonomy,
+            skip_research=args.skip_research,
             date=args.date,
             lookback=max(1, args.lookback),
         )
