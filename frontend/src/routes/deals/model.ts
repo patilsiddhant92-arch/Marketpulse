@@ -105,10 +105,7 @@ export function filterText<T extends { symbol: string; name?: string; industry?:
 }
 
 // ------------------------------------------------------------------ TradingView
-/** TradingView symbol body: '-' and '&' -> '_' (lib/tradingview maps '-'; '&' is mapped here). */
-export function tvSafe(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[-&]/g, '_');
-}
+// Symbols are mapped by the shared helper (lib/tradingview: '-' and '&' -> '_').
 
 /** A `###` title must not contain the list separator. */
 export function tvTitle(title: string): string {
@@ -122,7 +119,7 @@ export interface TvList {
 
 /** One list: `###Title,NSE:A,NSE:B`. */
 export function tvListText(list: TvList): { text: string; count: number } {
-  return formatTradingViewList([{ title: tvTitle(list.title), symbols: list.symbols.map(tvSafe) }]);
+  return formatTradingViewList([{ title: tvTitle(list.title), symbols: list.symbols }]);
 }
 
 /** Every list on the tab, one `###` section each (newline between sections; duplicates kept per section). */

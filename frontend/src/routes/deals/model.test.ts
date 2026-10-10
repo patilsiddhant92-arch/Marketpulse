@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { tradingViewTicker } from '../../lib/tradingview';
 import type { DealRow } from './api';
-import { readFollowed, shownValue, sortByVerdict, splitNoise, spreadSummary, toggleFollowed, tvListText, tvSafe, tvSectionsText, tvTitle, viewFromParam } from './model';
+import { readFollowed, shownValue, sortByVerdict, splitNoise, spreadSummary, toggleFollowed, tvListText, tvSectionsText, tvTitle, viewFromParam } from './model';
 
 const row = (over: Partial<DealRow>): DealRow =>
   ({ symbol: 'AAA', verdict: 'none', net_cr: 0, bought_cr: 0, event_type: 'fresh', ...over }) as DealRow;
 
 describe('TradingView copy', () => {
   it('maps - and & to _ and prefixes NSE:', () => {
-    expect(tvSafe('bajaj-auto')).toBe('BAJAJ_AUTO');
-    expect(tvSafe('M&M')).toBe('M_M');
+    expect(tradingViewTicker('bajaj-auto')).toBe('BAJAJ_AUTO');
+    expect(tradingViewTicker('M&M')).toBe('M_M');
     expect(tvListText({ title: 'Deals Today', symbols: ['BAJAJ-AUTO', 'M&M', 'TCS', 'TCS'] })).toEqual({
       text: '###Deals Today,NSE:BAJAJ_AUTO,NSE:M_M,NSE:TCS',
       count: 3,

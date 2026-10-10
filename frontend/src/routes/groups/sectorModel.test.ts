@@ -77,7 +77,7 @@ describe('board helpers', () => {
       { group_name: 'Auto', leaders: ['BAJAJ-AUTO', 'M&M'] },
       { group_name: 'Empty', leaders: [] },
     ]);
-    expect(t.text).toBe('###Auto,NSE:BAJAJ_AUTO,NSE:M&M');
+    expect(t.text).toBe('###Auto,NSE:BAJAJ_AUTO,NSE:M_M');
     expect(t.count).toBe(2);
   });
   it('formats the Deals 10D cell and chips 3+ net-buy names', () => {

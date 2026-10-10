@@ -1,11 +1,21 @@
 /**
- * The one TradingView watchlist formatter (spec 7.1 Export).
- *   - prefixes NSE:, maps '-' to '_' (TradingView symbol rules), upper-cases
+ * The one TradingView symbol helper + watchlist formatter (spec 7.1 Export). Every tab copies through here.
+ *   - prefixes NSE:, maps '-' and '&' to '_' (TradingView symbol rules: BAJAJ-AUTO -> NSE:BAJAJ_AUTO,
+ *     M&M -> NSE:M_M), upper-cases
  *   - de-duplicates while keeping first-seen order
  *   - optional ###Section headers
  */
+/** Ticker body without the exchange prefix ('m&m' -> 'M_M'). Accepts an already-prefixed 'NSE:SYM'. */
+export function tradingViewTicker(symbol: string): string {
+  return symbol
+    .trim()
+    .toUpperCase()
+    .replace(/^NSE:/, '')
+    .replace(/[-&]/g, '_');
+}
+
 export function toTradingViewSymbol(symbol: string): string {
-  return `NSE:${symbol.trim().toUpperCase().replace(/-/g, '_')}`;
+  return `NSE:${tradingViewTicker(symbol)}`;
 }
 
 export interface TvSection {

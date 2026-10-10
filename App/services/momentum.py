@@ -8,7 +8,7 @@ with the same parameters and defaults:
 * current clauses are evaluated on the latest session (as_of);
 * coil bucket by `away_10ema_pct`: 0_2% / 2_5% / 5_10% / 10%+ / Below 10EMA, rows ordered by bucket then
   distance;
-* `buckets_tv` = ``###0_2%,NSE:A,NSE:B,###2_5%,…`` (dash → underscore; "Below 10EMA" not exported);
+* `buckets_tv` = ``###0_2%,NSE:A,NSE:B,###2_5%,…`` (dash and & → underscore, M&M -> NSE:M_M; "Below 10EMA" not exported);
 * leaders: sectors / industries by stock count, ties by average strength rank, top 3, each with a
   TradingView string.
 
@@ -301,7 +301,7 @@ def shape(r: dict[str, Any], prev_syms: set[str] | None) -> dict[str, Any]:
 
 
 def tv_symbol(sym: str) -> str:
-    return f"NSE:{sym.strip().upper().replace('-', '_')}"
+    return f"NSE:{sym.strip().upper().replace('-', '_').replace('&', '_')}"
 
 
 def tv_string(symbols: list[str]) -> str:

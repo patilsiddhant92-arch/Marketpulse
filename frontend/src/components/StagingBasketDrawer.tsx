@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Star, Copy, Check, Trash2, X } from 'lucide-react';
+import { toTradingViewSymbol } from '../lib/tradingview';
 
 interface Props {
   basket: string[];
@@ -14,7 +15,7 @@ export const StagingBasketDrawer: React.FC<Props> = ({ basket, onRemove, onClear
   if (basket.length === 0) return null;
 
   const handleCopyTv = () => {
-    const list = basket.map((s) => `NSE:${s}`).join(', ');
+    const list = basket.map(toTradingViewSymbol).join(', ');
     navigator.clipboard.writeText(list);
     setCopiedTv(true);
     setTimeout(() => setCopiedTv(false), 2000);

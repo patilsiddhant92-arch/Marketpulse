@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ema, resampleBars, type OHLCBar } from './indicators';
-import { formatTradingViewList, toTradingViewSymbol } from './tradingview';
+import { formatTradingViewList, toTradingViewSymbol, tradingViewTicker } from './tradingview';
 
 describe('TradingView formatter', () => {
   it('prefixes NSE:, maps - to _, upper-cases', () => {
     expect(toTradingViewSymbol('bajaj-auto')).toBe('NSE:BAJAJ_AUTO');
-    expect(toTradingViewSymbol('M&M')).toBe('NSE:M&M');
+    expect(toTradingViewSymbol('M&M')).toBe('NSE:M_M');
+    expect(toTradingViewSymbol('nse:m&m')).toBe('NSE:M_M');
+    expect(tradingViewTicker('BAJAJ-AUTO')).toBe('BAJAJ_AUTO');
   });
   it('de-duplicates across sections, skips blanks, reports the true count', () => {
     const out = formatTradingViewList([

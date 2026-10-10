@@ -66,7 +66,8 @@ def load_dotenv(path: Path = ENV_PATH) -> None:
 
 
 def tradingview_symbol(symbol: str) -> str:
-    s = str(symbol).strip().upper().replace("-", "_")
+    """TradingView ticker body: '-' and '&' -> '_' (BAJAJ-AUTO -> BAJAJ_AUTO, M&M -> M_M)."""
+    s = str(symbol).strip().upper().replace("-", "_").replace("&", "_")
     if s.startswith("NSE:"):
         s = s[4:]
     return s
@@ -998,7 +999,7 @@ def format_deals_digest(core: dict, items: int = DIGEST_ITEMS) -> str:
     lines.append(f"Skipped: {sk.get('transfer', 0)} transfers, {sk.get('churn', 0)} churn, {sk.get('small', 0)} under ₹1,000 Cr")
     tv: list[str] = []
     for x in [*conf[:items], *place[:items], *absorbed[:items], *confirmed[:items]]:
-        sym = f"NSE:{tradingview_symbol(x['symbol']).replace('&', '_')}"
+        sym = f"NSE:{tradingview_symbol(x['symbol'])}"
         if sym not in tv:
             tv.append(sym)
     if tv:
