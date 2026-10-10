@@ -135,7 +135,7 @@ describe('Shell', () => {
       within(nav)
         .getAllByRole('link')
         .map((a) => a.textContent?.replace(/^\d/, '')),
-    ).toEqual(['Pulse', 'Screener', 'Groups', 'Deals', 'Charts', 'Research']);
+    ).toEqual(['Pulse', 'Screener', 'Sector Intel', 'Deals', 'Charts', 'Research']);
     expect(await screen.findByRole('region', { name: 'Desk queues' })).toBeInTheDocument();
     // Verdict shows in the strip and in the Desk environment panel.
     expect((await screen.findAllByText('Constructive')).length).toBeGreaterThan(0);

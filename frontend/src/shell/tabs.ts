@@ -2,7 +2,7 @@
 export const TABS = [
   { id: 'desk', label: 'Pulse', path: '/desk', key: '1', hint: 'Market mood vs history, breadth, money flow' },
   { id: 'screener', label: 'Screener', path: '/screener', key: '2', hint: 'Presets, Momentum + VCP' },
-  { id: 'groups', label: 'Groups', path: '/groups', key: '3', hint: 'Sectors, industries, flow' },
+  { id: 'groups', label: 'Sector Intel', path: '/groups', key: '3', hint: 'Sectors, industries, indices, heatmap' },
   { id: 'deals', label: 'Deals', path: '/deals', key: '4', hint: 'Bulk / block deal plays' },
   { id: 'charts', label: 'Charts', path: '/charts', key: '5', hint: 'Multi-chart grid' },
   { id: 'research', label: 'Research', path: '/research', key: '6', hint: 'Analogs, big movers' },

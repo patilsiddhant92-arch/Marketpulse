@@ -142,14 +142,4 @@ describe('Desk › Today', () => {
   });
 });
 
-describe('Groups › Today', () => {
-  it('lists groups with the why and drills on the name', async () => {
-    setup();
-    const router = renderApp('/groups?view=today&level=sector');
-    const grid = await screen.findByRole('grid', { name: 'Groups today' });
-    expect(await within(grid).findByText('Healthcare')).toBeInTheDocument();
-    expect(await screen.findByTestId('group-why')).toHaveTextContent('77% of the move');
-    fireEvent.click(within(grid).getByRole('button', { name: 'Healthcare' }));
-    await waitFor(() => expect(router.state.location.search).toContain('group=sector%3AHealthcare'));
-  });
-});
+// 'Groups › Today' view removed: Sector Intel drops the Map / Today / Accumulators views (HarkPro/07 §4.8, mockup v1).
