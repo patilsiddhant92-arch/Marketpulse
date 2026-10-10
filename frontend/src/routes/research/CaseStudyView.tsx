@@ -3,7 +3,8 @@
  * the year's big-mover list. The chart shades the low → peak move, marks every
  * screener preset's fresh fire with its letter and the 20 EMA ladder's trades.
  * The first-fire table and the precision context are always shown, so a preset
- * that "caught" a winner never oversells.
+ * that "caught" a winner never oversells. The D/W/M trait strip (TraitStrip.tsx)
+ * shows which pre-move traits were on in the 13 weeks before the lift.
  */
 import { LineChart, Search } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
@@ -31,6 +32,7 @@ import {
 } from './lab';
 import { Caveat, Muted, SimpleTable, Summary } from './LabParts';
 import { Panel, QueryState, SampleN } from './parts';
+import { TraitStripPanel } from './TraitStrip';
 
 const SYMBOL_RE = /^[A-Z0-9&\-_.]{1,20}$/;
 
@@ -231,6 +233,7 @@ function CaseContent({ symbol, meta, bars }: { symbol: string; meta: EnvelopeMet
           sessions). B / S = ladder buy / sell. Line = 20 EMA.
         </p>
       </Panel>
+      <TraitStripPanel symbol={symbol} />
       <div className="grid gap-3 xl:grid-cols-2">
         <Panel title="First fire per preset (after the low)">
           <FirstFireTable rows={c.first_fires ?? []} />

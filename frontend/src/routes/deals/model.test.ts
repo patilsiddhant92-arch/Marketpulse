@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DealRow } from './api';
-import { readFollowed, shownValue, sortByVerdict, splitNoise, spreadSummary, toggleFollowed, tvListText, tvSafe, tvSectionsText, tvTitle, viewFromParam } from './model';
+import { clearLegacyFollowed, readLegacyFollowed, shownValue, sortByVerdict, splitNoise, spreadSummary, tvListText, tvSafe, tvSectionsText, tvTitle, viewFromParam } from './model';
 
 const row = (over: Partial<DealRow>): DealRow =>
   ({ symbol: 'AAA', verdict: 'none', net_cr: 0, bought_cr: 0, event_type: 'fresh', ...over }) as DealRow;
@@ -71,12 +71,13 @@ describe('views and rows', () => {
   });
 });
 
-describe('follow', () => {
+describe('legacy follow storage', () => {
   afterEach(() => window.localStorage.clear());
-  it('toggles a followed house in local storage', () => {
-    expect(readFollowed()).toEqual([]);
-    expect(toggleFollowed('SBI MUTUAL FUND')).toEqual(['SBI MUTUAL FUND']);
-    expect(readFollowed()).toEqual(['SBI MUTUAL FUND']);
-    expect(toggleFollowed('SBI MUTUAL FUND')).toEqual([]);
+  it('reads and clears the browser-only follows (moved to the server once)', () => {
+    expect(readLegacyFollowed()).toEqual([]);
+    window.localStorage.setItem('mp.deals.followedHouses', JSON.stringify(['SBI MUTUAL FUND', 3]));
+    expect(readLegacyFollowed()).toEqual(['SBI MUTUAL FUND']);
+    clearLegacyFollowed();
+    expect(readLegacyFollowed()).toEqual([]);
   });
 });

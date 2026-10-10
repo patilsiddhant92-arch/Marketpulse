@@ -140,7 +140,9 @@ def telegram(as_of: date | None) -> Result:
     from Scripts.telegram_deals import DIGEST_MAX_CHARS, format_deals_digest
 
     def go(con: Any, resolved: date, core: dict[str, Any]) -> Result:
-        text = format_deals_digest(core)
+        from App.services.deals_follow import followed_keys
+
+        text = format_deals_digest(core, followed=followed_keys())
         return Result(resolved, [{"text": text, "chars": len(text), "max_chars": DIGEST_MAX_CHARS}], sources=SOURCES,
                       notes=_notes(core))
     return _with_core(as_of, go)
@@ -209,9 +211,9 @@ def house(as_of: date | None, house_key: str) -> Result:
                  "grade": "ungraded", "record_n": 0, "record_avg_pct": None, "record_beat_pct": None, "spread": []}
         cls = h["buyer_class"]
         if h["grade"] == "good":
-            alert = "Alert on: buys a strong chart, and day 3 holding or lost."
+            alert = "Follow it to get a Telegram alert when it buys a strong chart, and on day 3 (holding or lost)."
         elif cls in ("FII", "DII"):
-            alert = "Follow it to get alerts when it buys a strong chart."
+            alert = "Follow it. Alerts fire once its record grades good and it buys a strong chart."
         else:
             alert = "No grade. Corporate and trading-firm buys lagged the market as a group (−2.6% and −2.7%)."
         return Result(resolved, rows, sources=SOURCES, notes=[RECORD_NOTE, *_notes(core)],

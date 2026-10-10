@@ -38,3 +38,9 @@ def _fresh_index_history_cache():
 def _skip_evidence_step(monkeypatch):
     # The derived step launches the (slow) evidence step as a child process; tests opt in explicitly.
     monkeypatch.setenv("MP_SKIP_EVIDENCE", "1")
+
+
+@pytest.fixture(autouse=True)
+def _skip_research_lab_step(monkeypatch):
+    # daily_pipeline's research_lab step (Scripts/research_lab.py) is slow; pipeline tests opt in explicitly.
+    monkeypatch.setenv("MP_SKIP_RESEARCH_LAB", "1")
