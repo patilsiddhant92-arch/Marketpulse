@@ -1,37 +1,42 @@
 /**
- * Research (spec 7.6, lazy-loaded): market analogs, big movers with catalyst
- * attribution, pre-move watch, group studies and setup evidence. Every
- * statistic prints its sample size; screens waiting on the evidence engine
- * show an intentional "being computed" state. Time travel (?as_of) re-keys
- * every query, so each study is computed with data up to that date only.
+ * Research (HarkPro/10-tab-research.md, merged with History Lab; lazy-loaded):
+ * days like today (regime quadrant + analogs), before the big moves, big-mover
+ * case studies, the setup scorecard, the index study and setup evidence.
+ * Every statistic prints its sample size and every view carries the
+ * "retrospective research, not advice" caveat. Time travel (?as_of) re-keys
+ * every query, so each study uses data up to that date only.
+ * Pre-move watch is cut; group studies moved to Sector Intel (their component
+ * files stay in research/ until the cross-tab pass).
  */
 import { FlaskConical } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn';
 import { fmtDateWithDay } from '../lib/fmt';
 import { useAsOf, useUrlParam } from '../shell/urlState';
-import { AnalogsView } from './research/AnalogsView';
-import { BigMoversView } from './research/BigMoversView';
+import { BeforeMovesView } from './research/BeforeMovesView';
+import { CaseStudyView } from './research/CaseStudyView';
 import { FixtureModeProvider, useFixtureMode } from './research/data';
+import { DaysLikeTodayView } from './research/DaysLikeTodayView';
 import { EvidenceView } from './research/EvidenceView';
-import { GroupStudiesView } from './research/GroupStudiesView';
-import { PreMoveView } from './research/PreMoveView';
-import { ResearchGlance } from './research/ResearchGlance';
+import { IndexStudyView } from './research/IndexStudyView';
+import { ScorecardView } from './research/ScorecardView';
 
 export const RESEARCH_VIEWS = [
-  { id: 'analogs', label: 'Market analogs', hint: 'When did the market last look like today — and what happened next' },
-  { id: 'movers', label: 'Big movers', hint: 'Big-move events, catalysts, what preceded them' },
-  { id: 'premove', label: 'Pre-move watch', hint: 'Stocks showing pre-move traits today (research)' },
-  { id: 'groups', label: 'Group studies', hint: 'Big movers by taxonomy level' },
+  { id: 'today', label: 'Days like today', hint: 'What kind of market is this, when did it look like this before, and what happened next' },
+  { id: 'before', label: 'Before the big moves', hint: 'What runners looked like at the early lift, and today’s lifts scored' },
+  { id: 'case', label: 'Case study', hint: 'Where our screener gave entries in a big mover' },
+  { id: 'scorecard', label: 'Setup scorecard', hint: 'Each preset’s catch rate, how early it fired, and its false alarms' },
+  { id: 'index', label: 'Index study', hint: 'Falls > 8%, recoveries and size leadership on the equal-weight market' },
   { id: 'evidence', label: 'Setup evidence', hint: 'Queue outcomes per environment state' },
 ] as const;
 export type ResearchView = (typeof RESEARCH_VIEWS)[number]['id'];
 
 const VIEWS: Record<ResearchView, () => ReactNode> = {
-  analogs: () => <AnalogsView />,
-  movers: () => <BigMoversView />,
-  premove: () => <PreMoveView />,
-  groups: () => <GroupStudiesView />,
+  today: () => <DaysLikeTodayView />,
+  before: () => <BeforeMovesView />,
+  case: () => <CaseStudyView />,
+  scorecard: () => <ScorecardView />,
+  index: () => <IndexStudyView />,
   evidence: () => <EvidenceView />,
 };
 
@@ -58,20 +63,17 @@ function ResearchBody() {
   const [raw, setView] = useUrlParam('rview');
   const [asOf] = useAsOf();
   const fx = useFixtureMode();
-  const view: ResearchView = RESEARCH_VIEWS.some((v) => v.id === raw) ? (raw as ResearchView) : 'analogs';
+  const view: ResearchView = RESEARCH_VIEWS.some((v) => v.id === raw) ? (raw as ResearchView) : 'today';
   const active = RESEARCH_VIEWS.find((v) => v.id === view)!;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 px-2 pb-1.5 pt-2">
-        <ResearchGlance />
-      </div>
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5">
         <nav aria-label="Research studies" className="flex flex-wrap gap-0.5">
           {RESEARCH_VIEWS.map((v) => (
             <button
               key={v.id}
               type="button"
-              onClick={() => setView(v.id === 'analogs' ? null : v.id)}
+              onClick={() => setView(v.id === 'today' ? null : v.id)}
               aria-current={v.id === view ? 'page' : undefined}
               title={v.hint}
               className={cn(

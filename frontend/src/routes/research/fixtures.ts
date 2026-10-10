@@ -8,6 +8,7 @@
  * optional extras documented in ./model.ts.
  */
 import type { BigMoveRow, EvidenceRow, MarketAnalogRow, PreMoveRow, StockAnalogRow } from '../../api/types';
+import LAB_JSON from './labFixtures.json';
 
 const AS_OF = '2026-09-25';
 const FRESH = { status: 'fresh', latest_session: AS_OF, expected_session: AS_OF, sessions_behind: 0, history_mode: false };
@@ -696,6 +697,11 @@ export function stockAnalogRows(sym: string): StockAnalogRow[] {
   }));
 }
 
+// ------------------------------------------------------------------ research lab (real API responses, trimmed)
+
+/** Envelopes captured from /api/v2/research/* on the local archive (as of 2026-08-13), trimmed for size. */
+const LAB = LAB_JSON as unknown as Record<string, ReturnType<typeof fixtureEnvelope>>;
+
 // ------------------------------------------------------------------ router
 
 export interface FixtureRequest {
@@ -747,6 +753,16 @@ export function fixtureFor({ endpoint, params, query, asOf }: FixtureRequest) {
     }
     case 'stock/{sym}/analogs':
       return fixtureEnvelope(stockAnalogRows(params?.sym ?? ''), {}, asOf);
+    case 'research/regime':
+    case 'research/days-like-today':
+    case 'research/scorecard':
+    case 'research/case-study':
+    case 'research/index-study':
+      return LAB[endpoint];
+    case 'research/case-study/{sym}':
+      return LAB[endpoint];
+    case 'research/before-moves':
+      return LAB[`research/before-moves:${query?.family === 'turnaround' ? 'turnaround' : 'trend'}`];
     default:
       return fixtureEnvelope([], {}, asOf, { status: 'unavailable', reason: `no fixture for ${endpoint}` });
   }
