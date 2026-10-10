@@ -134,3 +134,13 @@ def test_same_group_same_state_on_all_three_tabs(client):
         s = next(r for r in setups if r.get("industry") == g)
         assert shared[g][0] == s["group_state"] == board[g]["state"] == pulse[g]["state"]
         assert shared[g][1] == s["group_reason"] == board[g]["state_reason"] == pulse[g]["state_reason"]
+
+
+# --------------------------------------------------------------------------- Pulse movers (Charts source) regression
+def test_mover_chips_ignore_unknown_listing_date():
+    """A NaT listing date must not crash /pulse/movers (the Charts 'Pulse movers' source); it is not an IPO."""
+    from datetime import date
+
+    from App.services import pulse
+    chips = pulse.chips_for({"symbol": "X", "listing_date": pd.NaT, "h52": None, "band": None}, date(2026, 10, 8), set())
+    assert "IPO" not in chips

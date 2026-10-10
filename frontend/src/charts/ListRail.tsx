@@ -1,6 +1,7 @@
 /**
  * List rail (HarkPro/09-tab-charts.md §3): the open list beside the main chart. Click or J / K
- * moves through it; the chart keeps its zoom and indicators. S stars the current stock.
+ * moves through it; the chart keeps its zoom and indicators. S stars the current stock. The deal icon marks a
+ * stock with a bulk / block deal in the last 10 deal sessions.
  */
 import { Star, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
@@ -8,6 +9,7 @@ import { cn } from '../lib/cn';
 import { fmtNum } from '../lib/fmt';
 import { SignedNum } from '../screener/cells';
 import { useShell } from '../shell/ShellContext';
+import { DealIcon } from '../ui/DealIcon';
 import type { ChartItem } from './sources';
 
 export interface ListRailProps {
@@ -60,6 +62,7 @@ export function ListRail({ label, items, current, onPick, onRemove, loading, cla
                 <Star className={cn('h-3 w-3', watched && 'fill-accent')} />
               </button>
               <span className={cn('font-mono', on ? 'font-semibold text-accent' : 'text-fg')}>{it.symbol}</span>
+              <DealIcon symbol={it.symbol} />
               {it.tags[0] && <span className="truncate text-2xs text-fg-3">{it.tags[0]}</span>}
               <span className="num ml-auto shrink-0 text-fg-2">{fmtNum(it.close ?? null)}</span>
               <span className="w-12 shrink-0 text-right">

@@ -899,7 +899,7 @@ def chips_for(r: dict[str, Any], d: date, deal_syms: set[str]) -> list[str]:
     if clean(r.get("h52")):
         chips.append("52W")
     ld = db.to_date(r.get("listing_date"))
-    if ld is not None and 0 <= (d - ld).days < 365:
+    if ld is not None and not pd.isna(ld) and 0 <= (d - ld).days < 365:  # NaT listing dates are unknown, not an IPO
         chips.append("IPO")
     band = (clean(r.get("band")) or "")
     if isinstance(band, str) and band.strip() not in ("", "-"):
