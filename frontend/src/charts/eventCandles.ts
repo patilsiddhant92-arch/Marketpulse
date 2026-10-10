@@ -303,3 +303,67 @@ export function resolveEvents(
   }
   return out;
 }
+
+// ====================================================================== Chart v2 (Info mode)
+/**
+ * Info-mode event layer (HarkPro/12-sprint2-plan.md): deals (B P S C T), results and Darvas box
+ * breaks colour the whole candle (in the Events colour mode) with their letter / arrow. Gaps and
+ * volume spikes never colour a candle: they are small dots only.
+ */
+export interface InfoMarker {
+  time: string;
+  text: string;
+  color: string;
+  position: 'aboveBar' | 'belowBar';
+  shape: 'circle' | 'square' | 'arrowUp' | 'arrowDown';
+  /** Marker size (lightweight-charts units, 1 = default). */
+  size: number;
+}
+
+export interface InfoEventLayer {
+  /** Candle colour per bar time (empty in the Normal colour mode). */
+  paint: Map<string, string>;
+  markers: InfoMarker[];
+  byBar: Map<string, BarEvents>;
+}
+
+const PAINTS: ReadonlySet<EventKey> = new Set(['results', 'deal_B', 'deal_P', 'deal_S', 'deal_C', 'deal_T', 'breakout', 'breakdown']);
+const DOTS: ReadonlySet<EventKey> = new Set(['gap_up', 'gap_down', 'volume']);
+const BELOW_KEYS: ReadonlySet<EventKey> = new Set(['breakdown', 'deal_S', 'gap_down', 'ex_date']);
+
+export function infoEventLayer(
+  barTimes: readonly string[],
+  events: readonly Omit<ChartEvent, 'time'>[],
+  opts: { colours: 'events' | 'normal'; groups?: Partial<Record<EventGroup, boolean>> },
+): InfoEventLayer {
+  const byBar = resolveEvents(barTimes, events, opts.groups ?? {});
+  const paint = new Map<string, string>();
+  const markers: InfoMarker[] = [];
+  for (const [time, be] of byBar) {
+    const main = be.all.find((e) => PAINTS.has(e.key));
+    if (main) {
+      if (opts.colours === 'events') paint.set(time, eventColor(main.key));
+      markers.push({
+        time,
+        text: main.letter,
+        color: eventColor(main.key),
+        position: BELOW_KEYS.has(main.key) ? 'belowBar' : 'aboveBar',
+        shape: 'circle',
+        size: 0,
+      });
+    }
+    const dot = be.all.find((e) => DOTS.has(e.key));
+    if (dot) {
+      markers.push({
+        time,
+        text: '',
+        color: dot.key === 'volume' ? tokenColor('fg', 0.85) : eventColor(dot.key),
+        position: BELOW_KEYS.has(dot.key) ? 'belowBar' : 'aboveBar',
+        shape: 'circle',
+        size: 0.5,
+      });
+    }
+  }
+  markers.sort((a, b) => a.time.localeCompare(b.time));
+  return { paint, markers, byBar };
+}

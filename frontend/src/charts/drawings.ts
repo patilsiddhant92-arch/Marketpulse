@@ -1,13 +1,15 @@
 /**
- * Drawing tools (HarkPro/09-tab-charts.md §7.1): horizontal line and trend line, saved per
- * symbol in this browser (localStorage), shared by every chart of that symbol.
+ * Drawing tools (HarkPro/09-tab-charts.md §7, 12-sprint2-plan.md "Chart tools"): horizontal line,
+ * trend line, rectangle, long / short position and anchored VWAP, saved per symbol in this browser
+ * (localStorage) and shared by every chart of that symbol. Measure is a temporary tool (not saved).
+ * Bar replay and compare are chart modes, not drawings. No line alerts.
  */
 import { useSyncExternalStore } from 'react';
 import { readJSON, writeJSON } from '../lib/storage';
 import { tokenColor } from '../lib/tokens';
 import type { ChartLevel, ChartSegment } from '../ui/Chart';
 
-export type DrawTool = 'none' | 'hline' | 'trend';
+export type DrawTool = 'none' | 'hline' | 'trend' | 'rect' | 'measure' | 'long' | 'short' | 'avwap' | 'replay';
 
 export interface DrawPoint {
   time: string;
@@ -16,7 +18,27 @@ export interface DrawPoint {
 
 export type Drawing =
   | { id: string; kind: 'hline'; a: DrawPoint }
-  | { id: string; kind: 'trend'; a: DrawPoint; b: DrawPoint };
+  | { id: string; kind: 'trend'; a: DrawPoint; b: DrawPoint }
+  | { id: string; kind: 'rect'; a: DrawPoint; b: DrawPoint }
+  /** Position: a = entry, b = stop (time = the end of the box), target at `rr` × risk. */
+  | { id: string; kind: 'long' | 'short'; a: DrawPoint; b: DrawPoint; rr: number }
+  | { id: string; kind: 'avwap'; a: DrawPoint };
+
+/** Default reward : risk of a new position. */
+export const DEFAULT_RR = 2;
+
+/** Target price of a position drawing. */
+export function positionTarget(d: { kind: 'long' | 'short'; a: DrawPoint; b: DrawPoint; rr: number }): number {
+  const risk = Math.abs(d.a.price - d.b.price);
+  return d.kind === 'long' ? d.a.price + d.rr * risk : d.a.price - d.rr * risk;
+}
+
+/** Measure read-out between two points: "+12.4% · 23 bars". */
+export function measureText(a: DrawPoint & { index: number }, b: DrawPoint & { index: number }): string {
+  const ch = a.price > 0 ? (b.price / a.price - 1) * 100 : 0;
+  const bars = Math.abs(b.index - a.index);
+  return `${ch >= 0 ? '+' : '−'}${Math.abs(ch).toFixed(1)}% · ${(b.price - a.price >= 0 ? '+' : '−') + Math.abs(b.price - a.price).toFixed(2)} · ${bars} bar${bars === 1 ? '' : 's'}`;
+}
 
 type Store = Record<string, Drawing[]>;
 
@@ -36,7 +58,9 @@ export function sanitize(raw: unknown): Store {
       (d): d is Drawing =>
         !!d &&
         typeof d.id === 'string' &&
-        ((d.kind === 'hline' && isPoint(d.a)) || (d.kind === 'trend' && isPoint(d.a) && isPoint(d.b))),
+        (((d.kind === 'hline' || d.kind === 'avwap') && isPoint(d.a)) ||
+          ((d.kind === 'trend' || d.kind === 'rect') && isPoint(d.a) && isPoint(d.b)) ||
+          ((d.kind === 'long' || d.kind === 'short') && isPoint(d.a) && isPoint(d.b) && typeof d.rr === 'number' && d.rr > 0)),
     );
     if (ok.length) out[sym] = ok.slice(-MAX_PER_SYMBOL);
   }
@@ -111,11 +135,19 @@ export function clickTool(
   id: string = newDrawingId(),
 ): { done: Drawing | null; pending: DrawPoint | null } {
   if (tool === 'hline') return { done: { id, kind: 'hline', a: p }, pending: null };
-  if (tool === 'trend') {
+  if (tool === 'avwap') return { done: { id, kind: 'avwap', a: p }, pending: null };
+  if (tool === 'trend' || tool === 'rect') {
     if (!pending) return { done: null, pending: p };
     if (pending.time === p.time) return { done: null, pending: p };
     const [a, b] = pending.time < p.time ? [pending, p] : [p, pending];
-    return { done: { id, kind: 'trend', a, b }, pending: null };
+    return { done: { id, kind: tool, a, b }, pending: null };
+  }
+  if (tool === 'long' || tool === 'short') {
+    // Click 1 = entry, click 2 = stop (and the right edge of the box).
+    if (!pending) return { done: null, pending: p };
+    const wrongSide = tool === 'long' ? p.price >= pending.price : p.price <= pending.price;
+    if (wrongSide || p.time <= pending.time) return { done: null, pending };
+    return { done: { id, kind: tool, a: pending, b: p, rr: DEFAULT_RR }, pending: null };
   }
   return { done: null, pending: null };
 }
@@ -127,7 +159,7 @@ export function drawingLayers(list: readonly Drawing[]): { levels: ChartLevel[];
   const color = tokenColor('draw');
   for (const d of list) {
     if (d.kind === 'hline') levels.push({ id: d.id, price: d.a.price, color, title: '' });
-    else
+    else if (d.kind === 'trend')
       segments.push({
         id: d.id,
         pane: 'price',

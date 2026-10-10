@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApiQuery } from '../../api/query';
 import type { SetupBoardRow, SetupDroppedRow, SetupNearMissRow } from '../../api/types';
 import { ChartTile } from '../../charts/ChartTile';
+import { ChartV2 } from '../../charts/ChartV2';
+import { itemLevels } from '../../charts/ProChart';
 import type { ChartItem } from '../../charts/sources';
 import { cn } from '../../lib/cn';
 import { fmtDate, fmtNum } from '../../lib/fmt';
@@ -185,20 +187,7 @@ export function DetailPanel({
       {q.error && <ErrorState error={q.error} onRetry={() => void q.refetch()} compact />}
       {item && (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
-          <div className="h-[340px] shrink-0">
-            <ChartTile
-              item={item}
-              timeframe="D"
-              relWindow="3M"
-              syncGroup="setups-detail"
-              compact={false}
-              volume
-              active
-              expanded
-              onInspect={() => undefined}
-              onToggleExpand={() => undefined}
-            />
-          </div>
+          <ChartV2 symbol={item.symbol} header={false} compact chartHeight={380} extraLevels={itemLevels(item, true)} initialBars={120} className="shrink-0" />
           {row ? (
             <div className="grid grid-cols-2 gap-x-4">
               <div>

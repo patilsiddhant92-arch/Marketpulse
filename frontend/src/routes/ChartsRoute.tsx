@@ -15,7 +15,7 @@ import { ChevronLeft, ChevronRight, Copy, Crosshair, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet } from '../api/client';
 import { apiQueryKey, useApiQuery } from '../api/query';
-import { DrawMenu, IndicatorsMenu, StyleToggle, segBtn } from '../charts/ChartControls';
+import { IndicatorsMenu, StyleToggle, segBtn } from '../charts/ChartControls';
 import { ChartsGlance } from '../charts/ChartsGlance';
 import { ChartTile, REL_WINDOWS } from '../charts/ChartTile';
 import type { DrawTool } from '../charts/drawings';
@@ -234,6 +234,7 @@ export default function ChartsRoute() {
         onTimeframeChange={(t) => setState({ tf: t === 'D' ? null : t })}
         tool={tool}
         onToolDone={() => setTool('none')}
+        onToolChange={setTool}
         onInfo={() => setState({ panel: panelOpen ? null : '1' })}
         infoOpen={panelOpen}
         position={curPos >= 0 ? `${curPos + 1} / ${items.length}` : 'not in list'}
@@ -334,16 +335,20 @@ export default function ChartsRoute() {
             </button>
           ))}
         </div>
-        <div className="flex overflow-hidden rounded border border-line" role="group" aria-label="Timeframe">
-          {(['D', 'W', 'M'] as const).map((t) => (
-            <button key={t} type="button" aria-pressed={tf === t} onClick={() => setState({ tf: t === 'D' ? null : t })} className={cn(segBtn(tf === t), 'font-mono')}>
-              {t}
-            </button>
-          ))}
-        </div>
-        <StyleToggle />
+        {/* The single chart (Chart v2) carries its own D / W / M, style and tools. */}
+        {!single && (
+          <>
+            <div className="flex overflow-hidden rounded border border-line" role="group" aria-label="Timeframe">
+              {(['D', 'W', 'M'] as const).map((t) => (
+                <button key={t} type="button" aria-pressed={tf === t} onClick={() => setState({ tf: t === 'D' ? null : t })} className={cn(segBtn(tf === t), 'font-mono')}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <StyleToggle />
+          </>
+        )}
         <IndicatorsMenu />
-        {single && <DrawMenu symbol={cur || null} tool={tool} onTool={setTool} />}
         {cur && (
           <button
             type="button"

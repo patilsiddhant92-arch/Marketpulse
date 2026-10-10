@@ -122,3 +122,198 @@ export function rsiDivergences(
   scan('low');
   return out.sort((x, y) => x.to.index - y.to.index || x.kind.localeCompare(y.kind));
 }
+
+// ====================================================================== Sprint 2 contract
+/**
+ * RSI divergence rows as served by GET /api/v2/charts/{sym}/divergences (HarkPro/12-sprint2-plan.md,
+ * built by the diverg agent). `detectDivergences` is the client fallback when the endpoint is
+ * missing: a port of HarkPro/tools/divergence/detect_prototype.py with the same rules.
+ *
+ * - 3-bar pivots on the low (bull) / high (bear): the bar equals the min / max of the 7-bar window.
+ *   A pivot is confirmed 3 bars later (no look-ahead: no pivot inside the last 3 bars).
+ * - Consecutive pivots 5-60 bars apart. "Equal" = within 0.5 ATR(14) for price, 2 points for RSI.
+ * - Strong: price beyond + RSI against. Medium: price equal + RSI against. Weak: price beyond + RSI
+ *   equal. Hidden: price against + RSI beyond.
+ * - Regular bull needs an RSI pivot < 40 and RSI never > 60 between the pivots; bear mirrored
+ *   (> 60, never < 40). Hidden bull needs close > EMA50 and RSI2 < 50; hidden bear mirrored.
+ * - Trigger = the high between the lows (bull) / the low between the highs (bear). Stop = the 2nd
+ *   pivot's low / high. Status after the confirm bar: a close beyond the trigger = triggered, a close
+ *   beyond the stop = failed (whichever comes first), else watching.
+ */
+export type DivSide = 'bull' | 'bear';
+export type DivType = 'Strong' | 'Medium' | 'Weak' | 'Hidden';
+export type DivStatus = 'watching' | 'triggered' | 'failed';
+
+export interface DivergenceRow {
+  side: DivSide;
+  type: DivType;
+  p1_date: string;
+  p2_date: string;
+  p1_price: number;
+  p2_price: number;
+  p1_rsi: number;
+  p2_rsi: number;
+  confirm_date: string;
+  trigger_price: number | null;
+  stop_price: number | null;
+  status: DivStatus;
+}
+
+export const DIV_RULES = { K: 3, MINGAP: 5, MAXGAP: 60, PTOL: 0.5, RTOL: 2 } as const;
+
+export interface DetectBar {
+  time: string;
+  high: number;
+  low: number;
+  close: number;
+}
+
+/** pandas ewm(alpha=1/n, adjust=False) RSI, as the prototype computes it (seeded on the first change). */
+export function rsiEwm(closes: readonly number[], n = 14): (number | null)[] {
+  const out: (number | null)[] = closes.map(() => null);
+  let up: number | null = null;
+  let dn: number | null = null;
+  for (let i = 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    const u = Math.max(d, 0);
+    const w = Math.max(-d, 0);
+    up = up == null ? u : up + (u - up) / n;
+    dn = dn == null ? w : dn + (w - dn) / n;
+    out[i] = dn === 0 ? (up === 0 ? null : 100) : 100 - 100 / (1 + up / dn);
+  }
+  return out;
+}
+
+function atrEwm(bars: readonly DetectBar[], n = 14): number[] {
+  const out: number[] = [];
+  let v = 0;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const pc = i > 0 ? bars[i - 1].close : NaN;
+    const tr = Math.max(b.high - b.low, Number.isNaN(pc) ? 0 : Math.abs(b.high - pc), Number.isNaN(pc) ? 0 : Math.abs(b.low - pc));
+    v = i === 0 ? tr : v + (tr - v) / n;
+    out.push(v);
+  }
+  return out;
+}
+
+function emaSpan(xs: readonly number[], span: number): number[] {
+  const a = 2 / (span + 1);
+  const out: number[] = [];
+  xs.forEach((x, i) => out.push(i === 0 ? x : out[i - 1] + a * (x - out[i - 1])));
+  return out;
+}
+
+export function classifyDivergence(dp: number, dr: number, side: DivSide): DivType | null {
+  const { PTOL, RTOL } = DIV_RULES;
+  const pe = Math.abs(dp) <= PTOL;
+  const re = Math.abs(dr) <= RTOL;
+  if (side === 'bull') {
+    if (dp < -PTOL && dr > RTOL) return 'Strong';
+    if (pe && dr > RTOL) return 'Medium';
+    if (dp < -PTOL && re) return 'Weak';
+    if (dp > PTOL && dr < -RTOL) return 'Hidden';
+  } else {
+    if (dp > PTOL && dr < -RTOL) return 'Strong';
+    if (pe && dr < -RTOL) return 'Medium';
+    if (dp > PTOL && re) return 'Weak';
+    if (dp < -PTOL && dr > RTOL) return 'Hidden';
+  }
+  return null;
+}
+
+export function detectDivergences(bars: readonly DetectBar[], rsiValues?: readonly (number | null)[]): DivergenceRow[] {
+  const { K, MINGAP, MAXGAP } = DIV_RULES;
+  const n = bars.length;
+  if (n < 2 * K + 2) return [];
+  const r = rsiValues ?? rsiEwm(bars.map((b) => b.close));
+  const atrs = atrEwm(bars);
+  const ema50 = emaSpan(
+    bars.map((b) => b.close),
+    50,
+  );
+  const out: DivergenceRow[] = [];
+  for (const side of ['bull', 'bear'] as const) {
+    const s = bars.map((b) => (side === 'bull' ? b.low : b.high));
+    const piv: number[] = [];
+    for (let i = K; i < n - K; i++) {
+      const w = s.slice(i - K, i + K + 1);
+      if (side === 'bull' ? s[i] === Math.min(...w) : s[i] === Math.max(...w)) piv.push(i);
+    }
+    for (let k = 1; k < piv.length; k++) {
+      const a = piv[k - 1];
+      const b = piv[k];
+      if (b - a < MINGAP || b - a > MAXGAP) continue;
+      const r1 = r[a];
+      const r2 = r[b];
+      if (r1 == null || r2 == null || !(atrs[b] > 0)) continue;
+      const mid = r.slice(a, b + 1).filter((x): x is number => x != null);
+      const t = classifyDivergence((s[b] - s[a]) / atrs[b], r2 - r1, side);
+      if (!t) continue;
+      if (t !== 'Hidden') {
+        if (side === 'bull' && (Math.min(r1, r2) >= 40 || Math.max(...mid) > 60)) continue;
+        if (side === 'bear' && (Math.max(r1, r2) <= 60 || Math.min(...mid) < 40)) continue;
+      } else {
+        const trend = bars[b].close > ema50[b];
+        if (side === 'bull' && !(trend && r2 < 50)) continue;
+        if (side === 'bear' && !(!trend && r2 > 50)) continue;
+      }
+      const span = bars.slice(a, b + 1);
+      const trigger = side === 'bull' ? Math.max(...span.map((x) => x.high)) : Math.min(...span.map((x) => x.low));
+      const stop = side === 'bull' ? bars[b].low : bars[b].high;
+      const conf = b + K;
+      let status: DivStatus = 'watching';
+      for (let j = conf + 1; j < n; j++) {
+        const c = bars[j].close;
+        if (side === 'bull' ? c > trigger : c < trigger) {
+          status = 'triggered';
+          break;
+        }
+        if (side === 'bull' ? c < stop : c > stop) {
+          status = 'failed';
+          break;
+        }
+      }
+      out.push({
+        side,
+        type: t,
+        p1_date: bars[a].time,
+        p2_date: bars[b].time,
+        p1_price: s[a],
+        p2_price: s[b],
+        p1_rsi: r1,
+        p2_rsi: r2,
+        confirm_date: bars[conf].time,
+        trigger_price: trigger,
+        stop_price: stop,
+        status,
+      });
+    }
+  }
+  return out.sort((x, y) => x.confirm_date.localeCompare(y.confirm_date) || x.side.localeCompare(y.side));
+}
+
+export interface DivergenceView {
+  row: DivergenceRow;
+  /** The latest divergence is bright; older ones are faded. */
+  latest: boolean;
+  label: string;
+}
+
+/** Rows to draw: confirmed by `upTo` (bar replay), hidden ones only on request; the latest one bright. */
+export function divergenceViews(
+  rows: readonly DivergenceRow[],
+  opts: { hidden?: boolean; upTo?: string | null; from?: string | null } = {},
+): DivergenceView[] {
+  const kept = rows
+    .filter((r) => (opts.hidden ? true : r.type !== 'Hidden'))
+    .filter((r) => !opts.upTo || r.confirm_date <= opts.upTo)
+    .filter((r) => !opts.from || r.p1_date >= opts.from)
+    .slice()
+    .sort((a, b) => a.confirm_date.localeCompare(b.confirm_date) || a.p2_date.localeCompare(b.p2_date));
+  return kept.map((row, i) => ({
+    row,
+    latest: i === kept.length - 1,
+    label: `${row.side === 'bull' ? 'Bull' : 'Bear'} ${row.type}`,
+  }));
+}

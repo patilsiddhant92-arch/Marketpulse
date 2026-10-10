@@ -1,220 +1,81 @@
+/**
+ * Stock 360 chart (sidecar, full page and big chart): Chart v2 (charts/ChartV2.tsx), the one stock
+ * chart of the app with the global chart settings. Setup trigger / stop levels ride on it as tagged
+ * lines; the Big button opens the big chart.
+ *
+ * Sprint 2: the RS pane of the old chart is not part of Chart v2 yet (see the Strength block).
+ */
 import { Expand } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { useApiQuery } from '../api/query';
+import { useMemo } from 'react';
 import type { QueueRow } from '../api/types';
+import { ChartV2 } from '../charts/ChartV2';
+import type { ExtraLevel } from '../charts/chartV2Model';
 import { useChartPrefs } from '../lib/chartPrefs';
 import { cn } from '../lib/cn';
-import { Chart, type ChartMarker, type Timeframe } from '../ui/Chart';
-import { toDarvasLines } from '../ui/darvasModel';
-import { EmptyState } from '../ui/EmptyState';
-import { ErrorState } from '../ui/ErrorState';
-import { Skeleton } from '../ui/Skeleton';
-import { useChartLayers } from '../charts/chartLayers';
-import { EventLegend } from '../charts/ChartControls';
-import { FULL_HISTORY, type Stock360Data } from './useStock360';
-import {
-  adjustmentToMarker,
-  barsFor,
-  dealMarkers,
-  eventToMarker,
-  RS_LABEL,
-  rsSeries,
-  setupOverlays,
-  snapOverlays,
-  snapPoints,
-  toOHLC,
-} from './stockModel';
+import type { Timeframe } from '../ui/Chart';
+import type { Stock360Data } from './useStock360';
 
 export interface StockChartPanelProps {
   symbol: string;
-  data: Stock360Data;
+  /** Kept for the callers; Chart v2 reads its own data (the query cache is shared). */
+  data?: Stock360Data;
   setups: Record<string, QueueRow | null | undefined> | undefined;
   /** Fixed chart height; omit to fill the parent. */
   height?: number;
   initialBars?: number;
   className?: string;
-  /** Controlled timeframe (big chart keys D/W/M); uncontrolled when omitted. */
+  /** Controlled timeframe (big chart keys D/W/M); uncontrolled (global setting) when omitted. */
   timeframe?: Timeframe;
   onTimeframeChange?: (tf: Timeframe) => void;
   /** Show an "expand" button that opens the big chart. */
   onExpand?: () => void;
-  /** Log price scale. */
+  /** Log price scale (big chart). */
   logScale?: boolean;
-  /** Volume / RS pane heights (big chart gives them more room). */
   paneHeights?: { volume?: number; rs?: number; rsi?: number };
 }
 
-const seg = (on: boolean) =>
-  cn('whitespace-nowrap px-2 py-0.5 font-mono text-2xs', on ? 'bg-accent/20 text-accent' : 'text-fg-3 hover:bg-surface-3 hover:text-fg');
+const QUEUE_LABEL: Record<string, string> = { darvas_squeeze: 'Squeeze', darvas_10ema: '10 EMA', vcp: 'VCP' };
 
-/** Adjusted candles, delivery-coloured volume, EMAs, RS pane, Darvas boxes, event/deal markers, setup levels. */
-export function StockChartPanel({
-  symbol,
-  data,
-  setups,
-  height,
-  initialBars,
-  className,
-  timeframe,
-  onTimeframeChange,
-  onExpand,
-  logScale,
-  paneHeights,
-}: StockChartPanelProps) {
-  const [innerTf, setInnerTf] = useState<Timeframe>('D');
-  const tf = timeframe ?? innerTf;
-  const setTf = (t: Timeframe) => (onTimeframeChange ? onTimeframeChange(t) : setInnerTf(t));
-  const [prefs, setPrefs] = useChartPrefs();
-  const { bm, levels, darvas: showBoxes } = prefs;
-  const { bars, rs, events, deals, header } = data;
-  // Always fetched: the EMA10 projection rides on it even with the Darvas lines off.
-  const darvas = useApiQuery('stock/{sym}/darvas', { params: { sym: symbol }, query: { tf, limit: FULL_HISTORY } });
+/** Trigger / stop of every live setup as tagged lines. */
+export function setupLevels(setups: Record<string, QueueRow | null | undefined> | undefined, on: boolean): ExtraLevel[] {
+  if (!on || !setups) return [];
+  const out: ExtraLevel[] = [];
+  for (const [q, row] of Object.entries(setups)) {
+    if (!row) continue;
+    const name = QUEUE_LABEL[q] ?? q;
+    if (row.trigger_price != null) out.push({ id: `${q}-trigger`, label: `${name} trigger`, price: row.trigger_price, tone: 'accent' });
+    if (row.stop_price != null) out.push({ id: `${q}-stop`, label: `${name} stop`, price: row.stop_price, tone: 'down' });
+  }
+  return out;
+}
 
-  const daily = useMemo(() => toOHLC(bars.data?.rows ?? []), [bars.data]);
-  const shown = useMemo(() => barsFor(daily, tf), [daily, tf]);
-  const times = useMemo(() => shown.map((b) => b.time), [shown]);
-
-  // Global chart settings (09-tab-charts §4): EMAs, price style, event candles + deal lines, RSI, drawings.
-  const layers = useChartLayers(symbol, shown, tf, { darvas: darvas.data?.rows });
-  const { rsPane } = prefs;
-
-  const rsLine = useMemo(() => {
-    if (!rsPane) return null;
-    const pts = rsSeries(rs.data?.rows ?? [], bm);
-    if (!pts.some((p) => p.value != null)) return null;
-    return { label: `${RS_LABEL[bm]} (rebased 100)`, data: tf === 'D' ? pts : snapPoints(pts, times) };
-  }, [rs.data, bm, tf, times, rsPane]);
-
-  // With event candles on, results / ex-dates / deals come from the event layer (one letter per bar);
-  // adjustments (split / bonus) stay as their own markers.
-  const markers = useMemo<ChartMarker[]>(
-    () =>
-      prefs.events
-        ? [
-            ...layers.markers,
-            ...(header.data?.rows[0]?.adjustments ?? []).map(adjustmentToMarker).filter((m): m is ChartMarker => m !== null),
-          ]
-        : [
-            ...(events.data?.rows ?? []).map(eventToMarker),
-            ...(header.data?.rows[0]?.adjustments ?? []).map(adjustmentToMarker),
-            ...dealMarkers(deals.data?.rows ?? []),
-          ].filter((m): m is ChartMarker => m !== null),
-    [events.data, header.data, deals.data, prefs.events, layers.markers],
-  );
-
-  const overlays = useMemo(() => {
-    if (!levels) return [];
-    const o = setupOverlays(setups, daily, { darvasBoxes: showBoxes });
-    return tf === 'D' ? o : snapOverlays(o, times);
-  }, [levels, setups, daily, tf, times, showBoxes]);
-
-  const darvasLines = useMemo(() => toDarvasLines(darvas.data?.rows, times, { boxes: showBoxes }), [showBoxes, darvas.data, times]);
-  const activeBox = darvasLines.last;
-
-  const hasLevels = !!setups && Object.values(setups).some(Boolean);
-
-  const toolbar = (
-    <div className="flex h-7 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-surface px-2 text-2xs text-fg-3">
-      <div className="flex shrink-0 overflow-hidden rounded border border-line" role="group" aria-label="Timeframe">
-        {(['D', 'W', 'M'] as const).map((t) => (
-          <button key={t} type="button" aria-pressed={tf === t} onClick={() => setTf(t)} className={seg(tf === t)}>
-            {t}
-          </button>
-        ))}
-      </div>
-      <div className="flex shrink-0 overflow-hidden rounded border border-line" role="group" aria-label="RS benchmark">
-        <button type="button" aria-pressed={rsPane} onClick={() => setPrefs({ rsPane: !rsPane })} className={seg(rsPane)} title="RS line pane (global chart setting)">
-          RS
-        </button>
-        <button type="button" aria-pressed={bm === 'midsml400'} onClick={() => setPrefs({ bm: 'midsml400' })} className={seg(bm === 'midsml400')}>
-          RS MS400
-        </button>
-        <button type="button" aria-pressed={bm === 'nifty50'} onClick={() => setPrefs({ bm: 'nifty50' })} className={seg(bm === 'nifty50')}>
-          RS Nifty
-        </button>
-      </div>
-      <button
-        type="button"
-        aria-pressed={showBoxes}
-        onClick={() => setPrefs({ darvas: !showBoxes })}
-        title="Darvas boxes (B), as the Pine SUCCESS indicator / Darvas Squeeze queue: green TopBox and red BottomBox step lines, dotted top box extension 5 bars ahead"
-        className={cn('shrink-0 rounded border border-line', seg(showBoxes))}
-      >
-        Darvas boxes
-      </button>
-      {hasLevels && (
-        <button
-          type="button"
-          aria-pressed={levels}
-          onClick={() => setPrefs({ levels: !levels })}
-          className={cn('shrink-0 rounded border border-line', seg(levels))}
-        >
-          Setup levels
-        </button>
-      )}
-      {onExpand && (
-        <button
-          type="button"
-          onClick={onExpand}
-          aria-label="Big chart"
-          title="Big chart (F) — near full screen, J/K through the current list, Esc closes"
-          className="flex shrink-0 items-center gap-1 rounded border border-line px-1.5 py-0.5 text-fg-2 hover:bg-surface-3 hover:text-fg"
-        >
-          <Expand className="h-3 w-3" aria-hidden /> Big
-        </button>
-      )}
-      {activeBox && (
-        <span className="num min-w-0 truncate text-fg-2" title="Current Darvas TopBox / BottomBox">
-          box {activeBox.top.toFixed(2)} / {activeBox.bottom.toFixed(2)}
-        </span>
-      )}
-      <span
-        className="ml-auto min-w-0 truncate"
-        title="Markers: R results · B/S bonus/split · X ex-date · ▲▼ institutional deals · dots on RS = new RS high · dotted lines = 5-bar projections (top box extension, EMA10)"
-      >
-        {prefs.events ? 'event candles · ● RS high · ┈ projections' : 'R results · ▲▼ inst. deals · ● RS high · ┈ projections'}
-      </span>
-    </div>
-  );
-
-  let body;
-  if (bars.error) body = <ErrorState error={bars.error} onRetry={() => void bars.refetch()} />;
-  else if (bars.isLoading) body = <Skeleton className="m-3" height={height ? height - 40 : 'calc(100% - 1.5rem)'} />;
-  else if (daily.length === 0)
-    body = <EmptyState title="No price history" detail={`The server returned no bars for ${symbol} on or before this date.`} />;
-  else
-    body = (
-      <Chart
-        bars={shown}
-        resample={false}
-        timeframe={tf}
-        overlays={overlays}
-        darvas={darvasLines}
-        rs={rsLine}
-        markers={markers}
-        emaPeriods={layers.emaPeriods}
-        priceStyle={layers.priceStyle}
-        volume={layers.volume}
-        volumeAvg={layers.volumeAvg}
-        rsi={layers.rsi}
-        candleColors={layers.candleColors}
-        segments={layers.segments}
-        levels={layers.levels}
-        barNote={layers.barNote}
-        logScale={logScale}
-        paneHeights={paneHeights}
-        syncGroup={`stock360-${symbol}`}
-        label={`${symbol} ${tf === 'D' ? 'daily' : tf === 'W' ? 'weekly' : 'monthly'} chart`}
-        initialBars={initialBars ?? (tf === 'D' ? 150 : tf === 'W' ? 120 : 60)}
-        className="min-h-0 flex-1"
-      />
-    );
-
+export function StockChartPanel({ symbol, setups, height, initialBars, className, timeframe, onTimeframeChange, onExpand }: StockChartPanelProps) {
+  const [prefs] = useChartPrefs();
+  const levels = useMemo(() => setupLevels(setups, prefs.levels), [setups, prefs.levels]);
+  const actions = onExpand ? (
+    <button
+      type="button"
+      onClick={onExpand}
+      aria-label="Big chart"
+      title="Big chart (F): near full screen, J/K through the current list, Esc closes"
+      className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-2xs text-fg-2 hover:bg-surface-3 hover:text-fg"
+    >
+      <Expand className="h-3 w-3" aria-hidden /> Big
+    </button>
+  ) : null;
   return (
-    <div className={cn('flex min-h-0 flex-col', className)} style={height ? { height } : undefined}>
-      {toolbar}
-      {body}
-      {daily.length > 0 && <EventLegend layers={layers} className="shrink-0 border-t border-line px-2 py-0.5" />}
+    <div className={cn('flex min-h-0 flex-col overflow-y-auto p-1', className)} style={height ? { height } : undefined}>
+      <ChartV2
+        symbol={symbol}
+        tf={timeframe}
+        onTfChange={onTimeframeChange}
+        header={false}
+        compact={!onTimeframeChange}
+        actions={actions}
+        extraLevels={levels}
+        initialBars={initialBars}
+        className="min-h-[300px] flex-1"
+      />
     </div>
   );
 }
