@@ -103,11 +103,13 @@ def env(market_db, tmp_path, monkeypatch):
     monkeypatch.setenv("MP_USER_DB_PATH", str(tmp_path / "user.duckdb"))
     monkeypatch.setenv("MP_STATUS_PATH", str(tmp_path / "status.json"))
     monkeypatch.setenv("MP_HOLIDAYS_PATH", str(tmp_path / "no_holidays.json"))
-    from App.services import db
+    from App.services import db, research_lab
 
     db.clear_cache()
+    research_lab.clear_big_cache()
     yield tmp_path
     db.clear_cache()
+    research_lab.clear_big_cache()
 
 
 @pytest.fixture()

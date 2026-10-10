@@ -249,3 +249,13 @@ The scripts are `tools/bigmove_study/premove.py` + `premove_split.py`.
 - Case study per stock (section 12): a D/W/M strip showing which traits were on in the 13 weeks before the lift, plus the entry ladder.
 
 **Desk look-ahead fix**: `HarkPro/patches/setup_daily-band-lookahead.patch`. Before the reference band exists, it uses the series traded that day (BE/BZ → 5%, else unknown) and never back-fills today's band. Applied on branch hark/harkpro with the user's OK (2026-10-10). 15/15 setup_daily tests pass. Spot check: MTARTECH now enters the Desk 10 EMA queue on 2025-09-12 and STLTECH has 147 rows (both 0 before); RELIANCE is unchanged. Run a full setup_daily rebuild after pulling.
+
+## 14. Build (2026-10-10, branch hark/impl-research)
+Production views: **Days like today** (regime quadrant + ribbon + record + past phases + 10 analogs), **Before the big moves** (Trend / Turnaround lifts), **Case study**, **Setup scorecard**, **Index study** (EW market), plus the existing Setup evidence. Pre-move watch and Group studies are out of the Research nav.
+- Endpoints: `/api/v2/research/{regime, days-like-today, scorecard, case-study, case-study/{sym}, before-moves, index-study}` (`App/api/v2/routes_research.py`). Services: `App/services/research_{lab,regime,bigmove,premove}.py`, ports of `tools/regime_study` and `tools/bigmove_study`.
+- Precompute: `python Scripts/research_lab.py` writes `research_*` tables to `Database/research_lab.duckdb` (about 16 s locally). Without it the API computes the studies once per DB file (5–10 s on the first call).
+- Study end = the latest good session. A short tail after a long calendar gap (the 8 Oct 2026 session) is not studied.
+- **Point-in-time fix for the breakout axis.** The round-1 tool counted breakouts of the last 5 sessions using closes after the reading day. The build counts a breakout on the day it is graded (breakout + 5 sessions). With that fix the quadrant record is flatter than in §11 (next breakouts held: Press 45.5%, Narrow 48.5%, Stock-picker's 42.6%, Chop 44.0%, all days 44.8%; Jul 2024–Aug 2026). The §11 ordering came partly from look-ahead. Recheck on the 5-year archive before Pulse uses the quadrant record.
+- Case study / scorecard numbers match §12 (226 movers, MTARTECH ladder +246% in 6 trades, STLTECH +364%, base rate 9.5%). EMAs converge uses the screener's spread (÷ close), so its catch rate reads 66% (§12: 60%).
+- Before the big moves matches §13 (Turnaround 330 lifts, 25.8% runners; Trend 255, 14.1%).
+- Index study: Nifty / MidSml400 / Smallcap250 cycles wait for the index backfill (05-data-gaps #3). Size bands use today's market cap (gap #7).

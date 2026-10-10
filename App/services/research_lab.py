@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import math
 import os
+import threading
+from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -178,9 +180,35 @@ def load_frame(con: Any, end: date, cols: tuple[str, ...] = FRAME_COLS, symbols:
     return d.reset_index(drop=True)
 
 
+_BIG: "OrderedDict[tuple, Any]" = OrderedDict()
+_BIG_LOCK = threading.Lock()
+BIG_MAX = 2
+
+
+def big_cached(tag: str, key: tuple, compute: Callable[[], Any]) -> Any:
+    """Like db.cached, but holds at most BIG_MAX large frames (time travel must not pile them up)."""
+    full = (db.fingerprint(), tag, key)
+    with _BIG_LOCK:
+        if full in _BIG:
+            _BIG.move_to_end(full)
+            return _BIG[full]
+    value = compute()
+    with _BIG_LOCK:
+        _BIG[full] = value
+        while sum(1 for k in _BIG if k[1] == tag) > BIG_MAX:
+            oldest = next(k for k in _BIG if k[1] == tag)
+            del _BIG[oldest]
+    return value
+
+
+def clear_big_cache() -> None:
+    with _BIG_LOCK:
+        _BIG.clear()
+
+
 def frame(con: Any, end: date) -> pd.DataFrame:
-    """The whole >= 1,000 Cr frame up to `end`, cached per DB file."""
-    return db.cached("research_frame", (end,), lambda: load_frame(con, end))
+    """The whole >= 1,000 Cr frame up to `end`, cached per DB file (at most two ends kept)."""
+    return big_cached("research_frame", (end,), lambda: load_frame(con, end))
 
 
 # --------------------------------------------------------------------------

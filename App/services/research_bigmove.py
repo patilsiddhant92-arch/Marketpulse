@@ -193,7 +193,7 @@ def _study_frame(con: Any, end: date) -> pd.DataFrame:
         d = lab.frame(con, end)
         d = d[d.trade_date >= pd.Timestamp(window_start(end) - timedelta(days=30))].reset_index(drop=True)
         return add_presets(d.copy())
-    return db.cached("research_preset_frame", (end,), compute)
+    return lab.big_cached("research_preset_frame", (end,), compute)
 
 
 def compute_movers(con: Any, end: date) -> tuple[pd.DataFrame, pd.DataFrame]:
