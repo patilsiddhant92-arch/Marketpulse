@@ -1,108 +1,51 @@
 /**
  * Deals tab data: types for /api/v2/deals/tab/* and the cross-tab feeds, plus one query hook.
  *
- * The endpoints return free-form rows (no response_model), so the shapes live here, next to the
- * tab. The hook mirrors useApiQuery (as_of from the URL, same key shape, same retry policy) but
- * takes a plain path so it does not depend on the generated EndpointMap.
+ * Row types are the generated response models (api/types). meta.context stays free-form on the
+ * server, so the per-view context shapes are typed here. The hook mirrors useApiQuery (as_of from
+ * the URL, same key shape, same retry policy) but takes a plain path and a context type.
  */
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { API_BASE, ApiError, buildQuery, toEnvelope, type QueryValue } from '../../api/client';
-import type { Envelope, EnvelopeMeta } from '../../api/types';
+import type {
+  DealCandle,
+  DealEarlier,
+  DealFlagRow,
+  DealGroupRow,
+  DealHistoryRow,
+  DealHousePosition,
+  DealHouseRow,
+  DealMarker,
+  DealParty,
+  DealSpreadItem,
+  DealStockDetail,
+  DealTabRow,
+  DealTelegramRow,
+  Envelope,
+  EnvelopeMeta,
+} from '../../api/types';
 import { useAsOf } from '../../shell/urlState';
 
-export type Verdict = 'confirm' | 'watch' | 'place' | 'absorbed' | 'supply' | 'none' | 'churn' | 'avoid' | 'ignore';
-export type Side = 'B' | 'S' | 'P' | 'T' | 'C';
-export type EventType = 'fresh' | 'accumulate' | 'placement' | 'distribute' | 'churn' | 'transfer_interse';
-export type Grade = 'good' | 'mixed' | 'poor' | 'ungraded';
-export type PatternKey = 'repeat_buy' | 'single_buy' | 'selling_only' | 'mixed' | 'churn_only' | 'transfers_only';
+export type Verdict = DealTabRow['verdict'];
+export type Side = NonNullable<DealTabRow['side']>;
+export type EventType = DealTabRow['event_type'];
+export type Grade = DealParty['grade'];
+export type PatternKey = DealHistoryRow['pattern'];
 
-export interface Party {
-  name: string;
-  house: string;
-  buyer_class: string;
-  value_cr: number;
-  grade: Grade;
-  record_n: number;
-}
-
-export interface EarlierDeal {
-  deal_date: string;
-  event_type: EventType;
-  side: Side | null;
-  net_cr: number;
-  deal_price: number | null;
-  verdict?: Verdict;
-}
-
-export interface DealRow {
-  symbol: string;
-  name: string;
-  deal_date: string;
-  sessions_since: number;
-  event_type: EventType;
-  side: Side | null;
-  event_label: string;
-  verdict: Verdict;
-  verdict_title: string;
-  why: string;
-  next_action: string;
-  net_cr: number;
-  bought_cr: number;
-  gross_cr: number | null;
-  prop_cr: number | null;
-  deal_price: number | null;
-  close: number;
-  vs_deal_pct: number | null;
-  status: string | null;
-  strong_chart: boolean;
-  rs: number | null;
-  from_high_pct: number | null;
-  month_pct: number | null;
-  rvol: number | null;
-  mcap_cr: number | null;
-  industry: string | null;
-  sector: string | null;
-  buyers: Party[];
-  sellers: Party[];
-  chips: string[];
-  earlier?: EarlierDeal[];
-}
-
-export interface HistoryRow {
-  symbol: string;
-  industry: string | null;
-  pattern: PatternKey;
-  pattern_label: string;
-  buy_sessions: number;
-  sell_sessions: number;
-  churn_sessions: number;
-  net_cr: number;
-  prop_cr: number;
-  avg_deal_price: number | null;
-  close: number;
-  vs_deal_pct: number | null;
-  cells: (Side | null)[];
-}
-
-export interface SpreadItem {
-  industry: string;
-  value_cr: number;
-  share_pct: number;
-  symbols: string[];
-}
-
-export interface HouseRow {
-  house: string;
-  name: string;
-  buyer_class: string;
-  bought_cr: number | null;
-  symbols: string[];
-  grade: Grade;
-  record_n: number;
-  record_avg_pct: number | null;
-  record_beat_pct: number | null;
-  spread: SpreadItem[];
-}
+// Row shapes are generated from the server's response models (App/api/v2/models_deals.py -> types.gen.ts).
+export type Party = DealParty;
+export type EarlierDeal = DealEarlier;
+export type DealRow = DealTabRow;
+export type HistoryRow = DealHistoryRow;
+export type SpreadItem = DealSpreadItem;
+export type HouseRow = DealHouseRow;
+export type GroupRow = DealGroupRow;
+export type Candle = DealCandle;
+export type Marker = DealMarker;
+export type StockDetail = DealStockDetail;
+export type HousePosition = DealHousePosition;
+export type TelegramRow = DealTelegramRow;
+export type FlagRow = DealFlagRow;
 
 export interface FundGroupRow {
   industry: string;
@@ -110,56 +53,6 @@ export interface FundGroupRow {
   fii_cr: number;
   dii_cr: number;
   symbols: string[];
-}
-
-export interface GroupRow {
-  industry: string;
-  sector: string | null;
-  buying_names: number;
-  selling_names: number;
-  flow_cr: number;
-  symbols: string[];
-  three_plus_buyers: boolean;
-}
-
-export interface Candle {
-  date: string;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  close: number | null;
-}
-
-export interface Marker {
-  date: string;
-  side: Side | null;
-  event_type: EventType;
-  price: number | null;
-  net_cr: number | null;
-  gross_cr: number | null;
-}
-
-export interface StockDetail {
-  symbol: string;
-  deal: DealRow | null;
-  candles: Candle[];
-  markers: Marker[];
-  price_lines: Marker[];
-}
-
-export interface HousePosition {
-  symbol: string;
-  deal_date: string;
-  bought_cr: number | null;
-  deal_price: number | null;
-  buyer_class: string;
-  entry_date: string | null;
-  since_entry_pct: number | null;
-  market_pct: number | null;
-  vs_market_pct: number | null;
-  verdict: Verdict | null;
-  verdict_title: string | null;
-  status: string | null;
 }
 
 export interface ClassEvidence {
