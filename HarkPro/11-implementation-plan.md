@@ -20,3 +20,18 @@ Siddhant asked us to build every tab that's pending, with several agents in para
 - Tests: pytest for your services, vitest for your folder, plus `npx tsc --noEmit`. All must pass before you commit.
 - Commentary follows 04-writing-style.md. Standing rules from the README apply: lists ≥ ₹1,000 Cr, breadth on all stocks, every reading vs history.
 - Open questions in a round-1 doc: take the doc's recommended default and list it as an assumption.
+
+## Result (2026-10-10 09:45)
+All six branches are merged into hark/harkpro. The merged checks pass: openapi regenerated, tsc clean, pytest 260 passed (new tab suites + contract + setup_daily), vitest 303 passed across all folders.
+Merge notes: GroupsDeals.test.tsx was deleted because both of the old views it tested were replaced.
+
+### Backlog for the cross-tab pass
+- One shared Pulse mood / group state service. Today Sector Intel and Setups each compute their own; Pulse is the source.
+- Wire the deal feeds everywhere: `/deals/flags` → the stockContext deal icon on every list; `/deals/markers` or `/charts/{sym}/deal-candles` → one deal-candle source for all charts. Charts in other tabs' drawers should use the global chart settings.
+- Charts source picker: add the Pulse movers, Deals Watch/History/house buys and Setups views; drop "Pre-move watch".
+- Tab labels/hints: Screener → Setups? Research hint. Remove the legacy Today/Setups views from Pulse once Setups owns the queues. Delete the unused old Groups/Research/Deals view files.
+- TradingView copy: map `&` → `_` in the shared helper. Type the Deals endpoints with response models.
+- Shared Chart: add range shading + coloured markers (Research case chart built its own).
+- Wire Scripts/research_lab.py into the daily pipeline; fund alerts need a user-DB follow table.
+- Research §14: the regime breakout axis had look-ahead. Fixed, and the quadrants are now nearly flat (42.6–48.5%). Re-test on the 5-year archive before Pulse leans on it.
+- Data gaps that blank features locally: security_events, corporate_actions, security_risk_daily, index history (32 sessions), rs_vs_midsml400_63d, as-of mcap/taxonomy.

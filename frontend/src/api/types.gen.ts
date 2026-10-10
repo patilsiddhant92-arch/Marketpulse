@@ -1144,6 +1144,586 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/setups/board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Board
+         * @description Setups board: every stock in Darvas Squeeze, Darvas 10 EMA, VCP or Momentum, one row each with screener tags, group state + reason and decision columns. meta.context carries counts, read-out, base rates and data gaps.
+         */
+        get: operations["setups_board_api_v2_setups_board_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/near-miss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Near Miss
+         * @description Darvas Squeeze near-miss: close in the zone, exactly one strict gate failed.
+         */
+        get: operations["setups_near_miss_api_v2_setups_near_miss_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/dropped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Dropped
+         * @description Why dropped: stocks that left a screener since the previous session.
+         */
+        get: operations["setups_dropped_api_v2_setups_dropped_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/setups/detail/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setups Detail
+         * @description Detail panel: board row, top-RS peers in the industry, deal markers, stored RSI divergences.
+         */
+        get: operations["setups_detail_api_v2_setups_detail__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sectors/board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sectors Board
+         * @description Sector Intel leadership board at one level (Sector / Broad Industry / Industry / Index). Rows carry every window (1D/1W/2W/1M) and each reading's percentile vs the group's own ~2 years; meta.context carries the Pulse mood, the 'working now' gauge and the verdict.
+         */
+        get: operations["sectors_board_api_v2_sectors_board_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sectors/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sectors Context
+         * @description Pulse mood + 'Is group ranking working now?' gauge + plain-English verdict.
+         */
+        get: operations["sectors_context_api_v2_sectors_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sectors/charts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sectors Charts
+         * @description Equal-weight group candles, RS line vs the equal-weight market and % near 52W high for up to 12 groups (the 9-card chart grid and the group panel).
+         */
+        get: operations["sectors_charts_api_v2_sectors_charts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sectors/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sectors Members
+         * @description Members of one group (>= Rs 1,000 Cr) by RS, with 52W-high distance and deals 10D.
+         */
+        get: operations["sectors_members_api_v2_sectors_members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sectors/heatmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sectors Heatmap
+         * @description TradingView-style stock heatmap rows: every stock with its size and colour metrics.
+         */
+        get: operations["sectors_heatmap_api_v2_sectors_heatmap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sectors/group-studies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sectors Group Studies
+         * @description Group studies (moved here from Research): evidence-engine tables when built, plus the local Sector Intel readings / market-state evidence in meta.context.
+         */
+        get: operations["sectors_group_studies_api_v2_sectors_group_studies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Today
+         * @description Every deal stock (>= ₹1,000 Cr) of the latest deal session with its evidence verdict, 'what usually follows', deal price, status and chips. Sorted by verdict. meta.context: summary, skipped.
+         */
+        get: operations["tab_today_api_v2_deals_tab_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Watch
+         * @description Deal watch: one row per stock with a deal in the last 10 deal sessions (no churn / transfers): holding / lost / reclaimed vs the deal price, verdict upgraded after day 3.
+         */
+        get: operations["tab_watch_api_v2_deals_tab_watch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab History
+         * @description Every stock >= ₹1,000 Cr with a deal in the last 5 / 10 / 20 deal sessions incl. churn, prop desks and transfers: pattern, one cell per session, net, prop, avg deal price, now vs deal.
+         */
+        get: operations["tab_history_api_v2_deals_tab_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/houses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Houses
+         * @description Houses buying in the last 10 deal sessions: class, out-of-sample grade (FII/DII), spread across groups. meta.context: class_evidence, fund_groups (FII/DII money by industry).
+         */
+        get: operations["tab_houses_api_v2_deals_tab_houses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Groups
+         * @description Deals by industry over the last 10 deal sessions (transfers and churn out): buying / selling names, net ₹ Cr, symbols. Context only.
+         */
+        get: operations["tab_groups_api_v2_deals_tab_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/telegram": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Telegram
+         * @description Preview of the one-message Telegram digest (same text the sender posts).
+         */
+        get: operations["tab_telegram_api_v2_deals_tab_telegram_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/stock/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab Stock
+         * @description Stock drawer: latest deal verdict (last 10 deal sessions, null if none), candles from 45 days before the deal, deal markers and the 3 latest deal-price lines.
+         */
+        get: operations["tab_stock_api_v2_deals_tab_stock__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/tab/house/{house}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tab House
+         * @description House drawer: class, grade, spread, and its buys over the last 20 deal sessions vs the equal-weight market since the next-open entry.
+         */
+        get: operations["tab_house_api_v2_deals_tab_house__house__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/markers/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deal Markers
+         * @description Cross-tab: per-symbol deal markers for chart deal candles. Rows: date, side (B net buy, S net sell, P placement, T transfer, C churn), price (deal level), event_type, net_cr, gross_cr.
+         */
+        get: operations["deal_markers_api_v2_deals_markers__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/deals/flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deal Flags
+         * @description Cross-tab: per-symbol 'has recent deal' flag (a deal within the last 10 deal sessions) with side and verdict, for the deal icon. symbols=A,B,C (max 500); omit for every flagged symbol.
+         */
+        get: operations["deal_flags_api_v2_deals_flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/charts/{sym}/deal-candles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart Deal Candles
+         * @description Deal-day candles for one stock: one row per deal session (B/S/P/T/C letter from deal_session_net.event_type), deal price (raw and adjusted), top non-PROP buyer / seller, and holding / lost status for the 3 latest B/S/P deal-price lines.
+         */
+        get: operations["chart_deal_candles_api_v2_charts__sym__deal_candles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/charts/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart Search
+         * @description Symbol / company-name search for the chart symbol box (exact symbol, symbol prefix, name prefix, then contains; ties by market cap).
+         */
+        get: operations["chart_search_api_v2_charts_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/regime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Regime Route
+         * @description Two-axis regime quadrant per session (index range/trend x breakouts paying/failing), today's reading, the quadrant record, episodes and durations (10-tab-research §11).
+         */
+        get: operations["research_regime_route_api_v2_research_regime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/days-like-today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Days Like Today
+         * @description The k nearest past sessions to today by breadth, regime and follow-through readings, with what the equal-weight market did next vs all days (§§3-4).
+         */
+        get: operations["research_days_like_today_api_v2_research_days_like_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/scorecard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Scorecard
+         * @description Setup scorecard: each screener preset's catch rate on the year's big movers, how early it fired, and its precision / false alarms on all fresh fires (§12).
+         */
+        get: operations["research_scorecard_api_v2_research_scorecard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/case-study": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Case Movers
+         * @description Big movers of the 12 months to the study end (low -> peak >= +100%), with the 20 EMA ladder.
+         */
+        get: operations["research_case_movers_api_v2_research_case_study_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/case-study/{sym}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Case Study
+         * @description Case study of one stock: daily bars (rows), the low -> peak move, every preset's fresh fire, the first-fire table, the 20 EMA ladder and the precision context (meta.context).
+         */
+        get: operations["research_case_study_api_v2_research_case_study__sym__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/before-moves": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Before Moves
+         * @description Before the big moves: runner vs fizzle trait profile per family (trend / turnaround lifts), today's early lifts scored by trait count, and the regime multiplier (§13).
+         */
+        get: operations["research_before_moves_api_v2_research_before_moves_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/research/index-study": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Research Index Study
+         * @description Index study on the equal-weight market: every fall > 8% (depth, time down, time to recover, breadth at the low), size leadership and the EW series (§6).
+         */
+        get: operations["research_index_study_api_v2_research_index_study_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1224,6 +1804,29 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** AnalogDayRow */
+        AnalogDayRow: {
+            /** Analog Date */
+            analog_date?: string | null;
+            /** Distance */
+            distance?: number | null;
+            /** Quadrant */
+            quadrant?: string | null;
+            /** Quadrant Label */
+            quadrant_label?: string | null;
+            /** Fwd5 Pct */
+            fwd5_pct?: number | null;
+            /** Fwd10 Pct */
+            fwd10_pct?: number | null;
+            /** Fwd20 Pct */
+            fwd20_pct?: number | null;
+            /** Fwd60 Pct */
+            fwd60_pct?: number | null;
+            /** Next10 Ft Pct */
+            next10_ft_pct?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** BarRow */
         BarRow: {
             /** Trade Date */
@@ -1280,6 +1883,61 @@ export interface components {
             catalyst?: string | null;
             /** Industry */
             industry?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CaseBarRow */
+        CaseBarRow: {
+            /**
+             * Time
+             * Format: date
+             */
+            time: string;
+            /** Open */
+            open?: number | null;
+            /** High */
+            high?: number | null;
+            /** Low */
+            low?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Volume */
+            volume?: number | null;
+            /** Ema 20 */
+            ema_20?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CaseMoverRow */
+        CaseMoverRow: {
+            /** Symbol */
+            symbol: string;
+            /** Security Name */
+            security_name?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Mcap Cr */
+            mcap_cr?: number | null;
+            /** Low Date */
+            low_date?: string | null;
+            /** Low */
+            low?: number | null;
+            /** Peak Date */
+            peak_date?: string | null;
+            /** Peak */
+            peak?: number | null;
+            /** Gain Pct */
+            gain_pct?: number | null;
+            /** Ladder Pct */
+            ladder_pct?: number | null;
+            /** Trades */
+            trades?: number | null;
+            /** First Early Fire */
+            first_early_fire?: string | null;
+            /** First Early Preset */
+            first_early_preset?: string | null;
+            /** First Early Vs Low Pct */
+            first_early_vs_low_pct?: number | null;
         } & {
             [key: string]: unknown;
         };
@@ -1388,6 +2046,63 @@ export interface components {
              * @description Dotted EMA10 projection: ema10 + slope * k on the last bar (k=0) + projected rows
              */
             ema_10_projection?: number | null;
+        };
+        /** DealCandleRow */
+        DealCandleRow: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Letter */
+            letter?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Event Type */
+            event_type?: string | null;
+            /** Event Rule */
+            event_rule?: string | null;
+            /** Net Cr */
+            net_cr?: number | null;
+            /** Buy Cr */
+            buy_cr?: number | null;
+            /** Sell Cr */
+            sell_cr?: number | null;
+            /** Gross Cr */
+            gross_cr?: number | null;
+            /** Prop Cr */
+            prop_cr?: number | null;
+            /** Fii Net Cr */
+            fii_net_cr?: number | null;
+            /** Dii Net Cr */
+            dii_net_cr?: number | null;
+            /** Buying Houses */
+            buying_houses?: number | null;
+            /** Selling Houses */
+            selling_houses?: number | null;
+            /** Deal Types */
+            deal_types?: string | null;
+            /** Deal Price */
+            deal_price?: number | null;
+            /** Deal Price Adj */
+            deal_price_adj?: number | null;
+            /** Top Buyer */
+            top_buyer?: string | null;
+            /** Top Buyer Class */
+            top_buyer_class?: string | null;
+            /** Top Buyer Cr */
+            top_buyer_cr?: number | null;
+            /** Top Seller */
+            top_seller?: string | null;
+            /** Top Seller Class */
+            top_seller_class?: string | null;
+            /** Top Seller Cr */
+            top_seller_cr?: number | null;
+            /** Close As Of */
+            close_as_of?: number | null;
+            /** Status */
+            status?: string | null;
+            /** Show Line */
+            show_line?: boolean | null;
         };
         /** DealHolding */
         DealHolding: {
@@ -1884,6 +2599,80 @@ export interface components {
             /** Industry */
             industry?: string | null;
         };
+        /** DrawdownRow */
+        DrawdownRow: {
+            /** Peak Date */
+            peak_date?: string | null;
+            /** Trough Date */
+            trough_date?: string | null;
+            /** Depth Pct */
+            depth_pct?: number | null;
+            /** Sessions Down */
+            sessions_down?: number | null;
+            /** Recovered Date */
+            recovered_date?: string | null;
+            /** Sessions To Recover */
+            sessions_to_recover?: number | null;
+            /** Breadth Above 50Ema At Low */
+            breadth_above_50ema_at_low?: number | null;
+            /**
+             * Ongoing
+             * @default false
+             */
+            ongoing: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** EarlyLiftRow */
+        EarlyLiftRow: {
+            /** Symbol */
+            symbol: string;
+            /** Security Name */
+            security_name?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Mcap Cr */
+            mcap_cr?: number | null;
+            /** Lift Date */
+            lift_date?: string | null;
+            /** Close */
+            close?: number | null;
+            /**
+             * Score
+             * @default 0
+             */
+            score: number;
+            /**
+             * Score Max
+             * @default 0
+             */
+            score_max: number;
+            /** Bucket */
+            bucket?: string | null;
+            /** Bucket Runner Pct */
+            bucket_runner_pct?: number | null;
+            /** Bucket Events */
+            bucket_events?: number | null;
+            /**
+             * Traits On
+             * @default []
+             */
+            traits_on: string[];
+            /** Quadrant */
+            quadrant?: string | null;
+            /** Quadrant Label */
+            quadrant_label?: string | null;
+            /** Regime Multiplier */
+            regime_multiplier?: number | null;
+            /** Above 200Ema Pct */
+            above_200ema_pct?: number | null;
+            /** Range 50D Pct */
+            range_50d_pct?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** Envelope[AccumulatorRow] */
         Envelope_AccumulatorRow_: {
             /** As Of */
@@ -1895,6 +2684,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["AccumulatorRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[AnalogDayRow] */
+        Envelope_AnalogDayRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["AnalogDayRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[BarRow] */
@@ -1923,6 +2725,32 @@ export interface components {
             rows: components["schemas"]["BigMoveRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[CaseBarRow] */
+        Envelope_CaseBarRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["CaseBarRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[CaseMoverRow] */
+        Envelope_CaseMoverRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["CaseMoverRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[CompareRow] */
         Envelope_CompareRow_: {
             /** As Of */
@@ -1947,6 +2775,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DarvasRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DealCandleRow] */
+        Envelope_DealCandleRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DealCandleRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[DealLeaderRow] */
@@ -2051,6 +2892,32 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["DiffRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[DrawdownRow] */
+        Envelope_DrawdownRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["DrawdownRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[EarlyLiftRow] */
+        Envelope_EarlyLiftRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["EarlyLiftRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[EventRow] */
@@ -2339,6 +3206,19 @@ export interface components {
             rows: components["schemas"]["QueueSummaryRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[RegimeDayRow] */
+        Envelope_RegimeDayRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["RegimeDayRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[RegimeRow] */
         Envelope_RegimeRow_: {
             /** As Of */
@@ -2391,6 +3271,19 @@ export interface components {
             rows: components["schemas"]["RsRow"][];
             meta: components["schemas"]["Meta"];
         };
+        /** Envelope[ScorecardRow] */
+        Envelope_ScorecardRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["ScorecardRow"][];
+            meta: components["schemas"]["Meta"];
+        };
         /** Envelope[ScreenerRow] */
         Envelope_ScreenerRow_: {
             /** As Of */
@@ -2402,6 +3295,45 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["ScreenerRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SetupBoardRow] */
+        Envelope_SetupBoardRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SetupBoardRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SetupDroppedRow] */
+        Envelope_SetupDroppedRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SetupDroppedRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SetupNearMissRow] */
+        Envelope_SetupNearMissRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SetupNearMissRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[StockAnalogRow] */
@@ -2467,6 +3399,19 @@ export interface components {
             returned: number;
             /** Rows */
             rows: components["schemas"]["StockProfileRow"][];
+            meta: components["schemas"]["Meta"];
+        };
+        /** Envelope[SymbolSearchRow] */
+        Envelope_SymbolSearchRow_: {
+            /** As Of */
+            as_of?: string | null;
+            freshness: components["schemas"]["Freshness"];
+            /** Total */
+            total: number;
+            /** Returned */
+            returned: number;
+            /** Rows */
+            rows: components["schemas"]["SymbolSearchRow"][];
             meta: components["schemas"]["Meta"];
         };
         /** Envelope[TodayBreakoutRow] */
@@ -3660,6 +4605,43 @@ export interface components {
             /** Count */
             count?: number | null;
         };
+        /** RegimeDayRow */
+        RegimeDayRow: {
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Ew Index */
+            ew_index?: number | null;
+            /** Drawdown Pct */
+            drawdown_pct?: number | null;
+            /** Chop */
+            chop?: number | null;
+            /** Er */
+            er?: number | null;
+            /** Adx */
+            adx?: number | null;
+            /** Ft Pct */
+            ft_pct?: number | null;
+            /** Ft N */
+            ft_n?: number | null;
+            /** Chop Pctile */
+            chop_pctile?: number | null;
+            /** Er Pctile */
+            er_pctile?: number | null;
+            /** Ft Pctile */
+            ft_pctile?: number | null;
+            /** Index Axis */
+            index_axis?: string | null;
+            /** Breakout Axis */
+            breakout_axis?: string | null;
+            /** Quadrant */
+            quadrant?: string | null;
+            /** Next10 Ft Pct */
+            next10_ft_pct?: number | null;
+            /** Fwd20 Pct */
+            fwd20_pct?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** RegimeRow */
         RegimeRow: {
             /** Trade Date */
@@ -3803,6 +4785,52 @@ export interface components {
             /** Label */
             label?: string | null;
         };
+        /** ScorecardRow */
+        ScorecardRow: {
+            /** Preset Id */
+            preset_id: string;
+            /** Preset */
+            preset: string;
+            /** Letter */
+            letter?: string | null;
+            /** Category */
+            category?: string | null;
+            /**
+             * Early
+             * @default false
+             */
+            early: boolean;
+            /** Description */
+            description?: string | null;
+            /** Movers */
+            movers?: number | null;
+            /** Caught */
+            caught?: number | null;
+            /** Caught Pct */
+            caught_pct?: number | null;
+            /** Entry Vs Low Pct */
+            entry_vs_low_pct?: number | null;
+            /** To Peak Pct */
+            to_peak_pct?: number | null;
+            /** Trail20 Pct */
+            trail20_pct?: number | null;
+            /** Fires Per Mover */
+            fires_per_mover?: number | null;
+            /** Fires */
+            fires?: number | null;
+            /** Hit Pct */
+            hit_pct?: number | null;
+            /** False Alarm Pct */
+            false_alarm_pct?: number | null;
+            /** Lift */
+            lift?: number | null;
+            /** Fires Rs80 */
+            fires_rs80?: number | null;
+            /** Hit Rs80 Pct */
+            hit_rs80_pct?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ScreenerRow */
         ScreenerRow: {
             /** Symbol */
@@ -3883,6 +4911,215 @@ export interface components {
             is_new?: boolean | null;
         } & {
             [key: string]: unknown;
+        };
+        /** SetupBaseRate */
+        SetupBaseRate: {
+            /** N */
+            n?: number | null;
+            /** Win */
+            win?: number | null;
+            /** Median */
+            median?: number | null;
+            /** Scope */
+            scope?: string | null;
+            /** Horizon */
+            horizon?: number | null;
+            /** Insufficient */
+            insufficient?: boolean | null;
+        };
+        /** SetupBoardRow */
+        SetupBoardRow: {
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name?: string | null;
+            /** Sector */
+            sector?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
+            /** Tags */
+            tags: string[];
+            /** Screeners */
+            screeners: string[];
+            /** Status */
+            status: string;
+            /** Age */
+            age?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Change 1D Pct */
+            change_1d_pct?: number | null;
+            /** Trigger */
+            trigger?: number | null;
+            /** Stop */
+            stop?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Adr Pct */
+            adr_pct?: number | null;
+            /** Risk Adr */
+            risk_adr?: number | null;
+            /** Away 52W High Pct */
+            away_52w_high_pct?: number | null;
+            /** Away 10Ema Pct */
+            away_10ema_pct?: number | null;
+            /** Away 50Ema Pct */
+            away_50ema_pct?: number | null;
+            /** Rs 21D */
+            rs_21d?: number | null;
+            /** Rs 63D */
+            rs_63d?: number | null;
+            /** Rs Percentile */
+            rs_percentile?: number | null;
+            /** Rs Delta 5D */
+            rs_delta_5d?: number | null;
+            /** Range 10D Pct */
+            range_10d_pct?: number | null;
+            /** Atr X */
+            atr_x?: number | null;
+            /** Volume Dryup Pct */
+            volume_dryup_pct?: number | null;
+            /** Squeeze Pct */
+            squeeze_pct?: number | null;
+            /** Vcp Footprint */
+            vcp_footprint?: string | null;
+            ten_ema?: components["schemas"]["SetupTenEma"] | null;
+            /** Delivery Pct */
+            delivery_pct?: number | null;
+            /** Delivery Avg 20D */
+            delivery_avg_20d?: number | null;
+            /**
+             * Delivery Streak
+             * @default 0
+             */
+            delivery_streak: number;
+            /**
+             * Delivery 5D
+             * @default []
+             */
+            delivery_5d: (number | null)[];
+            /** Turnover Cr */
+            turnover_cr?: number | null;
+            /** Turnover 1D X */
+            turnover_1d_x?: number | null;
+            /** Turnover 1W X */
+            turnover_1w_x?: number | null;
+            /** Turnover 1M X */
+            turnover_1m_x?: number | null;
+            /** Turnover 3M Avg Cr */
+            turnover_3m_avg_cr?: number | null;
+            /** Group State */
+            group_state: string;
+            /** Group Reason */
+            group_reason: string;
+            /** Group Share Chg 1D */
+            group_share_chg_1d?: number | null;
+            /** Group Share Chg 1W */
+            group_share_chg_1w?: number | null;
+            /** Group Share Chg 1M */
+            group_share_chg_1m?: number | null;
+            /** Group Rank */
+            group_rank?: number | null;
+            /** Group Rank N */
+            group_rank_n?: number | null;
+            /** Group Rank Chg 5D */
+            group_rank_chg_5d?: number | null;
+            /** Room To Run Pct */
+            room_to_run_pct?: number | null;
+            /**
+             * Blue Sky
+             * @default false
+             */
+            blue_sky: boolean;
+            /**
+             * Breakouts Held 6M
+             * @default 0
+             */
+            breakouts_held_6m: number;
+            /**
+             * Breakouts Failed 6M
+             * @default 0
+             */
+            breakouts_failed_6m: number;
+            /** Weekly Above 10W */
+            weekly_above_10w?: boolean | null;
+            /** Weekly Tight */
+            weekly_tight?: boolean | null;
+            /** Weekly Spread 3W Pct */
+            weekly_spread_3w_pct?: number | null;
+            /**
+             * Chips
+             * @default []
+             */
+            chips: components["schemas"]["SetupChip"][];
+            /** Results Date */
+            results_date?: string | null;
+            /**
+             * Results Soon
+             * @default false
+             */
+            results_soon: boolean;
+            base_rate?: components["schemas"]["SetupBaseRate"] | null;
+            /** Data Warning */
+            data_warning?: string | null;
+            /** Peer Note */
+            peer_note?: string | null;
+        };
+        /** SetupChip */
+        SetupChip: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Title */
+            title?: string | null;
+        };
+        /** SetupDroppedRow */
+        SetupDroppedRow: {
+            /** Screener */
+            screener: string;
+            /** Screener Name */
+            screener_name: string;
+            /** Symbol */
+            symbol: string;
+            /** Code */
+            code: string;
+            /** Why */
+            why: string;
+            /** Industry */
+            industry?: string | null;
+            /** Close */
+            close?: number | null;
+        };
+        /** SetupNearMissRow */
+        SetupNearMissRow: {
+            /** Symbol */
+            symbol: string;
+            /** Industry */
+            industry?: string | null;
+            /** Gate */
+            gate: string;
+            /** Squeeze Pct */
+            squeeze_pct?: number | null;
+            /** Close */
+            close?: number | null;
+            /** Box Top */
+            box_top?: number | null;
+            /** Ema 10 */
+            ema_10?: number | null;
+            /** Rvol */
+            rvol?: number | null;
+        };
+        /** SetupTenEma */
+        SetupTenEma: {
+            /** Case */
+            case: string;
+            /** Tier */
+            tier?: number | null;
+            /** Flavor */
+            flavor?: string | null;
         };
         /**
          * StockAnalogRow
@@ -4186,6 +5423,17 @@ export interface components {
             nr7?: boolean | null;
             /** Trail */
             trail: components["schemas"]["TrailPoint"][];
+        };
+        /** SymbolSearchRow */
+        SymbolSearchRow: {
+            /** Symbol */
+            symbol?: string | null;
+            /** Security Name */
+            security_name?: string | null;
+            /** Industry */
+            industry?: string | null;
+            /** Market Cap Cr */
+            market_cap_cr?: number | null;
         };
         /** TaxonomyNode */
         TaxonomyNode: {
@@ -7023,6 +8271,1050 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_dict_str__Any__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_board_api_v2_setups_board_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200) */
+                template?: "ema" | "sma";
+                /** @description Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume) */
+                volume_mode?: "day" | "avg20d";
+                /** @description Momentum volume threshold (shares) */
+                min_volume?: number;
+                /** @description Highlight rows with results within N sessions */
+                results_n?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupBoardRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_near_miss_api_v2_setups_near_miss_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupNearMissRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_dropped_api_v2_setups_dropped_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200) */
+                template?: "ema" | "sma";
+                /** @description Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume) */
+                volume_mode?: "day" | "avg20d";
+                /** @description Momentum volume threshold (shares) */
+                min_volume?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupDroppedRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setups_detail_api_v2_setups_detail__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description Momentum template: 'ema' (EMA 10>20>50>100>200) or 'sma' (SMA 50>150>200, rising 200) */
+                template?: "ema" | "sma";
+                /** @description Momentum volume gate: 'day' (session volume) or 'avg20d' (20D average volume) */
+                volume_mode?: "day" | "avg20d";
+                /** @description Momentum volume threshold (shares) */
+                min_volume?: number;
+                /** @description Highlight rows with results within N sessions */
+                results_n?: number;
+            };
+            header?: never;
+            path: {
+                /** @description NSE symbol */
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupBoardRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sectors_board_api_v2_sectors_board_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "sector" | "broad_industry" | "industry" | "index";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sectors_context_api_v2_sectors_context_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "sector" | "broad_industry" | "industry" | "index";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sectors_charts_api_v2_sectors_charts_get: {
+        parameters: {
+            query: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                id: string[];
+                bars?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sectors_members_api_v2_sectors_members_get: {
+        parameters: {
+            query: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                id: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sectors_heatmap_api_v2_sectors_heatmap_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sectors_group_studies_api_v2_sectors_group_studies_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                level?: "sector" | "broad_industry" | "industry";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_today_api_v2_deals_tab_today_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_watch_api_v2_deals_tab_watch_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                status?: "all" | "best" | "holding" | "lost" | "reclaimed";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_history_api_v2_deals_tab_history_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                /** @description 5, 10 or 20 deal sessions */
+                sessions?: number;
+                pattern?: "all" | "repeat_buy" | "single_buy" | "selling_only" | "mixed" | "churn_only" | "transfers_only";
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_houses_api_v2_deals_tab_houses_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_groups_api_v2_deals_tab_groups_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_telegram_api_v2_deals_tab_telegram_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_stock_api_v2_deals_tab_stock__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tab_house_api_v2_deals_tab_house__house__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                house: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deal_markers_api_v2_deals_markers__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                lookback?: number;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deal_flags_api_v2_deals_flags_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                symbols?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_deal_candles_api_v2_charts__sym__deal_candles_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DealCandleRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_search_api_v2_charts_search_get: {
+        parameters: {
+            query: {
+                q: string;
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SymbolSearchRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_regime_route_api_v2_research_regime_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                days?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_RegimeDayRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_days_like_today_api_v2_research_days_like_today_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                k?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_AnalogDayRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_scorecard_api_v2_research_scorecard_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_ScorecardRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_case_movers_api_v2_research_case_study_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                min_gain_pct?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_CaseMoverRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_case_study_api_v2_research_case_study__sym__get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                sym: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_CaseBarRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_before_moves_api_v2_research_before_moves_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+                family?: "trend" | "turnaround";
+                days?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_EarlyLiftRow_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_index_study_api_v2_research_index_study_get: {
+        parameters: {
+            query?: {
+                /** @description Time travel: all data bounded to sessions on or before this date (YYYY-MM-DD) */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DrawdownRow_"];
                 };
             };
             /** @description Validation Error */
