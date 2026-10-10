@@ -1,6 +1,6 @@
-/** Smoke: Groups board → drill-down and Deals session render from fixture envelopes. */
+/** Smoke: Deals session renders from fixture envelopes (the Groups part lives in SectorIntel.test.tsx). */
 import { QueryClient } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../App';
@@ -90,19 +90,8 @@ function renderAt(path: string) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('Groups and Deals tabs', () => {
-  it('shows the board with partial-source note and drills into a group', async () => {
-    mockFetch();
-    const router = renderAt('/groups');
-    const drill = await screen.findByRole('button', { name: 'Heavy Electrical Equipment' }, { timeout: 5000 });
-    expect(screen.getByText('computed live')).toBeInTheDocument();
-    fireEvent.click(drill);
-    expect(router.state.location.search).toContain('group=industry');
-    const parent = await screen.findByRole('button', { name: 'Capital Goods' }, { timeout: 5000 });
-    expect(parent.closest('nav')).toHaveAttribute('aria-label', 'Taxonomy path');
-    expect(await screen.findByText('INDOTECH', {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Show these as charts/ }).getAttribute('href')).toContain('source=group%3Aindustry%3AHeavy');
-  }, 15_000); // drill = three sequential fetch-and-render steps; slow under a parallel full run
+describe('Deals tab', () => {
+  // The old Groups board/drill test moved to SectorIntel.test.tsx (the tab is now Sector Intel, HarkPro/07).
 
   it('lists every deal stock of the session (buying and churn) and flags NO RECORDS', async () => {
     mockFetch();
